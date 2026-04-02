@@ -79,7 +79,8 @@
       "delete": "削除",
       "clear": "すべてクリア",
       "rounds": "{{count}} ラウンド",
-      "resume": "タスクを再開"
+      "resume": "タスクを再開",
+      "loading": "タスク詳細を読み込み中…"
     },
     "toast": {
       "task_completed": "エージェントタスク完了",

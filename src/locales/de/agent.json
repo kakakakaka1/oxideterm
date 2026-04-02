@@ -79,7 +79,8 @@
       "delete": "Löschen",
       "clear": "Alles löschen",
       "rounds": "{{count}} Runden",
-      "resume": "Aufgabe fortsetzen"
+      "resume": "Aufgabe fortsetzen",
+      "loading": "Aufgabendetails werden geladen…"
     },
     "toast": {
       "task_completed": "Agent-Aufgabe abgeschlossen",

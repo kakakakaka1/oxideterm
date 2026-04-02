@@ -79,7 +79,8 @@
       "delete": "Elimina",
       "clear": "Cancella tutto",
       "rounds": "{{count}} turni",
-      "resume": "Riprendi attività"
+      "resume": "Riprendi attività",
+      "loading": "Caricamento dettagli attività…"
     },
     "toast": {
       "task_completed": "Compito dell'agente completato",

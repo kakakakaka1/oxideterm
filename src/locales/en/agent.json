@@ -79,7 +79,8 @@
       "delete": "Delete",
       "clear": "Clear all",
       "rounds": "{{count}} rounds",
-      "resume": "Resume task"
+      "resume": "Resume task",
+      "loading": "Loading task details..."
     },
     "toast": {
       "task_completed": "Agent task completed",

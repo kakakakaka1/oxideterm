@@ -703,9 +703,16 @@ pub fn run() {
         commands::ai_chat_clear_all,
         commands::ai_chat_replace_conversation_messages,
         commands::ai_chat_get_stats,
-        // Agent history persistence commands
-        commands::agent_history_save,
-        commands::agent_history_list,
+        // Agent history persistence commands (v2)
+        commands::agent_history_save_meta,
+        commands::agent_history_update_meta,
+        commands::agent_history_list_meta,
+        commands::agent_history_append_step,
+        commands::agent_history_save_steps,
+        commands::agent_history_get_steps,
+        commands::agent_history_save_checkpoint,
+        commands::agent_history_load_checkpoint,
+        commands::agent_history_clear_checkpoint,
         commands::agent_history_delete,
         commands::agent_history_clear,
         // RAG document retrieval commands
@@ -1013,9 +1020,16 @@ pub fn run() {
         commands::ai_chat_clear_all,
         commands::ai_chat_replace_conversation_messages,
         commands::ai_chat_get_stats,
-        // Agent history persistence commands
-        commands::agent_history_save,
-        commands::agent_history_list,
+        // Agent history persistence commands (v2)
+        commands::agent_history_save_meta,
+        commands::agent_history_update_meta,
+        commands::agent_history_list_meta,
+        commands::agent_history_append_step,
+        commands::agent_history_save_steps,
+        commands::agent_history_get_steps,
+        commands::agent_history_save_checkpoint,
+        commands::agent_history_load_checkpoint,
+        commands::agent_history_clear_checkpoint,
         commands::agent_history_delete,
         commands::agent_history_clear,
         // RAG document retrieval commands

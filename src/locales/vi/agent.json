@@ -79,7 +79,8 @@
       "delete": "Xóa",
       "clear": "Xóa tất cả",
       "rounds": "{{count}} vòng",
-      "resume": "Tiếp tục tác vụ"
+      "resume": "Tiếp tục tác vụ",
+      "loading": "Đang tải chi tiết tác vụ…"
     },
     "toast": {
       "task_completed": "Nhiệm vụ đại lý hoàn thành",

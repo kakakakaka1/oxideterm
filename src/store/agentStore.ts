@@ -11,7 +11,7 @@
 import { create } from 'zustand';
 import { api } from '../lib/api';
 import { MAX_STEPS } from '../lib/ai/agentConfig';
-import type { AgentTask, AgentStep, AgentApproval, AutonomyLevel, AgentTaskStatus, AgentPlan, TabType } from '../types';
+import type { AgentTask, AgentStep, AgentApproval, AutonomyLevel, AgentTaskStatus, AgentPlan, TabType, AgentTaskMeta } from '../types';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Constants
@@ -24,6 +24,76 @@ export const MAX_ROUNDS: Record<AutonomyLevel, number> = {
   autonomous: 100,
 };
 
+/** Steps persisted per checkpoint interval */
+const CHECKPOINT_INTERVAL = 5;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Persistence Helpers
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** Build lightweight meta from a full AgentTask */
+function buildTaskMeta(task: AgentTask): AgentTaskMeta {
+  return {
+    id: task.id,
+    goal: task.goal,
+    status: task.status,
+    autonomyLevel: task.autonomyLevel,
+    providerId: task.providerId,
+    model: task.model,
+    currentRound: task.currentRound,
+    maxRounds: task.maxRounds,
+    createdAt: task.createdAt,
+    completedAt: task.completedAt,
+    summary: task.summary,
+    error: task.error,
+    stepCount: task.steps.length,
+    planDescription: task.plan?.description ?? null,
+    planJson: task.plan ? JSON.stringify(task.plan) : null,
+    contextTabType: task.contextTabType ?? null,
+  };
+}
+
+/** Persist a completed/archived task (meta + all steps) */
+async function persistTask(task: AgentTask): Promise<void> {
+  const meta = buildTaskMeta(task);
+  await api.agentHistorySaveMeta(JSON.stringify(meta));
+  if (task.steps.length > 0) {
+    const stepsJson = task.steps.map(s => JSON.stringify(s));
+    await api.agentHistorySaveSteps(task.id, stepsJson);
+  }
+}
+
+/** Load steps from backend and reconstruct a full AgentTask from meta */
+async function loadFullTask(meta: AgentTaskMeta): Promise<AgentTask> {
+  const stepsJson = await api.agentHistoryGetSteps(meta.id, 0, meta.stepCount || 500);
+  const steps: AgentStep[] = [];
+  for (const json of stepsJson) {
+    try { steps.push(JSON.parse(json)); } catch { /* skip unparseable */ }
+  }
+  // Parse plan from meta if available
+  let plan: AgentPlan | null = null;
+  if (meta.planJson) {
+    try { plan = JSON.parse(meta.planJson); } catch { /* skip */ }
+  }
+  return {
+    id: meta.id,
+    goal: meta.goal,
+    status: meta.status,
+    autonomyLevel: meta.autonomyLevel as AutonomyLevel,
+    providerId: meta.providerId,
+    model: meta.model,
+    plan,
+    steps,
+    currentRound: meta.currentRound,
+    maxRounds: meta.maxRounds,
+    createdAt: meta.createdAt,
+    completedAt: meta.completedAt,
+    summary: meta.summary,
+    error: meta.error,
+    contextTabType: (meta.contextTabType as TabType) ?? null,
+  };
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Store Interface
 // ═══════════════════════════════════════════════════════════════════════════
@@ -32,8 +102,8 @@ interface AgentStore {
   // ─── State ──────────────────────────────────────────────────────────────
   /** Currently running or most recent task */
   activeTask: AgentTask | null;
-  /** Historical completed tasks */
-  taskHistory: AgentTask[];
+  /** Historical completed tasks (lightweight metadata only) */
+  taskHistory: AgentTaskMeta[];
   /** Default autonomy level for new tasks */
   autonomyLevel: AutonomyLevel;
   /** Whether an agent is currently running */
@@ -53,7 +123,7 @@ interface AgentStore {
   /** Cancel the current task */
   cancelTask: () => void;
   /** Resume a historical task from a given round (creates a new task with prior context) */
-  resumeHistoryTask: (taskId: string, fromRound?: number) => AgentTask | null;
+  resumeHistoryTask: (taskId: string, fromRound?: number) => Promise<AgentTask | null>;
 
   // ─── Settings ───────────────────────────────────────────────────────────
   /** Set default autonomy level */
@@ -92,10 +162,12 @@ interface AgentStore {
   clearApprovals: () => void;
 
   // ─── History Management ─────────────────────────────────────────────────
-  /** View a historical task (for replay) */
+  /** View a historical task (for replay, steps loaded lazily) */
   viewingTask: AgentTask | null;
-  /** Set task to view in replay mode */
-  setViewingTask: (task: AgentTask | null) => void;
+  /** Whether steps are currently being loaded for viewingTask */
+  isLoadingViewingTask: boolean;
+  /** Set task to view in replay mode (loads steps from backend) */
+  setViewingTask: (meta: AgentTaskMeta | null) => Promise<void>;
   /** Remove a task from history */
   removeFromHistory: (taskId: string) => void;
   /** Clear all task history */
@@ -107,6 +179,9 @@ interface AgentStore {
 // ═══════════════════════════════════════════════════════════════════════════
 // Approval Resolvers (module-level, not in Zustand state)
 // ═══════════════════════════════════════════════════════════════════════════
+
+/** Monotonic counter to prevent stale setViewingTask responses */
+let viewingTaskRequestId = 0;
 
 const approvalResolvers = new Map<string, (approved: boolean | 'skipped') => void>();
 
@@ -145,6 +220,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
   pendingApprovals: [],
   abortController: null,
   viewingTask: null,
+  isLoadingViewingTask: false,
 
   // ─── Task Lifecycle ─────────────────────────────────────────────────────
 
@@ -163,11 +239,12 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       const taskToArchive = (current.activeTask.status === 'executing' || current.activeTask.status === 'planning')
         ? { ...current.activeTask, status: 'cancelled' as const, completedAt: Date.now() }
         : current.activeTask;
+      const meta = buildTaskMeta(taskToArchive);
       set((s) => ({
-        taskHistory: [taskToArchive, ...s.taskHistory].slice(0, 50),
+        taskHistory: [meta, ...s.taskHistory].slice(0, 50),
       }));
-      // Persist archived task
-      api.agentHistorySave(taskToArchive.id, JSON.stringify(taskToArchive)).catch((e) => {
+      // Persist archived task (meta + steps)
+      persistTask(taskToArchive).catch((e) => {
         console.warn('[AgentStore] Failed to persist archived task:', e);
       });
     }
@@ -245,12 +322,20 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     clearApprovalResolvers();
   },
 
-  resumeHistoryTask: (taskId, fromRound) => {
+  resumeHistoryTask: async (taskId, fromRound) => {
     const current = get();
-    // Find the task in history
-    const sourceTask = current.taskHistory.find(t => t.id === taskId)
-      || (current.activeTask?.id === taskId ? current.activeTask : null);
-    if (!sourceTask) return null;
+    // Find the task meta in history
+    const sourceMeta = current.taskHistory.find(t => t.id === taskId);
+    if (!sourceMeta) return null;
+
+    // Load full task with steps from backend
+    let sourceTask: AgentTask;
+    try {
+      sourceTask = await loadFullTask(sourceMeta);
+    } catch (e) {
+      console.warn('[AgentStore] Failed to load task steps for resume:', e);
+      return null;
+    }
 
     // Cancel any running task first
     if (current.isRunning && current.abortController) {
@@ -263,10 +348,11 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       const taskToArchive = (current.activeTask.status === 'executing' || current.activeTask.status === 'planning')
         ? { ...current.activeTask, status: 'cancelled' as const, completedAt: Date.now() }
         : current.activeTask;
+      const meta = buildTaskMeta(taskToArchive);
       set((s) => ({
-        taskHistory: [taskToArchive, ...s.taskHistory].slice(0, 50),
+        taskHistory: [meta, ...s.taskHistory].slice(0, 50),
       }));
-      api.agentHistorySave(taskToArchive.id, JSON.stringify(taskToArchive)).catch((e) => {
+      persistTask(taskToArchive).catch((e) => {
         console.warn('[AgentStore] Failed to persist archived task:', e);
       });
     }
@@ -335,6 +421,21 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     set((s) => {
       if (!s.activeTask) return s;
       const existingSteps = s.activeTask.steps;
+      const stepIndex = existingSteps.length;
+
+      // Persist step incrementally to backend
+      api.agentHistoryAppendStep(s.activeTask.id, stepIndex, JSON.stringify(step)).catch((e) => {
+        console.warn('[AgentStore] Failed to persist step:', e);
+      });
+
+      // Save checkpoint every CHECKPOINT_INTERVAL steps
+      if ((stepIndex + 1) % CHECKPOINT_INTERVAL === 0) {
+        const updatedTask = { ...s.activeTask, steps: [...existingSteps, step] };
+        api.agentHistorySaveCheckpoint(JSON.stringify(updatedTask)).catch((e) => {
+          console.warn('[AgentStore] Failed to save checkpoint:', e);
+        });
+      }
+
       if (existingSteps.length >= MAX_STEPS) {
         // Add a truncation marker so the user knows earlier steps were dropped
         const marker: AgentStep = {
@@ -442,9 +543,11 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         status,
         completedAt: finished ? Date.now() : s.activeTask.completedAt,
       };
-      // Persist finished tasks to backend
+      // Persist finished tasks to backend (meta + steps)
       if (finished) {
-        api.agentHistorySave(updatedTask.id, JSON.stringify(updatedTask)).catch((e) => {
+        persistTask(updatedTask).then(() =>
+          api.agentHistoryClearCheckpoint()
+        ).catch((e) => {
           console.warn('[AgentStore] Failed to persist task history:', e);
         });
       }
@@ -470,8 +573,10 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     set((s) => {
       if (!s.activeTask) return s;
       const finishedTask = { ...s.activeTask, error, status: 'failed' as const, completedAt: Date.now() };
-      // Persist failed task
-      api.agentHistorySave(finishedTask.id, JSON.stringify(finishedTask)).catch((e) => {
+      // Persist failed task (meta + steps)
+      persistTask(finishedTask).then(() =>
+        api.agentHistoryClearCheckpoint()
+      ).catch((e) => {
         console.warn('[AgentStore] Failed to persist failed task:', e);
       });
       return {
@@ -550,8 +655,34 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
 
   // ─── History Management ─────────────────────────────────────────────────
 
-  setViewingTask: (task) => {
-    set({ viewingTask: task });
+  setViewingTask: async (meta) => {
+    if (!meta) {
+      viewingTaskRequestId++;
+      set({ viewingTask: null, isLoadingViewingTask: false });
+      return;
+    }
+    // Check if active task matches — no need to load from backend
+    const active = get().activeTask;
+    if (active && active.id === meta.id) {
+      viewingTaskRequestId++;
+      set({ viewingTask: active, isLoadingViewingTask: false });
+      return;
+    }
+    // Lazy-load steps from backend (guarded against stale responses)
+    const requestId = ++viewingTaskRequestId;
+    set({ isLoadingViewingTask: true });
+    try {
+      const fullTask = await loadFullTask(meta);
+      // Only apply if this is still the latest request
+      if (requestId === viewingTaskRequestId) {
+        set({ viewingTask: fullTask, isLoadingViewingTask: false });
+      }
+    } catch (e) {
+      console.warn('[AgentStore] Failed to load task details:', e);
+      if (requestId === viewingTaskRequestId) {
+        set({ isLoadingViewingTask: false });
+      }
+    }
   },
 
   removeFromHistory: (taskId) => {
@@ -573,16 +704,37 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
 
   initHistory: async () => {
     try {
-      const jsonList = await api.agentHistoryList(50);
-      const tasks: AgentTask[] = [];
+      // Load lightweight metadata only (no steps)
+      const jsonList = await api.agentHistoryListMeta(50);
+      const metas: AgentTaskMeta[] = [];
       for (const json of jsonList) {
         try {
-          tasks.push(JSON.parse(json) as AgentTask);
+          metas.push(JSON.parse(json) as AgentTaskMeta);
         } catch {
-          console.warn('[AgentStore] Skipping unparseable task from backend');
+          console.warn('[AgentStore] Skipping unparseable task meta from backend');
         }
       }
-      set({ taskHistory: tasks });
+      set({ taskHistory: metas });
+
+      // Check for crash-recovery checkpoint
+      const checkpoint = await api.agentHistoryLoadCheckpoint();
+      if (checkpoint) {
+        try {
+          const recovered = JSON.parse(checkpoint) as AgentTask;
+          console.info('[AgentStore] Recovered checkpoint for task:', recovered.id, recovered.goal);
+          // Save recovered task as completed (crashed) and clear checkpoint
+          const crashedTask = { ...recovered, status: 'failed' as const, error: 'Task interrupted (app crash recovery)', completedAt: Date.now() };
+          const meta = buildTaskMeta(crashedTask);
+          set((s) => ({
+            taskHistory: [meta, ...s.taskHistory.filter(t => t.id !== meta.id)].slice(0, 50),
+          }));
+          await persistTask(crashedTask);
+          await api.agentHistoryClearCheckpoint();
+        } catch {
+          console.warn('[AgentStore] Failed to parse checkpoint, clearing');
+          await api.agentHistoryClearCheckpoint();
+        }
+      }
     } catch (e) {
       console.warn('[AgentStore] Failed to load task history from backend:', e);
     }

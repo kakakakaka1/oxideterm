@@ -820,13 +820,35 @@ const TaskHistory = memo(({ onRerun, onResume, onRerunWithPlan }: { onRerun: (go
   const { t } = useTranslation();
   const taskHistory = useAgentStore((s) => s.taskHistory);
   const viewingTask = useAgentStore((s) => s.viewingTask);
+  const isLoadingViewingTask = useAgentStore((s) => s.isLoadingViewingTask);
   const isRunning = useAgentStore((s) => s.isRunning);
   const setViewingTask = useAgentStore((s) => s.setViewingTask);
   const removeFromHistory = useAgentStore((s) => s.removeFromHistory);
   const clearHistory = useAgentStore((s) => s.clearHistory);
   const [expanded, setExpanded] = useState(false);
 
-  if (taskHistory.length === 0 && !viewingTask) return null;
+  if (taskHistory.length === 0 && !viewingTask && !isLoadingViewingTask) return null;
+
+  // Loading state for lazy-loaded steps
+  if (isLoadingViewingTask) {
+    return (
+      <div className="border-t border-theme-border pt-3">
+        <div className="flex items-center gap-2 mb-2">
+          <button
+            onClick={() => setViewingTask(null)}
+            className="flex items-center gap-1 text-xs text-theme-accent hover:text-theme-accent-hover transition-colors"
+          >
+            <ArrowLeft className="w-3 h-3" />
+            {t('agent.history.back')}
+          </button>
+        </div>
+        <div className="flex items-center justify-center py-4 text-xs text-theme-text-muted">
+          <Loader2 className="w-4 h-4 animate-spin mr-2" />
+          {t('agent.history.loading')}
+        </div>
+      </div>
+    );
+  }
 
   // Replay view — show the selected historical task's steps
   if (viewingTask) {
@@ -1111,10 +1133,10 @@ export const AgentPanel = () => {
   );
 
   const handleResume = useCallback(
-    (taskId: string, fromRound?: number) => {
+    async (taskId: string, fromRound?: number) => {
       if (useAgentStore.getState().isRunning) return;
       const resumeHistoryTask = useAgentStore.getState().resumeHistoryTask;
-      const newTask = resumeHistoryTask(taskId, fromRound);
+      const newTask = await resumeHistoryTask(taskId, fromRound);
       if (!newTask) return;
       const controller = useAgentStore.getState().abortController;
       if (controller) {

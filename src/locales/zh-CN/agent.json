@@ -79,7 +79,8 @@
       "delete": "删除",
       "clear": "清空全部",
       "rounds": "{{count}} 轮",
-      "resume": "恢复任务"
+      "resume": "恢复任务",
+      "loading": "正在加载任务详情…"
     },
     "toast": {
       "task_completed": "Agent 任务已完成",

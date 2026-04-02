@@ -79,7 +79,8 @@
       "delete": "Eliminar",
       "clear": "Borrar todo",
       "rounds": "{{count}} rondas",
-      "resume": "Reanudar tarea"
+      "resume": "Reanudar tarea",
+      "loading": "Cargando detalles de la tarea…"
     },
     "toast": {
       "task_completed": "Tarea del agente completada",

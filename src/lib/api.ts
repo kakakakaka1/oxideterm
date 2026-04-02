@@ -1434,18 +1434,64 @@ export const api = {
     return invoke('mcp_close_server', { serverId });
   },
 
-  // ─── Agent History Persistence ──────────────────────────────────────
+  // ─── Agent History Persistence (v2) ──────────────────────────────────
 
-  /** Save an agent task to persistent storage */
-  agentHistorySave: async (taskId: string, taskJson: string): Promise<void> => {
+  /** Save task metadata (creates/updates index entry) */
+  agentHistorySaveMeta: async (metaJson: string): Promise<void> => {
     if (USE_MOCK) return;
-    return invoke('agent_history_save', { taskId, taskJson });
+    return invoke('agent_history_save_meta', { metaJson });
   },
 
-  /** List recent agent tasks as JSON strings (newest first) */
-  agentHistoryList: async (limit: number): Promise<string[]> => {
+  /** Update existing task metadata (status change, step_count bump) */
+  agentHistoryUpdateMeta: async (metaJson: string): Promise<void> => {
+    if (USE_MOCK) return;
+    return invoke('agent_history_update_meta', { metaJson });
+  },
+
+  /** List task metadata (newest first) with optional filters */
+  agentHistoryListMeta: async (
+    limit: number,
+    statusFilter?: string,
+    searchQuery?: string
+  ): Promise<string[]> => {
     if (USE_MOCK) return [];
-    return invoke('agent_history_list', { limit });
+    return invoke('agent_history_list_meta', { limit, statusFilter: statusFilter ?? null, searchQuery: searchQuery ?? null });
+  },
+
+  /** Append a single step to a task */
+  agentHistoryAppendStep: async (taskId: string, stepIndex: number, stepJson: string): Promise<void> => {
+    if (USE_MOCK) return;
+    return invoke('agent_history_append_step', { taskId, stepIndex, stepJson });
+  },
+
+  /** Save multiple steps at once (bulk save) */
+  agentHistorySaveSteps: async (taskId: string, stepsJson: string[]): Promise<void> => {
+    if (USE_MOCK) return;
+    return invoke('agent_history_save_steps', { taskId, stepsJson });
+  },
+
+  /** Get steps for a task with pagination */
+  agentHistoryGetSteps: async (taskId: string, offset: number, limit: number): Promise<string[]> => {
+    if (USE_MOCK) return [];
+    return invoke('agent_history_get_steps', { taskId, offset, limit });
+  },
+
+  /** Save a checkpoint of the running task (crash recovery) */
+  agentHistorySaveCheckpoint: async (taskJson: string): Promise<void> => {
+    if (USE_MOCK) return;
+    return invoke('agent_history_save_checkpoint', { taskJson });
+  },
+
+  /** Load checkpoint (if any) */
+  agentHistoryLoadCheckpoint: async (): Promise<string | null> => {
+    if (USE_MOCK) return null;
+    return invoke('agent_history_load_checkpoint');
+  },
+
+  /** Clear the checkpoint */
+  agentHistoryClearCheckpoint: async (): Promise<void> => {
+    if (USE_MOCK) return;
+    return invoke('agent_history_clear_checkpoint');
   },
 
   /** Delete a single agent task by ID */

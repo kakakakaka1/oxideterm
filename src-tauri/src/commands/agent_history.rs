@@ -1,56 +1,135 @@
 // Copyright (C) 2026 AnalyseDeCircuit
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Agent Task History Commands
+//! Agent Task History Commands (v2)
 //!
 //! Tauri IPC commands for persisting and querying agent task history.
-//! Tasks are stored as opaque JSON strings — the frontend owns the schema.
+//! v2 separates metadata from steps for lazy loading and incremental persistence.
 
+use crate::state::agent_history::TaskMeta;
 use crate::state::AgentHistoryStore;
 use std::sync::Arc;
 use tauri::State;
 
-/// Save an agent task to persistent storage.
-/// Validates that the `task_id` matches the `id` field inside the JSON.
+/// Save task metadata (without steps). Creates or updates the index entry.
 #[tauri::command]
-pub async fn agent_history_save(
-    task_id: String,
-    task_json: String,
+pub async fn agent_history_save_meta(
+    meta_json: String,
     store: State<'_, Arc<AgentHistoryStore>>,
 ) -> Result<(), String> {
-    // Validate task_id matches JSON content to prevent index/content mismatch
-    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&task_json) {
-        if let Some(json_id) = parsed.get("id").and_then(|v| v.as_str()) {
-            if json_id != task_id {
-                return Err(format!(
-                    "task_id '{}' does not match JSON id '{}'",
-                    task_id, json_id
-                ));
-            }
-        }
-    } else {
-        eprintln!(
-            "[agent_history_save] Warning: received non-JSON task data for id '{}'",
-            task_id
-        );
-    }
+    let meta: TaskMeta =
+        serde_json::from_str(&meta_json).map_err(|e| format!("Invalid meta JSON: {}", e))?;
     store
-        .save_task(&task_id, &task_json)
-        .map_err(|e| format!("Failed to save agent task: {}", e))
+        .save_meta(&meta)
+        .map_err(|e| format!("Failed to save task meta: {}", e))
 }
 
-/// List recent agent tasks as JSON strings (newest first).
+/// Update existing task metadata (e.g. status change, step_count bump).
 #[tauri::command]
-pub async fn agent_history_list(
+pub async fn agent_history_update_meta(
+    meta_json: String,
+    store: State<'_, Arc<AgentHistoryStore>>,
+) -> Result<(), String> {
+    let meta: TaskMeta =
+        serde_json::from_str(&meta_json).map_err(|e| format!("Invalid meta JSON: {}", e))?;
+    store
+        .update_meta(&meta)
+        .map_err(|e| format!("Failed to update task meta: {}", e))
+}
+
+/// List task metadata (newest first) with optional filters.
+#[tauri::command]
+pub async fn agent_history_list_meta(
+    limit: u32,
+    status_filter: Option<String>,
+    search_query: Option<String>,
+    store: State<'_, Arc<AgentHistoryStore>>,
+) -> Result<Vec<String>, String> {
+    let metas = store
+        .list_meta(
+            limit as usize,
+            status_filter.as_deref(),
+            search_query.as_deref(),
+        )
+        .map_err(|e| format!("Failed to list task meta: {}", e))?;
+
+    // Serialize each TaskMeta back to JSON for the frontend
+    metas
+        .iter()
+        .map(|m| serde_json::to_string(m).map_err(|e| format!("Serialization error: {}", e)))
+        .collect()
+}
+
+/// Append a single step to a task.
+#[tauri::command]
+pub async fn agent_history_append_step(
+    task_id: String,
+    step_index: u32,
+    step_json: String,
+    store: State<'_, Arc<AgentHistoryStore>>,
+) -> Result<(), String> {
+    store
+        .append_step(&task_id, step_index, &step_json)
+        .map_err(|e| format!("Failed to append step: {}", e))
+}
+
+/// Save multiple steps at once (bulk save after task completion).
+#[tauri::command]
+pub async fn agent_history_save_steps(
+    task_id: String,
+    steps_json: Vec<String>,
+    store: State<'_, Arc<AgentHistoryStore>>,
+) -> Result<(), String> {
+    store
+        .save_steps(&task_id, &steps_json)
+        .map_err(|e| format!("Failed to save steps: {}", e))
+}
+
+/// Get steps for a task with pagination.
+#[tauri::command]
+pub async fn agent_history_get_steps(
+    task_id: String,
+    offset: u32,
     limit: u32,
     store: State<'_, Arc<AgentHistoryStore>>,
 ) -> Result<Vec<String>, String> {
     store
-        .list_tasks(limit as usize)
-        .map_err(|e| format!("Failed to list agent tasks: {}", e))
+        .get_steps(&task_id, offset, limit)
+        .map_err(|e| format!("Failed to get steps: {}", e))
 }
 
-/// Delete a single agent task by ID.
+/// Save a checkpoint of the running task (crash recovery).
+#[tauri::command]
+pub async fn agent_history_save_checkpoint(
+    task_json: String,
+    store: State<'_, Arc<AgentHistoryStore>>,
+) -> Result<(), String> {
+    store
+        .save_checkpoint(&task_json)
+        .map_err(|e| format!("Failed to save checkpoint: {}", e))
+}
+
+/// Load checkpoint (if any).
+#[tauri::command]
+pub async fn agent_history_load_checkpoint(
+    store: State<'_, Arc<AgentHistoryStore>>,
+) -> Result<Option<String>, String> {
+    store
+        .load_checkpoint()
+        .map_err(|e| format!("Failed to load checkpoint: {}", e))
+}
+
+/// Clear the checkpoint.
+#[tauri::command]
+pub async fn agent_history_clear_checkpoint(
+    store: State<'_, Arc<AgentHistoryStore>>,
+) -> Result<(), String> {
+    store
+        .clear_checkpoint()
+        .map_err(|e| format!("Failed to clear checkpoint: {}", e))
+}
+
+/// Delete a single agent task by ID (metadata + all steps).
 #[tauri::command]
 pub async fn agent_history_delete(
     task_id: String,

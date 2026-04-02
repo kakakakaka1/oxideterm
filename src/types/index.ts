@@ -1670,6 +1670,26 @@ export type AgentTask = {
   parentTaskId?: string;
 };
 
+/** Lightweight task metadata for listing (no steps/plan). Mirrors Rust TaskMeta. */
+export type AgentTaskMeta = {
+  id: string;
+  goal: string;
+  status: AgentTaskStatus;
+  autonomyLevel: string;
+  providerId: string;
+  model: string;
+  currentRound: number;
+  maxRounds: number;
+  createdAt: number;
+  completedAt: number | null;
+  summary: string | null;
+  error: string | null;
+  stepCount: number;
+  planDescription: string | null;
+  planJson: string | null;
+  contextTabType?: string | null;
+};
+
 /** A pending approval request for the agent */
 export type AgentApproval = {
   /** Unique approval ID */

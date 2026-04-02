@@ -79,7 +79,8 @@
       "delete": "Supprimer",
       "clear": "Tout effacer",
       "rounds": "{{count}} tours",
-      "resume": "Reprendre la tâche"
+      "resume": "Reprendre la tâche",
+      "loading": "Chargement des détails de la tâche…"
     },
     "toast": {
       "task_completed": "Tâche de l'agent terminée",
