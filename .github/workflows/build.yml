@@ -90,7 +90,7 @@ jobs:
             xdg-utils
 
       - name: Cleanup Old Caches
-        uses: actions/github-script@v6
+        uses: actions/github-script@v8
         with:
           script: |
             // Delete actions caches older than 90 days to avoid stale/large caches
@@ -191,7 +191,7 @@ jobs:
       contents: write
     steps:
       - name: Build and upload latest.json
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const tag = context.ref.replace('refs/tags/', '');
@@ -312,7 +312,7 @@ jobs:
       contents: write
     steps:
       - name: Delete .sig assets from release
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const tag = context.ref.replace('refs/tags/', '');
