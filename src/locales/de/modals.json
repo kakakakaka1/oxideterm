@@ -337,7 +337,8 @@
       },
       "cancel": "Abbrechen",
       "connect": "Verbinden",
-      "connecting": "Verbindung wird hergestellt..."
+      "connecting": "Verbindung wird hergestellt...",
+      "connect_failed": "Verbindung fehlgeschlagen"
     },
     "settings": {
       "title": "Einstellungen",

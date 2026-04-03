@@ -337,7 +337,8 @@
       },
       "cancel": "Hủy",
       "connect": "Kết nối",
-      "connecting": "Đang kết nối..."
+      "connecting": "Đang kết nối...",
+      "connect_failed": "Kết nối thất bại"
     },
     "settings": {
       "title": "Cài đặt",

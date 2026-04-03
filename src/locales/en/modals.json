@@ -337,7 +337,8 @@
       },
       "cancel": "Cancel",
       "connect": "Connect",
-      "connecting": "Connecting..."
+      "connecting": "Connecting...",
+      "connect_failed": "Connection Failed"
     },
     "settings": {
       "title": "Settings",
