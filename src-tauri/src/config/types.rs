@@ -27,8 +27,8 @@ pub struct ProxyHopConfig {
 pub enum SavedAuth {
     /// Password stored in system keychain
     Password {
-        /// Keychain entry ID
-        keychain_id: String,
+        /// Keychain entry ID (None if user chose not to save password)
+        keychain_id: Option<String>,
     },
     /// SSH key file
     Key {
@@ -150,7 +150,7 @@ impl SavedConnection {
             port,
             username: username.into(),
             auth: SavedAuth::Password {
-                keychain_id: keychain_id.into(),
+                keychain_id: Some(keychain_id.into()),
             },
             options: ConnectionOptions::default(),
             created_at: Utc::now(),

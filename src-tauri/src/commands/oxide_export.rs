@@ -267,9 +267,12 @@ pub async fn export_to_oxide(
         let convert_auth = |auth: &SavedAuth, context: &str| -> Result<EncryptedAuth, String> {
             match auth {
                 SavedAuth::Password { keychain_id } => {
-                    let password = config_state
-                        .get_keychain_value(keychain_id)
-                        .map_err(|e| format!("Keychain error for {}: {}", context, e))?;
+                    let password = keychain_id
+                        .as_ref()
+                        .map(|kc_id| config_state.get_keychain_value(kc_id))
+                        .transpose()
+                        .map_err(|e| format!("Keychain error for {}: {}", context, e))?
+                        .unwrap_or_default();
                     Ok(EncryptedAuth::Password { password })
                 }
                 SavedAuth::Key {

@@ -195,6 +195,13 @@ export const Sidebar = () => {
     loadGroups();
   }, []);
 
+  // Refresh saved connections when new ones are saved (e.g. from NewConnectionModal)
+  useEffect(() => {
+    const handler = () => { loadSavedConnections(); loadGroups(); };
+    window.addEventListener('saved-connections-changed', handler);
+    return () => window.removeEventListener('saved-connections-changed', handler);
+  }, [loadSavedConnections, loadGroups]);
+
   // Load session tree on mount
   useEffect(() => {
     fetchTree();

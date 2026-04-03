@@ -324,12 +324,18 @@ fn build_saved_auth(
 ) -> Result<SavedAuth, String> {
     match auth_type {
         "password" => {
-            let pwd = password.ok_or("Password required for password authentication")?;
-            let keychain_id = format!("oxide_conn_{}", uuid::Uuid::new_v4());
-            keychain
-                .store(&keychain_id, pwd)
-                .map_err(|e| e.to_string())?;
-            Ok(SavedAuth::Password { keychain_id })
+            if let Some(pwd) = password {
+                let keychain_id = format!("oxide_conn_{}", uuid::Uuid::new_v4());
+                keychain
+                    .store(&keychain_id, pwd)
+                    .map_err(|e| e.to_string())?;
+                Ok(SavedAuth::Password {
+                    keychain_id: Some(keychain_id),
+                })
+            } else {
+                // User chose not to save password — will be prompted on connect
+                Ok(SavedAuth::Password { keychain_id: None })
+            }
         }
         "certificate" => {
             let kp = key_path.ok_or("Key path required for certificate authentication")?;
@@ -429,7 +435,7 @@ pub async fn save_connection(
                                 .keychain
                                 .store(&kc_id, password)
                                 .map_err(|e| e.to_string())?;
-                            SavedAuth::Password { keychain_id: kc_id }
+                            SavedAuth::Password { keychain_id: Some(kc_id) }
                         }
                         "key" => {
                             let key_path = hop_req
@@ -525,7 +531,7 @@ pub async fn save_connection(
                                 .keychain
                                 .store(&kc_id, password)
                                 .map_err(|e| e.to_string())?;
-                            SavedAuth::Password { keychain_id: kc_id }
+                            SavedAuth::Password { keychain_id: Some(kc_id) }
                         }
                         "key" => {
                             let key_path = hop_req
@@ -621,7 +627,7 @@ pub async fn delete_connection(
 
         // Delete keychain entry if password auth
         if let Some(conn) = config.get_connection(&id) {
-            if let SavedAuth::Password { keychain_id } = &conn.auth {
+            if let SavedAuth::Password { keychain_id: Some(keychain_id) } = &conn.auth {
                 let _ = state.keychain.delete(keychain_id);
             }
         }
@@ -660,8 +666,11 @@ pub async fn get_connection_password(
     let conn = config.get_connection(&id).ok_or("Connection not found")?;
 
     match &conn.auth {
-        SavedAuth::Password { keychain_id } => {
+        SavedAuth::Password { keychain_id: Some(keychain_id) } => {
             state.keychain.get(keychain_id).map_err(|e| e.to_string())
+        }
+        SavedAuth::Password { keychain_id: None } => {
+            Err("Password not saved for this connection".to_string())
         }
         _ => Err("Connection does not use password auth".to_string()),
     }
@@ -916,8 +925,10 @@ pub async fn get_saved_connection_for_connect(
     // Convert main auth
     let (auth_type, password, key_path, _cert_path, passphrase) = match &conn.auth {
         SavedAuth::Password { keychain_id } => {
-            let pwd = state.keychain.get(keychain_id).map_err(|e| e.to_string())?;
-            ("password".to_string(), Some(pwd), None, None, None)
+            let pwd = keychain_id
+                .as_ref()
+                .and_then(|kc_id| state.keychain.get(kc_id).ok());
+            ("password".to_string(), pwd, None, None, None)
         }
         SavedAuth::Key {
             key_path,
@@ -971,7 +982,9 @@ pub async fn get_saved_connection_for_connect(
             let (hop_auth_type, hop_password, hop_key_path, hop_cert_path, hop_passphrase) =
                 match &hop.auth {
                     SavedAuth::Password { keychain_id } => {
-                        let pwd = state.keychain.get(keychain_id).ok();
+                        let pwd = keychain_id
+                            .as_ref()
+                            .and_then(|kc_id| state.keychain.get(kc_id).ok());
                         ("password".to_string(), pwd, None, None, None)
                     }
                     SavedAuth::Key {

@@ -305,12 +305,17 @@ pub async fn import_from_oxide(
 
         let saved_auth = match auth {
             EncryptedAuth::Password { password } => {
-                let keychain_id = format!("oxide_conn_{}", id);
-                entries.push(PendingKeychainEntry {
-                    id: keychain_id.clone(),
-                    value: password,
-                });
-                SavedAuth::Password { keychain_id }
+                if password.is_empty() {
+                    // Password was not saved — preserve that intent
+                    SavedAuth::Password { keychain_id: None }
+                } else {
+                    let keychain_id = format!("oxide_conn_{}", id);
+                    entries.push(PendingKeychainEntry {
+                        id: keychain_id.clone(),
+                        value: password,
+                    });
+                    SavedAuth::Password { keychain_id: Some(keychain_id) }
+                }
             }
             EncryptedAuth::Key {
                 key_path,
