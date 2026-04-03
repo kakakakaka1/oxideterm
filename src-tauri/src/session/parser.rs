@@ -9,6 +9,14 @@ use super::scroll_buffer::TerminalLine;
 use parking_lot::Mutex;
 use vte::{Params, Parser, Perform};
 
+fn extract_raw_terminal_lines(data: &[u8]) -> Vec<String> {
+    String::from_utf8_lossy(data)
+        .split('\n')
+        .map(|line| line.trim_end_matches('\r').to_string())
+        .filter(|line| !strip_ansi_escapes::strip_str(line).is_empty())
+        .collect()
+}
+
 /// Parser state for terminal output
 struct TerminalParser {
     /// Current line being built
@@ -98,31 +106,53 @@ pub fn parse_terminal_output(data: &[u8]) -> Vec<TerminalLine> {
     parser.advance(&mut performer, data);
 
     // Get completed lines
-    let lines = performer.finish();
+    let parsed_lines: Vec<String> = performer
+        .finish()
+        .into_iter()
+        .filter(|line| !line.is_empty())
+        .collect();
+    let raw_lines = extract_raw_terminal_lines(data);
+
+    // Only preserve ANSI if the raw split and the VTE-parsed text agree for the
+    // entire batch. If they diverge, fall back to plain text rather than risk
+    // pairing the wrong ANSI sequence with the wrong line.
+    let raw_lines_match = raw_lines.len() == parsed_lines.len()
+        && raw_lines
+            .iter()
+            .zip(parsed_lines.iter())
+            .all(|(raw, parsed)| strip_ansi_escapes::strip_str(raw) == *parsed);
 
     // Convert to TerminalLine structs — share a single timestamp for the whole batch
     let now = chrono::Utc::now().timestamp_millis() as u64;
-    lines
+    parsed_lines
         .into_iter()
-        .filter(|line| !line.is_empty()) // Filter out empty lines
-        .map(|line| TerminalLine::with_timestamp(line, now))
+        .enumerate()
+        .map(|(index, line)| {
+            let ansi_text = if raw_lines_match {
+                raw_lines.get(index).cloned().filter(|raw| raw != &line)
+            } else {
+                None
+            };
+            TerminalLine::with_ansi_timestamp(line, ansi_text, now)
+        })
         .collect()
 }
 
 /// Simple fallback parser that just splits on newlines and strips ANSI codes
 pub fn parse_terminal_output_simple(data: &[u8]) -> Vec<TerminalLine> {
-    // Convert to UTF-8, replacing invalid sequences
-    let text = String::from_utf8_lossy(data);
-
-    // Strip ANSI escape codes
-    let stripped = strip_ansi_escapes::strip_str(&text);
-
-    // Split into lines — share a single timestamp for the whole batch
+    let raw_lines = extract_raw_terminal_lines(data);
     let now = chrono::Utc::now().timestamp_millis() as u64;
-    stripped
-        .lines()
-        .filter(|line| !line.is_empty())
-        .map(|line| TerminalLine::with_timestamp(line.to_string(), now))
+    raw_lines
+        .into_iter()
+        .filter_map(|raw| {
+            let text = strip_ansi_escapes::strip_str(&raw);
+            if text.is_empty() {
+                return None;
+            }
+
+            let ansi_text = if raw == text { None } else { Some(raw) };
+            Some(TerminalLine::with_ansi_timestamp(text, ansi_text, now))
+        })
         .collect()
 }
 
@@ -188,7 +218,9 @@ mod tests {
 
         assert_eq!(lines.len(), 2);
         assert_eq!(lines[0].text, "red"); // Color codes stripped
+        assert_eq!(lines[0].ansi_text.as_deref(), Some("\x1b[31mred\x1b[0m"));
         assert_eq!(lines[1].text, "plain");
+        assert_eq!(lines[1].ansi_text, None);
     }
 
     #[test]
@@ -210,6 +242,7 @@ mod tests {
 
         assert_eq!(lines.len(), 1);
         assert_eq!(lines[0].text, "hello"); // \x08 (backspace) removed 'x'
+        assert_eq!(lines[0].ansi_text, None);
     }
 
     #[test]
@@ -228,6 +261,10 @@ mod tests {
 
         assert_eq!(lines.len(), 2);
         assert_eq!(lines[0].text, "Green text");
+        assert_eq!(
+            lines[0].ansi_text.as_deref(),
+            Some("\x1b[32mGreen\x1b[0m text")
+        );
         assert_eq!(lines[1].text, "Second line");
     }
 

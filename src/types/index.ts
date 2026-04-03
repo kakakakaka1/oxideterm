@@ -802,6 +802,7 @@ export interface SshKeyInfo {
 // Scroll Buffer Types
 export interface TerminalLine {
   text: string;
+  ansi_text?: string;
   timestamp: number;
 }
 

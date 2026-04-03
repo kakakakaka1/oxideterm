@@ -28,6 +28,9 @@ pub const DEFAULT_MAX_LINES: usize = 30_000;
 pub struct TerminalLine {
     /// Text content (ANSI codes stripped)
     pub text: String,
+    /// Original terminal content with ANSI escape sequences preserved.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ansi_text: Option<String>,
     /// Timestamp when line was captured (Unix milliseconds)
     pub timestamp: u64,
 }
@@ -37,13 +40,32 @@ impl TerminalLine {
     pub fn new(text: String) -> Self {
         Self {
             text,
+            ansi_text: None,
             timestamp: Utc::now().timestamp_millis() as u64,
         }
     }
 
     /// Create a terminal line with specific timestamp
     pub fn with_timestamp(text: String, timestamp: u64) -> Self {
-        Self { text, timestamp }
+        Self {
+            text,
+            ansi_text: None,
+            timestamp,
+        }
+    }
+
+    /// Create a terminal line with specific timestamp and optional ANSI-preserved content
+    pub fn with_ansi_timestamp(text: String, ansi_text: Option<String>, timestamp: u64) -> Self {
+        Self {
+            text,
+            ansi_text,
+            timestamp,
+        }
+    }
+
+    /// Terminal content to use when replaying into xterm.
+    pub fn replay_text(&self) -> &str {
+        self.ansi_text.as_deref().unwrap_or(&self.text)
     }
 }
 

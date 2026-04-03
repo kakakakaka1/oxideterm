@@ -472,6 +472,7 @@ pub async fn create_terminal(
     let registry_clone = session_registry.inner().clone();
     let conn_registry_clone = connection_registry.inner().clone();
     let conn_id_clone = request.connection_id.clone();
+    let my_ws_port = port; // Capture this bridge's port for affinity check
     tokio::spawn(async move {
         if let Ok(reason) = disconnect_rx.await {
             warn!(
@@ -503,19 +504,33 @@ pub async fn create_terminal(
                 // AcceptTimeout 或其他不可恢复的断开：清理会话
                 // 这是因为如果前端从未连接，保留这个会话没有意义
                 if matches!(reason, crate::bridge::DisconnectReason::AcceptTimeout) {
-                    warn!(
-                        "Session {} WS accept timeout, removing from registries",
-                        session_id_clone
-                    );
+                    // 代际校验：检查 session 当前的 ws_port 是否仍属于本 bridge。
+                    // 如果 recreateTerminalPty 已经创建了新 bridge 并更新了 ws_port，
+                    // 则本 bridge 的清理不应删除已被新 bridge 接管的 session。
+                    let current_port = registry_clone
+                        .with_session(&session_id_clone, |entry| entry.ws_port)
+                        .flatten();
+                    if current_port != Some(my_ws_port) {
+                        info!(
+                            "Session {} AcceptTimeout from stale bridge (port {}), \
+                             session now on port {:?} — skipping cleanup",
+                            session_id_clone, my_ws_port, current_port
+                        );
+                    } else {
+                        warn!(
+                            "Session {} WS accept timeout, removing from registries",
+                            session_id_clone
+                        );
 
-                    // 从连接的终端列表中移除
-                    let _ = conn_registry_clone
-                        .remove_terminal(&conn_id_clone, &session_id_clone)
-                        .await;
-                    // 释放连接引用（release 会正确设置连接状态为 Idle 并发送 node:state）
-                    let _ = conn_registry_clone.release(&conn_id_clone).await;
-                    // 完全移除会话
-                    let _ = registry_clone.disconnect_complete(&session_id_clone, true);
+                        // 从连接的终端列表中移除
+                        let _ = conn_registry_clone
+                            .remove_terminal(&conn_id_clone, &session_id_clone)
+                            .await;
+                        // 释放连接引用（release 会正确设置连接状态为 Idle 并发送 node:state）
+                        let _ = conn_registry_clone.release(&conn_id_clone).await;
+                        // 完全移除会话
+                        let _ = registry_clone.disconnect_complete(&session_id_clone, true);
+                    }
                 } else {
                     // 其他不可恢复的断开：只更新状态，不移除
                     // 终端关联由 close_terminal 命令显式移除
@@ -672,10 +687,11 @@ pub async fn recreate_terminal_pty(
                 stdout_rx: output_tx.subscribe(),
             };
 
-            // Bug fix: replay_on_connect = false — the frontend still has the old buffer content;
-            // replaying would cause duplicate output lines.
+            // replay_on_connect = true — key-driven remount (ws_url change → new React key)
+            // destroys the old xterm buffer, so the new component needs the backend
+            // to replay the last N lines to fill the fresh terminal.
             let (_, port, token, disconnect_rx) =
-                WsBridge::start_extended_with_disconnect(extended_handle, scroll_buffer, false)
+                WsBridge::start_extended_with_disconnect(extended_handle, scroll_buffer, true)
                     .await
                     .map_err(|e| format!("Failed to start WebSocket bridge: {}", e))?;
 
@@ -719,20 +735,32 @@ pub async fn recreate_terminal_pty(
                             }),
                         );
                     } else if matches!(reason, crate::bridge::DisconnectReason::AcceptTimeout) {
-                        warn!(
-                            "Reattached session {} WS accept timeout, cleaning up",
-                            session_id_for_monitor
-                        );
-                        if !conn_id_for_monitor.is_empty() {
-                            let _ = conn_registry_for_monitor
-                                .remove_terminal(&conn_id_for_monitor, &session_id_for_monitor)
-                                .await;
-                            let _ = conn_registry_for_monitor
-                                .release(&conn_id_for_monitor)
-                                .await;
+                        // 代际校验：确保本 bridge 仍拥有该 session
+                        let current_port = registry_for_monitor
+                            .with_session(&session_id_for_monitor, |entry| entry.ws_port)
+                            .flatten();
+                        if current_port != Some(port) {
+                            info!(
+                                "Reattached session {} AcceptTimeout from stale bridge (port {}), \
+                                 session now on port {:?} — skipping cleanup",
+                                session_id_for_monitor, port, current_port
+                            );
+                        } else {
+                            warn!(
+                                "Reattached session {} WS accept timeout, cleaning up",
+                                session_id_for_monitor
+                            );
+                            if !conn_id_for_monitor.is_empty() {
+                                let _ = conn_registry_for_monitor
+                                    .remove_terminal(&conn_id_for_monitor, &session_id_for_monitor)
+                                    .await;
+                                let _ = conn_registry_for_monitor
+                                    .release(&conn_id_for_monitor)
+                                    .await;
+                            }
+                            let _ = registry_for_monitor
+                                .disconnect_complete(&session_id_for_monitor, true);
                         }
-                        let _ =
-                            registry_for_monitor.disconnect_complete(&session_id_for_monitor, true);
                     } else {
                         let _ = registry_for_monitor
                             .disconnect_complete(&session_id_for_monitor, false);
@@ -884,8 +912,10 @@ pub async fn recreate_terminal_pty(
     };
 
     // 启动新的 WebSocket bridge
+    // replay_on_connect = true — key-driven remount destroys old xterm buffer,
+    // new component needs backend to replay last N lines.
     let (_, port, token, disconnect_rx) =
-        WsBridge::start_extended_with_disconnect(extended_handle, scroll_buffer, false)
+        WsBridge::start_extended_with_disconnect(extended_handle, scroll_buffer, true)
             .await
             .map_err(|e| format!("Failed to start WebSocket bridge: {}", e))?;
 
@@ -896,6 +926,7 @@ pub async fn recreate_terminal_pty(
     let registry_clone = session_registry.inner().clone();
     let conn_registry_clone = connection_registry.inner().clone();
     let conn_id_clone = connection_id.clone();
+    let my_ws_port = port; // Capture this bridge's port for affinity check
     tokio::spawn(async move {
         if let Ok(reason) = disconnect_rx.await {
             warn!(
@@ -922,15 +953,27 @@ pub async fn recreate_terminal_pty(
             } else {
                 // AcceptTimeout: 前端没有连接，清理会话
                 if matches!(reason, crate::bridge::DisconnectReason::AcceptTimeout) {
-                    warn!(
-                        "Recreated session {} WS accept timeout, removing from registries",
-                        session_id_clone
-                    );
-                    let _ = conn_registry_clone
-                        .remove_terminal(&conn_id_clone, &session_id_clone)
-                        .await;
-                    let _ = conn_registry_clone.release(&conn_id_clone).await;
-                    let _ = registry_clone.disconnect_complete(&session_id_clone, true);
+                    // 代际校验：确保本 bridge 仍拥有该 session
+                    let current_port = registry_clone
+                        .with_session(&session_id_clone, |entry| entry.ws_port)
+                        .flatten();
+                    if current_port != Some(my_ws_port) {
+                        info!(
+                            "Recreated session {} AcceptTimeout from stale bridge (port {}), \
+                             session now on port {:?} — skipping cleanup",
+                            session_id_clone, my_ws_port, current_port
+                        );
+                    } else {
+                        warn!(
+                            "Recreated session {} WS accept timeout, removing from registries",
+                            session_id_clone
+                        );
+                        let _ = conn_registry_clone
+                            .remove_terminal(&conn_id_clone, &session_id_clone)
+                            .await;
+                        let _ = conn_registry_clone.release(&conn_id_clone).await;
+                        let _ = registry_clone.disconnect_complete(&session_id_clone, true);
+                    }
                 } else {
                     // 其他不可恢复的断开：只更新状态
                     let _ = registry_clone.disconnect_complete(&session_id_clone, false);

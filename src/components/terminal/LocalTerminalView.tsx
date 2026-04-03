@@ -625,7 +625,7 @@ export const LocalTerminalView: React.FC<LocalTerminalViewProps> = ({
         const lines = await api.getScrollBuffer(sessionId, startLine, prefillCount);
         if (!isMountedRef.current || !terminalRef.current) return stats.current_lines > 0;
         if (lines.length > 0) {
-          const text = lines.map((line) => line.text).join('\r\n') + '\r\n';
+          const text = lines.map((line) => line.ansi_text ?? line.text).join('\r\n') + '\r\n';
           terminalRef.current.write(text);
         }
         return stats.current_lines > 0;

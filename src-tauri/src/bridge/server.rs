@@ -64,7 +64,7 @@ async fn build_replay_frame(scroll_buffer: Arc<ScrollBuffer>) -> Result<Vec<u8>,
         if idx > 0 {
             text.push_str("\r\n");
         }
-        text.push_str(&line.text);
+        text.push_str(line.replay_text());
     }
     text.push_str("\r\n");
 
