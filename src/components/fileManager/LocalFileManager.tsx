@@ -955,6 +955,8 @@ export const LocalFileManager: React.FC<LocalFileManagerProps> = ({ className })
             pathInputValue={localFiles.pathInput}
             onPathInputChange={localFiles.setPathInput}
             onPathInputSubmit={localFiles.submitPathInput}
+            onPathEditStart={() => localFiles.setIsPathEditing(true)}
+            onPathEditCancel={() => { localFiles.setPathInput(localFiles.path); localFiles.setIsPathEditing(false); }}
             filter={localFiles.filter}
             onFilterChange={localFiles.setFilter}
             sortField={localFiles.sortField}

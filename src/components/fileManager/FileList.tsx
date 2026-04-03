@@ -79,6 +79,8 @@ export interface FileListProps {
   pathInputValue?: string;
   onPathInputChange?: (value: string) => void;
   onPathInputSubmit?: () => void;
+  onPathEditStart?: () => void;
+  onPathEditCancel?: () => void;
   
   // Filter & Sort
   filter?: string;
@@ -220,6 +222,8 @@ export const FileList: React.FC<FileListProps> = ({
   pathInputValue,
   onPathInputChange,
   onPathInputSubmit,
+  onPathEditStart,
+  onPathEditCancel,
   filter,
   onFilterChange,
   sortField = 'name',
@@ -385,7 +389,10 @@ export const FileList: React.FC<FileListProps> = ({
         <span className="font-semibold text-xs text-theme-text-muted uppercase tracking-wider min-w-12">{title}</span>
         
         {/* Path bar */}
-        <div className="flex-1 flex items-center gap-1 bg-theme-bg-sunken border border-theme-border px-2 py-0.5 rounded-sm overflow-hidden">
+        <div
+          className="flex-1 flex items-center gap-1 bg-theme-bg-sunken border border-theme-border px-2 py-0.5 rounded-sm overflow-hidden cursor-text"
+          onDoubleClick={() => { if (!isPathEditable) onPathEditStart?.(); }}
+        >
           {isPathEditable && pathInputValue !== undefined ? (
             <input
               type="text"
@@ -397,13 +404,19 @@ export const FileList: React.FC<FileListProps> = ({
                   onPathInputSubmit?.();
                 }
                 if (e.key === 'Escape') {
-                  onPathInputChange?.(path);
+                  e.preventDefault();
+                  onPathEditCancel?.();
                 }
               }}
-              onBlur={() => onPathInputChange?.(path)}
+              onBlur={(e) => {
+                const related = e.relatedTarget as HTMLElement | null;
+                if (related?.closest('[data-path-go-btn]')) return;
+                onPathEditCancel?.();
+              }}
               className="flex-1 bg-transparent text-theme-text text-xs outline-none"
               placeholder={t('fileManager.pathPlaceholder')}
               autoFocus
+              onFocus={(e) => e.target.select()}
             />
           ) : (
             <PathBreadcrumb 
@@ -414,7 +427,7 @@ export const FileList: React.FC<FileListProps> = ({
             />
           )}
           {isPathEditable && (
-            <Button size="icon" variant="ghost" className="h-4 w-4 shrink-0" onClick={onPathInputSubmit} title={t('fileManager.go')}>
+            <Button data-path-go-btn size="icon" variant="ghost" className="h-4 w-4 shrink-0" onClick={onPathInputSubmit} title={t('fileManager.go')}>
               <CornerDownLeft className="h-3 w-3" />
             </Button>
           )}

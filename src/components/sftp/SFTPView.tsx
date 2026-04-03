@@ -372,6 +372,7 @@ const FileList = ({
               className="flex-1 bg-transparent text-theme-text text-xs outline-none"
               placeholder={t('sftp.file_list.path_placeholder')}
               autoFocus
+              onFocus={(e) => e.target.select()}
             />
           ) : (
             <PathBreadcrumb 
