@@ -113,7 +113,7 @@ function generateReleaseNotes(version, changelogEntry) {
   notes.push('');
 
   // Footer links
-  notes.push('[Documentation](https://oxideterm.com) · [Report Issues](https://github.com/AnalyseDeCircuit/OxideTerm/issues) · [Changelog](https://github.com/AnalyseDeCircuit/OxideTerm/tree/main/docs/changelog)');
+  notes.push('[Documentation](https://oxideterm.app) · [Report Issues](https://github.com/AnalyseDeCircuit/OxideTerm/issues) · [Changelog](https://github.com/AnalyseDeCircuit/OxideTerm/tree/main/docs/changelog)');
 
   return notes.join('\n');
 }
