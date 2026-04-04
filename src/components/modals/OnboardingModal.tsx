@@ -1,7 +1,7 @@
 // Copyright (C) 2026 AnalyseDeCircuit
 // SPDX-License-Identifier: GPL-3.0-only
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Dialog, DialogContent, DialogTitle } from '../ui/dialog';
 import { Button } from '../ui/button';
@@ -12,6 +12,7 @@ import { api } from '../../lib/api';
 import { useAppStore } from '../../store/appStore';
 import { useLocalTerminalStore } from '../../store/localTerminalStore';
 import { platform } from '../../lib/platform';
+import { getFontFamilyCSS } from '../fileManager/fontUtils';
 import { getTerminalTheme } from '../../lib/themes';
 import {
   Download,
@@ -26,7 +27,6 @@ import {
   ArrowLeft,
   Globe,
   Palette,
-  Type,
   Command,
   Sparkles,
   SquareTerminal,
@@ -41,6 +41,7 @@ import {
   Lock,
   Cpu,
   Puzzle,
+  Lightbulb,
 } from 'lucide-react';
 
 // ============================================================================
@@ -70,15 +71,15 @@ const LANGUAGE_OPTIONS: { value: Language; label: string }[] = [
 
 /** Font display labels */
 const FONT_OPTIONS: { value: FontFamily; label: string; bundled: boolean }[] = [
-  { value: 'jetbrains', label: 'JetBrains Mono NF', bundled: true },
-  { value: 'meslo', label: 'MesloLGM NF', bundled: true },
-  { value: 'maple', label: 'Maple Mono NF CN', bundled: true },
+  { value: 'jetbrains', label: 'JetBrains Mono NF (Subset)', bundled: true },
+  { value: 'meslo', label: 'MesloLGM NF (Subset)', bundled: true },
+  { value: 'maple', label: 'Maple Mono NF CN (Subset)', bundled: true },
   { value: 'cascadia', label: 'Cascadia Code', bundled: false },
   { value: 'consolas', label: 'Consolas', bundled: false },
   { value: 'menlo', label: 'Menlo', bundled: false },
 ];
 
-const TOTAL_STEPS = 7; // 0..6
+const TOTAL_STEPS = 5; // 0..4
 
 /** Mini terminal preview for theme cards */
 const ThemeCard = ({
@@ -122,22 +123,10 @@ const ThemeCard = ({
 
 /** Font preview with configurable font family */
 const FontPreviewBlock = ({ fontFamily, fontSize }: { fontFamily: string; fontSize: number }) => {
-  const fontStack = useMemo(() => {
-    const stacks: Record<string, string> = {
-      jetbrains: '"JetBrainsMono Nerd Font", "JetBrains Mono NF (Subset)", "Maple Mono NF CN (Subset)", monospace',
-      meslo: '"MesloLGM Nerd Font", "MesloLGM NF (Subset)", "Maple Mono NF CN (Subset)", monospace',
-      maple: '"Maple Mono NF CN (Subset)", "Maple Mono NF", monospace',
-      cascadia: '"Cascadia Code NF", "Cascadia Code", "Maple Mono NF CN (Subset)", monospace',
-      consolas: 'Consolas, "Maple Mono NF CN (Subset)", monospace',
-      menlo: 'Menlo, Monaco, "Maple Mono NF CN (Subset)", monospace',
-    };
-    return stacks[fontFamily] || stacks.jetbrains;
-  }, [fontFamily]);
-
   return (
     <div
       className="rounded-md border border-theme-border bg-theme-bg-sunken p-4"
-      style={{ fontFamily: fontStack, fontSize: `${fontSize}px` }}
+      style={{ fontFamily: getFontFamilyCSS(fontFamily), fontSize: `${fontSize}px` }}
     >
       <div className="text-theme-text leading-relaxed">
         <div>ABCDEFG abcdefg 0123456789</div>
@@ -167,6 +156,7 @@ export const OnboardingModal = () => {
   const [hostCount, setHostCount] = useState<number | null>(null);
   const [importState, setImportState] = useState<'idle' | 'loading' | 'done'>('idle');
   const [importedCount, setImportedCount] = useState(0);
+  const contentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!onboardingCompleted) {
@@ -175,9 +165,24 @@ export const OnboardingModal = () => {
     }
   }, [onboardingCompleted]);
 
+  // Reset state when dialog reopens
+  useEffect(() => {
+    if (open) {
+      setStep(0);
+      setHostCount(null);
+      setImportState('idle');
+      setImportedCount(0);
+    }
+  }, [open]);
+
+  // Scroll to top on step change
+  useEffect(() => {
+    contentRef.current?.scrollTo(0, 0);
+  }, [step]);
+
   // Scan SSH config hosts when reaching the quick-start step
   useEffect(() => {
-    if (!open || step !== 4) return;
+    if (!open || step !== 3) return;
     api.listSshConfigHosts()
       .then((hosts) => setHostCount(hosts.filter((h) => h.alias !== '*').length))
       .catch(() => setHostCount(0));
@@ -238,7 +243,7 @@ export const OnboardingModal = () => {
 
   /** Step 0 — Welcome + Language */
   const renderWelcome = () => (
-    <div className="px-6 pt-8 pb-6 space-y-5">
+    <div className="px-8 pt-8 pb-6 space-y-5">
       <div className="text-center select-none">
         <div className="flex items-center justify-center gap-1">
           <h2 className="text-3xl font-bold tracking-tight text-theme-text empty-brand">
@@ -276,7 +281,7 @@ export const OnboardingModal = () => {
           <Globe className="h-4 w-4 text-[var(--theme-accent)]" />
           <span className="text-sm font-medium text-theme-text">{t('onboarding.select_language')}</span>
         </div>
-        <div className="grid grid-cols-3 gap-1.5">
+        <div className="grid grid-cols-4 gap-1.5">
           {LANGUAGE_OPTIONS.map((opt) => (
             <button
               key={opt.value}
@@ -295,74 +300,83 @@ export const OnboardingModal = () => {
     </div>
   );
 
-  /** Step 1 — Theme selection */
-  const renderTheme = () => (
-    <div className="px-6 pt-6 pb-6 space-y-4">
+  /** Step 1 — Appearance (Theme + Font) */
+  const renderAppearance = () => (
+    <div className="px-8 pt-6 pb-6 space-y-5">
       <div className="flex items-center gap-2">
         <Palette className="h-5 w-5 text-[var(--theme-accent)]" />
         <div>
-          <h3 className="text-lg font-semibold text-theme-text">{t('onboarding.select_theme')}</h3>
-          <p className="text-xs text-theme-text-muted">{t('onboarding.theme_hint')}</p>
-        </div>
-      </div>
-      <div className="grid grid-cols-4 gap-2">
-        {ONBOARDING_THEMES.map((id) => (
-          <ThemeCard
-            key={id}
-            themeId={id}
-            selected={terminalTheme === id}
-            onClick={() => updateTerminal('theme', id)}
-          />
-        ))}
-      </div>
-    </div>
-  );
-
-  /** Step 2 — Font + size */
-  const renderFont = () => (
-    <div className="px-6 pt-6 pb-6 space-y-4">
-      <div className="flex items-center gap-2">
-        <Type className="h-5 w-5 text-[var(--theme-accent)]" />
-        <div>
-          <h3 className="text-lg font-semibold text-theme-text">{t('onboarding.select_font')}</h3>
-          <p className="text-xs text-theme-text-muted">{t('onboarding.font_hint')}</p>
+          <h3 className="text-lg font-semibold text-theme-text">{t('onboarding.appearance_title')}</h3>
+          <p className="text-xs text-theme-text-muted">{t('onboarding.appearance_desc')}</p>
         </div>
       </div>
 
-      <Select value={fontFamily} onValueChange={(val) => updateTerminal('fontFamily', val as FontFamily)}>
-        <SelectTrigger className="w-full">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {FONT_OPTIONS.map((f) => (
-            <SelectItem key={f.value} value={f.value}>
-              {f.label}{f.bundled ? ' ✓' : ''}
-            </SelectItem>
+      {/* Theme */}
+      <div className="space-y-2.5">
+        <span className="text-xs font-medium text-theme-text-muted uppercase tracking-wider">{t('onboarding.select_theme')}</span>
+        <div className="grid grid-cols-4 gap-2">
+          {ONBOARDING_THEMES.map((id) => (
+            <ThemeCard
+              key={id}
+              themeId={id}
+              selected={terminalTheme === id}
+              onClick={() => updateTerminal('theme', id)}
+            />
           ))}
-        </SelectContent>
-      </Select>
-
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <span className="text-sm text-theme-text">{t('onboarding.font_size')}</span>
-          <span className="text-sm text-theme-text-muted font-mono">{fontSize}px</span>
         </div>
-        <Slider
-          min={8}
-          max={32}
-          step={1}
-          value={fontSize}
-          onChange={(v) => updateTerminal('fontSize', v)}
-          className="w-full"
-          aria-label={t('onboarding.font_size')}
-        />
       </div>
 
-      <FontPreviewBlock fontFamily={fontFamily} fontSize={fontSize} />
+      <div className="border-t border-theme-border/50" />
+
+      {/* Font */}
+      <div className="space-y-2.5">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-medium text-theme-text-muted uppercase tracking-wider">{t('onboarding.select_font')}</span>
+          <span className="text-[10px] text-theme-text-muted">{t('onboarding.font_hint')}</span>
+        </div>
+        <div className="grid grid-cols-2 gap-4 items-start">
+          <div className="space-y-3">
+            <Select value={fontFamily} onValueChange={(val) => updateTerminal('fontFamily', val as FontFamily)}>
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {FONT_OPTIONS.map((f) => (
+                  <SelectItem key={f.value} value={f.value}>
+                    {f.label}{f.bundled ? ' ✓' : ''}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-theme-text">{t('onboarding.font_size')}</span>
+                <span className="text-sm text-theme-text-muted font-mono">{fontSize}px</span>
+              </div>
+              <Slider
+                min={8}
+                max={32}
+                step={1}
+                value={fontSize}
+                onChange={(v) => updateTerminal('fontSize', v)}
+                className="w-full"
+                aria-label={t('onboarding.font_size')}
+              />
+            </div>
+          </div>
+          <FontPreviewBlock fontFamily={fontFamily} fontSize={fontSize} />
+        </div>
+      </div>
+
+      {/* Tip */}
+      <div className="flex gap-2.5 p-3 rounded-md bg-[var(--theme-accent)]/5 border border-[var(--theme-accent)]/20">
+        <Lightbulb className="h-3.5 w-3.5 mt-0.5 shrink-0 text-[var(--theme-accent)]" />
+        <p className="text-xs text-theme-text-muted leading-relaxed">{t('onboarding.tip_settings', { shortcut: isMac ? '⌘,' : 'Ctrl+,' })}</p>
+      </div>
     </div>
   );
 
-  /** Step 3 — Core Workflow */
+  /** Step 2 — Core Workflow */
   const renderWorkflow = () => {
     const workflows = [
       { icon: Server, key: 'workflow_connect' },
@@ -395,7 +409,7 @@ export const OnboardingModal = () => {
               </div>
               {/* Content */}
               <div className="flex-1 pb-4">
-                <div className="flex items-center gap-2 rounded-md border border-theme-border bg-theme-bg-panel p-3">
+                <div className="flex items-center gap-2.5 rounded-md border border-theme-border bg-theme-bg-panel p-3">
                   <item.icon className="h-4 w-4 shrink-0 text-[var(--theme-accent)]" />
                   <div className="min-w-0">
                     <span className="text-xs font-medium text-theme-text">{t(`onboarding.${item.key}`)}</span>
@@ -406,63 +420,18 @@ export const OnboardingModal = () => {
             </div>
           ))}
         </div>
+
+        {/* Tip */}
+        <div className="flex gap-2.5 p-3 rounded-md bg-[var(--theme-accent)]/5 border border-[var(--theme-accent)]/20">
+          <Lightbulb className="h-3.5 w-3.5 mt-0.5 shrink-0 text-[var(--theme-accent)]" />
+          <p className="text-xs text-theme-text-muted leading-relaxed">{t('onboarding.tip_multiplexing')}</p>
+        </div>
       </div>
     );
   };
 
-  /** Step 4 — Quick Start (SSH import + actions) */
-  const renderQuickStart = () => (
-    <div className="px-6 pt-6 pb-6 space-y-4">
-      <div className="flex items-center gap-2">
-        <Sparkles className="h-5 w-5 text-[var(--theme-accent)]" />
-        <h3 className="text-lg font-semibold text-theme-text">{t('onboarding.quick_start')}</h3>
-      </div>
-      <div className="grid grid-cols-3 gap-2">
-        <button
-          onClick={handleOpenTerminal}
-          className="group flex flex-col items-center gap-2.5 px-3 py-4 rounded-sm border border-theme-border bg-theme-bg-panel hover:border-[var(--theme-accent)] hover:bg-theme-bg-hover transition-colors"
-        >
-          <Terminal className="h-5 w-5 text-theme-text-muted group-hover:text-[var(--theme-accent)] transition-colors" />
-          <div className="text-center">
-            <div className="text-xs font-medium text-theme-text">{t('onboarding.open_terminal')}</div>
-            <div className="text-[11px] text-theme-text-muted mt-0.5 leading-relaxed">{t('onboarding.open_terminal_desc')}</div>
-          </div>
-        </button>
-
-        <button
-          onClick={handleNewConnection}
-          className="group flex flex-col items-center gap-2.5 px-3 py-4 rounded-sm border border-theme-border bg-theme-bg-panel hover:border-[var(--theme-accent)] hover:bg-theme-bg-hover transition-colors"
-        >
-          <Plus className="h-5 w-5 text-theme-text-muted group-hover:text-[var(--theme-accent)] transition-colors" />
-          <div className="text-center">
-            <div className="text-xs font-medium text-theme-text">{t('onboarding.new_connection')}</div>
-            <div className="text-[11px] text-theme-text-muted mt-0.5 leading-relaxed">{t('onboarding.new_connection_desc')}</div>
-          </div>
-        </button>
-
-        <button
-          onClick={importState === 'idle' && hostCount ? handleImportAll : undefined}
-          disabled={importState !== 'idle' || !hostCount}
-          className="group flex flex-col items-center gap-2.5 px-3 py-4 rounded-sm border border-theme-border bg-theme-bg-panel hover:border-[var(--theme-accent)] hover:bg-theme-bg-hover disabled:opacity-50 disabled:cursor-default disabled:hover:border-theme-border disabled:hover:bg-theme-bg-panel transition-colors"
-        >
-          {importState === 'loading' ? (
-            <Loader2 className="h-5 w-5 text-theme-text-muted animate-spin" />
-          ) : importState === 'done' ? (
-            <Check className="h-5 w-5 text-green-500" />
-          ) : (
-            <Download className="h-5 w-5 text-theme-text-muted group-hover:text-[var(--theme-accent)] transition-colors" />
-          )}
-          <div className="text-center">
-            <div className="text-xs font-medium text-theme-text">{t('onboarding.import_ssh')}</div>
-            <div className="text-[11px] text-theme-text-muted mt-0.5 leading-relaxed">{importLabel}</div>
-          </div>
-        </button>
-      </div>
-    </div>
-  );
-
-  /** Step 5 — Keyboard Shortcuts */
-  const renderShortcuts = () => {
+  /** Step 3 — Quick Start + Shortcuts */
+  const renderQuickStart = () => {
     const mod = isMac ? '⌘' : 'Ctrl';
     const shortcutGroups = [
       {
@@ -493,54 +462,115 @@ export const OnboardingModal = () => {
     ];
 
     return (
-      <div className="px-6 pt-6 pb-6 space-y-4">
+      <div className="px-8 pt-6 pb-6 space-y-5">
         <div className="flex items-center gap-2">
-          <Keyboard className="h-5 w-5 text-[var(--theme-accent)]" />
+          <Sparkles className="h-5 w-5 text-[var(--theme-accent)]" />
           <div>
-            <h3 className="text-lg font-semibold text-theme-text">{t('onboarding.shortcuts_title')}</h3>
-            <p className="text-xs text-theme-text-muted">{t('onboarding.shortcuts_hint')}</p>
+            <h3 className="text-lg font-semibold text-theme-text">{t('onboarding.quick_start')}</h3>
+            <p className="text-xs text-theme-text-muted">{t('onboarding.quick_start_desc')}</p>
           </div>
         </div>
 
         <div className="grid grid-cols-3 gap-3">
-          {shortcutGroups.map((group) => (
-            <div key={group.titleKey} className="space-y-2">
-              <span className="text-[10px] font-semibold text-theme-text-muted uppercase tracking-wider">
-                {t(`onboarding.${group.titleKey}`)}
-              </span>
-              <div className="space-y-1.5">
-                {group.items.map((item) => (
-                  <div key={item.descKey} className="flex items-start gap-2">
-                    <div className="flex items-center gap-0.5 shrink-0">
-                      {item.keys.map((k, i) => (
-                        <span key={i}>
-                          {i > 0 && <span className="text-[9px] text-theme-text-muted mx-0.5">/</span>}
-                          <kbd className="inline-flex items-center px-1.5 py-0.5 rounded bg-theme-bg border border-theme-border text-theme-text-muted font-mono text-[10px] leading-tight shadow-sm">
-                            {k}
-                          </kbd>
-                        </span>
-                      ))}
-                    </div>
-                    <span className="text-[11px] text-theme-text leading-snug mt-0.5">
-                      {t(`onboarding.${item.descKey}`)}
-                    </span>
-                  </div>
-                ))}
-              </div>
+          <button
+            onClick={handleOpenTerminal}
+            className="group flex flex-col items-center gap-2.5 px-4 py-5 rounded-md border border-theme-border bg-theme-bg-panel hover:border-[var(--theme-accent)] hover:bg-theme-bg-hover transition-colors"
+          >
+            <Terminal className="h-6 w-6 text-theme-text-muted group-hover:text-[var(--theme-accent)] transition-colors" />
+            <div className="text-center">
+              <div className="text-sm font-medium text-theme-text">{t('onboarding.open_terminal')}</div>
+              <div className="text-xs text-theme-text-muted mt-1 leading-relaxed">{t('onboarding.open_terminal_desc')}</div>
             </div>
-          ))}
+          </button>
+
+          <button
+            onClick={handleNewConnection}
+            className="group flex flex-col items-center gap-2.5 px-4 py-5 rounded-md border border-theme-border bg-theme-bg-panel hover:border-[var(--theme-accent)] hover:bg-theme-bg-hover transition-colors"
+          >
+            <Plus className="h-6 w-6 text-theme-text-muted group-hover:text-[var(--theme-accent)] transition-colors" />
+            <div className="text-center">
+              <div className="text-sm font-medium text-theme-text">{t('onboarding.new_connection')}</div>
+              <div className="text-xs text-theme-text-muted mt-1 leading-relaxed">{t('onboarding.new_connection_desc')}</div>
+            </div>
+          </button>
+
+          <button
+            onClick={importState === 'idle' && hostCount ? handleImportAll : undefined}
+            disabled={importState !== 'idle' || !hostCount}
+            className="group flex flex-col items-center gap-2.5 px-4 py-5 rounded-md border border-theme-border bg-theme-bg-panel hover:border-[var(--theme-accent)] hover:bg-theme-bg-hover disabled:opacity-50 disabled:cursor-default disabled:hover:border-theme-border disabled:hover:bg-theme-bg-panel transition-colors"
+          >
+            {importState === 'loading' || hostCount === null ? (
+              <Loader2 className="h-6 w-6 text-theme-text-muted animate-spin" />
+            ) : importState === 'done' ? (
+              <Check className="h-6 w-6 text-green-500" />
+            ) : (
+              <Download className="h-6 w-6 text-theme-text-muted group-hover:text-[var(--theme-accent)] transition-colors" />
+            )}
+            <div className="text-center">
+              <div className="text-sm font-medium text-theme-text">{t('onboarding.import_ssh')}</div>
+              <div className="text-xs text-theme-text-muted mt-1 leading-relaxed">{importLabel}</div>
+            </div>
+          </button>
+        </div>
+
+        <div className="border-t border-theme-border/50" />
+
+        {/* Shortcuts */}
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <Keyboard className="h-4 w-4 text-[var(--theme-accent)]" />
+            <span className="text-xs font-medium text-theme-text-muted uppercase tracking-wider">{t('onboarding.shortcuts_title')}</span>
+          </div>
+          <div className="grid grid-cols-3 gap-4">
+            {shortcutGroups.map((group) => (
+              <div key={group.titleKey} className="space-y-2">
+                <span className="text-[10px] font-semibold text-theme-text-muted uppercase tracking-wider">
+                  {t(`onboarding.${group.titleKey}`)}
+                </span>
+                <div className="space-y-1.5">
+                  {group.items.map((item) => (
+                    <div key={item.descKey} className="flex items-start gap-2">
+                      <div className="flex items-center gap-0.5 shrink-0">
+                        {item.keys.map((k, ki) => (
+                          <span key={ki}>
+                            {ki > 0 && <span className="text-[9px] text-theme-text-muted mx-0.5">/</span>}
+                            <kbd className="inline-flex items-center px-1.5 py-0.5 rounded bg-theme-bg border border-theme-border text-theme-text-muted font-mono text-[10px] leading-tight shadow-sm">
+                              {k}
+                            </kbd>
+                          </span>
+                        ))}
+                      </div>
+                      <span className="text-[11px] text-theme-text leading-snug mt-0.5">
+                        {t(`onboarding.${item.descKey}`)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Tip */}
+        <div className="flex gap-2.5 p-3 rounded-md bg-[var(--theme-accent)]/5 border border-[var(--theme-accent)]/20">
+          <Lightbulb className="h-3.5 w-3.5 mt-0.5 shrink-0 text-[var(--theme-accent)]" />
+          <p className="text-xs text-theme-text-muted leading-relaxed">{t('onboarding.tip_shortcuts', { shortcut: isMac ? '⌘/' : 'Ctrl+/' })}</p>
         </div>
       </div>
     );
   };
 
-  /** Step 6 — Features + Finish */
+  /** Step 4 — Features + Finish */
   const renderFeatures = () => (
-    <div className="px-6 pt-6 pb-6 space-y-4">
-      <h3 className="text-xs font-medium text-theme-text-muted uppercase tracking-wider">
-        {t('onboarding.features')}
-      </h3>
-      <div className="grid grid-cols-2 gap-2">
+    <div className="px-8 pt-6 pb-6 space-y-4">
+      <div className="flex items-center gap-2">
+        <Shield className="h-5 w-5 text-[var(--theme-accent)]" />
+        <div>
+          <h3 className="text-lg font-semibold text-theme-text">{t('onboarding.features')}</h3>
+          <p className="text-xs text-theme-text-muted">{t('onboarding.features_desc')}</p>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-2.5">
         {([
           { icon: Command, key: 'cmd_palette', shortcut: isMac ? '⌘K' : 'Ctrl+K' },
           { icon: Bot, key: 'ai_chat', shortcut: null },
@@ -551,7 +581,7 @@ export const OnboardingModal = () => {
           { icon: ArrowUpDown, key: 'multiplexing', shortcut: null },
           { icon: Shield, key: 'security', shortcut: null },
         ] as const).map((item) => (
-          <div key={item.key} className="flex gap-2.5 p-3 rounded-sm border border-theme-border bg-theme-bg-panel">
+          <div key={item.key} className="flex gap-2.5 p-3.5 rounded-md border border-theme-border bg-theme-bg-panel">
             <item.icon className="h-4 w-4 mt-0.5 shrink-0 text-[var(--theme-accent)]" />
             <div className="min-w-0">
               <div className="flex items-center gap-1.5">
@@ -570,12 +600,13 @@ export const OnboardingModal = () => {
     </div>
   );
 
-  const STEP_ICONS = [Globe, Palette, Type, Route, Sparkles, Keyboard, Shield];
-  const stepRenderers = [renderWelcome, renderTheme, renderFont, renderWorkflow, renderQuickStart, renderShortcuts, renderFeatures];
+  const STEP_ICONS = [Globe, Palette, Route, Sparkles, Shield];
+  const STEP_TITLE_KEYS = ['welcome', 'appearance_title', 'workflow_title', 'quick_start', 'features'];
+  const stepRenderers = [renderWelcome, renderAppearance, renderWorkflow, renderQuickStart, renderFeatures];
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) handleClose(); }}>
-      <DialogContent className="sm:max-w-[600px] p-0 gap-0 overflow-hidden">
+      <DialogContent className="sm:max-w-[800px] p-0 gap-0 overflow-hidden">
         <DialogTitle className="sr-only">{t('onboarding.welcome')}</DialogTitle>
 
         {/* ── Progress indicator ─────────────────────────────── */}
@@ -593,7 +624,8 @@ export const OnboardingModal = () => {
                       ? 'bg-[var(--theme-accent)]/20 text-[var(--theme-accent)]'
                       : 'bg-theme-bg-panel text-theme-text-muted border border-theme-border'
                 }`}
-                aria-label={`Step ${i + 1}`}
+                aria-label={t(`onboarding.${STEP_TITLE_KEYS[i]}`)}
+                aria-current={i === step ? 'step' : undefined}
               >
                 <Icon className="h-3.5 w-3.5" />
               </button>
@@ -602,10 +634,12 @@ export const OnboardingModal = () => {
         </div>
 
         {/* ── Step content ───────────────────────────────────── */}
-        {stepRenderers[step]()}
+        <div ref={contentRef} className="overflow-y-auto">
+          {stepRenderers[step]()}
+        </div>
 
         {/* ── Footer ─────────────────────────────────────────── */}
-        <div className="flex items-center justify-between px-6 py-4 border-t border-theme-border bg-theme-bg-panel">
+        <div className="flex items-center justify-between px-8 py-4 border-t border-theme-border bg-theme-bg-panel">
           <div className="flex items-center gap-2">
             {canGoBack && (
               <Button variant="ghost" size="sm" onClick={() => setStep(step - 1)} className="gap-1.5">
