@@ -17,6 +17,8 @@
 
 use redb::{Database, ReadableTable, TableDefinition};
 use serde::{Deserialize, Serialize};
+#[cfg(test)]
+use std::cell::Cell;
 use std::path::PathBuf;
 use std::sync::Arc;
 use thiserror::Error;
@@ -37,6 +39,11 @@ pub const MAX_MESSAGES_PER_CONVERSATION: usize = 200;
 
 /// Compression threshold (compress if buffer > 4KB)
 const COMPRESSION_THRESHOLD: usize = 4096;
+
+#[cfg(test)]
+std::thread_local! {
+    static TEST_FORCE_COMPRESSION_FAILURE: Cell<bool> = const { Cell::new(false) };
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Table Definitions
@@ -223,6 +230,11 @@ fn compress_buffer(content: &str) -> (String, bool) {
         return (content.to_string(), false);
     }
 
+    #[cfg(test)]
+    if TEST_FORCE_COMPRESSION_FAILURE.with(|flag| flag.get()) {
+        return (content.to_string(), false);
+    }
+
     // Use zstd compression level 3 (fast, reasonable ratio)
     match zstd::encode_all(content.as_bytes(), 3) {
         Ok(compressed) => {
@@ -262,6 +274,11 @@ fn decompress_buffer(content: &str, is_compressed: bool) -> Result<String, AiCha
 
     String::from_utf8(decompressed)
         .map_err(|e| AiChatError::Compression(format!("UTF-8 decode failed: {}", e)))
+}
+
+#[cfg(test)]
+fn set_test_force_compression_failure(enabled: bool) {
+    TEST_FORCE_COMPRESSION_FAILURE.with(|flag| flag.set(enabled));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -538,6 +555,12 @@ impl AiChatStore {
             let mut msg_index_table = write_txn.open_table(CONV_MESSAGES_TABLE)?;
             let mut conv_table = write_txn.open_table(CONVERSATIONS_TABLE)?;
 
+            let mut meta: ConversationMeta = conv_table
+                .get(message.conversation_id.as_str())?
+                .map(|meta_bytes| rmp_serde::from_slice(meta_bytes.value()).ok())
+                .flatten()
+                .ok_or_else(|| AiChatError::NotFound(message.conversation_id.clone()))?;
+
             // Save message
             let msg_bytes = rmp_serde::to_vec(&message)?;
             msg_table.insert(message.id.as_str(), msg_bytes.as_slice())?;
@@ -565,18 +588,10 @@ impl AiChatStore {
                 msg_index_table.insert(message.conversation_id.as_str(), list_bytes.as_slice())?;
             }
 
-            // Update conversation's updated_at and message_count - read first, then write
-            let existing_meta: Option<ConversationMeta> = conv_table
-                .get(message.conversation_id.as_str())?
-                .map(|meta_bytes| rmp_serde::from_slice(meta_bytes.value()).ok())
-                .flatten();
-
-            if let Some(mut meta) = existing_meta {
-                meta.updated_at = message.timestamp;
-                meta.message_count = message_ids.len();
-                let updated_bytes = rmp_serde::to_vec(&meta)?;
-                conv_table.insert(message.conversation_id.as_str(), updated_bytes.as_slice())?;
-            }
+            meta.updated_at = message.timestamp;
+            meta.message_count = message_ids.len();
+            let updated_bytes = rmp_serde::to_vec(&meta)?;
+            conv_table.insert(message.conversation_id.as_str(), updated_bytes.as_slice())?;
         }
 
         write_txn.commit()?;
@@ -842,6 +857,7 @@ pub struct AiChatStats {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
     use tempfile::tempdir;
 
     fn create_test_store() -> (AiChatStore, tempfile::TempDir) {
@@ -849,6 +865,35 @@ mod tests {
         let path = dir.path().join("test_ai_chat.redb");
         let store = AiChatStore::new(path).unwrap();
         (store, dir)
+    }
+
+    fn create_test_meta(id: &str) -> ConversationMeta {
+        ConversationMeta {
+            id: id.to_string(),
+            title: format!("Conversation {id}"),
+            created_at: 1000,
+            updated_at: 1000,
+            message_count: 0,
+            session_id: None,
+            origin: "sidebar".to_string(),
+        }
+    }
+
+    fn create_test_message(
+        conversation_id: &str,
+        message_id: &str,
+        timestamp: i64,
+        content: impl Into<String>,
+    ) -> PersistedMessage {
+        PersistedMessage {
+            id: message_id.to_string(),
+            conversation_id: conversation_id.to_string(),
+            role: "user".to_string(),
+            content: content.into(),
+            timestamp,
+            tool_calls: vec![],
+            context_snapshot: None,
+        }
     }
 
     #[test]
@@ -1181,5 +1226,218 @@ mod tests {
         let stats = store.get_stats().unwrap();
         assert_eq!(stats.conversation_count, 0);
         assert_eq!(stats.message_count, 0);
+    }
+
+    #[test]
+    fn test_concurrent_writes_same_conversation_keep_counts_consistent() {
+        let (store, _dir) = create_test_store();
+        let store = Arc::new(store);
+        store
+            .create_conversation(&create_test_meta("conv-concurrent"))
+            .unwrap();
+
+        std::thread::scope(|scope| {
+            for worker in 0..8 {
+                let store = Arc::clone(&store);
+                scope.spawn(move || {
+                    for offset in 0..25 {
+                        let index = worker * 25 + offset;
+                        store
+                            .save_message(create_test_message(
+                                "conv-concurrent",
+                                &format!("msg-{index}"),
+                                1000 + index as i64,
+                                format!("message {index}"),
+                            ))
+                            .unwrap();
+                    }
+                });
+            }
+        });
+
+        let full = store.get_conversation("conv-concurrent").unwrap();
+        let stats = store.get_stats().unwrap();
+
+        assert_eq!(full.meta.message_count, 200);
+        assert_eq!(full.messages.len(), 200);
+        assert_eq!(stats.message_count, 200);
+        assert!(full
+            .messages
+            .windows(2)
+            .all(|window| window[0].timestamp <= window[1].timestamp));
+    }
+
+    #[test]
+    fn test_high_frequency_writes_trim_to_max_messages() {
+        let (store, _dir) = create_test_store();
+        store
+            .create_conversation(&create_test_meta("conv-trim"))
+            .unwrap();
+
+        for index in 0..(MAX_MESSAGES_PER_CONVERSATION + 25) {
+            store
+                .save_message(create_test_message(
+                    "conv-trim",
+                    &format!("msg-{index}"),
+                    1000 + index as i64,
+                    format!("payload {index}"),
+                ))
+                .unwrap();
+        }
+
+        let full = store.get_conversation("conv-trim").unwrap();
+        let stats = store.get_stats().unwrap();
+
+        assert_eq!(full.meta.message_count, MAX_MESSAGES_PER_CONVERSATION);
+        assert_eq!(full.messages.len(), MAX_MESSAGES_PER_CONVERSATION);
+        assert_eq!(stats.message_count, MAX_MESSAGES_PER_CONVERSATION);
+        assert_eq!(full.messages.first().unwrap().id, "msg-25");
+        assert_eq!(full.messages.last().unwrap().id, "msg-224");
+    }
+
+    #[test]
+    fn test_large_message_roundtrip() {
+        let (store, _dir) = create_test_store();
+        store
+            .create_conversation(&create_test_meta("conv-large"))
+            .unwrap();
+
+        let large_content = "L".repeat(1_000_000);
+        let large_buffer = "buffer-line\n".repeat(2000);
+        let message = PersistedMessage {
+            id: "msg-large".to_string(),
+            conversation_id: "conv-large".to_string(),
+            role: "assistant".to_string(),
+            content: large_content.clone(),
+            timestamp: 5000,
+            tool_calls: vec![],
+            context_snapshot: Some(ContextSnapshot {
+                cwd: None,
+                selection: None,
+                buffer_tail: Some(large_buffer.clone()),
+                buffer_compressed: false,
+                local_os: None,
+                connection_info: None,
+                terminal_type: None,
+            }),
+        };
+
+        store.save_message(message).unwrap();
+
+        let full = store.get_conversation("conv-large").unwrap();
+        assert_eq!(full.messages.len(), 1);
+        assert_eq!(full.messages[0].content.len(), large_content.len());
+        assert_eq!(full.messages[0].content, large_content);
+        assert_eq!(
+            full.messages[0]
+                .context_snapshot
+                .as_ref()
+                .and_then(|ctx| ctx.buffer_tail.as_ref())
+                .unwrap(),
+            &large_buffer
+        );
+    }
+
+    #[test]
+    fn test_save_message_compression_failure_falls_back_to_plaintext() {
+        let (store, _dir) = create_test_store();
+        store
+            .create_conversation(&create_test_meta("conv-fallback"))
+            .unwrap();
+
+        let large_buffer = "fallback-data-".repeat(500);
+        set_test_force_compression_failure(true);
+        let result = store.save_message(PersistedMessage {
+            id: "msg-fallback".to_string(),
+            conversation_id: "conv-fallback".to_string(),
+            role: "user".to_string(),
+            content: "trigger fallback".to_string(),
+            timestamp: 1001,
+            tool_calls: vec![],
+            context_snapshot: Some(ContextSnapshot {
+                cwd: None,
+                selection: None,
+                buffer_tail: Some(large_buffer.clone()),
+                buffer_compressed: false,
+                local_os: None,
+                connection_info: None,
+                terminal_type: None,
+            }),
+        });
+        set_test_force_compression_failure(false);
+
+        result.unwrap();
+
+        let full = store.get_conversation("conv-fallback").unwrap();
+        let ctx = full.messages[0].context_snapshot.as_ref().unwrap();
+        assert_eq!(ctx.buffer_tail.as_ref().unwrap(), &large_buffer);
+        assert!(!ctx.buffer_compressed);
+    }
+
+    #[test]
+    fn test_save_message_after_delete_requires_recreate_and_orders_new_messages() {
+        let (store, _dir) = create_test_store();
+        store
+            .create_conversation(&create_test_meta("conv-recreate"))
+            .unwrap();
+        store
+            .save_message(create_test_message("conv-recreate", "old-1", 1001, "old"))
+            .unwrap();
+
+        store.delete_conversation("conv-recreate").unwrap();
+
+        let error = store
+            .save_message(create_test_message(
+                "conv-recreate",
+                "orphan",
+                1002,
+                "orphan",
+            ))
+            .unwrap_err();
+        assert!(matches!(error, AiChatError::NotFound(id) if id == "conv-recreate"));
+        assert_eq!(store.get_stats().unwrap().message_count, 0);
+
+        store
+            .create_conversation(&create_test_meta("conv-recreate"))
+            .unwrap();
+        store
+            .save_message(create_test_message("conv-recreate", "new-2", 2002, "new 2"))
+            .unwrap();
+        store
+            .save_message(create_test_message("conv-recreate", "new-1", 2001, "new 1"))
+            .unwrap();
+
+        let full = store.get_conversation("conv-recreate").unwrap();
+        let ids: Vec<&str> = full.messages.iter().map(|msg| msg.id.as_str()).collect();
+        assert_eq!(ids, vec!["new-1", "new-2"]);
+        assert_eq!(full.meta.message_count, 2);
+    }
+
+    #[test]
+    fn test_replace_conversation_messages_recreates_missing_metadata_atomically() {
+        let (store, _dir) = create_test_store();
+        let replacement = PersistedMessage {
+            id: "summary-1".to_string(),
+            conversation_id: "conv-missing-summary".to_string(),
+            role: "assistant".to_string(),
+            content: "summary content".to_string(),
+            timestamp: 3000,
+            tool_calls: vec![],
+            context_snapshot: None,
+        };
+
+        store
+            .replace_conversation_messages(
+                "conv-missing-summary",
+                "Recovered Summary",
+                replacement,
+            )
+            .unwrap();
+
+        let full = store.get_conversation("conv-missing-summary").unwrap();
+        assert_eq!(full.meta.title, "Recovered Summary");
+        assert_eq!(full.meta.message_count, 1);
+        assert_eq!(full.messages.len(), 1);
+        assert_eq!(full.messages[0].id, "summary-1");
     }
 }

@@ -403,6 +403,21 @@ impl NetworkTopology {
             return Err(format!("Target node '{}' not found in topology", target_id));
         }
 
+        for edge in &self.edges {
+            if edge.cost <= 0 {
+                return Err(format!(
+                    "Invalid edge cost from '{}' to '{}': {}",
+                    edge.from, edge.to, edge.cost
+                ));
+            }
+            if edge.from != "local" && !self.nodes.contains_key(&edge.from) {
+                return Err(format!("Invalid edge source '{}'", edge.from));
+            }
+            if !self.nodes.contains_key(&edge.to) {
+                return Err(format!("Invalid edge target '{}'", edge.to));
+            }
+        }
+
         // Build adjacency list
         let mut adj: HashMap<String, Vec<(String, i32)>> = HashMap::new();
         adj.insert("local".to_string(), vec![]);
@@ -743,5 +758,171 @@ mod tests {
         assert!(topology.compute_route("any").is_err());
         assert!(topology.get_all_edges().is_empty());
         assert!(topology.get_all_nodes().is_empty());
+    }
+
+    #[test]
+    fn test_compute_route_ignores_self_loop_when_better_path_exists() {
+        let mut topology = create_test_topology();
+        topology.edges.push(TopologyEdge {
+            from: "jump".to_string(),
+            to: "jump".to_string(),
+            cost: 1,
+        });
+
+        let result = topology.compute_route("target").unwrap();
+        assert_eq!(result.path, vec!["jump", "bastion"]);
+        assert_eq!(result.total_cost, 3);
+    }
+
+    #[test]
+    fn test_compute_route_handles_duplicate_edges() {
+        let mut topology = create_test_topology();
+        topology.edges.push(TopologyEdge {
+            from: "local".to_string(),
+            to: "jump".to_string(),
+            cost: 1,
+        });
+
+        let result = topology.compute_route("target").unwrap();
+        assert_eq!(result.path, vec!["jump", "bastion"]);
+        assert_eq!(result.total_cost, 3);
+    }
+
+    #[test]
+    fn test_compute_route_same_cost_multi_path_returns_minimal_cost() {
+        let mut topology = create_test_topology();
+        topology.nodes.insert(
+            "alt".to_string(),
+            TopologyNodeConfig {
+                id: "alt".to_string(),
+                host: "alt.test".to_string(),
+                port: 22,
+                username: "user".to_string(),
+                auth_type: "agent".to_string(),
+                key_path: None,
+                display_name: None,
+                is_local: false,
+                tags: vec![],
+                saved_connection_id: None,
+            },
+        );
+        topology.edges = vec![
+            TopologyEdge {
+                from: "local".to_string(),
+                to: "jump".to_string(),
+                cost: 1,
+            },
+            TopologyEdge {
+                from: "jump".to_string(),
+                to: "target".to_string(),
+                cost: 1,
+            },
+            TopologyEdge {
+                from: "local".to_string(),
+                to: "alt".to_string(),
+                cost: 1,
+            },
+            TopologyEdge {
+                from: "alt".to_string(),
+                to: "target".to_string(),
+                cost: 1,
+            },
+        ];
+
+        let result = topology.compute_route("target").unwrap();
+        assert_eq!(result.total_cost, 2);
+        assert_eq!(result.path.len(), 1);
+        assert!(matches!(result.path[0].as_str(), "jump" | "alt"));
+    }
+
+    #[test]
+    fn test_compute_route_prefers_smaller_path_over_extreme_cost() {
+        let mut topology = create_test_topology();
+        topology.edges.push(TopologyEdge {
+            from: "local".to_string(),
+            to: "target".to_string(),
+            cost: i32::MAX,
+        });
+
+        let result = topology.compute_route("target").unwrap();
+        assert_eq!(result.total_cost, 3);
+    }
+
+    #[test]
+    fn test_compute_route_large_chain() {
+        let mut nodes = HashMap::new();
+        let mut edges = Vec::new();
+        let total_nodes = 600;
+
+        for index in 0..total_nodes {
+            let id = format!("node-{index}");
+            nodes.insert(
+                id.clone(),
+                TopologyNodeConfig {
+                    id: id.clone(),
+                    host: format!("{id}.example.com"),
+                    port: 22,
+                    username: "user".to_string(),
+                    auth_type: "agent".to_string(),
+                    key_path: None,
+                    display_name: None,
+                    is_local: false,
+                    tags: vec![],
+                    saved_connection_id: None,
+                },
+            );
+
+            if index == 0 {
+                edges.push(TopologyEdge {
+                    from: "local".to_string(),
+                    to: id,
+                    cost: 1,
+                });
+            } else {
+                edges.push(TopologyEdge {
+                    from: format!("node-{}", index - 1),
+                    to: id,
+                    cost: 1,
+                });
+            }
+        }
+
+        let topology = NetworkTopology {
+            version: "2.0".to_string(),
+            nodes,
+            edges,
+        };
+
+        let result = topology.compute_route("node-599").unwrap();
+        assert_eq!(result.total_cost, 600);
+        assert_eq!(result.path.len(), 599);
+        assert_eq!(result.path.first().unwrap(), "node-0");
+        assert_eq!(result.path.last().unwrap(), "node-598");
+    }
+
+    #[test]
+    fn test_compute_route_rejects_non_positive_edge_cost() {
+        let mut topology = create_test_topology();
+        topology.edges.push(TopologyEdge {
+            from: "local".to_string(),
+            to: "target".to_string(),
+            cost: 0,
+        });
+
+        let error = topology.compute_route("target").unwrap_err();
+        assert!(error.contains("Invalid edge cost"));
+    }
+
+    #[test]
+    fn test_compute_route_rejects_unknown_edge_node() {
+        let mut topology = create_test_topology();
+        topology.edges.push(TopologyEdge {
+            from: "ghost".to_string(),
+            to: "target".to_string(),
+            cost: 1,
+        });
+
+        let error = topology.compute_route("target").unwrap_err();
+        assert!(error.contains("Invalid edge source"));
     }
 }

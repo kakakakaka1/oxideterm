@@ -3413,6 +3413,7 @@ dependencies = [
 name = "oxideterm"
 version = "1.0.13"
 dependencies = [
+ "anyhow",
  "argon2",
  "async-trait",
  "base64 0.22.1",

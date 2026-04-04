@@ -562,12 +562,250 @@ impl Drop for PtyHandle {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use anyhow::Error;
+    use nix::libc;
+    use portable_pty::{Child, ChildKiller, ExitStatus, MasterPty};
+    use std::io::Cursor;
+
+    #[derive(Debug)]
+    struct DummyMaster {
+        size: Arc<StdMutex<PtySize>>,
+    }
+
+    impl DummyMaster {
+        fn new(size: Arc<StdMutex<PtySize>>) -> Self {
+            Self { size }
+        }
+    }
+
+    impl MasterPty for DummyMaster {
+        fn resize(&self, size: PtySize) -> Result<(), Error> {
+            *self.size.lock().unwrap() = size;
+            Ok(())
+        }
+
+        fn get_size(&self) -> Result<PtySize, Error> {
+            Ok(*self.size.lock().unwrap())
+        }
+
+        fn try_clone_reader(&self) -> Result<Box<dyn Read + Send>, Error> {
+            Ok(Box::new(Cursor::new(Vec::<u8>::new())))
+        }
+
+        fn take_writer(&self) -> Result<Box<dyn Write + Send>, Error> {
+            Ok(Box::new(Vec::<u8>::new()))
+        }
+
+        #[cfg(unix)]
+        fn process_group_leader(&self) -> Option<libc::pid_t> {
+            None
+        }
+
+        #[cfg(unix)]
+        fn as_raw_fd(&self) -> Option<portable_pty::unix::RawFd> {
+            None
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    struct DummyChild {
+        state: Arc<StdMutex<DummyChildState>>,
+    }
+
+    #[derive(Debug)]
+    struct DummyChildState {
+        alive: bool,
+        killed: bool,
+        pid: Option<u32>,
+        exit_code: u32,
+    }
+
+    impl DummyChild {
+        fn new(state: Arc<StdMutex<DummyChildState>>) -> Self {
+            Self { state }
+        }
+    }
+
+    impl ChildKiller for DummyChild {
+        fn kill(&mut self) -> std::io::Result<()> {
+            let mut state = self.state.lock().unwrap();
+            state.alive = false;
+            state.killed = true;
+            Ok(())
+        }
+
+        fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> {
+            Box::new(self.clone())
+        }
+    }
+
+    impl Child for DummyChild {
+        fn try_wait(&mut self) -> std::io::Result<Option<ExitStatus>> {
+            let state = self.state.lock().unwrap();
+            if state.alive {
+                Ok(None)
+            } else {
+                Ok(Some(ExitStatus::with_exit_code(state.exit_code)))
+            }
+        }
+
+        fn wait(&mut self) -> std::io::Result<ExitStatus> {
+            let mut state = self.state.lock().unwrap();
+            state.alive = false;
+            Ok(ExitStatus::with_exit_code(state.exit_code))
+        }
+
+        fn process_id(&self) -> Option<u32> {
+            self.state.lock().unwrap().pid
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    struct CaptureWriter {
+        written: Arc<StdMutex<Vec<u8>>>,
+        max_write: Option<usize>,
+    }
+
+    impl Write for CaptureWriter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            let bytes = self.max_write.unwrap_or(buf.len()).min(buf.len());
+            self.written
+                .lock()
+                .unwrap()
+                .extend_from_slice(&buf[..bytes]);
+            Ok(bytes)
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn make_test_handle_with_max_write(
+        input: &[u8],
+        max_write: Option<usize>,
+    ) -> (
+        PtyHandle,
+        Arc<StdMutex<Vec<u8>>>,
+        Arc<StdMutex<DummyChildState>>,
+        Arc<StdMutex<PtySize>>,
+    ) {
+        let written = Arc::new(StdMutex::new(Vec::new()));
+        let child_state = Arc::new(StdMutex::new(DummyChildState {
+            alive: true,
+            killed: false,
+            pid: None,
+            exit_code: 7,
+        }));
+        let size = Arc::new(StdMutex::new(PtySize {
+            rows: 24,
+            cols: 80,
+            pixel_width: 0,
+            pixel_height: 0,
+        }));
+
+        let handle = PtyHandle {
+            master: StdMutex::new(Box::new(DummyMaster::new(size.clone()))),
+            child: StdMutex::new(Box::new(DummyChild::new(child_state.clone()))),
+            reader: Arc::new(StdMutex::new(Box::new(Cursor::new(input.to_vec())))),
+            writer: Arc::new(StdMutex::new(Box::new(CaptureWriter {
+                written: written.clone(),
+                max_write,
+            }))),
+        };
+
+        (handle, written, child_state, size)
+    }
+
+    fn make_test_handle(
+        input: &[u8],
+    ) -> (
+        PtyHandle,
+        Arc<StdMutex<Vec<u8>>>,
+        Arc<StdMutex<DummyChildState>>,
+        Arc<StdMutex<PtySize>>,
+    ) {
+        make_test_handle_with_max_write(input, None)
+    }
 
     #[test]
     fn test_pty_config_default() {
         let config = PtyConfig::default();
         assert_eq!(config.cols, 80);
         assert_eq!(config.rows, 24);
+    }
+
+    #[test]
+    fn test_resize_updates_master_size() {
+        let (handle, _written, _child, size) = make_test_handle(b"");
+
+        handle.resize(120, 40).unwrap();
+
+        let current = *size.lock().unwrap();
+        assert_eq!(current.cols, 120);
+        assert_eq!(current.rows, 40);
+    }
+
+    #[test]
+    fn test_write_flushes_data() {
+        let (handle, written, _child, _size) = make_test_handle(b"");
+
+        let bytes = handle.write(b"echo hello\n").unwrap();
+        assert_eq!(bytes, 11);
+        assert_eq!(&*written.lock().unwrap(), b"echo hello\n");
+    }
+
+    #[test]
+    fn test_write_returns_partial_count_when_writer_short_writes() {
+        let (handle, written, _child, _size) = make_test_handle_with_max_write(b"", Some(4));
+
+        let bytes = handle.write(b"abcdef").unwrap();
+        assert_eq!(bytes, 4);
+        assert_eq!(&*written.lock().unwrap(), b"abcd");
+    }
+
+    #[test]
+    fn test_read_consumes_reader_data() {
+        let (handle, _written, _child, _size) = make_test_handle(b"hello");
+        let mut buf = [0u8; 8];
+
+        let bytes = handle.read(&mut buf).unwrap();
+        assert_eq!(bytes, 5);
+        assert_eq!(&buf[..bytes], b"hello");
+
+        let eof = handle.read(&mut buf).unwrap();
+        assert_eq!(eof, 0);
+    }
+
+    #[test]
+    fn test_clone_reader_and_writer_share_underlying_arcs() {
+        let (handle, _written, _child, _size) = make_test_handle(b"abc");
+        assert!(Arc::ptr_eq(&handle.clone_reader(), &handle.reader));
+        assert!(Arc::ptr_eq(&handle.clone_writer(), &handle.writer));
+    }
+
+    #[test]
+    fn test_is_alive_kill_wait_and_pid() {
+        let (handle, _written, child_state, _size) = make_test_handle(b"");
+
+        assert!(handle.is_alive());
+        assert_eq!(handle.pid(), None);
+
+        handle.kill().unwrap();
+        assert!(!handle.is_alive());
+        assert!(child_state.lock().unwrap().killed);
+
+        let status = handle.wait().unwrap();
+        assert_eq!(status.exit_code(), 7);
+    }
+
+    #[test]
+    fn test_kill_process_group_without_pid_falls_back_to_kill() {
+        let (handle, _written, child_state, _size) = make_test_handle(b"");
+
+        handle.kill_process_group().unwrap();
+
+        assert!(child_state.lock().unwrap().killed);
     }
 
     // Note: PTY creation tests require a real terminal environment

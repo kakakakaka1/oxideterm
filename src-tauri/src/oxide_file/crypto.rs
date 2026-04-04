@@ -307,4 +307,103 @@ mod tests {
         let checksum3 = compute_checksum(&[conn2]).unwrap();
         assert_ne!(checksum1, checksum3);
     }
+
+    #[test]
+    fn test_legacy_kdf_zero_matches_v1() {
+        let password = "TestPassword123!";
+        let salt = [1u8; 32];
+
+        let legacy = derive_key(password, &salt, 0).unwrap();
+        let current = derive_key(password, &salt, kdf_flags::KDF_V1).unwrap();
+        assert_eq!(&*legacy, &*current);
+    }
+
+    #[test]
+    fn test_decrypt_rejects_unsupported_kdf_version() {
+        let payload = create_test_payload();
+        let metadata = create_test_metadata();
+        let mut oxide_file = encrypt_oxide_file(&payload, "test123!", metadata).unwrap();
+        oxide_file.kdf_version = u32::MAX;
+
+        let result = decrypt_oxide_file(&oxide_file, "test123!");
+        assert!(matches!(
+            result,
+            Err(OxideFileError::UnsupportedKdfVersion(u32::MAX))
+        ));
+    }
+
+    #[test]
+    fn test_truncated_ciphertext_fails_decryption() {
+        let payload = create_test_payload();
+        let metadata = create_test_metadata();
+        let mut oxide_file = encrypt_oxide_file(&payload, "test123!", metadata).unwrap();
+        oxide_file
+            .encrypted_data
+            .truncate(oxide_file.encrypted_data.len() / 2);
+
+        let result = decrypt_oxide_file(&oxide_file, "test123!");
+        assert!(matches!(result, Err(OxideFileError::DecryptionFailed)));
+    }
+
+    #[test]
+    fn test_checksum_mismatch_is_classified_after_successful_decrypt() {
+        let mut payload = create_test_payload();
+        payload.checksum = "sha256:deadbeef".to_string();
+        let metadata = create_test_metadata();
+
+        let oxide_file = encrypt_oxide_file(&payload, "test123!", metadata).unwrap();
+        let result = decrypt_oxide_file(&oxide_file, "test123!");
+        assert!(matches!(result, Err(OxideFileError::ChecksumMismatch)));
+    }
+
+    #[test]
+    fn test_tampered_fields_are_classified_consistently() {
+        let payload = create_test_payload();
+        let metadata = create_test_metadata();
+        let oxide_file = encrypt_oxide_file(&payload, "test123!", metadata).unwrap();
+
+        let mut tampered_salt = oxide_file;
+        tampered_salt.salt[0] ^= 0xAA;
+        assert!(matches!(
+            decrypt_oxide_file(&tampered_salt, "test123!"),
+            Err(OxideFileError::DecryptionFailed)
+        ));
+
+        let mut tampered_nonce =
+            encrypt_oxide_file(&payload, "test123!", create_test_metadata()).unwrap();
+        tampered_nonce.nonce[0] ^= 0x55;
+        assert!(matches!(
+            decrypt_oxide_file(&tampered_nonce, "test123!"),
+            Err(OxideFileError::DecryptionFailed)
+        ));
+
+        let mut tampered_tag =
+            encrypt_oxide_file(&payload, "test123!", create_test_metadata()).unwrap();
+        tampered_tag.tag[0] ^= 0x0F;
+        assert!(matches!(
+            decrypt_oxide_file(&tampered_tag, "test123!"),
+            Err(OxideFileError::DecryptionFailed)
+        ));
+    }
+
+    #[test]
+    fn test_serialized_file_rejects_bad_magic_and_unsupported_version() {
+        let payload = create_test_payload();
+        let metadata = create_test_metadata();
+        let oxide_file = encrypt_oxide_file(&payload, "test123!", metadata).unwrap();
+
+        let mut bad_magic = oxide_file.to_bytes().unwrap();
+        bad_magic[0] = b'X';
+        assert!(matches!(
+            OxideFile::from_bytes(&bad_magic),
+            Err(OxideFileError::InvalidMagic)
+        ));
+
+        let mut bad_version = oxide_file.to_bytes().unwrap();
+        bad_version[5..9].copy_from_slice(&(super::super::format::VERSION + 1).to_le_bytes());
+        assert!(matches!(
+            OxideFile::from_bytes(&bad_version),
+            Err(OxideFileError::UnsupportedVersion(v)) if v == super::super::format::VERSION + 1
+        ));
+    }
 }

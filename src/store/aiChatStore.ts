@@ -23,6 +23,15 @@ import { REFERENCES, resolveReferenceType, resolveAllReferences } from '../lib/a
 import { parseSuggestions } from '../lib/ai/suggestionParser';
 import { detectIntent } from '../lib/ai/intentDetector';
 import { sanitizeForAi, sanitizeApiMessages } from '../lib/ai/contextSanitizer';
+import {
+  condenseToolMessages,
+  decodeAnchorContent,
+  dtoToConversation,
+  encodeAnchorContent,
+  generateTitle,
+  parseThinkingContent,
+  type FullConversationDto,
+} from './aiChatStore.helpers';
 import i18n from '../i18n';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -52,24 +61,6 @@ interface ConversationMetaDto {
   updatedAt: number;
   messageCount: number;
   origin?: string;
-}
-
-// Backend returns flat structure, not nested meta
-interface FullConversationDto {
-  id: string;
-  title: string;
-  createdAt: number;
-  updatedAt: number;
-  sessionId: string | null;
-  origin?: string;
-  messages: Array<{
-    id: string;
-    role: 'user' | 'assistant' | 'system' | 'tool';
-    content: string;
-    timestamp: number;
-    toolCalls?: AiToolCall[];
-    context: string | null; // Backend returns just the buffer_tail as 'context'
-  }>;
 }
 
 // Wrapper for list conversations response
@@ -143,68 +134,6 @@ function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
-function generateTitle(firstMessage: string): string {
-  const cleaned = firstMessage.replace(/\n/g, ' ').trim();
-  return cleaned.length > 30 ? cleaned.slice(0, 30) + '...' : cleaned;
-}
-
-// Convert backend DTO to frontend model
-function dtoToConversation(dto: FullConversationDto): AiConversation {
-  return {
-    id: dto.id,
-    title: dto.title,
-    createdAt: dto.createdAt,
-    updatedAt: dto.updatedAt,
-    sessionId: dto.sessionId ?? undefined,
-    origin: dto.origin || 'sidebar',
-    messages: dto.messages.map((m) => {
-      // Re-parse thinking + suggestions from persisted assistant content
-      if (m.role === 'assistant') {
-        let content = m.content;
-        let thinkingContent: string | undefined;
-        if (content.includes('<thinking>')) {
-          const parsed = parseThinkingContent(content);
-          content = parsed.content;
-          thinkingContent = parsed.thinkingContent;
-        }
-        const sugResult = parseSuggestions(content);
-        return {
-          id: m.id,
-          role: m.role as 'assistant',
-          content: sugResult.cleanContent,
-          thinkingContent,
-          toolCalls: m.toolCalls,
-          timestamp: m.timestamp,
-          context: m.context || undefined,
-          ...(sugResult.suggestions.length > 0 ? { suggestions: sugResult.suggestions } : {}),
-        };
-      }
-      // Re-parse anchor metadata from persisted content
-      if (m.role === 'system') {
-        const anchor = decodeAnchorContent(m.content);
-        if (anchor) {
-          return {
-            id: m.id,
-            role: m.role as 'system',
-            content: anchor.content,
-            timestamp: m.timestamp,
-            context: m.context || undefined,
-            metadata: anchor.metadata,
-          };
-        }
-      }
-      return {
-        id: m.id,
-        role: m.role as AiChatMessage['role'],
-        content: m.content,
-        toolCalls: m.toolCalls,
-        timestamp: m.timestamp,
-        context: m.context || undefined,
-      };
-    }),
-  };
-}
-
 function metaToConversation(meta: ConversationMetaDto): AiConversation {
   return {
     id: meta.id,
@@ -215,154 +144,6 @@ function metaToConversation(meta: ConversationMetaDto): AiConversation {
     messageCount: meta.messageCount,
     origin: meta.origin || 'sidebar',
   };
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Thinking Content Parser
-// ═══════════════════════════════════════════════════════════════════════════
-
-interface ParsedResponse {
-  /** Main response content (without thinking tags) */
-  content: string;
-  /** Extracted thinking content (if present) */
-  thinkingContent?: string;
-}
-
-/**
- * Parse AI response to extract thinking content
- * Supports: <thinking>...</thinking> tags (common in Claude-style responses)
- */
-function parseThinkingContent(rawContent: string): ParsedResponse {
-  // Match <thinking>...</thinking> block (case-insensitive, multiline)
-  const thinkingRegex = /<thinking>([\s\S]*?)<\/thinking>/gi;
-  let thinkingContent = '';
-  let content = rawContent;
-  
-  // Extract all thinking blocks
-  let match;
-  while ((match = thinkingRegex.exec(rawContent)) !== null) {
-    if (thinkingContent) thinkingContent += '\n\n';
-    thinkingContent += match[1].trim();
-  }
-  
-  // Remove thinking tags from main content
-  if (thinkingContent) {
-    content = rawContent.replace(thinkingRegex, '').trim();
-  }
-  
-  return {
-    content,
-    thinkingContent: thinkingContent || undefined,
-  };
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Anchor Metadata Serialization
-// ═══════════════════════════════════════════════════════════════════════════
-
-const ANCHOR_META_HEADER = '$$ANCHOR_B64$$';
-
-/**
- * Encode anchor metadata into the content field for backend persistence.
- * Uses base64-encoded JSON to avoid any delimiter collision with content.
- */
-function encodeAnchorContent(content: string, metadata: NonNullable<AiChatMessage['metadata']>): string {
-  const metaJson = JSON.stringify(metadata);
-  const b64 = btoa(unescape(encodeURIComponent(metaJson)));
-  return `${ANCHOR_META_HEADER}${b64}\n${content}`;
-}
-
-/**
- * Decode anchor metadata from persisted content.
- * Returns the original summary text and parsed metadata, or null if not an anchor.
- */
-function decodeAnchorContent(content: string): { content: string; metadata: NonNullable<AiChatMessage['metadata']> } | null {
-  if (!content.startsWith(ANCHOR_META_HEADER)) return null;
-  const newlineIdx = content.indexOf('\n');
-  if (newlineIdx === -1) return null;
-  try {
-    const b64 = content.slice(ANCHOR_META_HEADER.length, newlineIdx);
-    const jsonStr = decodeURIComponent(escape(atob(b64)));
-    const metadata = JSON.parse(jsonStr);
-    const realContent = content.slice(newlineIdx + 1);
-    return { content: realContent, metadata };
-  } catch {
-    return null;
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Tool Result Condensation
-// ═══════════════════════════════════════════════════════════════════════════
-
-/** Threshold for condensation: keep last N tool-result messages verbatim */
-const CONDENSE_KEEP_RECENT = 5;
-/** Max summary length per tool result */
-const CONDENSE_SUMMARY_MAX = 300;
-
-/**
- * Condense early tool-result messages in the API message array **in-place**.
- * Replaces verbose tool output from older rounds with compact head+tail summaries,
- * while preserving the message structure (role, tool_call_id) that APIs require.
- *
- * Strategy: find all `role: 'tool'` messages, keep the most recent ones verbatim,
- * and compress the rest to a head+tail summary. Error results are never condensed
- * to preserve diagnostic information for the LLM.
- *
- * NOTE: This mutates the `apiMessages` array objects directly.
- */
-function condenseToolMessages(apiMessages: ChatCompletionMessage[]): void {
-  // Find indices of all tool-result messages
-  const toolIndices: number[] = [];
-  for (let i = 0; i < apiMessages.length; i++) {
-    if (apiMessages[i].role === 'tool') {
-      toolIndices.push(i);
-    }
-  }
-
-  // Only condense if we have enough tool messages
-  if (toolIndices.length <= CONDENSE_KEEP_RECENT) return;
-
-  // Condense all except the most recent CONDENSE_KEEP_RECENT
-  const toCondense = toolIndices.slice(0, -CONDENSE_KEEP_RECENT);
-  for (const idx of toCondense) {
-    const msg = apiMessages[idx];
-    const content = msg.content;
-    const toolName = msg.tool_name || 'tool';
-
-    // Already condensed — skip
-    if (content.startsWith('[condensed]')) continue;
-
-    // Detect error: check for JSON error wrapper or known error patterns
-    let isError = false;
-    try {
-      const parsed = JSON.parse(content);
-      isError = typeof parsed === 'object' && parsed !== null && 'error' in parsed && !!parsed.error;
-    } catch {
-      // Not JSON — plain text output (success case)
-    }
-
-    // Never condense error results — they contain critical diagnostic info
-    if (isError) continue;
-
-    // Build head+tail summary: first 2 lines + last 2 lines
-    const lines = content.split('\n').filter(l => l.trim().length > 0);
-    let summary: string;
-    if (lines.length <= 4) {
-      // Short enough — keep as-is if within limit
-      summary = lines.join('\n');
-    } else {
-      const head = lines.slice(0, 2).join('\n');
-      const tail = lines.slice(-2).join('\n');
-      summary = `${head}\n... (${lines.length - 4} lines omitted)\n${tail}`;
-    }
-
-    if (summary.length > CONDENSE_SUMMARY_MAX) {
-      summary = summary.slice(0, CONDENSE_SUMMARY_MAX) + '…';
-    }
-
-    msg.content = `[condensed] ${toolName} → ok:\n${summary}`;
-  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

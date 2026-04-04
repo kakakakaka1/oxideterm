@@ -1671,4 +1671,94 @@ abc123	my-app	0.0.0.0:8080->80/tcp
         // active = total - idle - iowait = 371 - 200 - 5 = 166
         assert_eq!(snap.active(), 166);
     }
+
+    #[test]
+    fn test_extract_section_missing_marker() {
+        assert!(extract_section(SAMPLE_OUTPUT, "DOES_NOT_EXIST").is_none());
+    }
+
+    #[test]
+    fn test_parse_cpu_snapshot_invalid_prefix() {
+        let output = "===STAT===\nnotcpu 1 2 3 4 5 6 7 8\n===END===";
+        assert!(parse_cpu_snapshot(output).is_none());
+    }
+
+    #[test]
+    fn test_parse_meminfo_missing_available() {
+        let output = "===MEMINFO===\nMemTotal: 1024 kB\n===END===";
+        assert!(parse_meminfo(output).is_none());
+    }
+
+    #[test]
+    fn test_parse_meminfo_available_exceeds_total_saturates_to_zero_used() {
+        let output = "===MEMINFO===\nMemTotal: 1024 kB\nMemAvailable: 2048 kB\n===END===";
+        let (used, total) = parse_meminfo(output).unwrap();
+        assert_eq!(used, 0);
+        assert_eq!(total, 1024 * 1024);
+    }
+
+    #[test]
+    fn test_parse_loadavg_invalid() {
+        let output = "===LOADAVG===\nnot-a-loadavg\n===END===";
+        assert!(parse_loadavg(output).is_none());
+    }
+
+    #[test]
+    fn test_parse_net_snapshot_ignores_malformed_lines() {
+        let output = r#"===NETDEV===
+Inter-|   Receive                                                |  Transmit
+ face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
+ badline without separator
+  eth0: 500 1 0 0 0 0 0 0 700 1 0 0 0 0 0 0
+===END==="#;
+        let snapshot = parse_net_snapshot(output).unwrap();
+        assert_eq!(snapshot.rx_bytes, 500);
+        assert_eq!(snapshot.tx_bytes, 700);
+    }
+
+    #[test]
+    fn test_parse_nproc_invalid() {
+        let output = "===NPROC===\nNaN\n===END===";
+        assert!(parse_nproc(output).is_none());
+    }
+
+    #[test]
+    fn test_parse_listening_ports_missing_section() {
+        assert!(parse_listening_ports("===END===", "Linux").is_empty());
+    }
+
+    #[test]
+    fn test_parse_metrics_partial_source() {
+        let output = "===MEMINFO===\nMemTotal: 1024 kB\nMemAvailable: 512 kB\n===END===";
+        let metrics = parse_metrics(output, &None);
+        assert_eq!(metrics.source, MetricsSource::Partial);
+        assert!(metrics.memory_used.is_some());
+        assert!(metrics.cpu_percent.is_none());
+    }
+
+    #[test]
+    fn test_parse_metrics_zero_elapsed_delta_yields_no_rates() {
+        let prev = PreviousSample {
+            cpu: CpuSnapshot {
+                user: u64::MAX,
+                nice: 0,
+                system: 0,
+                idle: 0,
+                iowait: 0,
+                irq: 0,
+                softirq: 0,
+                steal: 0,
+            },
+            net: NetSnapshot {
+                rx_bytes: u64::MAX,
+                tx_bytes: u64::MAX,
+            },
+            timestamp_ms: u64::MAX,
+        };
+
+        let metrics = parse_metrics(SAMPLE_OUTPUT, &Some(prev));
+        assert!(metrics.cpu_percent.is_none());
+        assert!(metrics.net_rx_bytes_per_sec.is_none());
+        assert!(metrics.net_tx_bytes_per_sec.is_none());
+    }
 }

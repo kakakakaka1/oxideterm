@@ -440,4 +440,50 @@ mod tests {
         let cache = HostKeyCache::default();
         assert!(cache.get_verified("any.com", 22).is_none());
     }
+
+    #[test]
+    fn test_get_verified_removes_expired_entry() {
+        let cache = HostKeyCache::new();
+        let key = "expired.example.com:22".to_string();
+        cache.cache.insert(
+            key.clone(),
+            CacheEntry {
+                fingerprint: "expired-fp".to_string(),
+                verified_at: SystemTime::now() - Duration::from_secs(CACHE_TTL_SECS + 1),
+            },
+        );
+
+        assert!(cache.get_verified("expired.example.com", 22).is_none());
+        assert!(!cache.cache.contains_key(&key));
+    }
+
+    #[test]
+    fn test_set_verified_keeps_cache_bounded() {
+        let cache = HostKeyCache::new();
+        for index in 0..MAX_CACHE_ENTRIES {
+            cache.set_verified(&format!("host-{index}"), 22, format!("fp-{index}"));
+        }
+
+        cache.set_verified("extra.example.com", 22, "extra-fp".to_string());
+
+        assert!(cache.cache.len() <= MAX_CACHE_ENTRIES);
+        assert_eq!(
+            cache.get_verified("extra.example.com", 22),
+            Some("extra-fp".to_string())
+        );
+    }
+
+    #[test]
+    fn test_accept_host_key_updates_global_cache() {
+        get_host_key_cache().clear();
+
+        accept_host_key("accepted.example.com", 2222, "SHA256:accepted-fp").unwrap();
+
+        assert_eq!(
+            get_host_key_cache().get_verified("accepted.example.com", 2222),
+            Some("SHA256:accepted-fp".to_string())
+        );
+
+        get_host_key_cache().clear();
+    }
 }

@@ -340,3 +340,155 @@ pub async fn check_transfer_control(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sftp::SftpError;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use tokio::time::timeout;
+
+    #[test]
+    fn test_transfer_control_state_transitions() {
+        let control = TransferControl::new();
+        assert!(!control.is_cancelled());
+        assert!(!control.is_paused());
+
+        control.pause();
+        assert!(control.is_paused());
+
+        control.resume();
+        assert!(!control.is_paused());
+
+        control.cancel();
+        assert!(control.is_cancelled());
+    }
+
+    #[test]
+    fn test_transfer_control_subscribers_observe_changes() {
+        let control = TransferControl::new();
+        let cancel_rx = control.subscribe_cancellation();
+        let pause_rx = control.subscribe_pause();
+
+        control.pause();
+        control.cancel();
+
+        assert!(*pause_rx.borrow());
+        assert!(*cancel_rx.borrow());
+    }
+
+    #[test]
+    fn test_register_same_transfer_id_replaces_existing_control() {
+        let manager = TransferManager::new();
+        let first = manager.register("tx-1");
+        let second = manager.register("tx-1");
+
+        assert_eq!(manager.registered_count(), 1);
+        assert!(!Arc::ptr_eq(&first, &second));
+        assert!(Arc::ptr_eq(&manager.get_control("tx-1").unwrap(), &second));
+    }
+
+    #[test]
+    fn test_transfer_guard_unregisters_on_drop() {
+        let manager = Arc::new(TransferManager::new());
+        manager.register("guarded-transfer");
+        assert_eq!(manager.registered_count(), 1);
+
+        {
+            let _guard = TransferGuard::new(Some(&manager), "guarded-transfer".to_string());
+            assert_eq!(manager.registered_count(), 1);
+        }
+
+        assert_eq!(manager.registered_count(), 0);
+    }
+
+    #[test]
+    fn test_transfer_guard_noop_without_manager() {
+        let _guard = TransferGuard::new(None, "no-manager".to_string());
+    }
+
+    #[test]
+    fn test_set_max_concurrent_is_clamped() {
+        let manager = TransferManager::new();
+
+        manager.set_max_concurrent(0);
+        assert_eq!(manager.max_concurrent(), 1);
+
+        manager.set_max_concurrent(MAX_POSSIBLE_CONCURRENT + 10);
+        assert_eq!(manager.max_concurrent(), MAX_POSSIBLE_CONCURRENT);
+    }
+
+    #[test]
+    fn test_set_speed_limit_kbps() {
+        let manager = TransferManager::new();
+
+        manager.set_speed_limit_kbps(256);
+        assert_eq!(manager.get_speed_limit_bps(), 256 * 1024);
+
+        manager.set_speed_limit_kbps(0);
+        assert_eq!(manager.get_speed_limit_bps(), 0);
+    }
+
+    #[test]
+    fn test_cancel_pause_resume_missing_transfer() {
+        let manager = TransferManager::new();
+
+        assert!(!manager.cancel("missing"));
+        assert!(!manager.pause("missing"));
+        assert!(!manager.resume("missing"));
+    }
+
+    #[test]
+    fn test_cancel_all_marks_everything_cancelled() {
+        let manager = TransferManager::new();
+        let first = manager.register("tx-1");
+        let second = manager.register("tx-2");
+
+        manager.cancel_all();
+
+        assert!(first.is_cancelled());
+        assert!(second.is_cancelled());
+    }
+
+    #[test]
+    fn test_on_transfer_complete_underflow_is_safe() {
+        let manager = TransferManager::new();
+        manager.on_transfer_complete();
+        assert_eq!(manager.active_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_acquire_permit_blocks_until_previous_is_dropped() {
+        let manager = Arc::new(TransferManager::new());
+        manager.set_max_concurrent(1);
+
+        let permit = manager.acquire_permit().await;
+        assert_eq!(manager.active_count(), 1);
+
+        let blocked = timeout(Duration::from_millis(50), manager.acquire_permit()).await;
+        assert!(blocked.is_err());
+
+        drop(permit);
+        assert_eq!(manager.active_count(), 0);
+
+        let second = timeout(Duration::from_millis(300), manager.acquire_permit())
+            .await
+            .expect("second permit should be acquired after the first is dropped");
+        assert_eq!(manager.active_count(), 1);
+        drop(second);
+        assert_eq!(manager.active_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_check_transfer_control_only_cares_about_cancel() {
+        let control = TransferControl::new();
+        control.pause();
+        assert!(check_transfer_control(&control).await.is_ok());
+
+        control.cancel();
+        let result = check_transfer_control(&control).await;
+        assert!(matches!(result, Err(SftpError::TransferCancelled)));
+    }
+}

@@ -784,6 +784,13 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
+    fn create_test_store() -> (StateStore, TempDir) {
+        let temp_dir = TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("test.redb");
+        let store = StateStore::new(db_path).unwrap();
+        (store, temp_dir)
+    }
+
     #[test]
     fn test_store_creation() {
         let temp_dir = TempDir::new().unwrap();
@@ -941,12 +948,109 @@ mod tests {
 
     #[test]
     fn test_empty_data() {
-        let temp_dir = TempDir::new().unwrap();
-        let db_path = temp_dir.path().join("test.redb");
-        let store = StateStore::new(db_path).unwrap();
+        let (store, _temp_dir) = create_test_store();
 
         store.save_session("empty", b"").unwrap();
         let loaded = store.load_session("empty").unwrap();
         assert!(loaded.is_empty());
+    }
+
+    #[test]
+    fn test_bulk_write_stress_keeps_stats_consistent() {
+        let (store, _temp_dir) = create_test_store();
+
+        for index in 0..1500 {
+            store
+                .save_session(
+                    &format!("session-{index}"),
+                    format!("session-data-{index}").as_bytes(),
+                )
+                .unwrap();
+            store
+                .save_forward(
+                    &format!("forward-{index}"),
+                    format!("forward-data-{index}").as_bytes(),
+                )
+                .unwrap();
+        }
+
+        let stats = store.stats().unwrap();
+        assert_eq!(stats.session_count, 1500);
+        assert_eq!(stats.forward_count, 1500);
+        assert_eq!(store.list_sessions().unwrap().len(), 1500);
+        assert_eq!(store.list_forwards().unwrap().len(), 1500);
+        assert_eq!(
+            store.load_session("session-1499").unwrap(),
+            b"session-data-1499"
+        );
+        assert_eq!(
+            store.load_forward("forward-1499").unwrap(),
+            b"forward-data-1499"
+        );
+    }
+
+    #[test]
+    fn test_repeated_overwrite_keeps_stats_accurate() {
+        let (store, _temp_dir) = create_test_store();
+
+        for version in 0..100 {
+            store
+                .save_session("dup-session", format!("session-{version}").as_bytes())
+                .unwrap();
+            store
+                .save_forward("dup-forward", format!("forward-{version}").as_bytes())
+                .unwrap();
+        }
+
+        let stats = store.stats().unwrap();
+        assert_eq!(stats.session_count, 1);
+        assert_eq!(stats.forward_count, 1);
+        assert_eq!(store.load_session("dup-session").unwrap(), b"session-99");
+        assert_eq!(store.load_forward("dup-forward").unwrap(), b"forward-99");
+    }
+
+    #[test]
+    fn test_delete_nonexistent_forward_is_idempotent() {
+        let (store, _temp_dir) = create_test_store();
+
+        store.delete_forward("missing-forward").unwrap();
+        store.delete_forward("missing-forward").unwrap();
+        store.delete_session("missing-session").unwrap();
+        store.delete_session("missing-session").unwrap();
+
+        let stats = store.stats().unwrap();
+        assert_eq!(stats.session_count, 0);
+        assert_eq!(stats.forward_count, 0);
+    }
+
+    #[test]
+    fn test_aborted_transaction_does_not_leave_dirty_state() {
+        let (store, _temp_dir) = create_test_store();
+
+        let write_txn = store.db.begin_write().unwrap();
+        {
+            let mut session_table = write_txn.open_table(SESSIONS_TABLE).unwrap();
+            let mut forward_table = write_txn.open_table(FORWARDS_TABLE).unwrap();
+            session_table
+                .insert("dirty-session", b"session-bytes".as_slice())
+                .unwrap();
+            forward_table
+                .insert("dirty-forward", b"forward-bytes".as_slice())
+                .unwrap();
+        }
+        drop(write_txn);
+
+        assert!(matches!(
+            store.load_session("dirty-session"),
+            Err(StateError::NotFound(_))
+        ));
+        assert!(matches!(
+            store.load_forward("dirty-forward"),
+            Err(StateError::NotFound(_))
+        ));
+
+        let stats = store.stats().unwrap();
+        assert_eq!(stats.session_count, 0);
+        assert_eq!(stats.forward_count, 0);
     }
 }

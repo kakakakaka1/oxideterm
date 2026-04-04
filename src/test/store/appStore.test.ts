@@ -1,0 +1,295 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const apiMocks = vi.hoisted(() => ({
+  sshDisconnect: vi.fn(),
+  sshListConnections: vi.fn(),
+  sshSetKeepAlive: vi.fn(),
+  networkStatusChanged: vi.fn().mockResolvedValue(undefined),
+}));
+
+const settingsStoreMock = vi.hoisted(() => {
+  const state = {
+    settings: {
+      sidebarUI: {
+        collapsed: false,
+        activeSection: 'sessions',
+      },
+      buffer: {
+        maxLines: 5000,
+      },
+    },
+  };
+
+  const store = Object.assign(
+    ((selector?: (value: typeof state) => unknown) =>
+      selector ? selector(state) : state) as unknown as {
+      (selector?: (value: typeof state) => unknown): unknown;
+      getState: () => typeof state;
+    },
+    {
+      getState: () => state,
+    },
+  );
+
+  return { state, store };
+});
+
+const sessionTreeStoreMock = vi.hoisted(() => {
+  const state = {
+    getNodeByTerminalId: vi.fn(),
+    purgeTerminalMapping: vi.fn(),
+  };
+
+  const store = Object.assign(
+    ((selector?: (value: typeof state) => unknown) =>
+      selector ? selector(state) : state) as unknown as {
+      (selector?: (value: typeof state) => unknown): unknown;
+      getState: () => typeof state;
+    },
+    {
+      getState: () => state,
+    },
+  );
+
+  return { state, store };
+});
+
+const localTerminalStoreMock = vi.hoisted(() => {
+  const state = {
+    getTerminal: vi.fn(),
+    backgroundSessions: new Set<string>(),
+    refreshTerminals: vi.fn().mockResolvedValue(undefined),
+    closeTerminal: vi.fn().mockResolvedValue(undefined),
+  };
+
+  const store = Object.assign(
+    ((selector?: (value: typeof state) => unknown) =>
+      selector ? selector(state) : state) as unknown as {
+      (selector?: (value: typeof state) => unknown): unknown;
+      getState: () => typeof state;
+    },
+    {
+      getState: () => state,
+    },
+  );
+
+  return { state, store };
+});
+
+vi.mock('@/lib/api', () => ({
+  api: apiMocks,
+}));
+
+vi.mock('@/hooks/useToast', () => ({
+  useToastStore: {
+    getState: () => ({ addToast: vi.fn() }),
+  },
+}));
+
+vi.mock('@/store/settingsStore', () => ({
+  useSettingsStore: settingsStoreMock.store,
+}));
+
+vi.mock('@/store/sessionTreeStore', () => ({
+  useSessionTreeStore: sessionTreeStoreMock.store,
+}));
+
+vi.mock('@/store/localTerminalStore', () => ({
+  useLocalTerminalStore: localTerminalStoreMock.store,
+}));
+
+vi.mock('@/lib/topologyResolver', () => ({
+  topologyResolver: {},
+}));
+
+vi.mock('@/i18n', () => ({
+  default: {
+    t: (key: string) => key,
+  },
+}));
+
+import { useAppStore } from '@/store/appStore';
+import type { RemoteEnvInfo, SessionInfo, SshConnectionInfo } from '@/types';
+
+function makeConnection(overrides: Partial<SshConnectionInfo> = {}): SshConnectionInfo {
+  return {
+    id: 'conn-1',
+    host: 'example.com',
+    port: 22,
+    username: 'tester',
+    state: 'idle',
+    refCount: 0,
+    keepAlive: false,
+    createdAt: '2026-04-05T00:00:00Z',
+    lastActive: '2026-04-05T00:00:00Z',
+    terminalIds: [],
+    forwardIds: [],
+    ...overrides,
+  };
+}
+
+function makeSession(overrides: Partial<SessionInfo> = {}): SessionInfo {
+  return {
+    id: 'session-1',
+    name: 'Terminal 1',
+    host: 'example.com',
+    port: 22,
+    username: 'tester',
+    state: 'connected',
+    color: '#fff',
+    uptime_secs: 0,
+    order: 0,
+    auth_type: 'agent',
+    connectionId: 'conn-1',
+    ...overrides,
+  };
+}
+
+function resetAppStore() {
+  useAppStore.setState({
+    sessions: new Map(),
+    connections: new Map(),
+    tabs: [],
+    activeTabId: null,
+    tabHistory: [],
+    tabHistoryCursor: -1,
+    _isNavigating: false,
+    lastNonAgentTabType: null,
+    modals: {
+      newConnection: false,
+      settings: false,
+      editConnection: false,
+      connectionManager: false,
+      autoRoute: false,
+    },
+    quickConnectData: null,
+    savedConnections: [],
+    groups: [],
+    selectedGroup: null,
+    editingConnection: null,
+    networkOnline: true,
+  });
+}
+
+describe('appStore', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetAppStore();
+  });
+
+  it('refreshConnections replaces the current connection map from backend data', async () => {
+    apiMocks.sshListConnections.mockResolvedValue([
+      makeConnection({ id: 'conn-1', state: 'active' }),
+      makeConnection({ id: 'conn-2', host: 'second.example.com', username: 'root' }),
+    ]);
+
+    useAppStore.setState({
+      connections: new Map([['stale', makeConnection({ id: 'stale' })]]),
+    });
+
+    await useAppStore.getState().refreshConnections();
+
+    const connections = useAppStore.getState().connections;
+    expect(Array.from(connections.keys())).toEqual(['conn-1', 'conn-2']);
+    expect(connections.get('conn-1')?.state).toBe('active');
+    expect(connections.get('conn-2')?.host).toBe('second.example.com');
+  });
+
+  it('refreshConnections keeps current state when backend refresh fails', async () => {
+    apiMocks.sshListConnections.mockRejectedValue(new Error('network down'));
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    useAppStore.setState({
+      connections: new Map([['conn-1', makeConnection({ state: 'active' })]]),
+    });
+
+    await expect(useAppStore.getState().refreshConnections()).resolves.toBeUndefined();
+
+    expect(useAppStore.getState().connections.get('conn-1')?.state).toBe('active');
+    consoleError.mockRestore();
+  });
+
+  it('setConnectionKeepAlive updates backend and local connection state', async () => {
+    apiMocks.sshSetKeepAlive.mockResolvedValue(undefined);
+    useAppStore.setState({
+      connections: new Map([['conn-1', makeConnection()]]),
+    });
+
+    await useAppStore.getState().setConnectionKeepAlive('conn-1', true);
+
+    expect(apiMocks.sshSetKeepAlive).toHaveBeenCalledWith('conn-1', true);
+    expect(useAppStore.getState().connections.get('conn-1')?.keepAlive).toBe(true);
+  });
+
+  it('updateConnectionState mutates only the targeted connection', () => {
+    useAppStore.setState({
+      connections: new Map([
+        ['conn-1', makeConnection()],
+        ['conn-2', makeConnection({ id: 'conn-2', state: 'active' })],
+      ]),
+    });
+
+    useAppStore.getState().updateConnectionState('conn-1', 'link_down');
+
+    expect(useAppStore.getState().connections.get('conn-1')?.state).toBe('link_down');
+    expect(useAppStore.getState().connections.get('conn-2')?.state).toBe('active');
+  });
+
+  it('updateConnectionRemoteEnv attaches remote environment info when the connection exists', () => {
+    const remoteEnv: RemoteEnvInfo = {
+      osType: 'Linux',
+      osVersion: 'Ubuntu 24.04',
+      kernel: '6.8.0',
+      arch: 'x86_64',
+      shell: 'bash',
+      detectedAt: 1712345678,
+    };
+
+    useAppStore.setState({
+      connections: new Map([['conn-1', makeConnection()]]),
+    });
+
+    useAppStore.getState().updateConnectionRemoteEnv('conn-1', remoteEnv);
+
+    expect(useAppStore.getState().connections.get('conn-1')?.remoteEnv).toEqual(remoteEnv);
+  });
+
+  it('getConnectionForSession resolves through the session connectionId', () => {
+    useAppStore.setState({
+      connections: new Map([['conn-1', makeConnection({ state: 'active' })]]),
+      sessions: new Map([['session-1', makeSession()]]),
+    });
+
+    expect(useAppStore.getState().getConnectionForSession('session-1')?.id).toBe('conn-1');
+    expect(useAppStore.getState().getConnectionForSession('missing')).toBeUndefined();
+  });
+
+  it('disconnectSsh removes the connection and all related terminal tabs and sessions', async () => {
+    apiMocks.sshDisconnect.mockResolvedValue(undefined);
+    useAppStore.setState({
+      connections: new Map([
+        [
+          'conn-1',
+          makeConnection({
+            state: 'active',
+            terminalIds: ['session-1'],
+            refCount: 1,
+          }),
+        ],
+      ]),
+      sessions: new Map([['session-1', makeSession()]]),
+      tabs: [
+        { id: 'tab-1', type: 'terminal', title: 'Terminal 1', sessionId: 'session-1' },
+        { id: 'tab-2', type: 'settings', title: 'Settings' },
+      ],
+      activeTabId: 'tab-1',
+    });
+
+    await useAppStore.getState().disconnectSsh('conn-1');
+
+    expect(apiMocks.sshDisconnect).toHaveBeenCalledWith('conn-1');
+    expect(useAppStore.getState().connections.has('conn-1')).toBe(false);
+    expect(useAppStore.getState().sessions.has('session-1')).toBe(false);
+    expect(useAppStore.getState().tabs.map((tab) => tab.id)).toEqual(['tab-2']);
+    expect(useAppStore.getState().activeTabId).toBe('tab-2');
+  });
+});

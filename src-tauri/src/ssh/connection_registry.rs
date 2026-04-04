@@ -3018,4 +3018,111 @@ mod tests {
         let registry = SshConnectionRegistry::new();
         assert_eq!(registry.connections.len(), 0);
     }
+
+    #[tokio::test]
+    async fn test_terminal_ids_lifecycle() {
+        let entry = create_test_entry("terminal-test");
+
+        entry.add_terminal("sess-1".to_string()).await;
+        entry.add_terminal("sess-2".to_string()).await;
+        assert_eq!(entry.terminal_ids().await, vec!["sess-1", "sess-2"]);
+
+        entry.remove_terminal("sess-1").await;
+        assert_eq!(entry.terminal_ids().await, vec!["sess-2"]);
+    }
+
+    #[tokio::test]
+    async fn test_forward_ids_lifecycle() {
+        let entry = create_test_entry("forward-test");
+
+        entry.add_forward("fwd-1".to_string()).await;
+        entry.add_forward("fwd-2".to_string()).await;
+        assert_eq!(entry.forward_ids().await, vec!["fwd-1", "fwd-2"]);
+
+        entry.remove_forward("fwd-1").await;
+        assert_eq!(entry.forward_ids().await, vec!["fwd-2"]);
+    }
+
+    #[tokio::test]
+    async fn test_sftp_session_id_lifecycle() {
+        let entry = create_test_entry("sftp-session-test");
+
+        assert!(entry.sftp_session_id().await.is_none());
+
+        entry.set_sftp_session(Some("sftp-1".to_string())).await;
+        assert_eq!(entry.sftp_session_id().await, Some("sftp-1".to_string()));
+
+        entry.set_sftp_session(None).await;
+        assert!(entry.sftp_session_id().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_state_lifecycle() {
+        let entry = create_test_entry("state-test");
+        assert_eq!(entry.state().await, ConnectionState::Active);
+
+        entry.set_state(ConnectionState::Idle).await;
+        assert_eq!(entry.state().await, ConnectionState::Idle);
+    }
+
+    #[test]
+    fn test_remote_env_set_once() {
+        let entry = create_test_entry("env-test");
+        let first = RemoteEnvInfo {
+            os_type: "Linux".to_string(),
+            os_version: Some("Ubuntu".to_string()),
+            kernel: Some("6.0".to_string()),
+            arch: Some("x86_64".to_string()),
+            shell: Some("bash".to_string()),
+            detected_at: 1,
+        };
+        let second = RemoteEnvInfo {
+            os_type: "macOS".to_string(),
+            os_version: Some("14".to_string()),
+            kernel: None,
+            arch: None,
+            shell: Some("zsh".to_string()),
+            detected_at: 2,
+        };
+
+        entry.set_remote_env(first.clone());
+        entry.set_remote_env(second);
+
+        assert_eq!(entry.remote_env().unwrap().os_type, first.os_type);
+    }
+
+    #[tokio::test]
+    async fn test_set_and_cancel_reconnect_task_updates_flags() {
+        let entry = create_test_entry("reconnect-task-test");
+        entry.increment_reconnect_attempts();
+        entry.increment_reconnect_attempts();
+
+        let handle = tokio::spawn(async {
+            std::future::pending::<()>().await;
+        });
+        entry.set_reconnect_task(handle).await;
+        assert!(entry.is_reconnecting());
+
+        entry.cancel_reconnect().await;
+        assert!(!entry.is_reconnecting());
+        assert_eq!(entry.reconnect_attempts(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_to_info_reflects_runtime_fields() {
+        let entry = create_test_entry("info-test");
+        entry.add_terminal("term-1".to_string()).await;
+        entry.set_sftp_session(Some("sftp-1".to_string())).await;
+        entry.add_forward("fwd-1".to_string()).await;
+        entry.set_state(ConnectionState::Idle).await;
+        entry.set_keep_alive(true);
+
+        let info = entry.to_info().await;
+        assert_eq!(info.id, "info-test");
+        assert_eq!(info.state, ConnectionState::Idle);
+        assert_eq!(info.terminal_ids, vec!["term-1"]);
+        assert_eq!(info.sftp_session_id, Some("sftp-1".to_string()));
+        assert_eq!(info.forward_ids, vec!["fwd-1"]);
+        assert!(info.keep_alive);
+    }
 }

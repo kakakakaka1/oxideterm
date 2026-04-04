@@ -125,6 +125,7 @@ impl Frame {
 
         // Validate length
         if length > MAX_PAYLOAD_SIZE {
+            buf.clear();
             return Err(io::Error::new(
                 ErrorKind::InvalidData,
                 format!("Payload too large: {} bytes", length),
@@ -136,11 +137,9 @@ impl Frame {
             return Ok(None);
         }
 
-        // Consume header
-        buf.advance(HEADER_SIZE);
-
         // Parse payload based on type
         let msg_type = MessageType::from_byte(msg_type).ok_or_else(|| {
+            let _ = buf.split_to(HEADER_SIZE + length);
             io::Error::new(
                 ErrorKind::InvalidData,
                 format!("Unknown message type: {}", msg_type),
@@ -149,31 +148,37 @@ impl Frame {
 
         let frame = match msg_type {
             MessageType::Data => {
+                buf.advance(HEADER_SIZE);
                 let data = buf.split_to(length).freeze();
                 Frame::Data(data)
             }
             MessageType::Resize => {
                 if length != 4 {
+                    let _ = buf.split_to(HEADER_SIZE + length);
                     return Err(io::Error::new(
                         ErrorKind::InvalidData,
                         "Resize frame must have 4 bytes payload",
                     ));
                 }
+                buf.advance(HEADER_SIZE);
                 let cols = buf.get_u16();
                 let rows = buf.get_u16();
                 Frame::Resize { cols, rows }
             }
             MessageType::Heartbeat => {
                 if length != 4 {
+                    let _ = buf.split_to(HEADER_SIZE + length);
                     return Err(io::Error::new(
                         ErrorKind::InvalidData,
                         "Heartbeat frame must have 4 bytes payload",
                     ));
                 }
+                buf.advance(HEADER_SIZE);
                 let seq = buf.get_u32();
                 Frame::Heartbeat(seq)
             }
             MessageType::Error => {
+                buf.advance(HEADER_SIZE);
                 let data = buf.split_to(length);
                 let msg = String::from_utf8_lossy(&data).to_string();
                 Frame::Error(msg)
@@ -353,5 +358,79 @@ mod tests {
 
         // No more frames
         assert!(codec.decode_next().unwrap().is_none());
+    }
+
+    #[test]
+    fn test_invalid_message_type_is_discarded_and_recovery_continues() {
+        let mut codec = FrameCodec::new();
+        let invalid = [0xFF, 0x00, 0x00, 0x00, 0x03, b'b', b'a', b'd'];
+
+        codec.feed(&invalid);
+        codec.feed(&heartbeat_frame(9).encode());
+
+        assert!(codec.decode_next().is_err());
+        match codec.decode_next().unwrap().unwrap() {
+            Frame::Heartbeat(seq) => assert_eq!(seq, 9),
+            _ => panic!("expected heartbeat after malformed frame"),
+        }
+    }
+
+    #[test]
+    fn test_invalid_resize_length_is_discarded_and_recovery_continues() {
+        let mut codec = FrameCodec::new();
+        let invalid = [
+            MessageType::Resize.as_byte(),
+            0x00,
+            0x00,
+            0x00,
+            0x03,
+            0x00,
+            0x50,
+            0x00,
+        ];
+
+        codec.feed(&invalid);
+        codec.feed(&data_frame(Bytes::from_static(b"ok")).encode());
+
+        assert!(codec.decode_next().is_err());
+        match codec.decode_next().unwrap().unwrap() {
+            Frame::Data(data) => assert_eq!(data, &b"ok"[..]),
+            _ => panic!("expected data frame after malformed resize"),
+        }
+    }
+
+    #[test]
+    fn test_continuous_half_packets_decode_when_complete() {
+        let mut codec = FrameCodec::new();
+        let encoded = data_frame(Bytes::from_static(b"fragmented")).encode();
+
+        codec.feed(&encoded[..2]);
+        assert!(codec.decode_next().unwrap().is_none());
+
+        codec.feed(&encoded[2..7]);
+        assert!(codec.decode_next().unwrap().is_none());
+
+        codec.feed(&encoded[7..]);
+        match codec.decode_next().unwrap().unwrap() {
+            Frame::Data(data) => assert_eq!(data, &b"fragmented"[..]),
+            _ => panic!("expected fragmented data frame"),
+        }
+    }
+
+    #[test]
+    fn test_oversized_payload_clears_buffer() {
+        let mut codec = FrameCodec::new();
+        let length = (MAX_PAYLOAD_SIZE as u32) + 1;
+        let header = [
+            MessageType::Data.as_byte(),
+            ((length >> 24) & 0xFF) as u8,
+            ((length >> 16) & 0xFF) as u8,
+            ((length >> 8) & 0xFF) as u8,
+            (length & 0xFF) as u8,
+        ];
+
+        codec.feed(&header);
+        assert!(codec.decode_next().is_err());
+        assert_eq!(codec.buffer_len(), 0);
     }
 }

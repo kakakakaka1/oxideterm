@@ -54,6 +54,24 @@ impl Default for KnownHostsStore {
 }
 
 impl KnownHostsStore {
+    /// Canonicalize a hostname entry as it appears in known_hosts.
+    ///
+    /// Examples:
+    /// - `github.com` -> `github.com`
+    /// - `[server.example.com]:2222` -> `[server.example.com]:2222`
+    /// - `[server.example.com]:22` -> `server.example.com`
+    fn canonical_host_entry(hostname: &str) -> String {
+        let hostname = hostname.trim();
+        if let Some(stripped) = hostname.strip_prefix('[') {
+            if let Some((host, port_str)) = stripped.split_once("]:") {
+                if let Ok(port) = port_str.parse::<u16>() {
+                    return Self::make_key(host, port);
+                }
+            }
+        }
+        Self::normalize_hostname(hostname)
+    }
+
     /// Create a new known hosts store, loading from default location
     pub fn new() -> Self {
         let path = dirs::home_dir()
@@ -127,9 +145,8 @@ impl KnownHostsStore {
                     continue;
                 }
 
-                // Normalize: remove [port] suffix if present
-                let normalized = Self::normalize_hostname(hostname);
-                hosts.entry(normalized).or_default().push(entry.clone());
+                let canonical = Self::canonical_host_entry(hostname);
+                hosts.entry(canonical).or_default().push(entry.clone());
                 entry_count += 1;
             }
         }
@@ -183,7 +200,8 @@ impl KnownHostsStore {
 
         // Helper to check entries for a given hostname
         let check_entries = |entries: &Vec<HostKeyEntry>| -> Option<HostKeyVerification> {
-            // Find entry with matching key type
+            let mut expected_fingerprint = None;
+
             for entry in entries {
                 if entry.key_type == actual_key_type {
                     if entry.key_data == actual_key_b64 {
@@ -192,20 +210,26 @@ impl KnownHostsStore {
                             lookup_key, actual_key_type
                         );
                         return Some(HostKeyVerification::Verified);
-                    } else {
-                        let expected_fingerprint =
-                            Self::compute_fingerprint_from_b64(&entry.key_data);
-                        warn!(
-                            "HOST KEY CHANGED for {} (type: {})! Expected {}, got {}",
-                            lookup_key, actual_key_type, expected_fingerprint, fingerprint
-                        );
-                        return Some(HostKeyVerification::Changed {
-                            expected_fingerprint,
-                            actual_fingerprint: fingerprint.clone(),
-                        });
+                    }
+
+                    if expected_fingerprint.is_none() {
+                        expected_fingerprint =
+                            Some(Self::compute_fingerprint_from_b64(&entry.key_data));
                     }
                 }
             }
+
+            if let Some(expected_fingerprint) = expected_fingerprint {
+                warn!(
+                    "HOST KEY CHANGED for {} (type: {})! Expected {}, got {}",
+                    lookup_key, actual_key_type, expected_fingerprint, fingerprint
+                );
+                return Some(HostKeyVerification::Changed {
+                    expected_fingerprint,
+                    actual_fingerprint: fingerprint.clone(),
+                });
+            }
+
             // No matching key type found - host is known but not for this key type
             None
         };
@@ -333,6 +357,7 @@ impl KnownHostsStore {
         }
 
         let content = fs::read_to_string(&self.path).map_err(SshError::IoError)?;
+        let remove_host = remove_host.to_lowercase();
 
         let filtered: Vec<&str> = content
             .lines()
@@ -344,7 +369,7 @@ impl KnownHostsStore {
                 let hostnames = parts[0];
                 !hostnames
                     .split(',')
-                    .any(|h| Self::normalize_hostname(h) == remove_host)
+                    .any(|h| Self::canonical_host_entry(h) == remove_host)
             })
             .collect();
 
@@ -365,6 +390,22 @@ pub fn get_known_hosts() -> &'static KnownHostsStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use russh::keys::parse_public_key_base64;
+    use tempfile::tempdir;
+
+    fn sample_public_key() -> PublicKey {
+        parse_public_key_base64(
+            "AAAAC3NzaC1lZDI1NTE5AAAAIJdD7y3aLq454yWBdwLWbieU1ebz9/cu7/QEXn9OIeZJ",
+        )
+        .unwrap()
+    }
+
+    fn alternate_public_key() -> PublicKey {
+        parse_public_key_base64(
+            "AAAAC3NzaC1lZDI1NTE5AAAAIA6rWI3G1sz07DnfFlrouTcysQlj2P+jpNSOEWD9OJ3X",
+        )
+        .unwrap()
+    }
 
     #[test]
     fn test_normalize_hostname() {
@@ -438,5 +479,166 @@ mod tests {
     fn test_make_key_non_standard_port() {
         let key = KnownHostsStore::make_key("example.com", 443);
         assert_eq!(key, "[example.com]:443");
+    }
+
+    #[test]
+    fn test_canonical_host_entry_preserves_non_standard_port() {
+        assert_eq!(
+            KnownHostsStore::canonical_host_entry("[example.com]:2222"),
+            "[example.com]:2222"
+        );
+        assert_eq!(
+            KnownHostsStore::canonical_host_entry("[example.com]:22"),
+            "example.com"
+        );
+    }
+
+    #[test]
+    fn test_with_path_missing_file_starts_empty() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("missing_known_hosts");
+        let store = KnownHostsStore::with_path(path);
+        assert!(store.hosts.read().is_empty());
+    }
+
+    #[test]
+    fn test_load_preserves_non_standard_port_entries() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("known_hosts");
+        fs::write(
+            &path,
+            "[example.com]:2222 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILM+rvN+ot98qgEN796jTiQfZfG1KaT0PtFDJ/XFSqti\n",
+        )
+        .unwrap();
+
+        let store = KnownHostsStore::with_path(path);
+        assert!(store.hosts.read().contains_key("[example.com]:2222"));
+    }
+
+    #[test]
+    fn test_load_skips_comments_and_hashed_hosts() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("known_hosts");
+        fs::write(
+            &path,
+            "# comment\n|1|hashed|entry ssh-ed25519 AAAA\nexample.com,alias.example.com ssh-rsa AAAA\n",
+        )
+        .unwrap();
+
+        let store = KnownHostsStore::with_path(path);
+        let hosts = store.hosts.read();
+        assert!(hosts.contains_key("example.com"));
+        assert!(hosts.contains_key("alias.example.com"));
+        assert!(!hosts.contains_key("|1|hashed|entry"));
+    }
+
+    #[test]
+    fn test_verify_distinguishes_non_standard_port_entries() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("known_hosts");
+        let store = KnownHostsStore::with_path(path);
+        let key = sample_public_key();
+
+        store.add_host("example.com", 2222, &key).unwrap();
+
+        assert_eq!(
+            store.verify("example.com", 2222, &key),
+            HostKeyVerification::Verified
+        );
+        assert!(matches!(
+            store.verify("example.com", 22, &key),
+            HostKeyVerification::Unknown { .. }
+        ));
+    }
+
+    #[test]
+    fn test_remove_host_non_standard_port_rewrites_file() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("known_hosts");
+        fs::write(
+            &path,
+            "[example.com]:2222 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILM+rvN+ot98qgEN796jTiQfZfG1KaT0PtFDJ/XFSqti\nother.example.com ssh-rsa AAAA\n",
+        )
+        .unwrap();
+
+        let store = KnownHostsStore::with_path(path.clone());
+        store.remove_host("example.com", 2222).unwrap();
+
+        let content = fs::read_to_string(path).unwrap();
+        assert!(!content.contains("[example.com]:2222"));
+        assert!(content.contains("other.example.com"));
+    }
+
+    #[test]
+    fn test_load_skips_malformed_lines() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("known_hosts");
+        fs::write(
+            &path,
+            format!(
+                "badline\nmissing-key ssh-ed25519\nvalid.example.com ssh-ed25519 {}\n",
+                BASE64.encode(sample_public_key().public_key_bytes())
+            ),
+        )
+        .unwrap();
+
+        let store = KnownHostsStore::with_path(path);
+        let hosts = store.hosts.read();
+        assert_eq!(hosts.len(), 1);
+        assert!(hosts.contains_key("valid.example.com"));
+    }
+
+    #[test]
+    fn test_verify_prefers_exact_match_when_duplicate_host_entries_exist() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("known_hosts");
+        let first = BASE64.encode(alternate_public_key().public_key_bytes());
+        let second = BASE64.encode(sample_public_key().public_key_bytes());
+        fs::write(
+            &path,
+            format!(
+                "example.com ssh-ed25519 {}\nexample.com ssh-ed25519 {}\n",
+                first, second
+            ),
+        )
+        .unwrap();
+
+        let store = KnownHostsStore::with_path(path);
+        assert_eq!(
+            store.verify("example.com", 22, &sample_public_key()),
+            HostKeyVerification::Verified
+        );
+    }
+
+    #[test]
+    fn test_verify_alias_from_multi_host_line() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("known_hosts");
+        let key_b64 = BASE64.encode(sample_public_key().public_key_bytes());
+        fs::write(
+            &path,
+            format!("example.com,alias.example.com ssh-ed25519 {}\n", key_b64),
+        )
+        .unwrap();
+
+        let store = KnownHostsStore::with_path(path);
+        assert_eq!(
+            store.verify("alias.example.com", 22, &sample_public_key()),
+            HostKeyVerification::Verified
+        );
+    }
+
+    #[test]
+    fn test_hashed_host_entries_are_not_used_for_verification() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("known_hosts");
+        let key_b64 = BASE64.encode(sample_public_key().public_key_bytes());
+        fs::write(&path, format!("|1|salt|hash ssh-ed25519 {}\n", key_b64)).unwrap();
+
+        let store = KnownHostsStore::with_path(path);
+        assert!(matches!(
+            store.verify("example.com", 22, &sample_public_key()),
+            HostKeyVerification::Unknown { .. }
+        ));
     }
 }
