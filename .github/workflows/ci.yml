@@ -103,7 +103,7 @@ jobs:
         run: cd src-tauri && cargo test --lib
 
       - name: cargo test (cli)
-        run: cd cli && cargo test --lib
+        run: cd cli && cargo test
 
   # ── Security & license audit ────────────────────────────────────────
   # cargo deny reads the dependency graph only — no compilation, no Linux

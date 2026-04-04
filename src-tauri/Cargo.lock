@@ -3477,6 +3477,7 @@ dependencies = [
  "walkdir",
  "whoami",
  "window-vibrancy",
+ "windows-sys 0.59.0",
  "zeroize",
  "zip 2.4.2",
  "zstd",

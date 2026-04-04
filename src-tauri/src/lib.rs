@@ -21,6 +21,7 @@ pub mod launcher;
 #[cfg(feature = "local-terminal")]
 pub mod local;
 pub mod oxide_file;
+pub mod path_utils;
 pub mod rag;
 pub mod router;
 pub mod session;

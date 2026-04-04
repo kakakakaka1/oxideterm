@@ -92,6 +92,7 @@ import { api } from '@/lib/api';
 import { useReconnectOrchestratorStore } from '@/store/reconnectOrchestratorStore';
 import { useSessionTreeStore } from '@/store/sessionTreeStore';
 import type { ConnectionInfo, PaneNode } from '@/types';
+import { platform } from '@/lib/platform';
 
 // ─── Types ────────────────────────────────────────────────────────────
 
@@ -128,7 +129,7 @@ type CommandPaletteProps = {
 
 const QUICK_CONNECT_RE = /^([^@\s]+)@([^:\s]+)(?::(\d+))?$/;
 
-const isMac = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform);
+const isMac = platform.isMac;
 
 /** Map command IDs to their keyboard shortcuts */
 const SHORTCUT_MAP: Record<string, { mac: string; other: string }> = {

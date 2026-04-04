@@ -91,12 +91,14 @@ fn generate_powershell_init_script(config: &PtyConfig) -> Option<String> {
 
     // 1. UTF-8 encoding initialization
     // This fixes display of:
-    // - CJK characters (中文, 日本語, 한국어)
+    // - CJK characters (中文, 日本語, 한国어)
     // - Emoji (🎉, 🚀, ✅)
     // - Nerd Font icons (, , )
+    // Wrapped in try/catch: some locked-down environments block Console encoding changes
     parts.push(
-        "[Console]::InputEncoding = [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; \
-         $OutputEncoding = [System.Text.Encoding]::UTF8"
+        "try { [Console]::InputEncoding = [Console]::OutputEncoding = \
+         [System.Text.Encoding]::UTF8; \
+         $OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}"
             .to_string(),
     );
 

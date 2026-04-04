@@ -37,22 +37,8 @@ use super::client::ClientHandler;
 use super::config::AuthMethod;
 use super::error::SshError;
 
+use crate::path_utils::expand_tilde;
 use crate::session::tree::MAX_CHAIN_DEPTH;
-
-/// Expand ~ to home directory for path normalization
-/// This ensures paths like ~/... work correctly with russh::keys
-fn expand_tilde(path: &str) -> String {
-    if let Some(stripped) = path.strip_prefix("~/") {
-        if let Some(home) = dirs::home_dir() {
-            return home.join(stripped).to_string_lossy().into_owned();
-        }
-    } else if path == "~" {
-        if let Some(home) = dirs::home_dir() {
-            return home.to_string_lossy().into_owned();
-        }
-    }
-    path.to_string()
-}
 
 /// Proxy hop configuration
 #[derive(Debug, Clone)]

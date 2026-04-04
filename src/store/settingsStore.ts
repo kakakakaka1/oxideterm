@@ -20,6 +20,7 @@ import { useToastStore } from '../hooks/useToast';
 import { getFontFamilyCSS } from '../components/fileManager/fontUtils';
 import i18n from '../i18n';
 import { DEFAULT_PROVIDERS } from '../lib/ai/providers';
+import { platform } from '../lib/platform';
 
 // ============================================================================
 // Constants
@@ -305,9 +306,7 @@ export interface ExperimentalSettings {
 // Platform Detection
 // ============================================================================
 
-const isWindows = typeof navigator !== 'undefined'
-  && (navigator as any).userAgentData?.platform?.toLowerCase() === 'windows'
-  || (typeof navigator !== 'undefined' && (navigator.platform ?? '').toLowerCase().includes('win'));
+const isWindows = platform.isWindows;
 
 // ============================================================================
 // Default Values

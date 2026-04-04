@@ -31,6 +31,7 @@ import { TooltipProvider } from './components/ui/tooltip';
 import { useFontSizeHUD } from './components/ui/FontSizeHUD';
 import { useRecordingStore } from './store/recordingStore';
 import { useCommandPaletteStore } from './store/commandPaletteStore';
+import { platform } from './lib/platform';
 
 function App() {
   // Initialize global event listeners
@@ -383,10 +384,13 @@ function App() {
         return;
       }
       
-      // ─── Mac Cmd+key shortcuts ───
-      // Cmd+key is NOT a standard terminal control sequence, so it's
+      // ─── Cross-platform Cmd/Ctrl+key shortcuts ───
+      // macOS: Cmd+key (metaKey)   Windows/Linux: Ctrl+key (ctrlKey)
+      // These are NOT standard terminal control sequences, so it's
       // safe to intercept even when the terminal is focused.
-      if (e.metaKey && !e.ctrlKey) {
+      const modKey = platform.isMac ? e.metaKey : e.ctrlKey;
+      const noExtraMod = platform.isMac ? !e.ctrlKey : !e.metaKey;
+      if (modKey && noExtraMod) {
         const key = e.key.toLowerCase();
 
         // Cmd+T — New local terminal

@@ -48,7 +48,7 @@ pub enum KeyError {
 impl KeyAuth {
     /// Create a new KeyAuth from a key path
     pub fn new(key_path: impl AsRef<Path>, passphrase: Option<&str>) -> Result<Self, KeyError> {
-        let key_path = expand_tilde(key_path.as_ref());
+        let key_path = crate::path_utils::expand_tilde_path(key_path.as_ref());
 
         if !key_path.exists() {
             return Err(KeyError::NotFound(key_path));
@@ -147,23 +147,6 @@ pub fn default_key_paths() -> Vec<PathBuf> {
     ]
 }
 
-/// Expand ~ to home directory
-fn expand_tilde(path: &Path) -> PathBuf {
-    let path_str = path.to_string_lossy();
-
-    if let Some(stripped) = path_str.strip_prefix("~/") {
-        if let Some(home) = dirs::home_dir() {
-            return home.join(stripped);
-        }
-    } else if path_str == "~" {
-        if let Some(home) = dirs::home_dir() {
-            return home;
-        }
-    }
-
-    path.to_path_buf()
-}
-
 /// Check if any default keys exist
 pub fn has_default_keys() -> bool {
     default_key_paths().iter().any(|p| p.exists())
@@ -188,7 +171,7 @@ mod tests {
 
     #[test]
     fn test_expand_tilde() {
-        let path = expand_tilde(Path::new("~/.ssh/id_rsa"));
+        let path = crate::path_utils::expand_tilde_path(Path::new("~/.ssh/id_rsa"));
         assert!(!path.to_string_lossy().starts_with("~"));
     }
 

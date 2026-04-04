@@ -279,29 +279,11 @@ pub fn parse_ssh_config_content(content: &str) -> Result<Vec<SshConfigHost>, Ssh
                 }
                 "identityfile" => {
                     // Expand ~ to home directory
-                    let expanded = if let Some(stripped) = value.strip_prefix("~/") {
-                        if let Some(home) = dirs::home_dir() {
-                            home.join(stripped).to_string_lossy().into_owned()
-                        } else {
-                            value.to_string()
-                        }
-                    } else {
-                        value.to_string()
-                    };
-                    host.identity_file = Some(expanded);
+                    host.identity_file = Some(crate::path_utils::expand_tilde(value));
                 }
                 "certificatefile" => {
-                    // Expand ~ to home directory (same logic as IdentityFile)
-                    let expanded = if let Some(stripped) = value.strip_prefix("~/") {
-                        if let Some(home) = dirs::home_dir() {
-                            home.join(stripped).to_string_lossy().into_owned()
-                        } else {
-                            value.to_string()
-                        }
-                    } else {
-                        value.to_string()
-                    };
-                    host.certificate_file = Some(expanded);
+                    // Expand ~ to home directory
+                    host.certificate_file = Some(crate::path_utils::expand_tilde(value));
                 }
                 // ProxyJump: can be comma-separated for multi-hop
                 "proxyjump" => {

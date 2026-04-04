@@ -75,7 +75,26 @@ pub fn get_terminal_size() -> (u16, u16) {
 
     #[cfg(windows)]
     {
-        (80, 24) // TODO: Windows Console API
+        use windows_sys::Win32::System::Console::{
+            GetConsoleScreenBufferInfo, GetStdHandle, CONSOLE_SCREEN_BUFFER_INFO,
+            STD_OUTPUT_HANDLE,
+        };
+        let handle = unsafe { GetStdHandle(STD_OUTPUT_HANDLE) };
+        if handle != 0 && handle != -1isize as _ {
+            let mut info = CONSOLE_SCREEN_BUFFER_INFO {
+                dwSize: Default::default(),
+                dwCursorPosition: Default::default(),
+                wAttributes: 0,
+                srWindow: Default::default(),
+                dwMaximumWindowSize: Default::default(),
+            };
+            if unsafe { GetConsoleScreenBufferInfo(handle, &mut info) } != 0 {
+                let cols = (info.srWindow.Right - info.srWindow.Left + 1) as u16;
+                let rows = (info.srWindow.Bottom - info.srWindow.Top + 1) as u16;
+                return (cols, rows);
+            }
+        }
+        (80, 24) // fallback
     }
 }
 

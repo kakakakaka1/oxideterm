@@ -197,8 +197,8 @@ pub fn get_shell_args(shell_id: &str, load_profile: bool) -> Vec<String> {
             // Profile loading is controlled by the shell config in WSL
             vec![]
         }
-        // cmd.exe: no profile concept
-        "cmd" => vec![],
+        // cmd.exe: set UTF-8 codepage at startup, >nul suppresses the output message
+        "cmd" => vec!["/K".to_string(), "chcp 65001 >nul".to_string()],
         _ => vec![],
     }
 }
@@ -306,8 +306,9 @@ fn scan_windows_shells() -> Vec<ShellInfo> {
     shells.push(ShellInfo::new("cmd", "Command Prompt", "cmd.exe"));
 
     // 2. PowerShell (Windows PowerShell, always available on modern Windows)
+    let system_root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".to_string());
     let powershell_path =
-        PathBuf::from(r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe");
+        PathBuf::from(&system_root).join(r"System32\WindowsPowerShell\v1.0\powershell.exe");
     if powershell_path.exists() {
         shells.push(
             ShellInfo::new("powershell", "Windows PowerShell", powershell_path).with_args(vec![
@@ -320,13 +321,17 @@ fn scan_windows_shells() -> Vec<ShellInfo> {
     }
 
     // 3. PowerShell Core (pwsh.exe, if installed)
-    // Check common installation paths
+    // Check common installation paths using environment variables
+    let program_files =
+        std::env::var("ProgramFiles").unwrap_or_else(|_| r"C:\Program Files".to_string());
+    let program_files_x86 = std::env::var("ProgramFiles(x86)")
+        .unwrap_or_else(|_| r"C:\Program Files (x86)".to_string());
+
     let pwsh_paths = [
-        r"C:\Program Files\PowerShell\7\pwsh.exe",
-        r"C:\Program Files (x86)\PowerShell\7\pwsh.exe",
+        PathBuf::from(&program_files).join(r"PowerShell\7\pwsh.exe"),
+        PathBuf::from(&program_files_x86).join(r"PowerShell\7\pwsh.exe"),
     ];
-    for path_str in pwsh_paths {
-        let path = PathBuf::from(path_str);
+    for path in pwsh_paths {
         if path.exists() {
             shells.push(
                 ShellInfo::new("pwsh", "PowerShell Core", path).with_args(vec![
@@ -340,45 +345,72 @@ fn scan_windows_shells() -> Vec<ShellInfo> {
         }
     }
 
-    // Also check if pwsh is in PATH
-    if let Ok(output) = std::process::Command::new("where")
-        .arg("pwsh.exe")
-        .creation_flags(0x08000000) // CREATE_NO_WINDOW
-        .output()
-    {
-        if output.status.success() {
-            let path_str = String::from_utf8_lossy(&output.stdout)
-                .lines()
-                .next()
-                .unwrap_or("")
-                .trim()
-                .to_string();
-            let path = PathBuf::from(&path_str);
-            if path.exists() && !shells.iter().any(|s| s.id == "pwsh") {
-                shells.push(
-                    ShellInfo::new("pwsh", "PowerShell Core", path).with_args(vec![
-                        "-NoLogo".to_string(),
-                        "-NoExit".to_string(),
-                        "-ExecutionPolicy".to_string(),
-                        "Bypass".to_string(),
-                    ]),
-                );
+    // Also check if pwsh is in PATH (covers Scoop, Chocolatey, custom installs)
+    if !shells.iter().any(|s| s.id == "pwsh") {
+        if let Ok(output) = std::process::Command::new("where")
+            .arg("pwsh.exe")
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW
+            .output()
+        {
+            if output.status.success() {
+                let path_str = String::from_utf8_lossy(&output.stdout)
+                    .lines()
+                    .next()
+                    .unwrap_or("")
+                    .trim()
+                    .to_string();
+                let path = PathBuf::from(&path_str);
+                if path.exists() {
+                    shells.push(
+                        ShellInfo::new("pwsh", "PowerShell Core", path).with_args(vec![
+                            "-NoLogo".to_string(),
+                            "-NoExit".to_string(),
+                            "-ExecutionPolicy".to_string(),
+                            "Bypass".to_string(),
+                        ]),
+                    );
+                }
             }
         }
     }
 
     // 4. Git Bash (if installed)
+    // Check standard install locations using %ProgramFiles%, then fallback to PATH
     let git_bash_paths = [
-        r"C:\Program Files\Git\bin\bash.exe",
-        r"C:\Program Files (x86)\Git\bin\bash.exe",
+        PathBuf::from(&program_files).join(r"Git\bin\bash.exe"),
+        PathBuf::from(&program_files_x86).join(r"Git\bin\bash.exe"),
     ];
-    for path_str in git_bash_paths {
-        let path = PathBuf::from(path_str);
+    for path in git_bash_paths {
         if path.exists() {
             shells.push(
                 ShellInfo::new("git-bash", "Git Bash", path).with_args(vec!["--login".to_string()]),
             );
             break;
+        }
+    }
+
+    // Also check if bash is in PATH (covers Scoop, Chocolatey, MSYS2 installs)
+    if !shells.iter().any(|s| s.id == "git-bash") {
+        if let Ok(output) = std::process::Command::new("where")
+            .arg("bash.exe")
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW
+            .output()
+        {
+            if output.status.success() {
+                let path_str = String::from_utf8_lossy(&output.stdout)
+                    .lines()
+                    .next()
+                    .unwrap_or("")
+                    .trim()
+                    .to_string();
+                let path = PathBuf::from(&path_str);
+                if path.exists() {
+                    shells.push(
+                        ShellInfo::new("git-bash", "Git Bash", path)
+                            .with_args(vec!["--login".to_string()]),
+                    );
+                }
+            }
         }
     }
 
@@ -391,7 +423,9 @@ fn scan_windows_shells() -> Vec<ShellInfo> {
 /// Scan for installed WSL distributions and add them as shell options
 #[cfg(target_os = "windows")]
 fn scan_wsl_distributions(shells: &mut Vec<ShellInfo>) {
-    let wsl_path = PathBuf::from(r"C:\Windows\System32\wsl.exe");
+    let wsl_path =
+        PathBuf::from(std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".to_string()))
+            .join(r"System32\wsl.exe");
     if !wsl_path.exists() {
         return;
     }
