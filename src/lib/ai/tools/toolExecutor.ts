@@ -40,6 +40,7 @@ import { useRecordingStore } from '../../../store/recordingStore';
 import { useBroadcastStore } from '../../../store/broadcastStore';
 import { findPaneBySessionId, getTerminalBuffer, writeToTerminal, subscribeTerminalOutput, readScreen } from '../../terminalRegistry';
 import { compressOutput } from './outputCompressor';
+import { sanitizeConnectionInfo } from '../contextSanitizer';
 
 /** Max output size returned from a tool execution (bytes) */
 const MAX_OUTPUT_BYTES = 8192;
@@ -690,7 +691,7 @@ async function execListSessions(
         const conn = node.runtime.connectionId ? connections.get(node.runtime.connectionId) : undefined;
         const status = node.runtime.status || 'unknown';
         const terminals = node.runtime.terminalIds?.length ?? 0;
-        const host = conn ? `${conn.username}@${conn.host}:${conn.port}` : `${node.username}@${node.host}:${node.port}`;
+        const host = conn ? sanitizeConnectionInfo(conn.username, conn.host, conn.port) : sanitizeConnectionInfo(node.username || '?', node.host || '?', node.port || 22);
         const env = conn?.remoteEnv
           ? ` (${conn.remoteEnv.osType}${conn.remoteEnv.osVersion ? ' ' + conn.remoteEnv.osVersion : ''})`
           : '';
@@ -735,7 +736,7 @@ async function execListConnections(
     const env = conn.remoteEnv
       ? ` (${conn.remoteEnv.osType}${conn.remoteEnv.osVersion ? ' ' + conn.remoteEnv.osVersion : ''})`
       : '';
-    return `- [${conn.state}] id=${conn.id} → ${conn.username}@${conn.host}:${conn.port}${env} — ${conn.terminalIds.length} terminal(s), ${conn.forwardIds.length} forward(s), keepAlive=${conn.keepAlive}`;
+    return `- [${conn.state}] id=${conn.id} → ${sanitizeConnectionInfo(conn.username, conn.host, conn.port)}${env} — ${conn.terminalIds.length} terminal(s), ${conn.forwardIds.length} forward(s), keepAlive=${conn.keepAlive}`;
   });
 
   return { toolCallId, toolName: 'list_connections', success: true, output: lines.join('\n'), durationMs: Date.now() - startTime };

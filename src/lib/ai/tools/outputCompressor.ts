@@ -9,6 +9,8 @@
  * so there's no measurable latency impact on tool execution.
  */
 
+import { sanitizeForAi } from '../contextSanitizer';
+
 // ═══════════════════════════════════════════════════════════════════════════
 // ANSI Escape Code Stripping
 // ═══════════════════════════════════════════════════════════════════════════
@@ -87,9 +89,14 @@ export function foldDuplicateLines(text: string): string {
  * Full compression pipeline: ANSI strip → blank line collapse → duplicate fold.
  * Called by `truncateOutput()` before the byte-limit truncation.
  */
+/**
+ * Full compression pipeline: ANSI strip → blank line collapse → duplicate fold → secrets redaction.
+ * Called by `truncateOutput()` before the byte-limit truncation.
+ */
 export function compressOutput(text: string): string {
   let out = stripAnsi(text);
   out = collapseBlankLines(out);
   out = foldDuplicateLines(out);
+  out = sanitizeForAi(out);
   return out;
 }

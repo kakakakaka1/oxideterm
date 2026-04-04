@@ -27,6 +27,7 @@ import { useLocalTerminalStore } from '../store/localTerminalStore';
 import { useIdeStore } from '../store/ideStore';
 import { useSettingsStore } from '../store/settingsStore';
 import { getSftpContext } from './sftpContextRegistry';
+import { sanitizeForAi, sanitizeConnectionInfo } from './ai/contextSanitizer';
 import { useEventLogStore } from '../store/eventLogStore';
 import { useTransferStore } from '../store/transferStore';
 import { useRecordingStore } from '../store/recordingStore';
@@ -239,7 +240,9 @@ function gatherSessionsSummary(activeSessionId: string | null): string | null {
   let sshSessionCount = 0;
   for (const node of sshNodes) {
     const conn = node.runtime.connectionId ? connections.get(node.runtime.connectionId) : undefined;
-    const host = conn ? `${conn.username}@${conn.host}` : `${node.username ?? '?'}@${node.host ?? '?'}`;
+    const host = conn
+      ? sanitizeConnectionInfo(conn.username, conn.host, conn.port)
+      : sanitizeConnectionInfo(node.username ?? '?', node.host ?? '?', node.port ?? 22);
     const terminalIds = node.runtime.terminalIds ?? [];
     for (const tid of terminalIds) {
       sshSessionCount++;
@@ -316,7 +319,7 @@ export function gatherSidebarContext(config = DEFAULT_CONTEXT_CONFIG): SidebarCo
           host: conn.host,
           port: conn.port,
           username: conn.username,
-          formatted: `${conn.username}@${conn.host}`,
+          formatted: sanitizeConnectionInfo(conn.username, conn.host, conn.port),
         };
         // Use detected remoteEnv if available, otherwise fall back to guessing
         if (conn.remoteEnv) {
@@ -333,7 +336,7 @@ export function gatherSidebarContext(config = DEFAULT_CONTEXT_CONFIG): SidebarCo
         host: session.host,
         port: session.port,
         username: session.username,
-        formatted: `${session.username}@${session.host}`,
+        formatted: sanitizeConnectionInfo(session.username, session.host, session.port),
       };
       env.remoteOSHint = guessRemoteOS(session.host, session.username);
     }
@@ -350,7 +353,7 @@ export function gatherSidebarContext(config = DEFAULT_CONTEXT_CONFIG): SidebarCo
           host: conn.host,
           port: conn.port,
           username: conn.username,
-          formatted: `${conn.username}@${conn.host}`,
+          formatted: sanitizeConnectionInfo(conn.username, conn.host, conn.port),
         };
         // Update remoteEnv from the most specific connection source
         if (conn.remoteEnv) {
@@ -376,16 +379,17 @@ export function gatherSidebarContext(config = DEFAULT_CONTEXT_CONFIG): SidebarCo
         truncated = truncated.slice(-config.maxBufferChars);
       }
       const extracted = extractLastLines(truncated, config.maxBufferLines);
-      buffer = extracted.text;
+      buffer = sanitizeForAi(extracted.text);
       lineCount = extracted.lineCount;
     }
     
     // Get selection (priority focus)
     const rawSelection = getActiveTerminalSelection();
     if (rawSelection?.trim()) {
-      selection = rawSelection.length > config.maxSelectionChars
+      let sel = rawSelection.length > config.maxSelectionChars
         ? rawSelection.slice(0, config.maxSelectionChars) + '...'
         : rawSelection;
+      selection = sanitizeForAi(sel);
     }
   }
   
