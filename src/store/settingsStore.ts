@@ -330,7 +330,7 @@ const defaultTerminalSettings: TerminalSettings = {
   adaptiveRenderer: 'auto',  // Dynamic refresh rate: auto = three-tier adaptive
   showFpsOverlay: false,      // Hidden by default; user enables for diagnostics
   pasteProtection: true,  // Default enabled for safety
-  osc52Clipboard: false,  // Opt-in: user must explicitly enable OSC 52 clipboard bridge
+  osc52Clipboard: true,  // Default enabled: allow remote programs to write system clipboard via OSC 52
   // Background image defaults
   backgroundEnabled: true,
   backgroundImage: null,

@@ -68,8 +68,8 @@ export function useIdeTerminal(): UseIdeTerminalResult {
     try {
       const response: CreateTerminalResponse = await api.createTerminal({
         connectionId,
-        cols: 80,
-        rows: 24,
+        cols: 0,
+        rows: 0,
       });
       
       setTerminalSession(response.sessionId);

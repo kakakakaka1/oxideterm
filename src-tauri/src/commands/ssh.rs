@@ -162,10 +162,10 @@ pub struct CreateTerminalRequest {
 }
 
 fn default_cols() -> u32 {
-    80
+    120
 }
 fn default_rows() -> u32 {
-    24
+    40
 }
 
 /// 创建终端响应
@@ -330,38 +330,48 @@ pub async fn create_terminal(
         }
     };
 
-    // 请求 PTY
-    channel
-        .request_pty(
-            false,
-            "xterm-256color",
-            request.cols,
-            request.rows,
-            0,
-            0,
-            crate::ssh::DEFAULT_PTY_MODES,
-        )
-        .await
-        .map_err(|e| {
+    // Deferred PTY: when cols=0 or rows=0, delay PTY allocation until WebSocket
+    // sends the first resize frame with real terminal dimensions. This prevents
+    // the shell from starting with wrong dimensions (which breaks async prompt
+    // themes like spaceship-zsh that cache cursor positions during init).
+    let deferred_pty = request.cols == 0 || request.rows == 0;
+
+    if !deferred_pty {
+        // Standard flow: request PTY immediately with provided dimensions
+        // Clamp to sane limits to prevent resource abuse
+        let clamped_cols = request.cols.clamp(1, 500);
+        let clamped_rows = request.rows.clamp(1, 200);
+        channel
+            .request_pty(
+                false,
+                "xterm-256color",
+                clamped_cols,
+                clamped_rows,
+                0,
+                0,
+                crate::ssh::DEFAULT_PTY_MODES,
+            )
+            .await
+            .map_err(|e| {
+                session_registry.remove(&session_id);
+                let conn_reg = connection_registry.inner().clone();
+                let conn_id = request.connection_id.clone();
+                tokio::spawn(async move {
+                    let _ = conn_reg.release(&conn_id).await;
+                });
+                format!("Failed to request PTY: {}", e)
+            })?;
+
+        channel.request_shell(false).await.map_err(|e| {
             session_registry.remove(&session_id);
             let conn_reg = connection_registry.inner().clone();
             let conn_id = request.connection_id.clone();
             tokio::spawn(async move {
                 let _ = conn_reg.release(&conn_id).await;
             });
-            format!("Failed to request PTY: {}", e)
+            format!("Failed to request shell: {}", e)
         })?;
-
-    // 请求 shell
-    channel.request_shell(false).await.map_err(|e| {
-        session_registry.remove(&session_id);
-        let conn_reg = connection_registry.inner().clone();
-        let conn_id = request.connection_id.clone();
-        tokio::spawn(async move {
-            let _ = conn_reg.release(&conn_id).await;
-        });
-        format!("Failed to request shell: {}", e)
-    })?;
+    }
 
     // 创建 ExtendedSessionHandle（用于 WsBridge）
     use crate::ssh::{ExtendedSessionHandle, SessionCommand};
@@ -386,6 +396,77 @@ pub async fn create_terminal(
     tokio::spawn(async move {
         tracing::debug!("Channel handler started for session {}", sid);
 
+        // Deferred PTY: wait for first resize command before allocating PTY + shell.
+        // This ensures the shell starts with the correct terminal dimensions,
+        // preventing async prompt themes (spaceship-zsh) from caching wrong cursor positions.
+        if deferred_pty {
+            let fallback_cols: u16 = 120;
+            let fallback_rows: u16 = 40;
+            let pty_timeout = tokio::time::Duration::from_secs(15);
+
+            let (pty_cols, pty_rows) = tokio::select! {
+                cmd = cmd_rx.recv() => {
+                    match cmd {
+                        Some(SessionCommand::Resize(cols, rows)) => {
+                            // Clamp to sane limits to prevent resource abuse
+                            (cols.clamp(1, 500), rows.clamp(1, 200))
+                        }
+                        Some(SessionCommand::Close) => {
+                            info!("Close command before PTY allocated for session {}", sid);
+                            let _ = channel.eof().await;
+                            return;
+                        }
+                        // Data arrived before resize (unlikely) — use fallback
+                        Some(SessionCommand::Data(_)) => {
+                            warn!("Data before resize for deferred PTY {}, using fallback", sid);
+                            (fallback_cols, fallback_rows)
+                        }
+                        None => {
+                            info!("Command channel closed before PTY allocated for session {}", sid);
+                            let _ = channel.eof().await;
+                            return;
+                        }
+                    }
+                }
+                _ = tokio::time::sleep(pty_timeout) => {
+                    warn!(
+                        "Deferred PTY timeout for session {}, using fallback {}x{}",
+                        sid, fallback_cols, fallback_rows
+                    );
+                    (fallback_cols, fallback_rows)
+                }
+            };
+
+            if let Err(e) = channel
+                .request_pty(
+                    false,
+                    "xterm-256color",
+                    pty_cols as u32,
+                    pty_rows as u32,
+                    0,
+                    0,
+                    crate::ssh::DEFAULT_PTY_MODES,
+                )
+                .await
+            {
+                tracing::error!("Failed to request deferred PTY for session {}: {}", sid, e);
+                let _ = channel.eof().await;
+                return;
+            }
+            if let Err(e) = channel.request_shell(false).await {
+                tracing::error!("Failed to request shell for session {}: {}", sid, e);
+                let _ = channel.eof().await;
+                return;
+            }
+            info!(
+                "Deferred PTY allocated at {}x{} for session {}",
+                pty_cols, pty_rows, sid
+            );
+        }
+
+        let mut pending_resize: Option<(u16, u16)> = None;
+        let mut resize_deadline = std::pin::pin!(tokio::time::sleep(tokio::time::Duration::MAX));
+
         loop {
             tokio::select! {
                 Some(cmd) = cmd_rx.recv() => {
@@ -397,10 +478,10 @@ pub async fn create_terminal(
                             }
                         }
                         SessionCommand::Resize(cols, rows) => {
-                            tracing::debug!("Sending window_change: {}x{}", cols, rows);
-                            if let Err(e) = channel.window_change(cols as u32, rows as u32, 0, 0).await {
-                                tracing::error!("Failed to resize PTY: {}", e);
-                            }
+                            let cols = cols.clamp(1, 500);
+                            let rows = rows.clamp(1, 200);
+                            pending_resize = Some((cols, rows));
+                            resize_deadline.as_mut().reset(tokio::time::Instant::now() + tokio::time::Duration::from_millis(100));
                         }
                         SessionCommand::Close => {
                             info!("Close command received for session {}", sid);
@@ -408,6 +489,17 @@ pub async fn create_terminal(
                             break;
                         }
                     }
+                }
+
+                () = &mut resize_deadline, if pending_resize.is_some() => {
+                    if let Some((cols, rows)) = pending_resize.take() {
+                        tracing::debug!("Sending debounced window_change: {}x{}", cols, rows);
+                        if let Err(e) = channel.window_change(cols as u32, rows as u32, 0, 0).await {
+                            tracing::error!("Failed to resize PTY: {}", e);
+                        }
+                    }
+                    // Reset to far future so this branch doesn't fire again
+                    resize_deadline.as_mut().reset(tokio::time::Instant::now() + tokio::time::Duration::from_secs(86400));
                 }
 
                 Some(msg) = channel.wait() => {

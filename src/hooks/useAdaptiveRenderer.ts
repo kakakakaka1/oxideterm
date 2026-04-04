@@ -67,6 +67,54 @@ const IDLE_INTERVAL_MAX_MS = 1_000;
 /** Idle interval growth factor per tick */
 const IDLE_INTERVAL_GROWTH = 1.5;
 
+// ─── FlowControl Constants ────────────────────────────────────────────
+
+/** When pending xterm callbacks exceed this, pause accepting new data */
+const FLOW_HIGH_WATERMARK = 10;
+
+/** When pending callbacks drop below this, resume accepting data */
+const FLOW_LOW_WATERMARK = 5;
+
+/** Maximum bytes to buffer while flow-controlled before dropping */
+const FLOW_MAX_BACKPRESSURE_BYTES = 8 * 1024 * 1024; // 8 MB
+
+// ─── Cursor Control Detection ─────────────────────────────────────────
+
+/**
+ * Check if a data chunk starts with a CSI cursor-control or erase sequence.
+ *
+ * Async prompt themes (spaceship-zsh, starship) redraw the prompt area by
+ * emitting cursor-up + erase-line sequences.  When these arrive in the same
+ * RAF window as prior command output (e.g. `ls`), the combined
+ * `term.write()` causes the output to flash and vanish.
+ *
+ * Detected final bytes (after CSI params):
+ *   A = Cursor Up,  B = Cursor Down,  H/f = Cursor Position,
+ *   G = Cursor Horizontal Absolute,  J = Erase in Display,  K = Erase in Line
+ */
+function startsWithCursorControl(data: Uint8Array): boolean {
+  if (data.length < 3) return false;
+
+  // CSI = ESC [ (0x1b 0x5b)
+  if (data[0] !== 0x1b || data[1] !== 0x5b) return false;
+
+  // Scan for the final byte (first byte in 0x40-0x7E after optional params)
+  for (let i = 2; i < Math.min(data.length, 12); i++) {
+    const b = data[i];
+    // Parameter bytes: 0-9 ; < = > ? (0x30–0x3F)
+    if (b >= 0x30 && b <= 0x3f) continue;
+    // Intermediate bytes: SP ! " # … / (0x20–0x2F)
+    if (b >= 0x20 && b <= 0x2f) continue;
+    // Final byte — check if it's cursor movement or erase
+    //   A(0x41) B(0x42) G(0x47) H(0x48) J(0x4A) K(0x4B) f(0x66)
+    return (
+      b === 0x41 || b === 0x42 || b === 0x47 || b === 0x48 ||
+      b === 0x4a || b === 0x4b || b === 0x66
+    );
+  }
+  return false;
+}
+
 // ─── Hook ─────────────────────────────────────────────────────────────
 
 type UseAdaptiveRendererOptions = {
@@ -118,6 +166,13 @@ export function useAdaptiveRenderer(opts: UseAdaptiveRendererOptions): AdaptiveR
   // Track whether we're "alive" (component mounted)
   const mountedRef = useRef(true);
 
+  // ── FlowControl state ─────────────────────────────────────────────
+
+  const pendingCallbacksRef = useRef(0);
+  const blockedRef = useRef(false);
+  const backpressureBytesRef = useRef(0);
+  const backpressureQueueRef = useRef<Uint8Array[]>([]);
+
   // ── Helpers ───────────────────────────────────────────────────────
 
   /** Concatenate all pending chunks and write to terminal in one call. */
@@ -134,7 +189,34 @@ export function useAdaptiveRenderer(opts: UseAdaptiveRendererOptions): AdaptiveR
       offset += chunk.length;
     }
     pendingRef.current = [];
-    term.write(combined);
+
+    // FlowControl: track pending xterm callbacks
+    pendingCallbacksRef.current++;
+    term.write(combined, () => {
+      pendingCallbacksRef.current--;
+      // If below low watermark and was blocked, drain backpressure queue
+      if (blockedRef.current && pendingCallbacksRef.current <= FLOW_LOW_WATERMARK) {
+        blockedRef.current = false;
+        // Move backpressure queue into pending and schedule a flush
+        if (backpressureQueueRef.current.length > 0) {
+          pendingRef.current.push(...backpressureQueueRef.current);
+          backpressureQueueRef.current = [];
+          backpressureBytesRef.current = 0;
+          if (rafIdRef.current === null && mountedRef.current) {
+            rafIdRef.current = requestAnimationFrame(() => {
+              rafIdRef.current = null;
+              if (!mountedRef.current) return;
+              flush();
+            });
+          }
+        }
+      }
+    });
+
+    // Enter blocked state if above high watermark
+    if (pendingCallbacksRef.current >= FLOW_HIGH_WATERMARK) {
+      blockedRef.current = true;
+    }
 
     // Track WPS
     const now = performance.now();
@@ -235,6 +317,19 @@ export function useAdaptiveRenderer(opts: UseAdaptiveRendererOptions): AdaptiveR
         return;
       }
 
+      // FlowControl: if blocked, divert to backpressure queue
+      if (blockedRef.current) {
+        if (backpressureBytesRef.current < FLOW_MAX_BACKPRESSURE_BYTES) {
+          backpressureQueueRef.current.push(data);
+          backpressureBytesRef.current += data.length;
+        } else {
+          console.warn(
+            `[AdaptiveRenderer] Backpressure queue full (${(backpressureBytesRef.current / 1024 / 1024).toFixed(1)}MB), dropping ${data.length} bytes`,
+          );
+        }
+        return;
+      }
+
       // If currently idle AND the page is hidden (or window has no focus),
       // stay in idle — just push data and let the idle timer flush it.
       // This prevents waking to RAF mode under continuous remote output
@@ -252,6 +347,20 @@ export function useAdaptiveRenderer(opts: UseAdaptiveRendererOptions): AdaptiveR
       // Wake from idle if needed (only when page is visible)
       if (tierRef.current === 'idle') {
         exitIdle();
+      }
+
+      // ── Cursor-control split (Phase 2 — async-prompt defence) ────
+      // If this chunk starts with a CSI cursor-control/erase sequence AND
+      // there is already pending data, flush the pending data immediately
+      // so that xterm commits it to the screen buffer (and the browser can
+      // paint) before the destructive cursor movement arrives in the next
+      // RAF frame.  This prevents async prompt themes (spaceship-zsh) from
+      // erasing command output that was batched into the same write call.
+      if (pendingRef.current.length > 0 && startsWithCursorControl(data)) {
+        flush();
+        // Cancel the current RAF — we just flushed everything, and the new
+        // cursor-control chunk should be written in a fresh RAF frame.
+        cancelRaf();
       }
 
       // Push to pending buffer
@@ -286,7 +395,7 @@ export function useAdaptiveRenderer(opts: UseAdaptiveRendererOptions): AdaptiveR
         });
       }
     },
-    [terminalRef, flush, exitIdle, resetIdleTimer, evaluateBoost, scheduleIdleTick],
+    [terminalRef, flush, exitIdle, resetIdleTimer, evaluateBoost, scheduleIdleTick, cancelRaf],
   );
 
   // ── notifyUserInput ───────────────────────────────────────────────

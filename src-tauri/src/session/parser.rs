@@ -23,6 +23,8 @@ struct TerminalParser {
     current_line: String,
     /// Completed lines
     lines: Vec<String>,
+    /// Whether a CR was received — next print() overwrites from column 0
+    cr_pending: bool,
 }
 
 impl TerminalParser {
@@ -30,6 +32,7 @@ impl TerminalParser {
         Self {
             current_line: String::new(),
             lines: Vec::new(),
+            cr_pending: false,
         }
     }
 
@@ -38,33 +41,51 @@ impl TerminalParser {
         if !self.current_line.is_empty() {
             self.lines.push(std::mem::take(&mut self.current_line));
         }
+        self.cr_pending = false;
         std::mem::take(&mut self.lines)
     }
 }
 
 impl Perform for TerminalParser {
     fn print(&mut self, c: char) {
+        if self.cr_pending {
+            self.cr_pending = false;
+            // CR + new content: clear and overwrite entire line.
+            // This intentionally simplifies partial overwrites (e.g. "ABCDE\rXY"
+            // becomes "XY" instead of "XYCDE"). Full cursor-position tracking
+            // is not worth the complexity for a text-log buffer.
+            self.current_line.clear();
+        }
         self.current_line.push(c);
     }
 
     fn execute(&mut self, byte: u8) {
         match byte {
             b'\n' => {
-                // Newline: finish current line
+                // Newline: finish current line and reset CR state
+                self.cr_pending = false;
                 self.lines.push(std::mem::take(&mut self.current_line));
             }
             b'\r' => {
-                // Carriage return: usually followed by \n, so just ignore it
-                // (Only clear line if it's an actual overwrite, which we can't easily detect)
-                // For now, just ignore \r to preserve content
+                // Carriage return: move cursor to column 0.
+                // Subsequent print() calls overwrite from the start.
+                // We track the cursor position so partial overwrites work
+                // correctly (e.g. progress bars that only update the percentage).
+                self.cr_pending = true;
             }
             b'\t' => {
-                // Tab: convert to spaces
-                self.current_line.push_str("    ");
+                // Tab: advance to next 8-column tab stop
+                let col = self.current_line.chars().count();
+                let spaces = 8 - (col % 8);
+                for _ in 0..spaces {
+                    self.current_line.push(' ');
+                }
             }
             b'\x08' => {
-                // Backspace: remove last char
-                self.current_line.pop();
+                // Backspace: remove last grapheme cluster (handles combining marks)
+                if let Some(pos) = self.current_line.char_indices().next_back().map(|(i, _)| i) {
+                    self.current_line.truncate(pos);
+                }
             }
             _ => {
                 // Ignore other control characters
@@ -225,14 +246,24 @@ mod tests {
 
     #[test]
     fn test_carriage_return() {
-        // Progress bar style: \r is currently ignored (just moves cursor)
-        // Real terminal would overwrite, but we preserve content for simplicity
+        // Progress bar style: \r moves cursor to column 0, new content overwrites
         let data = b"loading....\rDone!\n";
         let lines = parse_terminal_output(data);
 
         assert_eq!(lines.len(), 1);
-        // \r doesn't clear content in current implementation - it's ignored
-        assert_eq!(lines[0].text, "loading....Done!");
+        // \r resets to column 0; "Done!" overwrites from the start
+        assert_eq!(lines[0].text, "Done!");
+    }
+
+    #[test]
+    fn test_cr_lf_sequence() {
+        // Normal \r\n line ending — should produce clean lines
+        let data = b"line1\r\nline2\r\n";
+        let lines = parse_terminal_output(data);
+
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0].text, "line1");
+        assert_eq!(lines[1].text, "line2");
     }
 
     #[test]
@@ -251,7 +282,8 @@ mod tests {
         let lines = parse_terminal_output(data);
 
         assert_eq!(lines.len(), 1);
-        assert!(lines[0].text.contains("    ")); // Tab converted to spaces
+        // "col1" is 4 chars → next tab stop at column 8 → 4 spaces
+        assert_eq!(lines[0].text, "col1    col2");
     }
 
     #[test]

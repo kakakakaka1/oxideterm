@@ -110,8 +110,8 @@ export const DrillDownDialog: React.FC<DrillDownDialogProps> = ({
       // 2. 调用 connect_tree_node 建立实际连接
       const result = await api.connectTreeNode({
         nodeId,
-        cols: 80,
-        rows: 24,
+        cols: 0,
+        rows: 0,
       });
 
       // 3. 刷新树

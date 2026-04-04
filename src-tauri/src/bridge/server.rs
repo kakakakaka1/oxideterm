@@ -72,6 +72,49 @@ async fn build_replay_frame(scroll_buffer: Arc<ScrollBuffer>) -> Result<Vec<u8>,
     Ok(frame.to_vec())
 }
 
+/// Find the largest prefix of `data` that ends on a UTF-8 character boundary.
+/// If the last 1-3 bytes are a leading byte without enough continuation bytes,
+/// they are excluded so they can be prepended to the next chunk.
+fn utf8_safe_split_point(data: &[u8]) -> usize {
+    let len = data.len();
+    if len == 0 {
+        return 0;
+    }
+    // Check the last 1-3 bytes for an incomplete multi-byte sequence.
+    // A leading byte 110xxxxx needs 1 continuation, 1110xxxx needs 2, 11110xxx needs 3.
+    for back in 1..=3.min(len) {
+        let idx = len - back;
+        let b = data[idx];
+        if b & 0x80 == 0 {
+            // ASCII — everything up to len is fine
+            return len;
+        }
+        if b & 0xC0 == 0x80 {
+            // Continuation byte — keep scanning backwards
+            continue;
+        }
+        // Leading byte found — check if sequence is complete
+        let expected = if b & 0xE0 == 0xC0 {
+            2
+        } else if b & 0xF0 == 0xE0 {
+            3
+        } else if b & 0xF8 == 0xF0 {
+            4
+        } else {
+            // Invalid leading byte — treat as complete to avoid buffering forever
+            return len;
+        };
+        let available = len - idx;
+        if available < expected {
+            // Incomplete — split before this leading byte
+            return idx;
+        }
+        // Complete sequence — all bytes are safe
+        return len;
+    }
+    len
+}
+
 /// Get current unix timestamp in seconds
 fn unix_timestamp_secs() -> u64 {
     std::time::SystemTime::now()
@@ -668,15 +711,43 @@ impl WsBridge {
         // Task: Forward SSH output to WebSocket as Data frames
         let buffer_clone = scroll_buffer.clone();
         let mut ssh_out_task = tokio::spawn(async move {
-            while let Some(data) = stdout_rx.recv().await {
+            let mut utf8_tail: Vec<u8> = Vec::new();
+            while let Some(raw) = stdout_rx.recv().await {
+                // Prepend any leftover bytes from the previous chunk
+                let data = if utf8_tail.is_empty() {
+                    raw
+                } else {
+                    let mut merged = std::mem::take(&mut utf8_tail);
+                    merged.extend_from_slice(&raw);
+                    merged
+                };
+
+                // Split off incomplete trailing UTF-8 sequence
+                let safe_end = utf8_safe_split_point(&data);
+                if safe_end < data.len() {
+                    utf8_tail = data[safe_end..].to_vec();
+                } else {
+                    utf8_tail.clear();
+                }
+                let data = &data[..safe_end];
+                if data.is_empty() {
+                    continue;
+                }
+
                 // Parse terminal output and append to scroll buffer
-                let lines = parse_terminal_output(&data);
+                let lines = parse_terminal_output(data);
                 if !lines.is_empty() {
                     buffer_clone.append_batch(lines).await;
                 }
 
+                // Queue depth monitoring (P5)
+                let remaining = frame_tx_ssh.capacity();
+                if remaining < FRAME_CHANNEL_CAPACITY / 4 {
+                    warn!("frame_tx queue pressure: {}/{} remaining", remaining, FRAME_CHANNEL_CAPACITY);
+                }
+
                 // Forward to WebSocket
-                let frame = data_frame(Bytes::from(data));
+                let frame = data_frame(Bytes::from(data.to_vec()));
                 if frame_tx_ssh.send(frame.encode()).await.is_err() {
                     debug!("Frame channel closed");
                     break;
@@ -1098,17 +1169,45 @@ impl WsBridge {
 
         // Task: SSH stdout -> WebSocket
         let mut ssh_out_task = tokio::spawn(async move {
-            while let Ok(data) = stdout_rx.recv().await {
+            let mut utf8_tail: Vec<u8> = Vec::new();
+            while let Ok(raw) = stdout_rx.recv().await {
                 state_out.touch();
 
+                // Prepend any leftover bytes from the previous chunk
+                let data = if utf8_tail.is_empty() {
+                    raw
+                } else {
+                    let mut merged = std::mem::take(&mut utf8_tail);
+                    merged.extend_from_slice(&raw);
+                    merged
+                };
+
+                // Split off incomplete trailing UTF-8 sequence
+                let safe_end = utf8_safe_split_point(&data);
+                if safe_end < data.len() {
+                    utf8_tail = data[safe_end..].to_vec();
+                } else {
+                    utf8_tail.clear();
+                }
+                let data = &data[..safe_end];
+                if data.is_empty() {
+                    continue;
+                }
+
                 // Write to scroll buffer (aligned with V1)
-                let lines = parse_terminal_output(&data);
+                let lines = parse_terminal_output(data);
                 if !lines.is_empty() {
                     buffer_clone.append_batch(lines).await;
                 }
 
+                // Queue depth monitoring (P5)
+                let remaining = frame_tx_ssh.capacity();
+                if remaining < FRAME_CHANNEL_CAPACITY / 4 {
+                    warn!("frame_tx queue pressure: {}/{} remaining for session {}", remaining, FRAME_CHANNEL_CAPACITY, sid_out);
+                }
+
                 // Forward to WebSocket
-                let frame = data_frame(Bytes::from(data)).encode();
+                let frame = data_frame(Bytes::from(data.to_vec())).encode();
                 if frame_tx_ssh.send(frame).await.is_err() {
                     break;
                 }
@@ -1385,17 +1484,45 @@ impl WsBridge {
 
         // Task: SSH stdout -> WebSocket
         let mut ssh_out_task = tokio::spawn(async move {
-            while let Ok(data) = stdout_rx.recv().await {
+            let mut utf8_tail: Vec<u8> = Vec::new();
+            while let Ok(raw) = stdout_rx.recv().await {
                 state_out.touch();
 
+                // Prepend any leftover bytes from the previous chunk
+                let data = if utf8_tail.is_empty() {
+                    raw
+                } else {
+                    let mut merged = std::mem::take(&mut utf8_tail);
+                    merged.extend_from_slice(&raw);
+                    merged
+                };
+
+                // Split off incomplete trailing UTF-8 sequence
+                let safe_end = utf8_safe_split_point(&data);
+                if safe_end < data.len() {
+                    utf8_tail = data[safe_end..].to_vec();
+                } else {
+                    utf8_tail.clear();
+                }
+                let data = &data[..safe_end];
+                if data.is_empty() {
+                    continue;
+                }
+
                 // Write to scroll buffer (aligned with V1)
-                let lines = parse_terminal_output(&data);
+                let lines = parse_terminal_output(data);
                 if !lines.is_empty() {
                     buffer_clone.append_batch(lines).await;
                 }
 
+                // Queue depth monitoring (P5)
+                let remaining = frame_tx_ssh.capacity();
+                if remaining < FRAME_CHANNEL_CAPACITY / 4 {
+                    warn!("frame_tx queue pressure: {}/{} remaining for session {}", remaining, FRAME_CHANNEL_CAPACITY, sid_out);
+                }
+
                 // Forward to WebSocket
-                let frame = data_frame(Bytes::from(data)).encode();
+                let frame = data_frame(Bytes::from(data.to_vec())).encode();
                 if frame_tx_ssh.send(frame).await.is_err() {
                     return "channel_closed";
                 }

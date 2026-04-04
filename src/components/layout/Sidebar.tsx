@@ -270,8 +270,8 @@ export const Sidebar = () => {
       // 3. 创建终端会话
       const terminalResponse = await api.createTerminal({
         connectionId: node.runtime.connectionId,
-        cols: 80,
-        rows: 24,
+        cols: 0,
+        rows: 0,
       });
 
       // 4. 把 session 添加到 appStore.sessions
@@ -400,7 +400,7 @@ export const Sidebar = () => {
     // 如果节点已连接但没有终端会话，先创建终端会话再打开 SFTP 标签页
     if (connectionId && (node.runtime.status === 'connected' || node.runtime.status === 'active')) {
       try {
-        const terminalId = await createTerminalForNode(nodeId, 80, 24);
+        const terminalId = await createTerminalForNode(nodeId, 0, 0);
         createTab('sftp', terminalId, { nodeId });
       } catch (err) {
         console.error('Failed to create session for SFTP:', err);
@@ -426,7 +426,7 @@ export const Sidebar = () => {
     // 如果节点已连接但没有终端会话，先创建终端会话再打开 IDE 标签页
     if (connectionId && (node.runtime.status === 'connected' || node.runtime.status === 'active')) {
       try {
-        const terminalId = await createTerminalForNode(nodeId, 80, 24);
+        const terminalId = await createTerminalForNode(nodeId, 0, 0);
         createTab('ide', terminalId, { nodeId });
       } catch (err) {
         console.error('Failed to create session for IDE:', err);
@@ -452,7 +452,7 @@ export const Sidebar = () => {
     // 如果节点已连接但没有终端会话，先创建终端会话再打开转发标签页
     if (connectionId && (node.runtime.status === 'connected' || node.runtime.status === 'active')) {
       try {
-        const terminalId = await createTerminalForNode(nodeId, 80, 24);
+        const terminalId = await createTerminalForNode(nodeId, 0, 0);
         createTab('forwards', terminalId, { nodeId });
       } catch (err) {
         console.error('Failed to create session for forwards:', err);
@@ -482,7 +482,7 @@ export const Sidebar = () => {
   // 新建终端 (使用统一 store)
   const handleTreeNewTerminal = useCallback(async (nodeId: string) => {
     try {
-      const terminalId = await createTerminalForNode(nodeId, 80, 24);
+      const terminalId = await createTerminalForNode(nodeId, 0, 0);
       createTab('terminal', terminalId);
     } catch (err) {
       console.error('Failed to create terminal:', err);
@@ -598,7 +598,7 @@ export const Sidebar = () => {
         
         for (let attempt = 0; attempt < 3 && !terminalId; attempt++) {
           try {
-            terminalId = await createTerminalForNode(nodeId, 80, 24);
+            terminalId = await createTerminalForNode(nodeId, 0, 0);
           } catch (termErr) {
             lastErr = termErr;
             const errMsg = String(termErr);

@@ -233,8 +233,8 @@ export const NewConnectionModal = () => {
         host,
         port: parseInt(port) || 22,
         username,
-        cols: 80,
-        rows: 24,
+        cols: 120,
+        rows: 40,
         displayName: name || undefined,
       });
       
