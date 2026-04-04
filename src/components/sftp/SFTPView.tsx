@@ -2040,9 +2040,6 @@ export const SFTPView = ({ nodeId }: { nodeId: string }) => {
                 const DriveIcon = drive.driveType === 'removable' ? Usb
                   : drive.driveType === 'network' ? Globe
                   : HardDrive;
-                const usedRatio = drive.totalSpace > 0
-                  ? ((drive.totalSpace - drive.availableSpace) / drive.totalSpace) * 100
-                  : 0;
                 return (
                   <button
                     key={drive.path}

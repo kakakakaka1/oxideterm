@@ -42,6 +42,9 @@ import {
   Cpu,
   Puzzle,
   Lightbulb,
+  HardDrive,
+  Rocket,
+  Monitor,
 } from 'lucide-react';
 
 // ============================================================================
@@ -572,20 +575,29 @@ export const OnboardingModal = () => {
       </div>
       <div className="grid grid-cols-2 gap-2.5">
         {([
-          { icon: Command, key: 'cmd_palette', shortcut: isMac ? '⌘K' : 'Ctrl+K' },
-          { icon: Bot, key: 'ai_chat', shortcut: null },
-          { icon: FolderOpen, key: 'sftp', shortcut: null },
-          { icon: Waypoints, key: 'port_forwarding', shortcut: null },
-          { icon: RefreshCw, key: 'reconnect', shortcut: null },
-          { icon: SquareTerminal, key: 'cli_companion', shortcut: null },
-          { icon: ArrowUpDown, key: 'multiplexing', shortcut: null },
-          { icon: Shield, key: 'security', shortcut: null },
+          { icon: Command, key: 'cmd_palette', shortcut: isMac ? '⌘K' : 'Ctrl+K', platform: null },
+          { icon: Bot, key: 'ai_chat', shortcut: null, platform: null },
+          { icon: FolderOpen, key: 'sftp', shortcut: null, platform: null },
+          { icon: HardDrive, key: 'local_file_manager', shortcut: null, platform: null },
+          { icon: Waypoints, key: 'port_forwarding', shortcut: null, platform: null },
+          { icon: RefreshCw, key: 'reconnect', shortcut: null, platform: null },
+          { icon: Puzzle, key: 'plugin_system', shortcut: null, platform: null },
+          { icon: SquareTerminal, key: 'cli_companion', shortcut: null, platform: null },
+          { icon: Rocket, key: 'launchpad', shortcut: null, platform: 'macOS' },
+          { icon: Monitor, key: 'wsl_graphics', shortcut: null, platform: 'Windows' },
+          { icon: ArrowUpDown, key: 'multiplexing', shortcut: null, platform: null },
+          { icon: Shield, key: 'security', shortcut: null, platform: null },
         ] as const).map((item) => (
           <div key={item.key} className="flex gap-2.5 p-3.5 rounded-md border border-theme-border bg-theme-bg-panel">
             <item.icon className="h-4 w-4 mt-0.5 shrink-0 text-[var(--theme-accent)]" />
             <div className="min-w-0">
               <div className="flex items-center gap-1.5">
                 <span className="text-xs font-medium text-theme-text">{t(`onboarding.${item.key}`)}</span>
+                {item.platform && (
+                  <span className="px-1 py-0.5 rounded-sm bg-theme-bg border border-theme-border text-theme-text-muted text-[9px] leading-tight">
+                    {item.platform}
+                  </span>
+                )}
                 {item.shortcut && (
                   <kbd className="px-1 py-0.5 rounded-sm bg-theme-bg border border-theme-border text-theme-text-muted font-mono text-[9px] leading-tight">
                     {item.shortcut}
