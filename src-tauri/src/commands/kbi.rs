@@ -53,6 +53,7 @@ pub async fn ssh_connect_kbi(
     cols: u32,
     rows: u32,
     display_name: Option<String>,
+    agent_forwarding: Option<bool>,
 ) -> Result<(), String> {
     let auth_flow_id = uuid::Uuid::new_v4().to_string();
     info!(
@@ -71,6 +72,7 @@ pub async fn ssh_connect_kbi(
         cols,
         rows,
         display_name,
+        agent_forwarding.unwrap_or(false),
     )
     .await;
 
@@ -147,6 +149,7 @@ async fn run_kbi_flow(
     cols: u32,
     rows: u32,
     display_name: Option<String>,
+    agent_forwarding: bool,
 ) -> Result<(String, u16, String), String> {
     // 1. Establish TCP connection and SSH handshake (with timeout)
     let addr = format!("{}:{}", host, port);
@@ -278,19 +281,15 @@ async fn run_kbi_flow(
     // 5. Authentication succeeded - create session
     debug!("KBI flow {}: creating session", auth_flow_id);
 
-    let session_config = SessionConfig {
-        host: host.clone(),
+    let session_config = build_kbi_session_config(
+        host.clone(),
         port,
-        username: username.clone(),
-        // Store as KeyboardInteractive for reconnection reference
-        // (though reconnect won't auto-retry - user must re-initiate)
-        auth: AuthMethod::KeyboardInteractive,
-        name: display_name.clone(),
-        color: None,
+        username.clone(),
         cols,
         rows,
-        agent_forwarding: false,
-    };
+        display_name.clone(),
+        agent_forwarding,
+    );
 
     // Create session in registry
     let sid = registry
@@ -304,7 +303,7 @@ async fn run_kbi_flow(
     }
 
     // Create SSH session from authenticated handle
-    let ssh_session = SshSession::new(handle, cols, rows, false);
+    let ssh_session = SshSession::new(handle, cols, rows, agent_forwarding);
 
     // Request shell with PTY
     let (session_handle, handle_controller) =
@@ -345,4 +344,51 @@ async fn run_kbi_flow(
     );
 
     Ok((sid, ws_port, ws_token))
+}
+
+fn build_kbi_session_config(
+    host: String,
+    port: u16,
+    username: String,
+    cols: u32,
+    rows: u32,
+    display_name: Option<String>,
+    agent_forwarding: bool,
+) -> SessionConfig {
+    SessionConfig {
+        host,
+        port,
+        username,
+        // Store as KeyboardInteractive for reconnection reference
+        // (though reconnect won't auto-retry - user must re-initiate)
+        auth: AuthMethod::KeyboardInteractive,
+        name: display_name,
+        color: None,
+        cols,
+        rows,
+        agent_forwarding,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_build_kbi_session_config_preserves_agent_forwarding() {
+        let config = build_kbi_session_config(
+            "example.com".to_string(),
+            22,
+            "alice".to_string(),
+            120,
+            40,
+            Some("Example".to_string()),
+            true,
+        );
+
+        assert_eq!(config.host, "example.com");
+        assert_eq!(config.username, "alice");
+        assert!(config.agent_forwarding);
+        assert!(matches!(config.auth, AuthMethod::KeyboardInteractive));
+    }
 }

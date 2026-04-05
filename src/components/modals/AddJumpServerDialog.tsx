@@ -8,7 +8,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Label } from '../ui/label';
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';
+import { Checkbox } from '../ui/checkbox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
+import { Info } from 'lucide-react';
 
 interface JumpServer {
   id: string;
@@ -19,6 +22,7 @@ interface JumpServer {
   password?: string;
   keyPath?: string;
   passphrase?: string;
+  agentForwarding?: boolean;
 }
 
 interface AddJumpServerDialogProps {
@@ -40,6 +44,7 @@ export const AddJumpServerDialog: React.FC<AddJumpServerDialogProps> = ({
   const [password, setPassword] = useState('');
   const [keyPath, setKeyPath] = useState('');
   const [passphrase, setPassphrase] = useState<string>('');
+  const [agentForwarding, setAgentForwarding] = useState(false);
 
   // Type-safe auth type handler
   const handleAuthTypeChange = (value: string) => {
@@ -76,6 +81,7 @@ export const AddJumpServerDialog: React.FC<AddJumpServerDialogProps> = ({
       password: authType === 'password' ? password : undefined,
       keyPath: authType === 'key' ? keyPath : undefined,
       passphrase: authType === 'key' ? passphrase || undefined : undefined,
+      agentForwarding,
     });
     onClose();
   };
@@ -184,6 +190,27 @@ export const AddJumpServerDialog: React.FC<AddJumpServerDialogProps> = ({
           </div>
               </TabsContent>
             </Tabs>
+          </div>
+
+          <div className="flex items-center space-x-2">
+            <Checkbox
+              id="jump-agent-fwd"
+              checked={agentForwarding}
+              onCheckedChange={(checked) => setAgentForwarding(!!checked)}
+            />
+            <Label htmlFor="jump-agent-fwd" className="font-normal">
+              {t('modals.new_connection.agent_forwarding')}
+            </Label>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Info className="h-3.5 w-3.5 cursor-help text-yellow-500" />
+                </TooltipTrigger>
+                <TooltipContent side="top" className="max-w-[280px]">
+                  <p className="text-xs">{t('modals.new_connection.agent_forwarding_hint')}</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </div>
         </div>
 

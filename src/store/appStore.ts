@@ -1268,6 +1268,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
           password: hop.password,
           keyPath: hop.key_path,
           passphrase: hop.passphrase,
+          agentForwarding: hop.agent_forwarding,
         }));
 
         const target: ConnectPresetChainRequest['target'] = {
@@ -1278,6 +1279,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
           password: savedConn.password,
           keyPath: savedConn.key_path,
           passphrase: savedConn.passphrase,
+          agentForwarding: savedConn.agent_forwarding,
         };
 
         const request: ConnectPresetChainRequest = {

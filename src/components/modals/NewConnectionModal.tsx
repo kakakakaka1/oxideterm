@@ -163,6 +163,7 @@ export const NewConnectionModal = () => {
     password?: string;
     keyPath?: string;
     passphrase?: string;
+    agentForwarding?: boolean;
   }) => {
     const proxyConfig: ProxyHopConfig = {
       id: server.id,
@@ -173,6 +174,7 @@ export const NewConnectionModal = () => {
       password: server.password,
       key_path: server.keyPath,
       passphrase: server.passphrase,
+      agent_forwarding: server.agentForwarding,
     };
     setProxyServers([...proxyServers, proxyConfig]);
   };
@@ -243,6 +245,7 @@ export const NewConnectionModal = () => {
         cols: 120,
         rows: 40,
         displayName: name || undefined,
+        agentForwarding,
       });
       
       // KBI flow started - show the dialog
@@ -309,6 +312,7 @@ export const NewConnectionModal = () => {
             key_path: (authType === 'key' || authType === 'default_key' || authType === 'certificate') ? keyPath : undefined,
             cert_path: authType === 'certificate' ? certPath : undefined,
             tags: [],
+            agent_forwarding: agentForwarding,
             proxy_chain: proxyServers.length > 0 ? proxyServers : undefined,
           });
           // Notify session manager to refresh

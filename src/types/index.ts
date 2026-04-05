@@ -354,6 +354,7 @@ export interface ProxyHopConfig {
   password?: string;
   key_path?: string;
   passphrase?: string;
+  agent_forwarding?: boolean;
 }
 
 export interface BufferConfig {
@@ -556,6 +557,7 @@ export interface SaveConnectionRequest {
   cert_path?: string;
   color?: string;
   tags?: string[];
+  agent_forwarding?: boolean;
   proxy_chain?: SaveProxyHopRequest[];
 }
 
@@ -568,6 +570,7 @@ export interface SaveProxyHopRequest {
   password?: string;
   key_path?: string;
   passphrase?: string;
+  agent_forwarding?: boolean;
 }
 
 // Terminal Config
@@ -1030,6 +1033,7 @@ export interface HopInfo {
   keyPath?: string;
   certPath?: string;
   passphrase?: string;
+  agentForwarding?: boolean;
 }
 
 /**

@@ -113,7 +113,11 @@ pub enum ReconnectEvent {
 pub struct SessionReconnector {
     /// Session ID
     session_id: String,
-    /// Original session config for reconnection
+    /// Original session config snapshot for reconnection.
+    ///
+    /// Reconnect semantics are snapshot-based: once a reconnector is created,
+    /// subsequent attempts always reuse this captured session config rather than
+    /// consulting mutable connection settings elsewhere.
     config: SessionConfig,
     /// Reconnection settings
     reconnect_config: ReconnectConfig,
@@ -435,5 +439,47 @@ mod tests {
         assert!(!reconnector.is_cancelled());
         reconnector.cancel();
         assert!(reconnector.is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn test_attempt_reconnection_uses_snapshot_agent_forwarding() {
+        let config = SessionConfig {
+            host: "test".to_string(),
+            port: 22,
+            username: "user".to_string(),
+            auth: crate::session::types::AuthMethod::password("test123"),
+            name: None,
+            color: None,
+            cols: 80,
+            rows: 24,
+            agent_forwarding: true,
+        };
+
+        let reconnector = SessionReconnector::new(
+            "test-session".to_string(),
+            config,
+            ReconnectConfig {
+                max_attempts: 1,
+                ..ReconnectConfig::default()
+            },
+        );
+
+        let seen_agent_forwarding = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let seen_agent_forwarding_clone = seen_agent_forwarding.clone();
+
+        let result = reconnector
+            .attempt_reconnection(|session_config| {
+                let seen_agent_forwarding_clone = seen_agent_forwarding_clone.clone();
+                let observed = session_config.agent_forwarding;
+                async move {
+                    seen_agent_forwarding_clone.store(observed, Ordering::Release);
+                    Ok(())
+                }
+            })
+            .await;
+
+        assert!(result.is_ok());
+        assert!(seen_agent_forwarding.load(Ordering::Acquire));
+        assert_eq!(reconnector.state(), ReconnectState::Reconnected);
     }
 }

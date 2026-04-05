@@ -231,6 +231,11 @@ pub async fn create_terminal(
         .await
         .map_err(|e| format!("Failed to acquire connection: {}", e))?;
 
+    let agent_forwarding = connection_registry
+        .get_connection(&request.connection_id)
+        .map(|entry| entry.config.agent_forwarding)
+        .unwrap_or(false);
+
     // 创建 session 配置
     let config = SessionConfig {
         host: connection_info.host.clone(),
@@ -241,7 +246,7 @@ pub async fn create_terminal(
         color: None,
         cols: request.cols,
         rows: request.rows,
-        agent_forwarding: false, // Terminal-level config, actual flag read from connection entry
+        agent_forwarding,
     };
 
     // 在 SessionRegistry 创建 session
@@ -337,12 +342,6 @@ pub async fn create_terminal(
     // themes like spaceship-zsh that cache cursor positions during init).
     let deferred_pty = request.cols == 0 || request.rows == 0;
 
-    // Check if agent forwarding is enabled for this connection
-    let agent_forwarding = connection_registry
-        .get_connection(&request.connection_id)
-        .map(|entry| entry.config.agent_forwarding)
-        .unwrap_or(false);
-
     if !deferred_pty {
         // Standard flow: request PTY immediately with provided dimensions
         // Clamp to sane limits to prevent resource abuse
@@ -372,7 +371,7 @@ pub async fn create_terminal(
         // Request agent forwarding if enabled (must be after PTY, before shell)
         if agent_forwarding {
             debug!("Requesting SSH agent forwarding on terminal channel");
-            if let Err(e) = channel.agent_forward(false).await {
+            if let Err(e) = channel.agent_forward(true).await {
                 warn!("Agent forwarding request failed (non-fatal): {}", e);
             }
         }
@@ -471,7 +470,7 @@ pub async fn create_terminal(
             // Request agent forwarding if enabled (must be after PTY, before shell)
             if agent_forwarding {
                 debug!("Requesting SSH agent forwarding on deferred PTY channel");
-                if let Err(e) = channel.agent_forward(false).await {
+                if let Err(e) = channel.agent_forward(true).await {
                     warn!("Agent forwarding request failed (non-fatal): {}", e);
                 }
             }

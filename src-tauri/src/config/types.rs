@@ -19,6 +19,8 @@ pub struct ProxyHopConfig {
     pub port: u16,
     pub username: String,
     pub auth: SavedAuth,
+    #[serde(default)]
+    pub agent_forwarding: bool,
 }
 
 /// Authentication method for saved connections
@@ -72,6 +74,10 @@ pub struct ConnectionOptions {
     /// Custom terminal type (default: xterm-256color)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub term_type: Option<String>,
+
+    /// Enable SSH agent forwarding for the target connection
+    #[serde(default)]
+    pub agent_forwarding: bool,
 }
 
 /// A saved connection configuration
@@ -312,6 +318,7 @@ impl ConfigFile {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn test_connection_display() {
@@ -367,6 +374,36 @@ mod tests {
         assert!(conn.last_used_at.is_none());
         conn.touch();
         assert!(conn.last_used_at.is_some());
+    }
+
+    #[test]
+    fn test_connection_options_deserialize_agent_forwarding_default_false() {
+        let options: ConnectionOptions = serde_json::from_value(json!({
+            "compression": true,
+            "term_type": "xterm-256color"
+        }))
+        .unwrap();
+
+        assert!(!options.agent_forwarding);
+        assert!(options.compression);
+    }
+
+    #[test]
+    fn test_saved_connection_serializes_agent_forwarding() {
+        let mut conn = SavedConnection::new_password("Test", "example.com", 22, "user", "kc-123");
+        conn.options.agent_forwarding = true;
+        conn.proxy_chain.push(ProxyHopConfig {
+            host: "jump.example.com".to_string(),
+            port: 2222,
+            username: "jump".to_string(),
+            auth: SavedAuth::Agent,
+            agent_forwarding: true,
+        });
+
+        let value = serde_json::to_value(&conn).unwrap();
+
+        assert_eq!(value["options"]["agent_forwarding"], true);
+        assert_eq!(value["proxy_chain"][0]["agent_forwarding"], true);
     }
 
     #[test]

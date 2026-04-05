@@ -208,6 +208,8 @@ pub struct SaveConnectionRequest {
     #[serde(default)]
     pub tags: Vec<String>,
     pub jump_host: Option<String>, // Legacy jump host for backward compatibility
+    #[serde(default)]
+    pub agent_forwarding: Option<bool>,
     pub proxy_chain: Option<Vec<ProxyHopRequest>>, // Multi-hop proxy chain
 }
 
@@ -221,6 +223,8 @@ pub struct ProxyHopRequest {
     pub password: Option<String>,   // Only for password auth
     pub key_path: Option<String>,   // Only for key auth
     pub passphrase: Option<String>, // Passphrase for encrypted keys
+    #[serde(default)]
+    pub agent_forwarding: Option<bool>,
 }
 
 /// SSH config host info for frontend
@@ -413,6 +417,7 @@ pub async fn save_connection(
                         port: jump_conn.port,
                         username: jump_conn.username.clone(),
                         auth: hop_config,
+                        agent_forwarding: false,
                     });
                 }
 
@@ -484,6 +489,7 @@ pub async fn save_connection(
                         port: hop_req.port,
                         username: hop_req.username.clone(),
                         auth,
+                        agent_forwarding: hop_req.agent_forwarding.unwrap_or(false),
                     });
                 }
 
@@ -497,6 +503,9 @@ pub async fn save_connection(
             conn.username = request.username;
             conn.color = request.color;
             conn.tags = request.tags;
+            if let Some(agent_forwarding) = request.agent_forwarding {
+                conn.options.agent_forwarding = agent_forwarding;
+            }
 
             conn.auth = build_saved_auth(
                 &request.auth_type,
@@ -582,6 +591,7 @@ pub async fn save_connection(
                         port: hop_req.port,
                         username: hop_req.username.clone(),
                         auth: hop_auth,
+                        agent_forwarding: hop_req.agent_forwarding.unwrap_or(false),
                     });
                 }
             }
@@ -596,7 +606,10 @@ pub async fn save_connection(
                 port: request.port,
                 username: request.username,
                 auth,
-                options: Default::default(),
+                options: crate::config::ConnectionOptions {
+                    agent_forwarding: request.agent_forwarding.unwrap_or(false),
+                    ..Default::default()
+                },
                 created_at: chrono::Utc::now(),
                 last_used_at: None,
                 color: request.color,
@@ -904,6 +917,7 @@ pub struct SavedConnectionForConnect {
     pub key_path: Option<String>,
     pub passphrase: Option<String>,
     pub name: String,
+    pub agent_forwarding: bool,
     pub proxy_chain: Vec<ProxyHopForConnect>,
 }
 
@@ -917,6 +931,7 @@ pub struct ProxyHopForConnect {
     pub key_path: Option<String>,
     pub cert_path: Option<String>,
     pub passphrase: Option<String>,
+    pub agent_forwarding: bool,
 }
 
 /// Get saved connection with credentials for connecting
@@ -1039,6 +1054,7 @@ pub async fn get_saved_connection_for_connect(
                 key_path: hop_key_path,
                 cert_path: hop_cert_path,
                 passphrase: hop_passphrase,
+                agent_forwarding: hop.agent_forwarding,
             }
         })
         .collect();
@@ -1052,6 +1068,7 @@ pub async fn get_saved_connection_for_connect(
         key_path,
         passphrase,
         name: conn.name.clone(),
+        agent_forwarding: conn.options.agent_forwarding,
         proxy_chain,
     })
 }

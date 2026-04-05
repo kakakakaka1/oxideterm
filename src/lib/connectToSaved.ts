@@ -50,7 +50,7 @@ export async function connectToSaved(
     if (savedConn.proxy_chain && savedConn.proxy_chain.length > 0) {
       const { expandManualPreset, connectNodeWithAncestors, createTerminalForNode } = useSessionTreeStore.getState();
 
-      const hops = savedConn.proxy_chain.map((hop: { host: string; port: number; username: string; auth_type: string; password?: string; key_path?: string; passphrase?: string }) => ({
+      const hops = savedConn.proxy_chain.map((hop: { host: string; port: number; username: string; auth_type: string; password?: string; key_path?: string; passphrase?: string; agent_forwarding: boolean }) => ({
         host: hop.host,
         port: hop.port,
         username: hop.username,
@@ -58,6 +58,7 @@ export async function connectToSaved(
         password: hop.password,
         keyPath: hop.key_path,
         passphrase: hop.passphrase,
+        agentForwarding: hop.agent_forwarding,
       }));
 
       const target = {
@@ -68,6 +69,7 @@ export async function connectToSaved(
         password: savedConn.password,
         keyPath: savedConn.key_path,
         passphrase: savedConn.passphrase,
+        agentForwarding: savedConn.agent_forwarding,
       };
 
       const request = {
@@ -126,6 +128,7 @@ export async function connectToSaved(
         keyPath: savedConn.key_path,
         passphrase: savedConn.passphrase,
         displayName: savedConn.name,
+        agentForwarding: savedConn.agent_forwarding,
       });
 
       const { connectNodeWithAncestors } = useSessionTreeStore.getState();

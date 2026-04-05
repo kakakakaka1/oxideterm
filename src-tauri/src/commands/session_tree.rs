@@ -102,6 +102,8 @@ pub struct HopInfo {
     pub key_path: Option<String>,
     pub cert_path: Option<String>,
     pub passphrase: Option<String>,
+    #[serde(default)]
+    pub agent_forwarding: bool,
 }
 
 /// 会话树摘要信息
@@ -315,7 +317,7 @@ pub async fn expand_manual_preset(
             hop.username.clone(),
             auth,
             None,
-            false,
+            hop.agent_forwarding,
         ));
     }
 
@@ -332,7 +334,7 @@ pub async fn expand_manual_preset(
         request.target.username.clone(),
         target_auth,
         None,
-        false,
+        request.target.agent_forwarding,
     );
 
     // 展开为树节点
@@ -998,7 +1000,7 @@ pub async fn connect_manual_preset(
             hop.username.clone(),
             auth,
             None,
-            false,
+            hop.agent_forwarding,
         ));
     }
 
@@ -1015,7 +1017,7 @@ pub async fn connect_manual_preset(
         request.target.username.clone(),
         target_auth,
         None,
-        false,
+        request.target.agent_forwarding,
     );
 
     // 2. 展开为树节点

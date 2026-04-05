@@ -176,7 +176,7 @@ impl Drop for ProxyConnection {
 fn build_proxy_client_handler(host: String, port: u16) -> ClientHandler {
     #[cfg(test)]
     {
-        return ClientHandler::with_trust(host, port, false, Some(false));
+        return ClientHandler::with_trust(host, port, false, Some(false), false);
     }
 
     #[cfg(not(test))]

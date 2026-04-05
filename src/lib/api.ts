@@ -346,6 +346,7 @@ export const api = {
     key_path?: string;
     passphrase?: string;
     name: string;
+    agent_forwarding: boolean;
     proxy_chain: Array<{
       host: string;
       port: number;
@@ -354,6 +355,7 @@ export const api = {
       password?: string;
       key_path?: string;
       passphrase?: string;
+      agent_forwarding: boolean;
     }>;
   }> => {
     if (USE_MOCK) {
@@ -364,6 +366,7 @@ export const api = {
         auth_type: 'password',
         password: 'mock-password',
         name: 'Mock Connection',
+        agent_forwarding: false,
         proxy_chain: [],
       };
     }

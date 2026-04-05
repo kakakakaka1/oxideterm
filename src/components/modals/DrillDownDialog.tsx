@@ -8,8 +8,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Label } from '../ui/label';
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';
+import { Checkbox } from '../ui/checkbox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
-import { Loader2, ArrowDownRight } from 'lucide-react';
+import { Loader2, ArrowDownRight, Info } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
 import { api } from '../../lib/api';
 import { useSessionTreeStore } from '../../store/sessionTreeStore';
 
@@ -42,6 +44,7 @@ export const DrillDownDialog: React.FC<DrillDownDialogProps> = ({
   const [password, setPassword] = useState('');
   const [keyPath, setKeyPath] = useState('');
   const [passphrase, setPassphrase] = useState('');
+  const [agentForwarding, setAgentForwarding] = useState(false);
   
   // 加载状态
   const [isConnecting, setIsConnecting] = useState(false);
@@ -79,6 +82,7 @@ export const DrillDownDialog: React.FC<DrillDownDialogProps> = ({
     setPassword('');
     setKeyPath('');
     setPassphrase('');
+    setAgentForwarding(false);
     setError(null);
     setIsConnecting(false);
   };
@@ -105,6 +109,7 @@ export const DrillDownDialog: React.FC<DrillDownDialogProps> = ({
         password: authType === 'password' ? password : undefined,
         keyPath: authType === 'key' ? keyPath : undefined,
         passphrase: authType === 'key' && passphrase ? passphrase : undefined,
+        agentForwarding,
       });
 
       // 2. 调用 connect_tree_node 建立实际连接
@@ -260,6 +265,28 @@ export const DrillDownDialog: React.FC<DrillDownDialogProps> = ({
                 </div>
               </TabsContent>
             </Tabs>
+          </div>
+
+          <div className="flex items-center space-x-2">
+            <Checkbox
+              id="drill-agent-fwd"
+              checked={agentForwarding}
+              onCheckedChange={(checked) => setAgentForwarding(!!checked)}
+              disabled={isConnecting}
+            />
+            <Label htmlFor="drill-agent-fwd" className="font-normal">
+              {t('modals.new_connection.agent_forwarding')}
+            </Label>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Info className="h-3.5 w-3.5 cursor-help text-yellow-500" />
+                </TooltipTrigger>
+                <TooltipContent side="top" className="max-w-[280px]">
+                  <p className="text-xs">{t('modals.new_connection.agent_forwarding_hint')}</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </div>
         </div>
 

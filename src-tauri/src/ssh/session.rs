@@ -228,7 +228,7 @@ impl SshSession {
         // Request agent forwarding if enabled (must be before shell)
         if self.agent_forwarding {
             debug!("Requesting SSH agent forwarding");
-            if let Err(e) = channel.agent_forward(false).await {
+            if let Err(e) = channel.agent_forward(true).await {
                 warn!("Agent forwarding request failed (non-fatal): {}", e);
             }
         }

@@ -418,6 +418,7 @@ pub async fn import_from_oxide(
                 port: enc_hop.port,
                 username: enc_hop.username,
                 auth: hop_auth,
+                agent_forwarding: false,
             });
         }
 

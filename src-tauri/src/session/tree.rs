@@ -758,6 +758,12 @@ mod tests {
         NodeConnection::new(host, 22, "user")
     }
 
+    fn make_connection_with_forwarding(host: &str, agent_forwarding: bool) -> NodeConnection {
+        let mut connection = NodeConnection::new(host, 22, "user");
+        connection.agent_forwarding = agent_forwarding;
+        connection
+    }
+
     #[test]
     fn test_add_root_node() {
         let mut tree = SessionTree::new();
@@ -795,6 +801,20 @@ mod tests {
     }
 
     #[test]
+    fn test_drill_down_preserves_agent_forwarding() {
+        let mut tree = SessionTree::new();
+        let root_id = tree.add_root_node(make_connection("server-a"), NodeOrigin::Direct);
+        tree.update_state(&root_id, NodeState::Connected).unwrap();
+
+        let child_id = tree
+            .drill_down(&root_id, make_connection_with_forwarding("server-b", true))
+            .unwrap();
+
+        let child = tree.get_node(&child_id).unwrap();
+        assert!(child.connection.agent_forwarding);
+    }
+
+    #[test]
     fn test_drill_down_not_connected() {
         let mut tree = SessionTree::new();
         let root_id = tree.add_root_node(make_connection("server-a"), NodeOrigin::Direct);
@@ -808,8 +828,11 @@ mod tests {
     fn test_expand_manual_preset() {
         let mut tree = SessionTree::new();
 
-        let hops = vec![make_connection("jump-01"), make_connection("bastion")];
-        let target = make_connection("internal-db");
+        let hops = vec![
+            make_connection_with_forwarding("jump-01", true),
+            make_connection_with_forwarding("bastion", false),
+        ];
+        let target = make_connection_with_forwarding("internal-db", true);
 
         let target_id = tree
             .expand_manual_preset("saved-conn-123", hops, target)
@@ -826,8 +849,11 @@ mod tests {
         let path = tree.get_path_to_node(&target_id);
         assert_eq!(path.len(), 3);
         assert_eq!(path[0].connection.host, "jump-01");
+        assert!(path[0].connection.agent_forwarding);
         assert_eq!(path[1].connection.host, "bastion");
+        assert!(!path[1].connection.agent_forwarding);
         assert_eq!(path[2].connection.host, "internal-db");
+        assert!(path[2].connection.agent_forwarding);
     }
 
     #[test]

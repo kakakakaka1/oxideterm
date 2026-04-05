@@ -50,8 +50,15 @@ describe('connectToSaved', () => {
       auth_type: 'key',
       key_path: '/tmp/key',
       passphrase: 'secret',
+      agent_forwarding: true,
       proxy_chain: [
-        { host: 'jump.example.com', port: 2222, username: 'jump', auth_type: 'agent' },
+        {
+          host: 'jump.example.com',
+          port: 2222,
+          username: 'jump',
+          auth_type: 'agent',
+          agent_forwarding: true,
+        },
       ],
     });
     sessionTreeState.expandManualPreset.mockResolvedValue({ targetNodeId: 'node-target', chainDepth: 2 });
@@ -67,7 +74,17 @@ describe('connectToSaved', () => {
 
     expect(sessionTreeState.expandManualPreset).toHaveBeenCalledWith(expect.objectContaining({
       savedConnectionId: 'saved-1',
-      target: expect.objectContaining({ host: 'target.example.com', username: 'target' }),
+      target: expect.objectContaining({
+        host: 'target.example.com',
+        username: 'target',
+        agentForwarding: true,
+      }),
+      hops: [
+        expect.objectContaining({
+          host: 'jump.example.com',
+          agentForwarding: true,
+        }),
+      ],
     }));
     expect(sessionTreeState.connectNodeWithAncestors).toHaveBeenCalledWith('node-target');
     expect(sessionTreeState.createTerminalForNode).toHaveBeenCalledWith('node-target');
@@ -96,6 +113,7 @@ describe('connectToSaved', () => {
       port: 22,
       username: 'tester',
       auth_type: 'agent',
+      agent_forwarding: true,
       proxy_chain: [],
     });
     sessionTreeState.connectNodeWithAncestors.mockResolvedValue(['node-1']);
@@ -112,6 +130,33 @@ describe('connectToSaved', () => {
     expect(sessionTreeState.createTerminalForNode).toHaveBeenCalledWith('node-1');
     expect(createTab).toHaveBeenCalledWith('terminal', 'term-1');
     expect(sessionTreeState.selectedNodeId).toBe('node-1');
+  });
+
+  it('passes agentForwarding when creating a new direct root node', async () => {
+    apiMocks.getSavedConnectionForConnect.mockResolvedValue({
+      name: 'Forwarded',
+      host: 'forwarded.example.com',
+      port: 22,
+      username: 'alice',
+      auth_type: 'agent',
+      agent_forwarding: true,
+      proxy_chain: [],
+    });
+    sessionTreeState.addRootNode.mockResolvedValue('node-forwarded');
+    sessionTreeState.connectNodeWithAncestors.mockResolvedValue(['node-forwarded']);
+    sessionTreeState.createTerminalForNode.mockResolvedValue('term-forwarded');
+
+    await connectToSaved('saved-forwarded', {
+      createTab: vi.fn(),
+      toast: vi.fn(),
+      t: (key: string) => key,
+    });
+
+    expect(sessionTreeState.addRootNode).toHaveBeenCalledWith(expect.objectContaining({
+      host: 'forwarded.example.com',
+      username: 'alice',
+      agentForwarding: true,
+    }));
   });
 
   it('activates an existing direct terminal tab instead of opening a duplicate', async () => {
@@ -136,6 +181,7 @@ describe('connectToSaved', () => {
       port: 22,
       username: 'tester',
       auth_type: 'agent',
+      agent_forwarding: false,
       proxy_chain: [],
     });
     const createTab = vi.fn();
