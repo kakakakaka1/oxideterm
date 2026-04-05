@@ -133,6 +133,7 @@ export function IdeRemoteFolderDialog({
           </DialogDescription>
         </DialogHeader>
 
+        <div className="space-y-4 px-4">
         {/* 路径输入 */}
         <form onSubmit={handlePathSubmit} className="flex gap-2">
           <Input
@@ -221,6 +222,7 @@ export function IdeRemoteFolderDialog({
               ? (currentPath === '/' ? `/${selectedFolder}` : `${currentPath}/${selectedFolder}`)
               : currentPath}
           </code>
+        </div>
         </div>
 
         <DialogFooter>

@@ -382,7 +382,7 @@ function TreeNode({
               style={{ paddingLeft: `${(depth + 1) * 12 + 8}px` }}
             >
               <Folder className="w-3 h-3 opacity-40" />
-              {t('ide.empty_directory')}
+              {t('empty_directory')}
             </div>
           ) : children.map(child => (
             <TreeNode
