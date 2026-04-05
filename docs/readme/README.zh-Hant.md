@@ -312,6 +312,9 @@ CodeMirror 6 編輯器基於 SFTP 運作——預設無需伺服端安裝：
 git clone https://github.com/AnalyseDeCircuit/oxideterm.git
 cd oxideterm && pnpm install
 
+# 建構 CLI 伴侶工具（CLI 功能必需）
+pnpm cli:build
+
 # 完整應用（前端 + Rust 後端，熱重載）
 pnpm tauri dev
 

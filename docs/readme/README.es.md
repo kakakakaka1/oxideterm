@@ -312,6 +312,9 @@ Shell local multiplataforma vía `portable-pty 0.8`, protegido por feature gate 
 git clone https://github.com/AnalyseDeCircuit/oxideterm.git
 cd oxideterm && pnpm install
 
+# Compilar el CLI companion (requerido para funciones CLI)
+pnpm cli:build
+
 # Aplicación completa (frontend + backend Rust con hot reload)
 pnpm tauri dev
 

@@ -312,6 +312,9 @@ Cross-platform local shell via `portable-pty 0.8`, feature-gated behind `local-t
 git clone https://github.com/AnalyseDeCircuit/oxideterm.git
 cd oxideterm && pnpm install
 
+# Build CLI companion (required for CLI features)
+pnpm cli:build
+
 # Full app (frontend + Rust backend with hot reload)
 pnpm tauri dev
 
