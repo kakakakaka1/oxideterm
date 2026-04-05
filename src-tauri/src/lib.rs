@@ -819,6 +819,7 @@ pub fn run() {
         // Appearance commands
         commands::set_window_vibrancy,
         // Resumable update commands
+        update_manager::update_check_with_channel,
         update_manager::update_start_resumable_install,
         update_manager::update_get_resumable_status,
         update_manager::update_cancel_resumable_install,
@@ -1136,6 +1137,7 @@ pub fn run() {
         // Appearance commands
         commands::set_window_vibrancy,
         // Resumable update commands
+        update_manager::update_check_with_channel,
         update_manager::update_start_resumable_install,
         update_manager::update_get_resumable_status,
         update_manager::update_cancel_resumable_install,

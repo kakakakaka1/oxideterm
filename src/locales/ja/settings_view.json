@@ -525,7 +525,11 @@
       "verifying": "検証中...",
       "installing": "インストール中...",
       "skipped_version": "スキップ済み: v{{version}}",
-      "clear_skip": "解除"
+      "clear_skip": "解除",
+      "update_channel": "更新チャンネル",
+      "update_channel_hint": "Beta チャンネルはプレリリースビルドを受信します",
+      "channel_stable": "安定版",
+      "channel_beta": "Beta"
     },
     "errors": {
       "create_group_failed": "グループの作成に失敗しました: {{error}}",

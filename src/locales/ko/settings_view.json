@@ -525,7 +525,11 @@
       "verifying": "검증 중...",
       "installing": "설치 중...",
       "skipped_version": "건너뛴 버전: v{{version}}",
-      "clear_skip": "해제"
+      "clear_skip": "해제",
+      "update_channel": "업데이트 채널",
+      "update_channel_hint": "Beta 채널은 사전 릴리스 빌드를 수신합니다",
+      "channel_stable": "안정 버전",
+      "channel_beta": "Beta"
     },
     "errors": {
       "create_group_failed": "그룹 생성 실패: {{error}}",

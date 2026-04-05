@@ -525,7 +525,11 @@
       "verifying": "Verificando...",
       "installing": "Instalando...",
       "skipped_version": "Omitida: v{{version}}",
-      "clear_skip": "Borrar"
+      "clear_skip": "Borrar",
+      "update_channel": "Canal de actualización",
+      "update_channel_hint": "El canal beta recibe compilaciones preliminares",
+      "channel_stable": "Estable",
+      "channel_beta": "Beta"
     },
     "errors": {
       "create_group_failed": "Error al crear grupo: {{error}}",

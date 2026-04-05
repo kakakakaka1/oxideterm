@@ -85,8 +85,11 @@ export type SidebarSection = 'sessions' | 'saved' | 'sftp' | 'forwards' | 'conne
 export type Language = 'zh-CN' | 'en' | 'fr-FR' | 'ja' | 'es-ES' | 'pt-BR' | 'vi' | 'ko' | 'de' | 'it' | 'zh-TW';
 
 /** General settings */
+export type UpdateChannel = 'stable' | 'beta';
+
 export interface GeneralSettings {
   language: Language;
+  updateChannel: UpdateChannel;
 }
 
 /** Terminal background image fit mode */
@@ -314,6 +317,7 @@ const isWindows = platform.isWindows;
 
 const defaultGeneralSettings: GeneralSettings = {
   language: 'zh-CN',  // Default to Chinese
+  updateChannel: 'stable',
 };
 
 const defaultTerminalSettings: TerminalSettings = {
@@ -670,6 +674,24 @@ function migrateToolUseSettings(settings: PersistedSettingsV2): PersistedSetting
   return newSettings;
 }
 
+/**
+ * Migrate osc52Clipboard: the feature shipped as opt-in (false) but is now default-on.
+ * Upgrade persisted `false` to `true` so existing users benefit without manual action.
+ * Users who deliberately disabled it after it existed will be unaffected — this only
+ * runs once; after migrating the value is persisted as `true` and no longer touched.
+ */
+function migrateOsc52Default(settings: PersistedSettingsV2): PersistedSettingsV2 {
+  if (settings.terminal.osc52Clipboard === false) {
+    const migrated: PersistedSettingsV2 = {
+      ...settings,
+      terminal: { ...settings.terminal, osc52Clipboard: true },
+    };
+    persistSettings(migrated);
+    return migrated;
+  }
+  return settings;
+}
+
 /** Load settings from localStorage, detect and clean legacy formats */
 function loadSettings(): PersistedSettingsV2 {
   try {
@@ -682,7 +704,9 @@ function loadSettings(): PersistedSettingsV2 {
         // Migrate: ensure providers array exists
         const migrated = migrateAiProviders(settings);
         // Migrate: convert old autoApproveReadOnly/autoApproveAll to per-tool map
-        return migrateToolUseSettings(migrated);
+        const migrated2 = migrateToolUseSettings(migrated);
+        // Migrate: osc52 default changed from false → true
+        return migrateOsc52Default(migrated2);
       }
     }
 

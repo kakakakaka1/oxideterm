@@ -525,7 +525,11 @@
       "verifying": "Đang xác minh...",
       "installing": "Đang cài đặt...",
       "skipped_version": "Đã bỏ qua: v{{version}}",
-      "clear_skip": "Xóa"
+      "clear_skip": "Xóa",
+      "update_channel": "Kênh cập nhật",
+      "update_channel_hint": "Kênh Beta nhận các bản dựng phát hành trước",
+      "channel_stable": "Ổn định",
+      "channel_beta": "Beta"
     },
     "errors": {
       "create_group_failed": "Không thể tạo nhóm: {{error}}",

@@ -525,7 +525,11 @@
       "verifying": "正在校驗...",
       "installing": "正在安裝...",
       "skipped_version": "已跳過: v{{version}}",
-      "clear_skip": "清除"
+      "clear_skip": "清除",
+      "update_channel": "更新通道",
+      "update_channel_hint": "Beta 通道接收預發布版本",
+      "channel_stable": "穩定版",
+      "channel_beta": "Beta"
     },
     "errors": {
       "create_group_failed": "無法建立群組：{{error}}",

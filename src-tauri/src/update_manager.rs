@@ -168,17 +168,68 @@ impl Default for UpdateManagerState {
     }
 }
 
+// ── Update channel ──────────────────────────────────────────
+
+const BETA_ENDPOINT: &str =
+    "https://github.com/AnalyseDeCircuit/oxideterm/releases/download/updater-beta/latest.json";
+
+/// Build an `Updater` for the given channel.
+/// `"stable"` uses the config-default endpoint; `"beta"` overrides to the
+/// `updater-beta` release asset.
+fn build_updater_for_channel(
+    app: &AppHandle,
+    channel: Option<&str>,
+) -> Result<tauri_plugin_updater::Updater, UpdateError> {
+    let mut builder = app.updater_builder();
+    if channel == Some("beta") {
+        builder = builder
+            .endpoints(vec![BETA_ENDPOINT.parse().expect("BETA_ENDPOINT is a valid URL")])
+            .map_err(|e| UpdateError::General(format!("set beta endpoint failed: {e}")))?;
+    }
+    builder
+        .build()
+        .map_err(|e| UpdateError::General(format!("build updater failed: {e}")))
+}
+
 // ── Commands ────────────────────────────────────────────────
+
+/// Result of a channel-aware update check, serialized to JS.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateCheckResult {
+    pub version: String,
+    pub current_version: String,
+    pub body: Option<String>,
+    pub date: Option<String>,
+}
+
+#[tauri::command]
+pub async fn update_check_with_channel(
+    app: AppHandle,
+    channel: Option<String>,
+) -> Result<Option<UpdateCheckResult>, UpdateError> {
+    let updater = build_updater_for_channel(&app, channel.as_deref())?;
+    let update = updater
+        .check()
+        .await
+        .map_err(|err| UpdateError::General(format!("check update failed: {err}")))?;
+
+    Ok(update.map(|u| UpdateCheckResult {
+        version: u.version.clone(),
+        current_version: u.current_version.to_string(),
+        body: u.body.clone(),
+        date: u.date.as_ref().map(|d| d.to_string()),
+    }))
+}
 
 #[tauri::command]
 pub async fn update_start_resumable_install(
     app: AppHandle,
     manager_state: State<'_, UpdateManagerState>,
     expected_version: Option<String>,
+    channel: Option<String>,
 ) -> Result<String, UpdateError> {
-    let updater = app
-        .updater()
-        .map_err(|err| UpdateError::General(format!("build updater failed: {err}")))?;
+    let updater = build_updater_for_channel(&app, channel.as_deref())?;
     let update = updater
         .check()
         .await

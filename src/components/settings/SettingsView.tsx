@@ -9,7 +9,7 @@ import DOMPurify from 'dompurify';
 import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import { open as openFileDialog } from '@tauri-apps/plugin-dialog';
 import { useAppStore } from '../../store/appStore';
-import { useSettingsStore, type RendererType, type AdaptiveRendererMode, type FontFamily, type CursorStyle, type Language, type BackgroundFit, type UiDensity, type AnimationSpeed, type FrostedGlassMode } from '../../store/settingsStore';
+import { useSettingsStore, type UpdateChannel, type RendererType, type AdaptiveRendererMode, type FontFamily, type CursorStyle, type Language, type BackgroundFit, type UiDensity, type AnimationSpeed, type FrostedGlassMode } from '../../store/settingsStore';
 import { useTabBgActive } from '../../hooks/useTabBackground';
 import { useUpdateStore } from '../../store/updateStore';
 import { Button } from '../ui/button';
@@ -378,6 +378,8 @@ const HelpAboutSection = () => {
     const { t } = useTranslation();
     const [appVersion, setAppVersion] = useState<string>('...');
     const updater = useUpdateStore();
+    const updateChannel = useSettingsStore((s) => s.settings.general.updateChannel);
+    const updateGeneral = useSettingsStore((s) => s.updateGeneral);
 
     useEffect(() => {
         getVersion().then(setAppVersion).catch(() => setAppVersion('1.4.0'));
@@ -415,6 +417,24 @@ const HelpAboutSection = () => {
                     <div className="flex items-center justify-between">
                         <span className="text-theme-text-muted">{t('settings_view.help.version')}</span>
                         <span className="text-theme-text font-mono">{appVersion}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <span className="text-theme-text-muted">{t('settings_view.help.update_channel')}</span>
+                            <p className="text-xs text-theme-text-muted/60 mt-0.5">{t('settings_view.help.update_channel_hint')}</p>
+                        </div>
+                        <Select
+                            value={updateChannel}
+                            onValueChange={(val) => updateGeneral('updateChannel', val as UpdateChannel)}
+                        >
+                            <SelectTrigger className="w-[140px]">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="stable">{t('settings_view.help.channel_stable')}</SelectItem>
+                                <SelectItem value="beta">{t('settings_view.help.channel_beta')}</SelectItem>
+                            </SelectContent>
+                        </Select>
                     </div>
                 </div>
 

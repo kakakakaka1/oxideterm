@@ -525,7 +525,11 @@
       "verifying": "Überprüfung...",
       "installing": "Installation...",
       "skipped_version": "Übersprungen: v{{version}}",
-      "clear_skip": "Löschen"
+      "clear_skip": "Löschen",
+      "update_channel": "Update-Kanal",
+      "update_channel_hint": "Der Beta-Kanal erhält Vorabversionen",
+      "channel_stable": "Stabil",
+      "channel_beta": "Beta"
     },
     "errors": {
       "create_group_failed": "Gruppe konnte nicht erstellt werden: {{error}}",

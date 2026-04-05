@@ -178,7 +178,7 @@ jobs:
           releaseName: 'OxideTerm ${{ github.ref_name }}'
           releaseBody: ${{ steps.release_notes.outputs.body || 'See the assets below to download the installer for your platform.' }}
           releaseDraft: false
-          prerelease: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
           includeUpdaterJson: false
           args: ${{ matrix.args }}
 
@@ -331,3 +331,85 @@ jobs:
               });
             }
             console.log(`Deleted ${sigAssets.length} .sig file(s).`);
+
+  publish-beta-updater:
+    name: Publish beta updater manifest
+    needs: publish-updater
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - name: Upload latest.json to updater-beta release
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const tag = context.ref.replace('refs/tags/', '');
+
+            // Get the latest.json from the current release
+            const { data: release } = await github.rest.repos.getReleaseByTag({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag,
+            });
+
+            const latestJsonAsset = release.assets.find(a => a.name === 'latest.json');
+            if (!latestJsonAsset) {
+              console.log('No latest.json found on current release, skipping beta manifest');
+              return;
+            }
+
+            const resp = await fetch(latestJsonAsset.browser_download_url);
+            const content = await resp.text();
+
+            // Create or find the updater-beta release
+            let betaRelease;
+            try {
+              const { data } = await github.rest.repos.getReleaseByTag({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tag: 'updater-beta',
+              });
+              betaRelease = data;
+            } catch (e) {
+              if (e.status === 404) {
+                // Create the release and the tag
+                const { data } = await github.rest.repos.createRelease({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  tag_name: 'updater-beta',
+                  name: 'Beta Updater Manifest',
+                  body: 'This release hosts the latest.json for the beta update channel. Do not delete.',
+                  prerelease: true,
+                  draft: false,
+                });
+                betaRelease = data;
+              } else {
+                throw e;
+              }
+            }
+
+            // Delete existing latest.json on updater-beta release
+            const existingAsset = betaRelease.assets.find(a => a.name === 'latest.json');
+            if (existingAsset) {
+              await github.rest.repos.deleteReleaseAsset({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                asset_id: existingAsset.id,
+              });
+            }
+
+            // Upload latest.json to updater-beta release
+            await github.rest.repos.uploadReleaseAsset({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: betaRelease.id,
+              name: 'latest.json',
+              data: content,
+              headers: {
+                'content-type': 'application/json',
+                'content-length': Buffer.byteLength(content),
+              },
+            });
+
+            console.log(`Uploaded latest.json to updater-beta release for ${tag}`);

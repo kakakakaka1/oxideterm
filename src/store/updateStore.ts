@@ -15,6 +15,7 @@ import { check, type Update } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { retryWithExponentialBackoff } from '@/lib/retry';
+import { useSettingsStore } from '@/store/settingsStore';
 
 // ── Types ───────────────────────────────────────────────────
 
@@ -193,30 +194,59 @@ export const useUpdateStore = create<UpdateState>()(
         const silent = opts?.silent ?? false;
         set({ stage: 'checking', errorMessage: null });
 
-        try {
-          const update = await retryWithExponentialBackoff(
-            () => check(),
-            { maxRetries: 2, baseDelayMs: 2000 },
-          );
+        const channel = useSettingsStore.getState().settings.general.updateChannel;
 
-          if (update) {
-            _updateRef = update;
-            const { skippedVersion } = get();
-            if (silent && skippedVersion === update.version) {
-              set({ stage: 'idle', lastCheckedAt: Date.now() });
-              return;
+        try {
+          // For beta channel, use Rust-side channel-aware check.
+          // For stable, use the plugin's check() (keeps _updateRef for legacy fallback).
+          if (channel === 'beta') {
+            const result = await retryWithExponentialBackoff(
+              () => api.updateCheckWithChannel('beta'),
+              { maxRetries: 2, baseDelayMs: 2000 },
+            );
+            _updateRef = null; // No plugin Update object for beta
+            if (result) {
+              const { skippedVersion } = get();
+              if (silent && skippedVersion === result.version) {
+                set({ stage: 'idle', lastCheckedAt: Date.now() });
+                return;
+              }
+              set({
+                stage: 'available',
+                newVersion: result.version,
+                currentVersion: result.currentVersion,
+                releaseBody: result.body ?? null,
+                releaseDate: result.date ?? null,
+                lastCheckedAt: Date.now(),
+              });
+            } else {
+              set({ stage: 'up-to-date', lastCheckedAt: Date.now() });
             }
-            set({
-              stage: 'available',
-              newVersion: update.version,
-              currentVersion: update.currentVersion,
-              releaseBody: update.body ?? null,
-              releaseDate: update.date ?? null,
-              lastCheckedAt: Date.now(),
-            });
           } else {
-            _updateRef = null;
-            set({ stage: 'up-to-date', lastCheckedAt: Date.now() });
+            const update = await retryWithExponentialBackoff(
+              () => check(),
+              { maxRetries: 2, baseDelayMs: 2000 },
+            );
+
+            if (update) {
+              _updateRef = update;
+              const { skippedVersion } = get();
+              if (silent && skippedVersion === update.version) {
+                set({ stage: 'idle', lastCheckedAt: Date.now() });
+                return;
+              }
+              set({
+                stage: 'available',
+                newVersion: update.version,
+                currentVersion: update.currentVersion,
+                releaseBody: update.body ?? null,
+                releaseDate: update.date ?? null,
+                lastCheckedAt: Date.now(),
+              });
+            } else {
+              _updateRef = null;
+              set({ stage: 'up-to-date', lastCheckedAt: Date.now() });
+            }
           }
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
@@ -252,10 +282,19 @@ export const useUpdateStore = create<UpdateState>()(
         });
 
         try {
-          const taskId = await api.updateStartResumableInstall(newVersion);
+          const channel = useSettingsStore.getState().settings.general.updateChannel;
+          const taskId = await api.updateStartResumableInstall(newVersion, channel !== 'stable' ? channel : undefined);
           set({ resumableTaskId: taskId });
           // Progress will be tracked via event listener
         } catch (err) {
+          // Beta channel has no legacy fallback (no plugin Update reference)
+          if (!_updateRef) {
+            set({
+              stage: 'error',
+              errorMessage: err instanceof Error ? err.message : String(err),
+            });
+            return;
+          }
           // Resumable backend not available — fallback to legacy plugin
           console.warn('[update] Resumable install failed, falling back to legacy:', err);
           await legacyDownload(set, get);
