@@ -1,7 +1,7 @@
 // Copyright (C) 2026 AnalyseDeCircuit
 // SPDX-License-Identifier: GPL-3.0-only
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Dialog,
@@ -56,9 +56,14 @@ export const EditConnectionPropertiesModal = ({
   const [color, setColor] = useState('');
   const [groups, setGroups] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  // Capture connection snapshot at open time so handleSave never reads a stale prop
+  const connectionRef = useRef<ConnectionInfo | null>(null);
 
   useEffect(() => {
     if (isOpen && connection) {
+      connectionRef.current = connection;
+      setError('');
       setName(connection.name || '');
       setHost(connection.host || '');
       setPort(String(connection.port || 22));
@@ -94,11 +99,13 @@ export const EditConnectionPropertiesModal = ({
   };
 
   const handleSave = async () => {
-    if (!connection || !host || !username) return;
+    const conn = connectionRef.current;
+    if (!conn || !host || !username) return;
     setSaving(true);
+    setError('');
     try {
       await api.saveConnection({
-        id: connection.id,
+        id: conn.id,
         name: name || `${username}@${host}`,
         group: group === 'Ungrouped' ? null : group,
         host,
@@ -107,12 +114,13 @@ export const EditConnectionPropertiesModal = ({
         auth_type: authType,
         key_path: (authType === 'key' || authType === 'certificate') ? keyPath : undefined,
         color: color || undefined,
-        tags: connection.tags,
+        tags: conn.tags,
       });
       onOpenChange(false);
       onSaved?.();
     } catch (e) {
       console.error('Failed to save connection:', e);
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setSaving(false);
     }
@@ -256,6 +264,9 @@ export const EditConnectionPropertiesModal = ({
         </div>
 
         <DialogFooter>
+          {error && (
+            <p className="text-xs text-theme-error mr-auto self-center">{error}</p>
+          )}
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             {t('sessionManager.edit_properties.cancel')}
           </Button>
