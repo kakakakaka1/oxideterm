@@ -93,6 +93,8 @@
       "compact_button": "压缩",
       "view_original": "查看原始消息",
       "compacted_messages": "已压缩 {{count}} 条消息",
+      "compaction_running": "正在压缩对话历史...",
+      "compaction_done": "已将 {{count}} 条消息压缩为摘要。",
       "system_instructions": "系统指令",
       "tool_definitions": "工具定义",
       "reserved_output": "预留输出",

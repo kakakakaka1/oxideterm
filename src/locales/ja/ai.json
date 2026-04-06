@@ -93,6 +93,8 @@
       "compact_button": "圧縮",
       "view_original": "元のメッセージを表示",
       "compacted_messages": "{{count}} 件のメッセージを圧縮しました",
+      "compaction_running": "会話履歴を圧縮中...",
+      "compaction_done": "{{count}} 件のメッセージを要約に圧縮しました。",
       "system_instructions": "システム指示",
       "tool_definitions": "ツール定義",
       "reserved_output": "出力予約",

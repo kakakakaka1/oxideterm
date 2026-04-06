@@ -93,6 +93,8 @@
       "compact_button": "Compactar",
       "view_original": "Ver original",
       "compacted_messages": "{{count}} mensagens compactadas",
+      "compaction_running": "Compactando o histórico da conversa...",
+      "compaction_done": "{{count}} mensagens foram compactadas em um resumo.",
       "system_instructions": "Instruções do sistema",
       "tool_definitions": "Definições de ferramentas",
       "reserved_output": "Saída reservada",

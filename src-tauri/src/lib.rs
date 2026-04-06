@@ -691,6 +691,7 @@ pub fn run() {
         commands::ai_chat_delete_messages_after,
         commands::ai_chat_clear_all,
         commands::ai_chat_replace_conversation_messages,
+        commands::ai_chat_replace_conversation_message_list,
         commands::ai_chat_get_stats,
         // Agent history persistence commands (v2)
         commands::agent_history_save_meta,
@@ -1009,6 +1010,7 @@ pub fn run() {
         commands::ai_chat_delete_messages_after,
         commands::ai_chat_clear_all,
         commands::ai_chat_replace_conversation_messages,
+        commands::ai_chat_replace_conversation_message_list,
         commands::ai_chat_get_stats,
         // Agent history persistence commands (v2)
         commands::agent_history_save_meta,

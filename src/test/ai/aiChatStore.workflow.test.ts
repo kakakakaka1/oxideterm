@@ -14,6 +14,10 @@ const getModelContextWindowMock = vi.hoisted(() => vi.fn(() => 1000));
 const responseReserveMock = vi.hoisted(() => vi.fn(() => 256));
 const trimHistoryMock = vi.hoisted(() => vi.fn((messages) => ({ messages, trimmedCount: 0 })));
 const providerStreamMock = vi.hoisted(() => vi.fn());
+const gatherSidebarContextMock = vi.hoisted(() => vi.fn<() => unknown>(() => null));
+const buildContextReminderMock = vi.hoisted(() => vi.fn<(ctx: unknown) => string | null>(() => null));
+const resolveReferenceTypeMock = vi.hoisted(() => vi.fn());
+const resolveAllReferencesMock = vi.hoisted(() => vi.fn<(...args: unknown[]) => unknown>(() => []));
 const apiMocks = vi.hoisted(() => ({
   getAiProviderApiKey: vi.fn().mockResolvedValue('key-1'),
   ragSearch: vi.fn().mockResolvedValue([]),
@@ -89,8 +93,8 @@ vi.mock('@/store/appStore', () => ({
 }));
 
 vi.mock('@/lib/sidebarContextProvider', () => ({
-  gatherSidebarContext: vi.fn(() => null),
-  buildContextReminder: vi.fn(() => null),
+  gatherSidebarContext: gatherSidebarContextMock,
+  buildContextReminder: buildContextReminderMock,
 }));
 
 vi.mock('@/lib/ai/providerRegistry', () => ({
@@ -136,8 +140,8 @@ vi.mock('@/lib/ai/participants', () => ({
 
 vi.mock('@/lib/ai/references', () => ({
   REFERENCES: [],
-  resolveReferenceType: vi.fn(),
-  resolveAllReferences: vi.fn(() => []),
+  resolveReferenceType: resolveReferenceTypeMock,
+  resolveAllReferences: resolveAllReferencesMock,
 }));
 
 vi.mock('@/lib/ai/suggestionParser', () => ({
@@ -160,7 +164,10 @@ vi.mock('@/i18n', () => ({
 }));
 
 import { useAiChatStore } from '@/store/aiChatStore';
+import type { SidebarContext } from '@/lib/sidebarContextProvider';
 import type { AiConversation, AiChatMessage } from '@/types';
+
+const initialAiChatStoreState = useAiChatStore.getInitialState();
 
 function makeConversation(messages: AiChatMessage[] = []): AiConversation {
   return {
@@ -181,6 +188,7 @@ function setConversation(messages: AiChatMessage[]) {
     isInitialized: true,
     error: null,
     abortController: null,
+    compactionInfo: null,
   });
 }
 
@@ -200,8 +208,13 @@ describe('aiChatStore workflows', () => {
     getProviderMock.mockReturnValue({ streamCompletion: providerStreamMock });
     estimateTokensMock.mockImplementation(() => 100);
     trimHistoryMock.mockImplementation((messages) => ({ messages, trimmedCount: 0 }));
+    gatherSidebarContextMock.mockReturnValue(null);
+    buildContextReminderMock.mockReturnValue(null);
+    resolveReferenceTypeMock.mockReturnValue(undefined);
+    resolveAllReferencesMock.mockResolvedValue([]);
     streamText('summary text');
     useAiChatStore.setState({
+      ...initialAiChatStoreState,
       conversations: [],
       activeConversationId: null,
       isLoading: false,
@@ -209,6 +222,7 @@ describe('aiChatStore workflows', () => {
       error: null,
       abortController: null,
       trimInfo: null,
+      compactionInfo: null,
       sessionDisabledTools: null,
     });
   });
@@ -349,11 +363,339 @@ describe('aiChatStore workflows', () => {
       metadata: expect.objectContaining({ type: 'compaction-anchor', originalCount: 3 }),
     });
     expect(compacted.slice(1).map((message) => message.id)).toEqual(['a-2', 'u-3', 'a-3']);
-    expect(invokeMock).toHaveBeenCalledWith('ai_chat_replace_conversation_messages', expect.objectContaining({
-      request: expect.objectContaining({ conversationId: 'conv-1' }),
+    expect(invokeMock).toHaveBeenCalledWith('ai_chat_replace_conversation_message_list', expect.objectContaining({
+      request: expect.objectContaining({
+        conversationId: 'conv-1',
+        expectedMessageIds: ['u-1', 'a-1', 'u-2', 'a-2', 'u-3', 'a-3'],
+        messages: expect.arrayContaining([
+          expect.objectContaining({ id: 'a-2' }),
+          expect.objectContaining({ id: 'u-3' }),
+          expect.objectContaining({ id: 'a-3' }),
+        ]),
+      }),
     }));
-    expect(invokeMock).toHaveBeenCalledWith('ai_chat_save_message', expect.objectContaining({
-      request: expect.objectContaining({ id: 'a-2' }),
+  });
+
+  it('silent compaction refreshes the active conversation immediately', async () => {
+    streamText('Merged summary');
+    estimateTokensMock.mockImplementation(() => 200);
+    setConversation([
+      { id: 'u-1', role: 'user', content: 'old question', timestamp: 1 },
+      { id: 'a-1', role: 'assistant', content: 'old answer', timestamp: 2 },
+      { id: 'u-2', role: 'user', content: 'middle question', timestamp: 3 },
+      { id: 'a-2', role: 'assistant', content: 'middle answer', timestamp: 4 },
+      { id: 'u-3', role: 'user', content: 'recent question', timestamp: 5 },
+      { id: 'a-3', role: 'assistant', content: 'recent answer', timestamp: 6 },
+    ]);
+
+    await useAiChatStore.getState().compactConversation('conv-1', { silent: true });
+
+    const state = useAiChatStore.getState();
+    expect(state.conversations[0].messages[0]).toMatchObject({
+      role: 'system',
+      content: 'Merged summary',
+      metadata: expect.objectContaining({ type: 'compaction-anchor' }),
+    });
+    expect(state.conversations[0].messages.length).toBeLessThan(6);
+    expect(state.compactionInfo).toMatchObject({
+      conversationId: 'conv-1',
+      mode: 'silent',
+      phase: 'done',
+      compactedCount: expect.any(Number),
+    });
+  });
+
+  it('preserves messages appended while compaction is in flight', async () => {
+    let releaseStream!: () => void;
+    providerStreamMock.mockImplementation(async function* () {
+      await new Promise<void>((resolve) => {
+        releaseStream = resolve;
+      });
+      yield { type: 'content', content: 'Merged summary' };
+      yield { type: 'done' };
+    });
+
+    estimateTokensMock.mockImplementation(() => 200);
+    setConversation([
+      { id: 'u-1', role: 'user', content: 'old question', timestamp: 1 },
+      { id: 'a-1', role: 'assistant', content: 'old answer', timestamp: 2 },
+      { id: 'u-2', role: 'user', content: 'middle question', timestamp: 3 },
+      { id: 'a-2', role: 'assistant', content: 'middle answer', timestamp: 4 },
+      { id: 'u-3', role: 'user', content: 'recent question', timestamp: 5 },
+      { id: 'a-3', role: 'assistant', content: 'recent answer', timestamp: 6 },
+    ]);
+
+    const compactPromise = useAiChatStore.getState().compactConversation('conv-1', { silent: true });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    useAiChatStore.setState((state) => ({
+      conversations: state.conversations.map((conversation) => {
+        if (conversation.id !== 'conv-1') return conversation;
+        return {
+          ...conversation,
+          messages: [
+            ...conversation.messages,
+            { id: 'u-4', role: 'user', content: 'new question', timestamp: 7 },
+            { id: 'a-4', role: 'assistant', content: 'new answer', timestamp: 8 },
+          ],
+          updatedAt: 8,
+        };
+      }),
     }));
+
+    releaseStream();
+    await compactPromise;
+
+    const messages = useAiChatStore.getState().conversations[0].messages;
+    expect(messages[0]).toMatchObject({
+      role: 'system',
+      content: 'Merged summary',
+      metadata: expect.objectContaining({ type: 'compaction-anchor' }),
+    });
+    expect(messages.slice(-2).map((message) => message.id)).toEqual(['u-4', 'a-4']);
+    expect(invokeMock).toHaveBeenCalledWith('ai_chat_replace_conversation_message_list', expect.objectContaining({
+      request: expect.objectContaining({
+        conversationId: 'conv-1',
+        expectedMessageIds: ['u-1', 'a-1', 'u-2', 'a-2', 'u-3', 'a-3', 'u-4', 'a-4'],
+        messages: expect.arrayContaining([
+          expect.objectContaining({ id: 'u-4' }),
+          expect.objectContaining({ id: 'a-4' }),
+        ]),
+      }),
+    }));
+  });
+
+  it('gathers sidebar context once and reuses it for context, reminder, and persistence', async () => {
+    const sidebarContext: SidebarContext = {
+      env: {
+        localOS: 'macOS',
+        terminalType: 'terminal',
+        activeTabType: 'terminal',
+        activeNodeId: 'node-1',
+        sessionId: 'session-1',
+        cwd: '/tmp/project',
+        connection: {
+          id: 'conn-1',
+          host: 'host',
+          port: 22,
+          username: 'user',
+          formatted: 'user@host:22',
+        },
+        remoteEnv: undefined,
+        remoteOSHint: 'Linux',
+      },
+      terminal: {
+        buffer: 'BUFFER BLOCK',
+        lineCount: 3,
+        selection: 'SELECTED',
+        hasSelection: true,
+      },
+      ide: null,
+      sftp: null,
+      systemPromptSegment: 'SYSTEM SEGMENT',
+      contextBlock: 'CONTEXT BLOCK',
+      gatheredAt: 123,
+    };
+    gatherSidebarContextMock.mockReturnValue(sidebarContext);
+    buildContextReminderMock.mockImplementation((ctx: unknown) => {
+      expect(ctx).toBe(sidebarContext);
+      return 'REMINDER';
+    });
+    streamText('assistant reply');
+    setConversation([
+      { id: 'u-1', role: 'user', content: 'earlier question', timestamp: 1 },
+      { id: 'a-1', role: 'assistant', content: 'earlier answer', timestamp: 2 },
+    ]);
+
+    await useAiChatStore.getState().sendMessage('new question');
+
+    expect(gatherSidebarContextMock).toHaveBeenCalledTimes(1);
+    expect(buildContextReminderMock).toHaveBeenCalledTimes(1);
+
+    const currentConversation = useAiChatStore.getState().conversations[0];
+    const persistedUserMessage = currentConversation.messages.find((message) => message.content === 'new question');
+    expect(persistedUserMessage?.context).toBe('CONTEXT BLOCK');
+
+    const saveCalls = invokeMock.mock.calls.filter(([command]) => command === 'ai_chat_save_message');
+    expect(saveCalls[0][1]).toMatchObject({
+      request: expect.objectContaining({
+        contextSnapshot: {
+          sessionId: 'session-1',
+          connectionName: 'user@host:22',
+          remoteOs: 'Linux',
+          cwd: '/tmp/project',
+          selection: 'SELECTED',
+          bufferTail: 'BUFFER BLOCK',
+        },
+      }),
+    });
+
+    const [, providerMessages] = providerStreamMock.mock.calls[0];
+    expect(providerMessages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: 'system', content: expect.stringContaining('SYSTEM SEGMENT') }),
+      expect.objectContaining({ role: 'system', content: expect.stringContaining('CONTEXT BLOCK') }),
+      expect.objectContaining({ role: 'system', content: 'REMINDER' }),
+    ]));
+  });
+
+  it('reuses a pre-sampled sidebar context without gathering again', async () => {
+    const sidebarContext: SidebarContext = {
+      env: {
+        localOS: 'macOS',
+        terminalType: 'terminal',
+        activeTabType: 'terminal',
+        activeNodeId: 'node-2',
+        sessionId: 'session-2',
+        cwd: '/workspace',
+        connection: {
+          id: 'conn-2',
+          host: 'example.com',
+          port: 22,
+          username: 'dev',
+          formatted: 'dev@example.com:22',
+        },
+        remoteEnv: undefined,
+        remoteOSHint: 'Ubuntu',
+      },
+      terminal: {
+        buffer: 'BUFFER FROM SNAPSHOT',
+        lineCount: 2,
+        selection: null,
+        hasSelection: false,
+      },
+      ide: null,
+      sftp: null,
+      systemPromptSegment: 'PRE-SAMPLED SEGMENT',
+      contextBlock: 'BUFFER FROM SNAPSHOT',
+      gatheredAt: 456,
+    };
+    gatherSidebarContextMock.mockImplementation(() => {
+      throw new Error('should not gather again');
+    });
+    buildContextReminderMock.mockImplementation((ctx: unknown) => {
+      expect(ctx).toBe(sidebarContext);
+      return 'PRE-SAMPLED REMINDER';
+    });
+    streamText('assistant reply');
+    setConversation([
+      { id: 'u-1', role: 'user', content: 'older question', timestamp: 1 },
+      { id: 'a-1', role: 'assistant', content: 'older answer', timestamp: 2 },
+    ]);
+
+    await useAiChatStore.getState().sendMessage('new question', 'EXPLICIT BUFFER', { sidebarContext });
+
+    expect(gatherSidebarContextMock).not.toHaveBeenCalled();
+    const currentConversation = useAiChatStore.getState().conversations[0];
+    const userMessage = currentConversation.messages.find((message) => message.content === 'new question');
+    expect(userMessage?.context).toBe('EXPLICIT BUFFER');
+
+    const saveCalls = invokeMock.mock.calls.filter(([command]) => command === 'ai_chat_save_message');
+    expect(saveCalls[0][1]).toMatchObject({
+      request: expect.objectContaining({
+        contextSnapshot: {
+          sessionId: 'session-2',
+          connectionName: 'dev@example.com:22',
+          remoteOs: 'Ubuntu',
+          cwd: '/workspace',
+          selection: null,
+          bufferTail: 'BUFFER FROM SNAPSHOT',
+        },
+      }),
+    });
+
+    const [, providerMessages] = providerStreamMock.mock.calls[0];
+    expect(providerMessages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: 'system', content: expect.stringContaining('PRE-SAMPLED SEGMENT') }),
+      expect.objectContaining({ role: 'system', content: expect.stringContaining('EXPLICIT BUFFER') }),
+      expect.objectContaining({ role: 'system', content: 'PRE-SAMPLED REMINDER' }),
+    ]));
+  });
+
+  it('captures default sidebar context before async reference resolution starts', async () => {
+    const firstSidebarContext: SidebarContext = {
+      env: {
+        localOS: 'macOS',
+        terminalType: 'terminal',
+        activeTabType: 'terminal',
+        activeNodeId: 'node-3',
+        sessionId: 'session-3',
+        cwd: '/first',
+        connection: {
+          id: 'conn-3',
+          host: 'first-host',
+          port: 22,
+          username: 'first',
+          formatted: 'first@first-host:22',
+        },
+        remoteEnv: undefined,
+        remoteOSHint: 'Debian',
+      },
+      terminal: {
+        buffer: 'FIRST BUFFER',
+        lineCount: 1,
+        selection: null,
+        hasSelection: false,
+      },
+      ide: null,
+      sftp: null,
+      systemPromptSegment: 'FIRST SEGMENT',
+      contextBlock: 'FIRST CONTEXT',
+      gatheredAt: 100,
+    };
+    const secondSidebarContext: SidebarContext = {
+      ...firstSidebarContext,
+      env: {
+        ...firstSidebarContext.env,
+        cwd: '/second',
+      },
+      terminal: {
+        ...firstSidebarContext.terminal,
+        buffer: 'SECOND BUFFER',
+      },
+      systemPromptSegment: 'SECOND SEGMENT',
+      contextBlock: 'SECOND CONTEXT',
+      gatheredAt: 200,
+    };
+
+    let referenceResolutionStarted = false;
+    gatherSidebarContextMock.mockImplementation(() => {
+      expect(referenceResolutionStarted).toBe(false);
+      return referenceResolutionStarted ? secondSidebarContext : firstSidebarContext;
+    });
+    resolveReferenceTypeMock.mockReturnValue({ type: 'selection' });
+    resolveAllReferencesMock.mockImplementation(async () => {
+      referenceResolutionStarted = true;
+      return 'REFERENCE BLOCK';
+    });
+    parseUserInputMock.mockReturnValue({
+      slashCommand: null,
+      participants: [],
+      references: [{ type: 'selection', raw: '#selection' }],
+      cleanText: 'question with reference',
+    });
+    buildContextReminderMock.mockImplementation((ctx: unknown) => {
+      expect(ctx).toBe(firstSidebarContext);
+      return 'REFERENCE REMINDER';
+    });
+    streamText('assistant reply');
+    setConversation([
+      { id: 'u-1', role: 'user', content: 'older question', timestamp: 1 },
+      { id: 'a-1', role: 'assistant', content: 'older answer', timestamp: 2 },
+    ]);
+
+    await useAiChatStore.getState().sendMessage('question with reference');
+
+    expect(gatherSidebarContextMock).toHaveBeenCalledTimes(1);
+    const currentConversation = useAiChatStore.getState().conversations[0];
+    const userMessage = currentConversation.messages.find((message) => message.content === 'question with reference');
+    expect(userMessage?.context).toBe('FIRST CONTEXT\n\nREFERENCE BLOCK');
+
+    const [, providerMessages] = providerStreamMock.mock.calls[0];
+    expect(providerMessages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: 'system', content: expect.stringContaining('FIRST SEGMENT') }),
+      expect.objectContaining({ role: 'system', content: expect.stringContaining('FIRST CONTEXT\n\nREFERENCE BLOCK') }),
+      expect.objectContaining({ role: 'system', content: 'REFERENCE REMINDER' }),
+    ]));
   });
 });

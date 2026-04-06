@@ -5,16 +5,10 @@ import { useState, useRef, useCallback, useEffect, useLayoutEffect } from 'react
 import { useTranslation } from 'react-i18next';
 import { StopCircle, Terminal, Layers, Sparkles, Code2, FolderOpen } from 'lucide-react';
 import { useAppStore } from '../../store/appStore';
-import { api } from '../../lib/api';
 import { useSettingsStore } from '../../store/settingsStore';
 import { useIdeStore } from '../../store/ideStore';
 import { ContextIndicator } from './ContextIndicator';
-import {
-  getActiveTerminalBuffer,
-  getActivePaneId,
-  getActivePaneMetadata,
-  getCombinedPaneContext
-} from '../../lib/terminalRegistry';
+import { gatherSidebarContext, type SidebarContext } from '../../lib/sidebarContextProvider';
 import { getSftpContext } from '../../lib/sftpContextRegistry';
 import { getTokenAtCursor } from '../../lib/ai/inputParser';
 import { filterSlashCommands, type SlashCommandDef } from '../../lib/ai/slashCommands';
@@ -22,12 +16,33 @@ import { filterParticipants, type ParticipantDef } from '../../lib/ai/participan
 import { filterReferences, type ReferenceDef } from '../../lib/ai/references';
 
 interface ChatInputProps {
-  onSend: (content: string, context?: string) => void;
+  onSend: (content: string, context?: string, sidebarContext?: SidebarContext | null) => void;
   onStop: () => void;
   isLoading: boolean;
   disabled?: boolean;
   externalValue?: string;
   onExternalValueChange?: (value: string) => void;
+}
+
+function buildSinglePaneContext(sidebarContext: SidebarContext): string | undefined {
+  const parts: string[] = [];
+
+  if (sidebarContext.terminal.selection) {
+    parts.push('=== SELECTED TEXT (Focus Area) ===');
+    parts.push(sidebarContext.terminal.selection);
+    parts.push('');
+  }
+
+  if (sidebarContext.terminal.buffer) {
+    parts.push(`=== Terminal Output (last ${sidebarContext.terminal.lineCount} lines) ===`);
+    parts.push(sidebarContext.terminal.buffer);
+  }
+
+  if (parts.length === 0) {
+    return sidebarContext.contextBlock || undefined;
+  }
+
+  return parts.join('\n');
 }
 
 export function ChatInput({ onSend, onStop, isLoading, disabled, externalValue, onExternalValueChange }: ChatInputProps) {
@@ -129,6 +144,7 @@ export function ChatInput({ onSend, onStop, isLoading, disabled, externalValue, 
   // Get active terminal session
   const tabs = useAppStore((state) => state.tabs);
   const activeTabId = useAppStore((state) => state.activeTabId);
+  const contextVisibleLines = useSettingsStore((state) => state.settings.ai.contextVisibleLines);
   const contextMaxChars = useSettingsStore((state) => state.settings.ai.contextMaxChars);
 
   // Find active terminal tab
@@ -162,43 +178,21 @@ export function ChatInput({ onSend, onStop, isLoading, disabled, externalValue, 
     const trimmed = input.trim();
     if (!trimmed || isLoading || disabled) return;
 
-    // Get terminal context if requested
-    // Now uses unified Registry for both SSH and Local terminals
     let context: string | undefined;
+    let sidebarContext: SidebarContext | null = null;
     if (includeContext && hasActiveTerminal && activeTab) {
       setFetchingContext(true);
       try {
-        // Cross-Pane Vision: Gather context from ALL panes if enabled
-        if (includeAllPanes && hasSplitPanes) {
-          const maxCharsPerPane = contextMaxChars ? Math.floor(contextMaxChars / 4) : 2000;
-          context = getCombinedPaneContext(activeTab.id, maxCharsPerPane);
-          if (!context) {
-            console.warn('[AI] getCombinedPaneContext returned empty, falling back to active pane');
-          }
-        }
+        sidebarContext = gatherSidebarContext({
+          maxBufferLines: contextVisibleLines || 50,
+          maxBufferChars: contextMaxChars || 8000,
+          maxSelectionChars: 2000,
+        });
 
-        // Fallback to active pane only
-        if (!context) {
-          const activePaneId = getActivePaneId();
-          if (activePaneId) {
-            // Get buffer from registry (validates tab ID for security)
-            const buffer = getActiveTerminalBuffer(activeTab.id);
-            if (buffer) {
-              // Trim to contextMaxChars if needed
-              context = contextMaxChars && buffer.length > contextMaxChars
-                ? buffer.slice(-contextMaxChars)
-                : buffer;
-            } else {
-              // Fallback: For SSH terminals, try backend API if Registry returns null
-              const metadata = getActivePaneMetadata();
-              if (metadata?.terminalType === 'terminal' && metadata.sessionId) {
-                const lines = await api.getScrollBuffer(metadata.sessionId, 0, contextMaxChars || 50);
-                if (lines.length > 0) {
-                  context = lines.map((l) => l.text).join('\n');
-                }
-              }
-            }
-          }
+        if (includeAllPanes && hasSplitPanes) {
+          context = sidebarContext.contextBlock || undefined;
+        } else {
+          context = buildSinglePaneContext(sidebarContext);
         }
       } catch (e) {
         console.error('[AI] Failed to get terminal context:', e);
@@ -207,12 +201,12 @@ export function ChatInput({ onSend, onStop, isLoading, disabled, externalValue, 
       }
     }
 
-    onSend(trimmed, context);
+    onSend(trimmed, context, sidebarContext);
     setInput('');
     onExternalValueChange?.('');
     setIncludeContext(false);
     setIncludeAllPanes(false);
-  }, [input, isLoading, disabled, includeContext, includeAllPanes, hasSplitPanes, hasActiveTerminal, activeTab, contextMaxChars, onSend, onExternalValueChange]);
+  }, [input, isLoading, disabled, includeContext, includeAllPanes, hasSplitPanes, hasActiveTerminal, activeTab, contextVisibleLines, contextMaxChars, onSend, onExternalValueChange]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {

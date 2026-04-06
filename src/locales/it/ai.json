@@ -93,6 +93,8 @@
       "compact_button": "Compatta",
       "view_original": "Visualizza originale",
       "compacted_messages": "{{count}} messaggi compattati",
+      "compaction_running": "Compattazione della cronologia della conversazione...",
+      "compaction_done": "{{count}} messaggi sono stati compattati in un riepilogo.",
       "system_instructions": "Istruzioni di sistema",
       "tool_definitions": "Definizioni degli strumenti",
       "reserved_output": "Output riservato",

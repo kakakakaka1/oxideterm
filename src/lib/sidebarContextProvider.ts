@@ -15,10 +15,12 @@
 import { platform } from './platform';
 import { 
   getActivePaneId, 
-  getActivePaneMetadata, 
-  getActiveTerminalBuffer,
+  getPaneMetadata,
+  getTerminalBuffer,
+  getTerminalSelection,
+  getCwd,
   getActiveTerminalSelection,
-  getActiveCwd,
+  getPanesForTab,
   gatherAllPaneContexts,
 } from './terminalRegistry';
 import { useAppStore } from '../store/appStore';
@@ -283,14 +285,29 @@ function gatherSessionsSummary(activeSessionId: string | null): string | null {
  * @returns Complete context snapshot
  */
 export function gatherSidebarContext(config = DEFAULT_CONTEXT_CONFIG): SidebarContext {
-  const paneId = getActivePaneId();
-  const metadata = getActivePaneMetadata();
-  
-  // ─── Environment Snapshot ───────────────────────────────────────────────
-  
-  // Resolve active tab type and nodeId
+  // ─── Derive active pane from appStore (UI truth source) ─────────────
+  // appStore.activeTabId + tab.activePaneId is the canonical source.
+  // Never fall back to terminalRegistry's global activePaneId — it can
+  // point to a pane in a different tab, causing cross-tab context leakage.
   const appState = useAppStore.getState();
   const activeTab = appState.tabs.find(t => t.id === appState.activeTabId);
+  
+  // Resolve active pane scoped to the current tab:
+  // 1. Use tab.activePaneId (UI truth source)
+  // 2. Fallback: search registry for any pane in this tab (race condition safety)
+  // 3. Never fall back to registry's global activePaneId
+  let paneId: string | null = null;
+  if (activeTab) {
+    paneId = activeTab.activePaneId ?? null;
+    if (!paneId) {
+      // Tab exists but no activePaneId — search registry for this tab's panes
+      const tabPanes = getPanesForTab(activeTab.id);
+      paneId = tabPanes.length > 0 ? tabPanes[0] : null;
+    }
+  }
+  const metadata = paneId ? getPaneMetadata(paneId) : null;
+  
+  // ─── Environment Snapshot ───────────────────────────────────────────────
   
   const env: EnvironmentSnapshot = {
     localOS: getLocalOS(),
@@ -298,7 +315,7 @@ export function gatherSidebarContext(config = DEFAULT_CONTEXT_CONFIG): SidebarCo
     activeTabType: activeTab?.type ?? null,
     activeNodeId: activeTab?.nodeId ?? null,
     sessionId: metadata?.sessionId ?? null,
-    cwd: getActiveCwd(),
+    cwd: paneId ? getCwd(paneId) : null,
     connection: null,
     remoteEnv: undefined, // Will be set if SSH connection has detected env
     remoteOSHint: null,
@@ -370,8 +387,8 @@ export function gatherSidebarContext(config = DEFAULT_CONTEXT_CONFIG): SidebarCo
   let selection: string | null = null;
   
   if (paneId) {
-    // Get buffer
-    const rawBuffer = getActiveTerminalBuffer();
+    // Get buffer — validate tab ID to prevent cross-tab context leakage
+    const rawBuffer = getTerminalBuffer(paneId, activeTab?.id);
     if (rawBuffer) {
       // Limit buffer size
       let truncated = rawBuffer;
@@ -384,7 +401,7 @@ export function gatherSidebarContext(config = DEFAULT_CONTEXT_CONFIG): SidebarCo
     }
     
     // Get selection (priority focus)
-    const rawSelection = getActiveTerminalSelection();
+    const rawSelection = getTerminalSelection(paneId);
     if (rawSelection?.trim()) {
       let sel = rawSelection.length > config.maxSelectionChars
         ? rawSelection.slice(0, config.maxSelectionChars) + '...'
@@ -462,7 +479,7 @@ export function gatherSidebarContext(config = DEFAULT_CONTEXT_CONFIG): SidebarCo
   // ─── Format System Prompt Segment ───────────────────────────────────────
   
   const systemPromptSegment = formatSystemPromptSegment(env, terminal, ide, sftp);
-  const contextBlock = formatContextBlock(env, terminal, ide);
+  const contextBlock = formatContextBlock(env, terminal, ide, paneId ?? null);
   
   return {
     env,
@@ -636,7 +653,7 @@ function formatSystemPromptSegment(
  * Includes multi-pane context when split panes exist in the active tab.
  * Includes IDE code snippet when IDE mode is active.
  */
-function formatContextBlock(_env: EnvironmentSnapshot, terminal: TerminalContext, ide: IdeContext | null): string {
+function formatContextBlock(_env: EnvironmentSnapshot, terminal: TerminalContext, ide: IdeContext | null, resolvedPaneId: string | null): string {
   const parts: string[] = [];
   
   // Selection first (priority)
@@ -655,7 +672,8 @@ function formatContextBlock(_env: EnvironmentSnapshot, terminal: TerminalContext
 
   if (activeTab) {
     try {
-      const paneContexts = gatherAllPaneContexts(activeTab.id, MULTI_PANE_MAX_CHARS);
+      // Pass resolvedPaneId so isActive marking is consistent with pane resolution
+      const paneContexts = gatherAllPaneContexts(activeTab.id, MULTI_PANE_MAX_CHARS, resolvedPaneId);
       if (paneContexts.length > 1) {
         // Multiple panes — show each with label
         for (const ctx of paneContexts) {

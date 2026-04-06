@@ -93,6 +93,8 @@
       "compact_button": "압축",
       "view_original": "원본 보기",
       "compacted_messages": "{{count}}개 메시지 압축됨",
+      "compaction_running": "대화 기록을 압축하는 중...",
+      "compaction_done": "{{count}}개 메시지를 요약으로 압축했습니다.",
       "system_instructions": "시스템 지침",
       "tool_definitions": "도구 정의",
       "reserved_output": "예약된 출력",

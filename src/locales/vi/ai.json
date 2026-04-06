@@ -93,6 +93,8 @@
       "compact_button": "Nén",
       "view_original": "Xem bản gốc",
       "compacted_messages": "Đã nén {{count}} tin nhắn",
+      "compaction_running": "Đang nén lịch sử cuộc trò chuyện...",
+      "compaction_done": "Đã nén {{count}} tin nhắn thành bản tóm tắt.",
       "system_instructions": "Hướng dẫn hệ thống",
       "tool_definitions": "Định nghĩa công cụ",
       "reserved_output": "Đầu ra dự trữ",

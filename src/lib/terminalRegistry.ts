@@ -223,17 +223,26 @@ export function getActiveTerminalBuffer(expectedTabId?: string): string | null {
 }
 
 /**
- * Get entry metadata for the active pane (useful for AI to know terminal type)
+ * Get entry metadata for a specific pane
+ * @param paneId - The pane ID to look up
+ * @returns Metadata or null if not found
  */
-export function getActivePaneMetadata(): { sessionId: string; terminalType: 'terminal' | 'local_terminal'; tabId: string } | null {
-  if (!activePaneId) return null;
-  const entry = registry.get(activePaneId);
+export function getPaneMetadata(paneId: string): { sessionId: string; terminalType: 'terminal' | 'local_terminal'; tabId: string } | null {
+  const entry = registry.get(paneId);
   if (!entry) return null;
   return {
     sessionId: entry.sessionId,
     terminalType: entry.terminalType,
     tabId: entry.tabId,
   };
+}
+
+/**
+ * Get entry metadata for the active pane (useful for AI to know terminal type)
+ */
+export function getActivePaneMetadata(): { sessionId: string; terminalType: 'terminal' | 'local_terminal'; tabId: string } | null {
+  if (!activePaneId) return null;
+  return getPaneMetadata(activePaneId);
 }
 
 /**
@@ -343,10 +352,13 @@ export interface GatheredPaneContext {
  * 
  * @param tabId - The tab ID to gather context from
  * @param maxCharsPerPane - Optional: limit characters per pane
+ * @param activePaneOverride - Optional: override which pane is marked active
+ *   (use appStore's tab.activePaneId to avoid relying on registry's global activePaneId)
  * @returns Array of pane contexts with their buffers
  */
-export function gatherAllPaneContexts(tabId: string, maxCharsPerPane?: number): GatheredPaneContext[] {
+export function gatherAllPaneContexts(tabId: string, maxCharsPerPane?: number, activePaneOverride?: string | null): GatheredPaneContext[] {
   const results: GatheredPaneContext[] = [];
+  const effectiveActivePane = activePaneOverride ?? activePaneId;
   
   for (const [paneId, entry] of registry) {
     if (entry.tabId !== tabId) continue;
@@ -364,7 +376,7 @@ export function gatherAllPaneContexts(tabId: string, maxCharsPerPane?: number): 
           sessionId: entry.sessionId,
           terminalType: entry.terminalType,
           buffer,
-          isActive: paneId === activePaneId,
+          isActive: paneId === effectiveActivePane,
         });
       }
     } catch (e) {

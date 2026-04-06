@@ -59,6 +59,17 @@ pub struct ReplaceConversationMessagesRequest {
     pub message: SaveMessageRequest,
 }
 
+/// Request to atomically replace the full ordered message list in a conversation.
+/// Used by compaction to avoid intermediate replace + save races.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplaceConversationMessageListRequest {
+    pub conversation_id: String,
+    pub title: String,
+    pub expected_message_ids: Vec<String>,
+    pub messages: Vec<SaveMessageRequest>,
+}
+
 /// Context snapshot from frontend
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -365,6 +376,47 @@ pub async fn ai_chat_replace_conversation_messages(
 
     store
         .replace_conversation_messages(&request.conversation_id, &request.title, message)
+        .map_err(|e| e.to_string())
+}
+
+/// Atomically replace the entire ordered message list for a conversation.
+/// The operation only commits if the current persisted message ids still match
+/// the expected ids sent by the frontend, preventing stale compaction writes.
+#[tauri::command]
+pub async fn ai_chat_replace_conversation_message_list(
+    store: State<'_, Option<Arc<AiChatStore>>>,
+    request: ReplaceConversationMessageListRequest,
+) -> Result<(), String> {
+    let store = require_ai_chat_store(&store)?;
+    let messages = request
+        .messages
+        .into_iter()
+        .map(|message| PersistedMessage {
+            id: message.id,
+            conversation_id: request.conversation_id.clone(),
+            role: message.role,
+            content: message.content,
+            timestamp: message.timestamp,
+            tool_calls: message.tool_calls,
+            context_snapshot: message.context_snapshot.map(|c| ContextSnapshot {
+                cwd: c.cwd,
+                selection: c.selection,
+                buffer_tail: c.buffer_tail,
+                buffer_compressed: false,
+                local_os: c.local_os,
+                connection_info: c.connection_info,
+                terminal_type: c.terminal_type,
+            }),
+        })
+        .collect::<Vec<_>>();
+
+    store
+        .replace_conversation_message_list(
+            &request.conversation_id,
+            &request.title,
+            &request.expected_message_ids,
+            messages,
+        )
         .map_err(|e| e.to_string())
 }
 

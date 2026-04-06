@@ -15,6 +15,7 @@ import { ModelSelector } from './ModelSelector';
 import { ToolIndicator } from './ToolIndicator';
 import { estimateTokens, getModelContextWindow } from '../../lib/ai/tokenUtils';
 import { CONTEXT_WARNING_THRESHOLD, CONTEXT_DANGER_THRESHOLD } from '../../lib/ai/constants';
+import type { SidebarContext } from '../../lib/sidebarContextProvider';
 import type { AiConversation } from '../../types';
 
 export function AiChatPanel() {
@@ -41,6 +42,7 @@ export function AiChatPanel() {
     deleteMessage,
     renameConversation,
     trimInfo,
+    compactionInfo,
   } = useAiChatStore();
 
   const aiEnabled = useSettingsStore((state) => state.settings.ai.enabled);
@@ -60,6 +62,7 @@ export function AiChatPanel() {
   const [inputValue, setInputValue] = useState('');
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [showTrimNotice, setShowTrimNotice] = useState(false);
+  const [showCompactionNotice, setShowCompactionNotice] = useState(false);
 
   // Auto-show trim notification when trimInfo changes, auto-dismiss after 5s
   useEffect(() => {
@@ -71,6 +74,44 @@ export function AiChatPanel() {
   }, [trimInfo?.timestamp]);
 
   const activeConversation = getActiveConversation();
+  const activeSilentCompaction = useMemo(() => {
+    if (
+      !compactionInfo
+      || compactionInfo.mode !== 'silent'
+      || compactionInfo.conversationId !== activeConversationId
+    ) {
+      return null;
+    }
+    return compactionInfo;
+  }, [activeConversationId, compactionInfo]);
+
+  useEffect(() => {
+    if (!activeSilentCompaction) {
+      setShowCompactionNotice(false);
+      return;
+    }
+
+    setShowCompactionNotice(true);
+
+    if (activeSilentCompaction.phase === 'running') {
+      return;
+    }
+
+    const noticeTimestamp = activeSilentCompaction.timestamp;
+    const timer = setTimeout(() => {
+      setShowCompactionNotice(false);
+      const currentInfo = useAiChatStore.getState().compactionInfo;
+      if (
+        currentInfo
+        && currentInfo.mode === 'silent'
+        && currentInfo.phase === 'done'
+        && currentInfo.timestamp === noticeTimestamp
+      ) {
+        useAiChatStore.setState({ compactionInfo: null });
+      }
+    }, 5000);
+    return () => clearTimeout(timer);
+  }, [activeSilentCompaction]);
 
   // ─── Context Usage Computation ──────────────────────────────────────────
   const aiSettings = useSettingsStore((s) => s.settings.ai);
@@ -144,8 +185,8 @@ export function AiChatPanel() {
   }, [createConversation]);
 
   const handleSend = useCallback(
-    (content: string, context?: string) => {
-      sendMessage(content, context);
+    (content: string, context?: string, sidebarContext?: SidebarContext | null) => {
+      sendMessage(content, context, { sidebarContext });
     },
     [sendMessage]
   );
@@ -333,6 +374,27 @@ export function AiChatPanel() {
             )}
           </div>
         </>
+      )}
+
+      {showCompactionNotice && activeSilentCompaction && (
+        <div
+          className={`flex-shrink-0 flex items-center gap-2 px-3 py-2 border-b ${
+            activeSilentCompaction.phase === 'running'
+              ? 'bg-theme-accent/10 border-theme-accent/20'
+              : 'bg-theme-border/10 border-theme-border/20'
+          }`}
+        >
+          <Shrink
+            className={`w-3.5 h-3.5 shrink-0 text-theme-text-muted ${
+              activeSilentCompaction.phase === 'running' ? 'animate-pulse' : ''
+            }`}
+          />
+          <span className="text-[11px] text-theme-text-muted flex-1">
+            {activeSilentCompaction.phase === 'running'
+              ? t('ai.context.compaction_running')
+              : t('ai.context.compaction_done', { count: activeSilentCompaction.compactedCount ?? 0 })}
+          </span>
+        </div>
       )}
 
       {/* Messages Area */}

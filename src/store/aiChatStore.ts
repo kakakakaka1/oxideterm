@@ -81,6 +81,14 @@ interface AiChatStore {
   abortController: AbortController | null;
   /** Set when messages are trimmed from API context — UI shows notification */
   trimInfo: { count: number; timestamp: number } | null;
+  /** Latest compaction status for UI feedback (primarily used by silent auto-compaction) */
+  compactionInfo: {
+    conversationId: string;
+    mode: 'silent' | 'manual';
+    phase: 'running' | 'done';
+    compactedCount?: number;
+    timestamp: number;
+  } | null;
   /**
    * Session-level disabled tools override.
    * null = use global settingsStore.disabledTools
@@ -99,7 +107,11 @@ interface AiChatStore {
   clearAllConversations: () => Promise<void>;
 
   // Message actions
-  sendMessage: (content: string, context?: string, options?: { skipUserMessage?: boolean }) => Promise<void>;
+  sendMessage: (
+    content: string,
+    context?: string,
+    options?: { skipUserMessage?: boolean; sidebarContext?: SidebarContext | null }
+  ) => Promise<void>;
   stopGeneration: () => void;
   regenerateLastResponse: () => Promise<void>;
   summarizeConversation: () => Promise<void>;
@@ -176,6 +188,7 @@ export const useAiChatStore = create<AiChatStore>()((set, get) => ({
   error: null,
   abortController: null,
   trimInfo: null,
+  compactionInfo: null,
   sessionDisabledTools: null,
 
   // Initialize store from backend
@@ -423,6 +436,22 @@ export const useAiChatStore = create<AiChatStore>()((set, get) => ({
       }
     }
 
+    // Capture the sidebar context immediately at send time so later async
+    // steps (reference resolution, key lookup, provider setup) cannot race
+    // with tab switches and inject a newer context into the current message.
+    let sidebarContext: SidebarContext | null = options?.sidebarContext ?? null;
+    if (!sidebarContext) {
+      try {
+        sidebarContext = gatherSidebarContext({
+          maxBufferLines: aiSettings.contextVisibleLines || 50,
+          maxBufferChars: aiSettings.contextMaxChars || 8000,
+          maxSelectionChars: 2000,
+        });
+      } catch (e) {
+        console.warn('[AiChatStore] Failed to gather sidebar context:', e);
+      }
+    }
+
     // Resolve participants and build tool override set
     let participantToolOverride: Set<string> | undefined;
     const participantSystemHints: string[] = [];
@@ -495,17 +524,6 @@ export const useAiChatStore = create<AiChatStore>()((set, get) => ({
     // ════════════════════════════════════════════════════════════════════
     // Automatic Context Injection (Sidebar Deep Awareness)
     // ════════════════════════════════════════════════════════════════════
-
-    let sidebarContext: SidebarContext | null = null;
-    try {
-      sidebarContext = gatherSidebarContext({
-        maxBufferLines: aiSettings.contextVisibleLines || 50,
-        maxBufferChars: aiSettings.contextMaxChars || 8000,
-        maxSelectionChars: 2000,
-      });
-    } catch (e) {
-      console.warn('[AiChatStore] Failed to gather sidebar context:', e);
-    }
 
     const effectiveContext = [
       context || sidebarContext?.contextBlock || '',
@@ -1882,6 +1900,7 @@ You have tools to interact with the user's terminal sessions and workspace. **Us
 
   compactConversation: async (conversationId?: string, options?: { silent?: boolean }) => {
     const silent = options?.silent ?? false;
+    const compactionMode = silent ? 'silent' : 'manual';
     const convId = conversationId ?? get().activeConversationId;
     if (!convId) return;
 
@@ -1894,6 +1913,7 @@ You have tools to interact with the user's terminal sessions and workspace. **Us
 
     const conversation = get().conversations.find((c) => c.id === convId);
     if (!conversation || conversation.messages.length < 4) return;
+    const baseMessageIds = conversation.messages.map((message) => message.id);
 
     // Resolve provider settings
     const aiSettings = useSettingsStore.getState().settings.ai;
@@ -1994,6 +2014,15 @@ You have tools to interact with the user's terminal sessions and workspace. **Us
 
     if (!silent) {
       set({ isLoading: true, error: null });
+    } else {
+      set({
+        compactionInfo: {
+          conversationId: convId,
+          mode: compactionMode,
+          phase: 'running',
+          timestamp: Date.now(),
+        },
+      });
     }
 
     try {
@@ -2018,6 +2047,21 @@ You have tools to interact with the user's terminal sessions and workspace. **Us
 
       if (!summaryContent.trim()) return;
 
+      const latestConversation = get().conversations.find((c) => c.id === convId);
+      if (!latestConversation) return;
+
+      const latestMessageIds = latestConversation.messages.map((message) => message.id);
+      const sharesBasePrefix =
+        latestMessageIds.length >= baseMessageIds.length
+        && baseMessageIds.every((id, index) => latestMessageIds[index] === id);
+
+      if (!sharesBasePrefix) {
+        console.warn('[AiChatStore] Conversation changed during compaction, skipping stale local overwrite');
+        return;
+      }
+
+      const appendedMessages = latestConversation.messages.slice(baseMessageIds.length);
+
       // Build the anchor message with snapshot of original messages
       const totalCompacted = existingAnchors.reduce(
         (acc, a) => acc + (a.metadata?.originalCount ?? 0), 0
@@ -2041,53 +2085,58 @@ You have tools to interact with the user's terminal sessions and workspace. **Us
         },
       };
 
-      const newMessages = [anchorMessage, ...toKeep];
+      const newMessages = [anchorMessage, ...toKeep, ...appendedMessages];
 
-      // Persist: replace all messages with anchor + kept messages
-      // Encode metadata into content so it survives the round-trip through the backend.
-      const persistedAnchorContent = encodeAnchorContent(anchorMessage.content, anchorMessage.metadata!);
-
-      // First message goes into the replace call, rest are saved individually
-      await invoke('ai_chat_replace_conversation_messages', {
+      await invoke('ai_chat_replace_conversation_message_list', {
         request: {
           conversationId: convId,
-          title: conversation.title,
-          message: {
-            id: anchorMessage.id,
-            conversationId: convId,
-            role: anchorMessage.role,
-            content: persistedAnchorContent,
-            timestamp: anchorMessage.timestamp,
-            contextSnapshot: null,
-          },
-        },
-      });
-
-      // Save kept messages
-      // If a kept message is itself a compaction anchor, re-encode its metadata
-      // so the $$ANCHOR_B64$$ prefix is preserved through the backend round-trip.
-      for (const msg of toKeep) {
-        const persistContent = msg.metadata?.type === 'compaction-anchor'
-          ? encodeAnchorContent(msg.content, msg.metadata)
-          : msg.content;
-        await invoke('ai_chat_save_message', {
-          request: {
+          title: latestConversation.title,
+          expectedMessageIds: latestMessageIds,
+          messages: newMessages.map((msg) => ({
             id: msg.id,
             conversationId: convId,
             role: msg.role,
-            content: persistContent,
+            content: msg.metadata?.type === 'compaction-anchor'
+              ? encodeAnchorContent(msg.content, msg.metadata)
+              : msg.content,
             timestamp: msg.timestamp,
+            toolCalls: msg.toolCalls || [],
             contextSnapshot: null,
-          },
-        });
-      }
+          })),
+        },
+      });
+
+      const postPersistConversation = get().conversations.find((c) => c.id === convId);
+      const postPersistMessageIds = postPersistConversation?.messages.map((message) => message.id) ?? [];
+      const sharesLatestPrefixAfterPersist =
+        postPersistMessageIds.length >= latestMessageIds.length
+        && latestMessageIds.every((id, index) => postPersistMessageIds[index] === id);
+      const postPersistAppended = sharesLatestPrefixAfterPersist && postPersistConversation
+        ? postPersistConversation.messages.slice(latestMessageIds.length)
+        : [];
+      const finalMessages = [...newMessages, ...postPersistAppended];
 
       // Update local state
       set((state) => ({
         conversations: state.conversations.map((c) => {
           if (c.id !== convId) return c;
-          return { ...c, messages: newMessages, updatedAt: Date.now() };
+          return {
+            ...c,
+            title: latestConversation.title,
+            messages: finalMessages,
+            messageCount: finalMessages.length,
+            updatedAt: Date.now(),
+          };
         }),
+        compactionInfo: silent
+          ? {
+              conversationId: convId,
+              mode: compactionMode,
+              phase: 'done',
+              compactedCount: totalCompacted,
+              timestamp: Date.now(),
+            }
+          : null,
       }));
     } catch (e) {
       if (!(e instanceof Error && e.name === 'AbortError')) {
@@ -2101,6 +2150,16 @@ You have tools to interact with the user's terminal sessions and workspace. **Us
     } finally {
       if (!silent) {
         set({ isLoading: false, abortController: null });
+      } else {
+        set((state) => {
+          if (
+            state.compactionInfo?.conversationId === convId
+            && state.compactionInfo.phase === 'running'
+          ) {
+            return { compactionInfo: null };
+          }
+          return state;
+        });
       }
     }
 

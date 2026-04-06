@@ -19,6 +19,7 @@ use redb::{Database, ReadableTable, TableDefinition};
 use serde::{Deserialize, Serialize};
 #[cfg(test)]
 use std::cell::Cell;
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 use thiserror::Error;
@@ -206,6 +207,9 @@ pub enum AiChatError {
 
     #[error("Conversation not found: {0}")]
     NotFound(String),
+
+    #[error("Conversation changed during compaction: {0}")]
+    Conflict(String),
 }
 
 impl From<rmp_serde::encode::Error> for AiChatError {
@@ -697,6 +701,103 @@ impl AiChatStore {
         info!(
             "Atomically replaced conversation {} messages with summary {}",
             conversation_id, new_message.id
+        );
+        Ok(())
+    }
+
+    /// Atomically replace the full ordered message list, but only if the
+    /// current persisted ids still match the expected ids captured by the
+    /// caller. This prevents stale compaction writes from clobbering newer
+    /// messages appended while compaction was running.
+    pub fn replace_conversation_message_list(
+        &self,
+        conversation_id: &str,
+        title: &str,
+        expected_message_ids: &[String],
+        new_messages: Vec<PersistedMessage>,
+    ) -> Result<(), AiChatError> {
+        let write_txn = self.db.begin_write()?;
+
+        {
+            let mut conv_table = write_txn.open_table(CONVERSATIONS_TABLE)?;
+            let mut msg_table = write_txn.open_table(MESSAGES_TABLE)?;
+            let mut msg_index_table = write_txn.open_table(CONV_MESSAGES_TABLE)?;
+
+            let current_ids: Vec<String> = msg_index_table
+                .get(conversation_id)?
+                .map(|list_bytes| rmp_serde::from_slice(list_bytes.value()).ok())
+                .flatten()
+                .unwrap_or_default();
+
+            if current_ids != expected_message_ids {
+                return Err(AiChatError::Conflict(conversation_id.to_string()));
+            }
+
+            let current_id_set = current_ids.iter().cloned().collect::<HashSet<_>>();
+            let new_ids = new_messages
+                .iter()
+                .map(|message| message.id.clone())
+                .collect::<Vec<_>>();
+            let retained_id_set = new_ids.iter().cloned().collect::<HashSet<_>>();
+
+            for msg_id in &current_ids {
+                if !retained_id_set.contains(msg_id) {
+                    msg_table.remove(msg_id.as_str())?;
+                }
+            }
+
+            for mut message in new_messages.iter().cloned() {
+                if current_id_set.contains(&message.id) {
+                    continue;
+                }
+
+                if let Some(ref mut ctx) = message.context_snapshot {
+                    if let Some(ref buffer) = ctx.buffer_tail {
+                        let (compressed, is_compressed) = compress_buffer(buffer);
+                        ctx.buffer_tail = Some(compressed);
+                        ctx.buffer_compressed = is_compressed;
+                    }
+                }
+
+                let msg_bytes = rmp_serde::to_vec(&message)?;
+                msg_table.insert(message.id.as_str(), msg_bytes.as_slice())?;
+            }
+
+            let list_bytes = rmp_serde::to_vec(&new_ids)?;
+            msg_index_table.insert(conversation_id, list_bytes.as_slice())?;
+
+            let existing_meta: Option<ConversationMeta> = conv_table
+                .get(conversation_id)?
+                .map(|meta_bytes| rmp_serde::from_slice(meta_bytes.value()).ok())
+                .flatten();
+
+            let now = chrono::Utc::now().timestamp_millis();
+            let meta = if let Some(mut m) = existing_meta {
+                m.title = title.to_string();
+                m.updated_at = now;
+                m.message_count = new_messages.len();
+                m
+            } else {
+                ConversationMeta {
+                    id: conversation_id.to_string(),
+                    title: title.to_string(),
+                    created_at: now,
+                    updated_at: now,
+                    message_count: new_messages.len(),
+                    session_id: None,
+                    origin: default_origin(),
+                }
+            };
+
+            let meta_bytes = rmp_serde::to_vec(&meta)?;
+            conv_table.insert(conversation_id, meta_bytes.as_slice())?;
+        }
+
+        write_txn.commit()?;
+        info!(
+            "Atomically replaced conversation {} with {} ordered messages",
+            conversation_id,
+            new_messages.len()
         );
         Ok(())
     }

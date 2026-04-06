@@ -93,6 +93,8 @@
       "compact_button": "Komprimieren",
       "view_original": "Original anzeigen",
       "compacted_messages": "{{count}} Nachrichten komprimiert",
+      "compaction_running": "Gesprächsverlauf wird komprimiert...",
+      "compaction_done": "{{count}} Nachrichten wurden zu einer Zusammenfassung komprimiert.",
       "system_instructions": "Systemanweisungen",
       "tool_definitions": "Werkzeugdefinitionen",
       "reserved_output": "Reservierte Ausgabe",
