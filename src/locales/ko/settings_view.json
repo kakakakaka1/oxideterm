@@ -644,6 +644,7 @@
     "keybindings": {
       "title": "키 바인딩",
       "description": "모든 동작의 키보드 단축키를 사용자 지정합니다.",
+      "intl_keyboard_note": "국제 키보드 레이아웃(예: 프랑스어, 독일어)에서는 기호 단축키(⌘/Ctrl+[ ] \\ | 등)가 레이아웃 간 호환성을 위해 자동으로 정규화됩니다. Alt 전용 작업을 바인딩하려면 기호가 아닌 키를 사용하세요.",
       "search_placeholder": "동작 검색...",
       "scope_all": "전체",
       "scope_global": "전역",

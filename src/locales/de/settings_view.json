@@ -644,6 +644,7 @@
     "keybindings": {
       "title": "Tastenkürzel",
       "description": "Tastenkürzel für alle Aktionen anpassen.",
+      "intl_keyboard_note": "Bei internationalen Tastaturlayouts (z.B. Französisch, Deutsch) werden Symbol-Tastenkürzel (wie ⌘/Strg+[ ] \\ |) automatisch für layoutübergreifende Kompatibilität normalisiert. Um Alt-spezifische Aktionen zu binden, verwenden Sie bitte Nicht-Symbol-Tasten.",
       "search_placeholder": "Aktionen suchen...",
       "scope_all": "Alle",
       "scope_global": "Global",

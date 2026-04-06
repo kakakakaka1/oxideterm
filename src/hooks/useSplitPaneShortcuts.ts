@@ -11,16 +11,10 @@
  * - Cmd+Shift+W (Mac) / Ctrl+Shift+W (Win/Linux): Close current pane
  */
 
-import { useEffect, useCallback, useRef } from 'react';
+import { useCallback, useRef } from 'react';
 import { useAppStore } from '../store/appStore';
 import { useLocalTerminalStore } from '../store/localTerminalStore';
-import { platform } from '../lib/platform';
 import { SplitDirection, MAX_PANES_PER_TAB, PaneNode } from '../types';
-
-interface UseSplitPaneShortcutsOptions {
-  /** Whether shortcuts are enabled (typically when a terminal tab is active) */
-  enabled: boolean;
-}
 
 /**
  * Get all leaf pane IDs in order (left-to-right, top-to-bottom)
@@ -125,102 +119,4 @@ export function useSplitPaneActions() {
   }, [setActivePaneId]);
 
   return { handleSplit, handleClosePane, handleNavigate, getPaneCount };
-}
-
-/**
- * @deprecated Use useSplitPaneActions() + useKeybindingDispatcher instead.
- * Kept for backward compatibility — the keyboard listener is now redundant
- * when the dispatcher is active.
- */
-export function useSplitPaneShortcuts({ enabled }: UseSplitPaneShortcutsOptions) {
-  const { handleSplit, handleClosePane, handleNavigate } = useSplitPaneActions();
-
-  useEffect(() => {
-    if (!enabled) return;
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Skip if window lost OS-level focus
-      if (!document.hasFocus()) return;
-
-      const isMac = platform.isMac;
-      const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
-      const altOrOption = e.altKey;
-
-      // Split shortcuts: Cmd/Ctrl + Shift + E/D
-      if (cmdOrCtrl && e.shiftKey && !altOrOption) {
-        const key = e.key.toLowerCase();
-        
-        if (key === 'e') {
-          e.preventDefault();
-          e.stopPropagation();
-          handleSplit('horizontal');
-          return;
-        }
-        
-        if (key === 'd') {
-          e.preventDefault();
-          e.stopPropagation();
-          handleSplit('vertical');
-          return;
-        }
-        
-        // Close pane: Cmd/Ctrl + Shift + W
-        if (key === 'w') {
-          e.preventDefault();
-          e.stopPropagation();
-          handleClosePane();
-          return;
-        }
-      }
-
-      // Navigation shortcuts: Cmd/Ctrl + Option/Alt + Arrow
-      if (cmdOrCtrl && altOrOption && !e.shiftKey) {
-        const key = e.key.toLowerCase();
-        
-        if (key === 'arrowleft') {
-          e.preventDefault();
-          e.stopPropagation();
-          handleNavigate('left');
-          return;
-        }
-        
-        if (key === 'arrowright') {
-          e.preventDefault();
-          e.stopPropagation();
-          handleNavigate('right');
-          return;
-        }
-        
-        if (key === 'arrowup') {
-          e.preventDefault();
-          e.stopPropagation();
-          handleNavigate('up');
-          return;
-        }
-        
-        if (key === 'arrowdown') {
-          e.preventDefault();
-          e.stopPropagation();
-          handleNavigate('down');
-          return;
-        }
-      }
-    };
-
-    // Use capture phase to intercept before terminal
-    window.addEventListener('keydown', handleKeyDown, { capture: true });
-    return () => window.removeEventListener('keydown', handleKeyDown, { capture: true });
-  }, [enabled, handleSplit, handleClosePane, handleNavigate]);
-
-  // Listen for split commands dispatched by the Command Palette
-  useEffect(() => {
-    const handleSplitEvent = (e: Event) => {
-      const detail = (e as CustomEvent<{ direction: SplitDirection }>).detail;
-      if (detail?.direction) {
-        handleSplit(detail.direction);
-      }
-    };
-    window.addEventListener('oxideterm:split', handleSplitEvent);
-    return () => window.removeEventListener('oxideterm:split', handleSplitEvent);
-  }, [handleSplit]);
 }

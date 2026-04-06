@@ -16,6 +16,7 @@ import {
   getDefaultDefinition,
   findConflicts,
   formatCombo,
+  normalizeKeyCombo,
 } from '@/lib/keybindingRegistry';
 import { platform } from '@/lib/platform';
 import { Button } from '@/components/ui/button';
@@ -49,13 +50,13 @@ function isModifierOnly(e: KeyboardEvent): boolean {
 }
 
 function keyEventToCombo(e: KeyboardEvent): KeyCombo {
-  return {
+  return normalizeKeyCombo({
     key: e.key.toLowerCase(),
     ctrl: e.ctrlKey,
     shift: e.shiftKey,
     alt: e.altKey,
     meta: e.metaKey,
-  };
+  });
 }
 
 function isValidCombo(val: unknown): val is KeyCombo {
@@ -276,6 +277,9 @@ export const KeybindingEditorSection = ({ onToastSuccess, onToastError, onConfir
         </h3>
         <p className="text-theme-text-muted">
           {t('settings_view.keybindings.description')}
+        </p>
+        <p className="text-xs text-theme-text-muted/70 mt-2">
+          {t('settings_view.keybindings.intl_keyboard_note')}
         </p>
       </div>
       <Separator />

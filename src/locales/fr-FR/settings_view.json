@@ -644,6 +644,7 @@
     "keybindings": {
       "title": "Raccourcis clavier",
       "description": "Personnaliser les raccourcis clavier pour toutes les actions.",
+      "intl_keyboard_note": "Sur les dispositions de clavier internationales (ex. français, allemand), les raccourcis avec symboles (comme ⌘/Ctrl+[ ] \\ |) sont automatiquement normalisés pour la compatibilité multi-disposition. Pour lier des actions spécifiques à Alt, veuillez utiliser des touches non-symboles.",
       "search_placeholder": "Rechercher des actions...",
       "scope_all": "Tous",
       "scope_global": "Global",

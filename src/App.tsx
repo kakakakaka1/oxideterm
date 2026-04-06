@@ -32,6 +32,8 @@ import { TooltipProvider } from './components/ui/tooltip';
 import { useFontSizeHUD } from './components/ui/FontSizeHUD';
 import { useRecordingStore } from './store/recordingStore';
 import { useCommandPaletteStore } from './store/commandPaletteStore';
+import { useEventLogStore } from './store/eventLogStore';
+import { useBroadcastStore } from './store/broadcastStore';
 
 function App() {
   // Initialize global event listeners
@@ -312,6 +314,10 @@ function App() {
     'app.goToTab7': () => useAppStore.getState().goToTab(6),
     'app.goToTab8': () => useAppStore.getState().goToTab(7),
     'app.goToTab9': () => useAppStore.getState().goToTab(8),
+    // ── Palette actions ──
+    'palette.eventLog': () => useEventLogStore.getState().togglePanel(),
+    'palette.aiSidebar': () => useSettingsStore.getState().toggleAiSidebar(),
+    'palette.broadcast': () => useBroadcastStore.getState().toggle(),
     // ── Split actions ──
     'split.horizontal': () => handleSplit('horizontal'),
     'split.vertical': () => handleSplit('vertical'),

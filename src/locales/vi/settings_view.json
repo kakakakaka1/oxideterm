@@ -644,6 +644,7 @@
     "keybindings": {
       "title": "Phím tắt",
       "description": "Tùy chỉnh phím tắt cho tất cả các hành động.",
+      "intl_keyboard_note": "Trên bố cục bàn phím quốc tế (ví dụ: tiếng Pháp, tiếng Đức), các phím tắt ký hiệu (như ⌘/Ctrl+[ ] \\ |) được tự động chuẩn hóa để tương thích đa bố cục. Để gán các hành động cụ thể với Alt, vui lòng sử dụng các phím không phải ký hiệu.",
       "search_placeholder": "Tìm kiếm hành động...",
       "scope_all": "Tất cả",
       "scope_global": "Toàn cục",

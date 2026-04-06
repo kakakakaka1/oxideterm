@@ -644,6 +644,7 @@
     "keybindings": {
       "title": "Atalhos de teclado",
       "description": "Personalizar os atalhos de teclado para todas as ações.",
+      "intl_keyboard_note": "Em layouts de teclado internacionais (ex. francês, alemão), os atalhos com símbolos (como ⌘/Ctrl+[ ] \\ |) são normalizados automaticamente para compatibilidade entre layouts. Para vincular ações específicas com Alt, use teclas não simbólicas.",
       "search_placeholder": "Pesquisar ações...",
       "scope_all": "Todos",
       "scope_global": "Global",

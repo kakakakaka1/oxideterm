@@ -644,6 +644,7 @@
     "keybindings": {
       "title": "Keybindings",
       "description": "Customize keyboard shortcuts for all actions.",
+      "intl_keyboard_note": "On international keyboard layouts (e.g. French, German), symbol shortcuts (such as ⌘/Ctrl+[ ] \\ |) are automatically normalized for cross-layout compatibility. To bind Alt-specific actions, please use non-symbol keys instead.",
       "search_placeholder": "Search actions...",
       "scope_all": "All",
       "scope_global": "Global",

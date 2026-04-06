@@ -127,6 +127,41 @@ function cmdAlt(key: string): KeyCombo {
   return k(key, { meta: true, alt: true });
 }
 
+function isPrintableSymbolKey(key: string): boolean {
+  return key.length === 1 && !/^[a-z0-9 ]$/i.test(key);
+}
+
+function isLayoutAltSymbolKey(key: string): boolean {
+  return ['[', ']', '{', '}', '\\', '|', '@', '#', '~'].includes(key);
+}
+
+/**
+ * Normalize a combo for cross-layout storage and comparison.
+ *
+ * - Printable symbol keys already encode their shifted glyph in `key`, so the
+ *   `shift` flag is redundant and removed.
+ * - On many international layouts, symbols like `[`, `]`, `\\`, `{`, `}` are
+ *   produced with Option/AltGr while holding Cmd/Ctrl. We normalize away that
+ *   layout-generated `alt` modifier so stored shortcuts remain stable across
+ *   DE/FR/UK-style layouts.
+ */
+export function normalizeKeyCombo(combo: KeyCombo): KeyCombo {
+  if (!isPrintableSymbolKey(combo.key)) {
+    return combo;
+  }
+
+  const normalized: KeyCombo = {
+    ...combo,
+    shift: false,
+  };
+
+  if ((combo.ctrl || combo.meta) && isLayoutAltSymbolKey(combo.key)) {
+    normalized.alt = false;
+  }
+
+  return normalized;
+}
+
 // ─── Default Bindings ────────────────────────────────────────────────
 
 const defaults: ActionDefinition[] = [
@@ -241,15 +276,23 @@ export function getBindingBoth(id: ActionId): { mac: KeyCombo; other: KeyCombo }
  * the character itself (e.g. pressing Shift+] produces `}` in the event).
  */
 export function eventMatchesCombo(e: KeyboardEvent, combo: KeyCombo): boolean {
-  if (e.key.toLowerCase() !== combo.key) return false;
-  if (e.ctrlKey !== combo.ctrl) return false;
+  const normalized = normalizeKeyCombo(combo);
+
+  if (e.key.toLowerCase() !== normalized.key) return false;
+  if (e.ctrlKey !== normalized.ctrl) return false;
   // Skip shift check for symbol keys — their shift state is implicit in the character
-  const isSymbol = combo.key.length === 1 && !/^[a-z0-9]$/i.test(combo.key);
+  const isSymbol = isPrintableSymbolKey(normalized.key);
   if (!isSymbol) {
-    if (e.shiftKey !== combo.shift) return false;
+    if (e.shiftKey !== normalized.shift) return false;
   }
-  if (e.altKey !== combo.alt) return false;
-  if (e.metaKey !== combo.meta) return false;
+
+  const allowLayoutAlt =
+    isLayoutAltSymbolKey(normalized.key) &&
+    (normalized.ctrl || normalized.meta) &&
+    !normalized.alt;
+
+  if (!allowLayoutAlt && e.altKey !== normalized.alt) return false;
+  if (e.metaKey !== normalized.meta) return false;
   return true;
 }
 
@@ -278,12 +321,13 @@ export function matchAction(e: KeyboardEvent, scopeFilter?: ActionScope | Action
  */
 export function findConflicts(combo: KeyCombo, scope: ActionScope, excludeAction?: ActionId): ActionId[] {
   const conflicts: ActionId[] = [];
+  const normalizedCandidate = normalizeKeyCombo(combo);
   for (const def of defaults) {
     if (def.scope !== scope) continue;
     if (excludeAction && def.id === excludeAction) continue;
 
     const current = getBinding(def.id);
-    if (current && combosEqual(current, combo)) {
+    if (current && combosEqual(normalizeKeyCombo(current), normalizedCandidate)) {
       conflicts.push(def.id);
     }
   }
@@ -294,12 +338,14 @@ export function findConflicts(combo: KeyCombo, scope: ActionScope, excludeAction
  * Compare two KeyCombos for equality.
  */
 export function combosEqual(a: KeyCombo, b: KeyCombo): boolean {
+  const left = normalizeKeyCombo(a);
+  const right = normalizeKeyCombo(b);
   return (
-    a.key === b.key &&
-    a.ctrl === b.ctrl &&
-    a.shift === b.shift &&
-    a.alt === b.alt &&
-    a.meta === b.meta
+    left.key === right.key &&
+    left.ctrl === right.ctrl &&
+    left.shift === right.shift &&
+    left.alt === right.alt &&
+    left.meta === right.meta
   );
 }
 

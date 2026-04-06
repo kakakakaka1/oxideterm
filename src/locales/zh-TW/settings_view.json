@@ -644,6 +644,7 @@
     "keybindings": {
       "title": "快捷鍵",
       "description": "自訂所有操作的鍵盤快捷鍵。",
+      "intl_keyboard_note": "在國際鍵盤佈局（如法語、德語）上，符號快捷鍵（如 ⌘/Ctrl+[ ] \\ |）會自動進行跨佈局相容性標準化處理。如需綁定含 Alt 的特定操作，請使用非符號鍵。",
       "search_placeholder": "搜尋操作...",
       "scope_all": "全部",
       "scope_global": "全域",

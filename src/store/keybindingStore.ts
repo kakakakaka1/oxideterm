@@ -16,6 +16,7 @@ import {
   getDefaultDefinition,
   getDefaults,
   combosEqual,
+  normalizeKeyCombo,
 } from '@/lib/keybindingRegistry';
 
 // ─── Serialisation ───────────────────────────────────────────────────
@@ -29,19 +30,53 @@ type SerializedOverride = {
 
 type SerializedData = Record<string, SerializedOverride>;
 
+function isValidCombo(value: unknown): value is KeyCombo {
+  if (typeof value !== 'object' || value === null) return false;
+  const combo = value as Record<string, unknown>;
+  return (
+    typeof combo.key === 'string' &&
+    typeof combo.ctrl === 'boolean' &&
+    typeof combo.shift === 'boolean' &&
+    typeof combo.alt === 'boolean' &&
+    typeof combo.meta === 'boolean'
+  );
+}
+
+function isValidSerializedOverride(value: unknown): value is SerializedOverride {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const override = value as Record<string, unknown>;
+  if (override.mac !== undefined && !isValidCombo(override.mac)) return false;
+  if (override.other !== undefined && !isValidCombo(override.other)) return false;
+  return override.mac !== undefined || override.other !== undefined;
+}
+
+function normalizeOverride(override: SerializedOverride): SerializedOverride {
+  return {
+    ...(override.mac ? { mac: normalizeKeyCombo(override.mac) } : {}),
+    ...(override.other ? { other: normalizeKeyCombo(override.other) } : {}),
+  };
+}
+
 function loadOverrides(): Map<ActionId, SerializedOverride> {
   const map = new Map<ActionId, SerializedOverride>();
   const validIds = new Set(getDefaults().map((d) => d.id));
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return map;
-    const parsed: SerializedData = JSON.parse(raw);
+    const parsed = JSON.parse(raw) as unknown;
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      throw new Error('Invalid keybinding overrides payload');
+    }
     for (const [id, override] of Object.entries(parsed)) {
-      if (validIds.has(id as ActionId)) {
-        map.set(id as ActionId, override);
-      } else {
+      if (!validIds.has(id as ActionId)) {
         console.warn('[KeybindingStore] Unknown ActionId in localStorage, skipping:', id);
+        continue;
       }
+      if (!isValidSerializedOverride(override)) {
+        console.warn('[KeybindingStore] Invalid override in localStorage, skipping:', id);
+        continue;
+      }
+      map.set(id as ActionId, normalizeOverride(override));
     }
   } catch (e) {
     console.error('[KeybindingStore] Failed to load overrides, resetting to defaults:', e);
@@ -93,8 +128,9 @@ export const useKeybindingStore = create<KeybindingStore>((set) => ({
 
   setBinding: (actionId, side, combo) => {
     set((state) => {
+      const normalizedCombo = normalizeKeyCombo(combo);
       const def = getDefaultDefinition(actionId);
-      const isDefault = def && combosEqual(def[side], combo);
+      const isDefault = def && combosEqual(def[side], normalizedCombo);
 
       const next = new Map(state.overrides);
       const existing = next.get(actionId) ?? {};
@@ -108,7 +144,7 @@ export const useKeybindingStore = create<KeybindingStore>((set) => ({
           next.set(actionId, rest);
         }
       } else {
-        next.set(actionId, { ...existing, [side]: combo });
+        next.set(actionId, { ...existing, [side]: normalizedCombo });
       }
 
       setOverrides(next);

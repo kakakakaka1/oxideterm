@@ -644,6 +644,7 @@
     "keybindings": {
       "title": "Scorciatoie da tastiera",
       "description": "Personalizza le scorciatoie da tastiera per tutte le azioni.",
+      "intl_keyboard_note": "Nei layout di tastiera internazionali (es. francese, tedesco), le scorciatoie con simboli (come ⌘/Ctrl+[ ] \\ |) vengono normalizzate automaticamente per la compatibilità tra layout. Per associare azioni specifiche con Alt, utilizzare tasti non simbolici.",
       "search_placeholder": "Cerca azioni...",
       "scope_all": "Tutto",
       "scope_global": "Globale",
