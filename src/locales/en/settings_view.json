@@ -108,6 +108,8 @@
       "paste_protection_hint": "Confirm before pasting multi-line content to prevent accidental command execution",
       "osc52_clipboard": "OSC 52 Clipboard",
       "osc52_clipboard_hint": "Allow remote programs (tmux, vim) to write to system clipboard via OSC 52 escape sequence",
+      "smart_copy": "Smart Ctrl+C Copy",
+      "smart_copy_hint": "On Windows and Linux, copy the current selection with Ctrl+C and only send SIGINT when nothing is selected",
       "buffer": "Buffer",
       "scrollback": "Scrollback Lines",
       "scrollback_hint": "Number of lines kept in memory for scrolling",

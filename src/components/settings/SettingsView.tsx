@@ -1902,6 +1902,21 @@ export const SettingsView = () => {
                                         onCheckedChange={(checked) => updateTerminal('osc52Clipboard', checked as boolean)}
                                     />
                                 </div>
+                                {!platform.isMac && (
+                                    <div className="flex items-center justify-between mt-4">
+                                        <div>
+                                            <Label className="text-theme-text">{t('settings_view.terminal.smart_copy')}</Label>
+                                            <p className="text-xs text-theme-text-muted mt-0.5">
+                                                {t('settings_view.terminal.smart_copy_hint')}
+                                            </p>
+                                        </div>
+                                        <Checkbox
+                                            id="smart-copy"
+                                            checked={terminal.smartCopy}
+                                            onCheckedChange={(checked) => updateTerminal('smartCopy', checked as boolean)}
+                                        />
+                                    </div>
+                                )}
                             </div>
 
                             {/* Buffer Section */}

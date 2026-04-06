@@ -44,6 +44,7 @@ import {
   HEADER_SIZE, encodeHeartbeatFrame, encodeDataFrame, encodeResizeFrame,
 } from '../../lib/wireProtocol';
 import { installTerminalClipboardSupport } from '../../lib/clipboardSupport';
+import { attachTerminalSmartCopy } from '../../hooks/useTerminalSmartCopy';
 import { useTerminalRecording } from '../../hooks/useTerminalRecording';
 import { useAdaptiveRenderer } from '../../hooks/useAdaptiveRenderer';
 import { RecordingControls } from './RecordingControls';
@@ -86,7 +87,9 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
   const onDataDisposableRef = useRef<{ dispose: () => void } | null>(null);
   const onResizeDisposableRef = useRef<{ dispose: () => void } | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const smartCopyDisposableRef = useRef<{ dispose: () => void } | null>(null);
   const isMountedRef = useRef(true); // Track mount state for StrictMode
+  const isActiveRef = useRef(isActive);
   const reconnectingRef = useRef(false); // Suppress close/error during intentional reconnect
   const manualCloseRef = useRef(false); // Suppress recovery on intentional close
   const wsRecoveryInFlightRef = useRef(false);
@@ -137,6 +140,10 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
 
   // Get terminal settings from unified store (read early for adaptive renderer)
   const terminalSettings = useSettingsStore((state) => state.settings.terminal);
+
+  useEffect(() => {
+    isActiveRef.current = isActive;
+  }, [isActive]);
 
   // ── Adaptive Renderer (Dynamic Refresh Rate) ──────────────────────────
   const adaptiveRenderer = useAdaptiveRenderer({
@@ -978,6 +985,11 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
       clipboardAddonRef.current = addon;
     });
 
+    smartCopyDisposableRef.current = attachTerminalSmartCopy(term, {
+      isActive: () => isActiveRef.current,
+      isEnabled: () => useSettingsStore.getState().settings.terminal.smartCopy,
+    });
+
     // Detect mouse tracking mode changes (tmux, vim, etc.)
     let prevMouseTracking = false;
     term.onWriteParsed(() => {
@@ -1586,6 +1598,15 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
             // Ignore errors during addon disposal
           }
           clipboardAddonRef.current = null;
+        }
+
+        if (smartCopyDisposableRef.current) {
+          try {
+            smartCopyDisposableRef.current.dispose();
+          } catch (e) {
+            // Ignore errors during addon disposal
+          }
+          smartCopyDisposableRef.current = null;
         }
 
         if (imageAddonRef.current) {

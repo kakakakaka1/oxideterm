@@ -109,6 +109,7 @@ export interface TerminalSettings {
   adaptiveRenderer: AdaptiveRendererMode; // Dynamic refresh rate: auto/always-60/off
   showFpsOverlay: boolean;               // Show FPS/tier debug overlay on terminal
   pasteProtection: boolean; // Confirm before pasting multi-line content
+  smartCopy: boolean; // Ctrl+C copies selection on Windows/Linux, otherwise passes SIGINT
   osc52Clipboard: boolean;  // Allow remote programs to write system clipboard via OSC 52
   // Background image settings
   backgroundEnabled: boolean;        // Master toggle — false = no bg image anywhere
@@ -333,6 +334,7 @@ const defaultTerminalSettings: TerminalSettings = {
   adaptiveRenderer: 'auto',  // Dynamic refresh rate: auto = three-tier adaptive
   showFpsOverlay: false,      // Hidden by default; user enables for diagnostics
   pasteProtection: true,  // Default enabled for safety
+  smartCopy: true,
   osc52Clipboard: true,  // Default enabled: allow remote programs to write system clipboard via OSC 52
   // Background image defaults
   backgroundEnabled: true,

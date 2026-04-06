@@ -34,6 +34,7 @@ import {
 import { onMapleRegularLoaded, ensureCJKFallback } from '../../lib/fontLoader';
 import { api } from '../../lib/api';
 import { installTerminalClipboardSupport } from '../../lib/clipboardSupport';
+import { attachTerminalSmartCopy } from '../../hooks/useTerminalSmartCopy';
 import { useTerminalRecording } from '../../hooks/useTerminalRecording';
 import { useAdaptiveRenderer } from '../../hooks/useAdaptiveRenderer';
 import { RecordingControls } from './RecordingControls';
@@ -69,6 +70,7 @@ export const LocalTerminalView: React.FC<LocalTerminalViewProps> = ({
   const searchAddonRef = useRef<SearchAddon | null>(null);
   const imageAddonRef = useRef<ImageAddon | null>(null);
   const clipboardAddonRef = useRef<{ dispose: () => void } | null>(null);
+  const smartCopyDisposableRef = useRef<{ dispose: () => void } | null>(null);
   const rendererAddonRef = useRef<{ dispose: () => void } | null>(null);
   const rendererSuspendedRef = useRef(false);
   const rendererTransitionTokenRef = useRef(0);
@@ -87,6 +89,7 @@ export const LocalTerminalView: React.FC<LocalTerminalViewProps> = ({
   const effectivePaneId = paneId || sessionId;
   
   const isMountedRef = useRef(true);
+  const isActiveRef = useRef(isActive);
   const [searchOpen, setSearchOpen] = useState(false);
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const [aiCursorPosition, setAiCursorPosition] = useState<CursorPosition | null>(null);
@@ -118,6 +121,10 @@ export const LocalTerminalView: React.FC<LocalTerminalViewProps> = ({
 
   // Get terminal settings (read early for adaptive renderer)
   const terminalSettings = useSettingsStore((state) => state.settings.terminal);
+
+  useEffect(() => {
+    isActiveRef.current = isActive;
+  }, [isActive]);
 
   // ── Adaptive Renderer (Dynamic Refresh Rate) ──────────────────────────
   const adaptiveRenderer = useAdaptiveRenderer({
@@ -520,6 +527,11 @@ export const LocalTerminalView: React.FC<LocalTerminalViewProps> = ({
       clipboardAddonRef.current = addon;
     });
 
+    smartCopyDisposableRef.current = attachTerminalSmartCopy(term, {
+      isActive: () => isActiveRef.current,
+      isEnabled: () => useSettingsStore.getState().settings.terminal.smartCopy,
+    });
+
     // Detect mouse tracking mode changes (tmux, vim, etc.)
     let prevMouseTracking = false;
     term.onWriteParsed(() => {
@@ -791,6 +803,15 @@ export const LocalTerminalView: React.FC<LocalTerminalViewProps> = ({
           // Ignore errors during addon disposal
         }
         clipboardAddonRef.current = null;
+      }
+
+      if (smartCopyDisposableRef.current) {
+        try {
+          smartCopyDisposableRef.current.dispose();
+        } catch (e) {
+          // Ignore errors during addon disposal
+        }
+        smartCopyDisposableRef.current = null;
       }
 
       if (imageAddonRef.current) {

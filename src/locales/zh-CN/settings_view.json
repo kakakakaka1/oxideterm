@@ -108,6 +108,8 @@
       "paste_protection_hint": "粘贴多行内容前确认，防止意外执行命令",
       "osc52_clipboard": "OSC 52 剪贴板",
       "osc52_clipboard_hint": "允许远程程序（tmux、vim）通过 OSC 52 转义序列写入系统剪贴板",
+      "smart_copy": "智能 Ctrl+C 复制",
+      "smart_copy_hint": "在 Windows 和 Linux 上，Ctrl+C 会复制当前选区，仅在未选择任何内容时发送 SIGINT",
       "buffer": "缓冲区",
       "scrollback": "回滚行数",
       "scrollback_hint": "保存在内存中供滚动查看的行数",
