@@ -273,7 +273,10 @@ function App() {
         if (id) useAppStore.getState().closeTab(id);
       },
       description: 'Close current tab',
-      terminalBehavior: 'always' as const,
+      // 'never' when terminal is focused — allows Ctrl+W to reach
+      // the shell for word-deletion (readline default binding).
+      // macOS Cmd+W still closes tabs via the native handler below.
+      terminalBehavior: 'never' as const,
     },
     {
       key: 'n',
