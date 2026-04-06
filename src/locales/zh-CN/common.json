@@ -290,7 +290,17 @@
     "skip": "跳过",
     "tip_settings": "所有设置均可自定义 — 随时按 {{shortcut}} 打开设置面板。",
     "tip_multiplexing": "终端、SFTP 和端口转发通过多路复用共享同一条 SSH 连接 — 无需重复认证。",
-    "tip_shortcuts": "随时按 {{shortcut}} 查看完整的快捷键参考。"
+    "tip_shortcuts": "随时按 {{shortcut}} 查看完整的快捷键参考。",
+    "disclaimer_title": "免责声明",
+    "disclaimer_desc": "请在开始使用前阅读以下条款。",
+    "disclaimer_no_warranty": "免责条款",
+    "disclaimer_no_warranty_text": "OxideTerm 按\"原样\"提供，不附带任何形式的保证。软件的质量和性能风险完全由您自行承担。",
+    "disclaimer_data_security": "数据与安全",
+    "disclaimer_data_security_text": "您须自行负责保护您的 SSH 凭据、私钥和服务器配置。作者不对数据丢失、安全事故或未经授权的访问承担责任。",
+    "disclaimer_ai": "AI 功能 (OxideSens)",
+    "disclaimer_ai_text": "AI 生成的内容仅供参考，不构成专业建议。请务必在执行前审查 AI 生成的命令。启用该功能后，终端内容可能会被发送至第三方 AI 提供商。",
+    "disclaimer_accept": "我已阅读并同意以上条款",
+    "disclaimer_gpl_note": "完整许可条款：GPL-3.0 §15–16。详情请参阅 DISCLAIMER.md。"
   },
   "shortcuts_modal": {
     "title": "键盘快捷键",

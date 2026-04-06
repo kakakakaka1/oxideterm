@@ -290,7 +290,17 @@
     "skip": "Passer",
     "tip_settings": "Tous les paramètres sont personnalisables — appuyez sur {{shortcut}} à tout moment pour ouvrir les paramètres.",
     "tip_multiplexing": "Terminal, SFTP et transfert de ports partagent une seule connexion SSH via le multiplexage — aucune authentification supplémentaire requise.",
-    "tip_shortcuts": "Appuyez sur {{shortcut}} à tout moment pour consulter la référence complète des raccourcis clavier."
+    "tip_shortcuts": "Appuyez sur {{shortcut}} à tout moment pour consulter la référence complète des raccourcis clavier.",
+    "disclaimer_title": "Avertissement",
+    "disclaimer_desc": "Veuillez lire les conditions suivantes avant de commencer.",
+    "disclaimer_no_warranty": "Aucune garantie",
+    "disclaimer_no_warranty_text": "OxideTerm est fourni \"tel quel\", sans aucune garantie d'aucune sorte. L'ensemble des risques liés à la qualité et aux performances du logiciel vous incombe.",
+    "disclaimer_data_security": "Données et sécurité",
+    "disclaimer_data_security_text": "Vous êtes seul responsable de la protection de vos identifiants SSH, clés privées et configurations de serveur. Les auteurs ne sauraient être tenus responsables de la perte de données, des incidents de sécurité ou des accès non autorisés.",
+    "disclaimer_ai": "Fonctionnalités AI (OxideSens)",
+    "disclaimer_ai_text": "Les résultats générés par l'AI sont fournis à titre informatif uniquement et ne constituent pas un avis professionnel. Vérifiez toujours les commandes générées par l'AI avant de les exécuter. Le contenu du terminal peut être envoyé à des fournisseurs AI tiers lorsque cette fonctionnalité est activée.",
+    "disclaimer_accept": "J'ai lu et j'accepte les conditions ci-dessus",
+    "disclaimer_gpl_note": "Conditions de licence complètes : GPL-3.0 §15–16. Voir DISCLAIMER.md pour plus de détails."
   },
   "shortcuts_modal": {
     "title": "Raccourcis clavier",

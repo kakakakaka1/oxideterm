@@ -102,6 +102,7 @@
       "compress_dialog": "Comprimir diálogo"
     },
     "model_selector": {
+      "ok": "OK",
       "no_key": "Sem chave",
       "no_key_warning": "Configure a chave API primeiro",
       "offline": "Offline",

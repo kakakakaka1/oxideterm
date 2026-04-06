@@ -290,7 +290,17 @@
     "skip": "Skip",
     "tip_settings": "All settings are customizable — press {{shortcut}} to open Settings anytime.",
     "tip_multiplexing": "Terminal, SFTP, and port forwarding share a single SSH connection via multiplexing — no extra authentication needed.",
-    "tip_shortcuts": "Press {{shortcut}} anytime to view the full keyboard shortcuts reference."
+    "tip_shortcuts": "Press {{shortcut}} anytime to view the full keyboard shortcuts reference.",
+    "disclaimer_title": "Disclaimer",
+    "disclaimer_desc": "Please review the following terms before getting started.",
+    "disclaimer_no_warranty": "No Warranty",
+    "disclaimer_no_warranty_text": "OxideTerm is provided \"as is\", without warranty of any kind. The entire risk as to the quality and performance of the software is with you.",
+    "disclaimer_data_security": "Data & Security",
+    "disclaimer_data_security_text": "You are solely responsible for safeguarding your SSH credentials, private keys, and server configurations. The authors are not liable for data loss, security incidents, or unauthorized access.",
+    "disclaimer_ai": "AI Features (OxideSens)",
+    "disclaimer_ai_text": "AI-generated outputs are for informational purposes only and do not constitute professional advice. Always review AI-generated commands before execution. Terminal content may be sent to third-party AI providers when enabled.",
+    "disclaimer_accept": "I have read and agree to the above terms",
+    "disclaimer_gpl_note": "Full license terms: GPL-3.0 §15–16. See DISCLAIMER.md for details."
   },
   "shortcuts_modal": {
     "title": "Keyboard Shortcuts",

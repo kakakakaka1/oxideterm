@@ -102,6 +102,7 @@
       "compress_dialog": "壓縮對話"
     },
     "model_selector": {
+      "ok": "OK",
       "no_key": "無金鑰",
       "no_key_warning": "請先設定 API Key",
       "offline": "離線",

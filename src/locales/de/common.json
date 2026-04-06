@@ -290,7 +290,17 @@
     "skip": "Überspringen",
     "tip_settings": "Alle Einstellungen sind anpassbar — drücken Sie jederzeit {{shortcut}}, um die Einstellungen zu öffnen.",
     "tip_multiplexing": "Terminal, SFTP und Port-Forwarding teilen sich dank Multiplexing eine einzige SSH-Verbindung — keine erneute Authentifizierung nötig.",
-    "tip_shortcuts": "Drücken Sie jederzeit {{shortcut}}, um die vollständige Tastaturkürzel-Übersicht anzuzeigen."
+    "tip_shortcuts": "Drücken Sie jederzeit {{shortcut}}, um die vollständige Tastaturkürzel-Übersicht anzuzeigen.",
+    "disclaimer_title": "Haftungsausschluss",
+    "disclaimer_desc": "Bitte lesen Sie die folgenden Bedingungen, bevor Sie beginnen.",
+    "disclaimer_no_warranty": "Keine Garantie",
+    "disclaimer_no_warranty_text": "OxideTerm wird \"wie besehen\" ohne jegliche Gewährleistung bereitgestellt. Das gesamte Risiko hinsichtlich Qualität und Leistung der Software liegt bei Ihnen.",
+    "disclaimer_data_security": "Daten und Sicherheit",
+    "disclaimer_data_security_text": "Sie sind allein verantwortlich für den Schutz Ihrer SSH-Zugangsdaten, privaten Schlüssel und Serverkonfigurationen. Die Autoren haften nicht für Datenverlust, Sicherheitsvorfälle oder unbefugten Zugriff.",
+    "disclaimer_ai": "AI-Funktionen (OxideSens)",
+    "disclaimer_ai_text": "AI-generierte Ausgaben dienen ausschließlich zu Informationszwecken und stellen keine professionelle Beratung dar. Überprüfen Sie AI-generierte Befehle stets vor der Ausführung. Bei Aktivierung können Terminalinhalte an AI-Drittanbieter gesendet werden.",
+    "disclaimer_accept": "Ich habe die obigen Bedingungen gelesen und stimme ihnen zu",
+    "disclaimer_gpl_note": "Vollständige Lizenzbedingungen: GPL-3.0 §15–16. Siehe DISCLAIMER.md für Details."
   },
   "shortcuts_modal": {
     "title": "Tastaturkürzel",

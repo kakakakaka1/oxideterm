@@ -102,6 +102,7 @@
       "compress_dialog": "대화 압축"
     },
     "model_selector": {
+      "ok": "OK",
       "no_key": "키 없음",
       "no_key_warning": "먼저 API Key를 설정하세요",
       "offline": "오프라인",

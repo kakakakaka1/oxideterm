@@ -57,3 +57,26 @@ If you follow this policy and act in good faith (no data destruction, no abuse o
 
 - Architecture and trust boundaries: `docs/reference/` (e.g. protocol, plugin system, AI docs).
 - License: [GPL-3.0](LICENSE) — does not waive security expectations for users.
+
+## Content Security Policy (CSP)
+
+OxideTerm's Tauri configuration sets `"csp": null` (no Content Security Policy enforcement). This is an **intentional design decision**, not an oversight.
+
+### Why CSP is disabled
+
+1. **Desktop application context**: OxideTerm runs as a native desktop app via Tauri. The WebView is not exposed to the public internet — there is no URL bar, no navigation to untrusted origins, and no cross-origin embedding. The primary attack vectors that CSP mitigates (XSS via injected `<script>` tags from untrusted web content) do not apply in the same way.
+
+2. **Plugin system requirements**: The plugin architecture loads third-party ESM bundles, injects custom CSS, and creates Blob URLs for plugin assets. A strict CSP would need so many exceptions (`blob:`, `data:`, dynamic `script-src`) that it would provide negligible security value while breaking legitimate plugin functionality.
+
+3. **Terminal rendering**: xterm.js with WebGL rendering requires `unsafe-eval` for shader compilation on some platforms, further weakening any CSP that was applied.
+
+### Compensating controls
+
+Even without CSP, OxideTerm employs multiple security boundaries:
+
+- **Plugin sandbox membrane**: All `PluginContext` objects are deeply frozen via `Object.freeze()`. Plugins cannot mutate the API surface or access internal stores directly.
+- **Error circuit breaker**: Plugins that exceed 10 errors within 60 seconds are automatically disabled and the disabled state is persisted across restarts.
+- **Scoped capabilities**: The Tauri capability model restricts IPC permissions — the main window can only access explicitly allowed commands and event patterns.
+- **WebSocket scope**: Only `ws://localhost:*` and `ws://127.0.0.1:*` connections are permitted (binary terminal I/O protocol).
+- **Asset scope**: The asset protocol only exposes `$APPDATA/backgrounds/**` — no arbitrary file access via the WebView.
+- **No remote content**: The application does not load any remote HTML/JS content. All frontend code is bundled at build time.

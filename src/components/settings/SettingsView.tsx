@@ -720,6 +720,18 @@ const HelpAboutSection = () => {
                         </div>
                         <ExternalLink className="h-4 w-4 text-theme-text-muted opacity-0 group-hover:opacity-100 transition-opacity" />
                     </a>
+                    <a
+                        href="https://github.com/AnalyseDeCircuit/oxideterm/blob/main/DISCLAIMER.md"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center justify-between p-3 rounded-lg hover:bg-theme-bg-hover transition-colors group"
+                    >
+                        <div className="flex items-center gap-3">
+                            <Shield className="h-5 w-5 text-theme-text-muted" />
+                            <span className="text-theme-text">{t('settings_view.help.disclaimer')}</span>
+                        </div>
+                        <ExternalLink className="h-4 w-4 text-theme-text-muted opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </a>
                 </div>
             </div>
 

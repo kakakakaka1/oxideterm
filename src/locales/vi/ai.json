@@ -102,6 +102,7 @@
       "compress_dialog": "Nén hội thoại"
     },
     "model_selector": {
+      "ok": "OK",
       "no_key": "Không có khóa",
       "no_key_warning": "Vui lòng cấu hình API Key trước",
       "offline": "Ngoại tuyến",

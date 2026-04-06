@@ -45,6 +45,10 @@ import {
   HardDrive,
   Rocket,
   Monitor,
+  ScrollText,
+  AlertTriangle,
+  Brain,
+  ExternalLink,
 } from 'lucide-react';
 
 // ============================================================================
@@ -82,7 +86,7 @@ const FONT_OPTIONS: { value: FontFamily; label: string; bundled: boolean }[] = [
   { value: 'menlo', label: 'Menlo', bundled: false },
 ];
 
-const TOTAL_STEPS = 5; // 0..4
+const TOTAL_STEPS = 6; // 0..5
 
 /** Mini terminal preview for theme cards */
 const ThemeCard = ({
@@ -159,6 +163,7 @@ export const OnboardingModal = () => {
   const [hostCount, setHostCount] = useState<number | null>(null);
   const [importState, setImportState] = useState<'idle' | 'loading' | 'done'>('idle');
   const [importedCount, setImportedCount] = useState(0);
+  const [disclaimerAccepted, setDisclaimerAccepted] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -175,6 +180,7 @@ export const OnboardingModal = () => {
       setHostCount(null);
       setImportState('idle');
       setImportedCount(0);
+      setDisclaimerAccepted(false);
     }
   }, [open]);
 
@@ -612,13 +618,77 @@ export const OnboardingModal = () => {
     </div>
   );
 
-  const STEP_ICONS = [Globe, Palette, Route, Sparkles, Shield];
-  const STEP_TITLE_KEYS = ['welcome', 'appearance_title', 'workflow_title', 'quick_start', 'features'];
-  const stepRenderers = [renderWelcome, renderAppearance, renderWorkflow, renderQuickStart, renderFeatures];
+  /** Step 5 — Disclaimer */
+  const renderDisclaimer = () => (
+    <div className="px-8 pt-6 pb-6 space-y-4">
+      <div className="flex items-center gap-2">
+        <ScrollText className="h-5 w-5 text-[var(--theme-accent)]" />
+        <div>
+          <h3 className="text-lg font-semibold text-theme-text">{t('onboarding.disclaimer_title')}</h3>
+          <p className="text-xs text-theme-text-muted">{t('onboarding.disclaimer_desc')}</p>
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        {/* No Warranty */}
+        <div className="flex gap-3 p-3.5 rounded-md border border-theme-border bg-theme-bg-panel">
+          <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0 text-amber-400" />
+          <div className="min-w-0">
+            <span className="text-xs font-medium text-theme-text">{t('onboarding.disclaimer_no_warranty')}</span>
+            <p className="text-[11px] text-theme-text-muted mt-0.5 leading-relaxed">{t('onboarding.disclaimer_no_warranty_text')}</p>
+          </div>
+        </div>
+
+        {/* Data & Security */}
+        <div className="flex gap-3 p-3.5 rounded-md border border-theme-border bg-theme-bg-panel">
+          <Shield className="h-4 w-4 mt-0.5 shrink-0 text-blue-400" />
+          <div className="min-w-0">
+            <span className="text-xs font-medium text-theme-text">{t('onboarding.disclaimer_data_security')}</span>
+            <p className="text-[11px] text-theme-text-muted mt-0.5 leading-relaxed">{t('onboarding.disclaimer_data_security_text')}</p>
+          </div>
+        </div>
+
+        {/* AI Features */}
+        <div className="flex gap-3 p-3.5 rounded-md border border-theme-border bg-theme-bg-panel">
+          <Brain className="h-4 w-4 mt-0.5 shrink-0 text-purple-400" />
+          <div className="min-w-0">
+            <span className="text-xs font-medium text-theme-text">{t('onboarding.disclaimer_ai')}</span>
+            <p className="text-[11px] text-theme-text-muted mt-0.5 leading-relaxed">{t('onboarding.disclaimer_ai_text')}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* GPL note */}
+      <a
+        href="https://github.com/AnalyseDeCircuit/oxideterm/blob/main/DISCLAIMER.md"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="flex gap-2.5 p-3 rounded-md bg-theme-bg-sunken border border-theme-border hover:bg-theme-bg-hover transition-colors group"
+      >
+        <ExternalLink className="h-3.5 w-3.5 mt-0.5 shrink-0 text-theme-text-muted" />
+        <p className="text-[11px] text-theme-text-muted leading-relaxed group-hover:text-theme-text transition-colors">{t('onboarding.disclaimer_gpl_note')}</p>
+      </a>
+
+      {/* Accept checkbox */}
+      <label className="flex items-start gap-3 p-3 rounded-md border border-theme-border bg-theme-bg-panel cursor-pointer hover:bg-theme-bg-hover transition-colors select-none">
+        <input
+          type="checkbox"
+          checked={disclaimerAccepted}
+          onChange={(e) => setDisclaimerAccepted(e.target.checked)}
+          className="mt-0.5 rounded border-theme-border accent-[var(--theme-accent)]"
+        />
+        <span className="text-xs text-theme-text leading-relaxed">{t('onboarding.disclaimer_accept')}</span>
+      </label>
+    </div>
+  );
+
+  const STEP_ICONS = [Globe, Palette, Route, Sparkles, Shield, ScrollText];
+  const STEP_TITLE_KEYS = ['welcome', 'appearance_title', 'workflow_title', 'quick_start', 'features', 'disclaimer_title'];
+  const stepRenderers = [renderWelcome, renderAppearance, renderWorkflow, renderQuickStart, renderFeatures, renderDisclaimer];
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) handleClose(); }}>
-      <DialogContent className="sm:max-w-[800px] p-0 gap-0 overflow-hidden">
+    <Dialog open={open} onOpenChange={(v) => { if (!v && disclaimerAccepted) handleClose(); }}>
+      <DialogContent className="sm:max-w-[800px] p-0 gap-0 overflow-hidden" onPointerDownOutside={(e) => { if (!disclaimerAccepted) e.preventDefault(); }} onEscapeKeyDown={(e) => { if (!disclaimerAccepted) e.preventDefault(); }}>
         <DialogTitle className="sr-only">{t('onboarding.welcome')}</DialogTitle>
 
         {/* ── Progress indicator ─────────────────────────────── */}
@@ -662,7 +732,7 @@ export const OnboardingModal = () => {
           </div>
           <div className="flex items-center gap-2">
             {canGoNext && (
-              <Button variant="ghost" size="sm" onClick={handleClose} className="text-theme-text-muted">
+              <Button variant="ghost" size="sm" onClick={() => setStep(TOTAL_STEPS - 1)} className="text-theme-text-muted">
                 {t('onboarding.skip')}
               </Button>
             )}
@@ -672,7 +742,7 @@ export const OnboardingModal = () => {
                 <ArrowRight className="h-3.5 w-3.5" />
               </Button>
             ) : (
-              <Button size="sm" onClick={handleClose} className="gap-1.5">
+              <Button size="sm" onClick={handleClose} disabled={!disclaimerAccepted} className="gap-1.5">
                 {t('onboarding.start_exploring')}
                 <ArrowRight className="h-3.5 w-3.5" />
               </Button>

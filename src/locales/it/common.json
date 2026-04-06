@@ -290,7 +290,17 @@
     "skip": "Salta",
     "tip_settings": "Tutte le impostazioni sono personalizzabili — premi {{shortcut}} in qualsiasi momento per aprire le Impostazioni.",
     "tip_multiplexing": "Terminale, SFTP e port forwarding condividono un'unica connessione SSH tramite multiplexing — nessuna autenticazione aggiuntiva necessaria.",
-    "tip_shortcuts": "Premi {{shortcut}} in qualsiasi momento per consultare la guida completa delle scorciatoie."
+    "tip_shortcuts": "Premi {{shortcut}} in qualsiasi momento per consultare la guida completa delle scorciatoie.",
+    "disclaimer_title": "Dichiarazione di non responsabilità",
+    "disclaimer_desc": "Si prega di leggere i seguenti termini prima di iniziare.",
+    "disclaimer_no_warranty": "Nessuna garanzia",
+    "disclaimer_no_warranty_text": "OxideTerm è fornito \"così com'è\", senza garanzia di alcun tipo. L'intero rischio relativo alla qualità e alle prestazioni del software è a carico dell'utente.",
+    "disclaimer_data_security": "Dati e sicurezza",
+    "disclaimer_data_security_text": "L'utente è l'unico responsabile della protezione delle proprie credenziali SSH, chiavi private e configurazioni del server. Gli autori non sono responsabili per perdita di dati, incidenti di sicurezza o accessi non autorizzati.",
+    "disclaimer_ai": "Funzionalità AI (OxideSens)",
+    "disclaimer_ai_text": "I risultati generati dall'AI sono forniti esclusivamente a scopo informativo e non costituiscono consulenza professionale. Verificare sempre i comandi generati dall'AI prima dell'esecuzione. Quando questa funzionalità è abilitata, il contenuto del terminale potrebbe essere inviato a fornitori AI di terze parti.",
+    "disclaimer_accept": "Ho letto e accetto i termini sopra indicati",
+    "disclaimer_gpl_note": "Termini di licenza completi: GPL-3.0 §15–16. Vedere DISCLAIMER.md per i dettagli."
   },
   "shortcuts_modal": {
     "title": "Scorciatoie da tastiera",

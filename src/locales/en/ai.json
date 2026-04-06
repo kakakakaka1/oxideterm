@@ -102,6 +102,7 @@
       "compress_dialog": "Compress Dialog"
     },
     "model_selector": {
+      "ok": "OK",
       "no_key": "No Key",
       "no_key_warning": "Please configure API Key first",
       "offline": "Offline",

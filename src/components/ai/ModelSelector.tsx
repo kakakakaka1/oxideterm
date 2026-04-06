@@ -262,7 +262,7 @@ export const ModelSelector = ({ onOpenSettings }: ModelSelectorProps) => {
                             isOnline ? "text-emerald-400" : "text-theme-text-muted"
                           )}>
                             <Circle className="w-2 h-2 fill-current" />
-                            {isOnline ? 'OK' : t('ai.model_selector.offline')}
+                            {isOnline ? t('ai.model_selector.ok') : t('ai.model_selector.offline')}
                           </span>
                         )}
                         {!isLocal && (
@@ -271,7 +271,7 @@ export const ModelSelector = ({ onOpenSettings }: ModelSelectorProps) => {
                             hasKey ? "text-emerald-400" : "text-amber-400"
                           )}>
                             <Key className="w-2.5 h-2.5" />
-                            {hasKey ? 'OK' : t('ai.model_selector.no_key')}
+                            {hasKey ? t('ai.model_selector.ok') : t('ai.model_selector.no_key')}
                           </span>
                         )}
                       </div>

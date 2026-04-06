@@ -290,7 +290,17 @@
     "skip": "スキップ",
     "tip_settings": "すべての設定はカスタマイズ可能です — いつでも {{shortcut}} を押して設定を開けます。",
     "tip_multiplexing": "ターミナル、SFTP、ポート転送は多重化により 1 つの SSH 接続を共有します — 追加の認証は不要です。",
-    "tip_shortcuts": "いつでも {{shortcut}} を押してショートカット一覧を確認できます。"
+    "tip_shortcuts": "いつでも {{shortcut}} を押してショートカット一覧を確認できます。",
+    "disclaimer_title": "免責事項",
+    "disclaimer_desc": "ご利用前に以下の条項をご確認ください。",
+    "disclaimer_no_warranty": "無保証",
+    "disclaimer_no_warranty_text": "OxideTerm は\"現状のまま\"提供され、いかなる種類の保証もありません。ソフトウェアの品質および性能に関するリスクはすべてお客様が負うものとします。",
+    "disclaimer_data_security": "データとセキュリティ",
+    "disclaimer_data_security_text": "SSH 資格情報、秘密鍵、サーバー設定の保護はお客様ご自身の責任です。作者はデータの喪失、セキュリティインシデント、不正アクセスについて一切の責任を負いません。",
+    "disclaimer_ai": "AI 機能 (OxideSens)",
+    "disclaimer_ai_text": "AI が生成した出力は情報提供のみを目的としており、専門的な助言を構成するものではありません。AI が生成したコマンドは実行前に必ず確認してください。この機能を有効にすると、ターミナルの内容がサードパーティの AI プロバイダーに送信される場合があります。",
+    "disclaimer_accept": "上記の条項を読み、同意しました",
+    "disclaimer_gpl_note": "完全なライセンス条項：GPL-3.0 §15–16。詳細は DISCLAIMER.md をご参照ください。"
   },
   "shortcuts_modal": {
     "title": "キーボードショートカット",

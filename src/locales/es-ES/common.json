@@ -290,7 +290,17 @@
     "skip": "Omitir",
     "tip_settings": "Todos los ajustes son personalizables — pulsa {{shortcut}} en cualquier momento para abrir Ajustes.",
     "tip_multiplexing": "Terminal, SFTP y reenvío de puertos comparten una sola conexión SSH mediante multiplexación — sin autenticación adicional.",
-    "tip_shortcuts": "Pulsa {{shortcut}} en cualquier momento para ver la referencia completa de atajos de teclado."
+    "tip_shortcuts": "Pulsa {{shortcut}} en cualquier momento para ver la referencia completa de atajos de teclado.",
+    "disclaimer_title": "Aviso legal",
+    "disclaimer_desc": "Por favor, revise los siguientes términos antes de comenzar.",
+    "disclaimer_no_warranty": "Sin garantía",
+    "disclaimer_no_warranty_text": "OxideTerm se proporciona \"tal cual\", sin garantía de ningún tipo. Todo el riesgo en cuanto a la calidad y el rendimiento del software es suyo.",
+    "disclaimer_data_security": "Datos y seguridad",
+    "disclaimer_data_security_text": "Usted es el único responsable de proteger sus credenciales SSH, claves privadas y configuraciones de servidor. Los autores no se hacen responsables de la pérdida de datos, incidentes de seguridad o accesos no autorizados.",
+    "disclaimer_ai": "Funciones de AI (OxideSens)",
+    "disclaimer_ai_text": "Los resultados generados por AI son solo informativos y no constituyen asesoramiento profesional. Revise siempre los comandos generados por AI antes de ejecutarlos. El contenido del terminal puede enviarse a proveedores de AI de terceros cuando esta función esté habilitada.",
+    "disclaimer_accept": "He leído y acepto los términos anteriores",
+    "disclaimer_gpl_note": "Términos de licencia completos: GPL-3.0 §15–16. Consulte DISCLAIMER.md para más detalles."
   },
   "shortcuts_modal": {
     "title": "Atajos de teclado",

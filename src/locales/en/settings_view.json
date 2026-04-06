@@ -503,6 +503,7 @@
       "resources": "Resources",
       "github": "GitHub Repository",
       "issues": "Report an Issue",
+      "disclaimer": "Disclaimer",
       "website": "Official Website",
       "documentation": "Documentation",
       "license": "OxideTerm is open source software licensed under the GNU General Public License v3.0 (GPL-3.0)",

@@ -290,7 +290,17 @@
     "skip": "Bỏ qua",
     "tip_settings": "Mọi cài đặt đều tùy chỉnh được — nhấn {{shortcut}} bất cứ lúc nào để mở Cài đặt.",
     "tip_multiplexing": "Terminal, SFTP và chuyển tiếp cổng chia sẻ cùng một kết nối SSH qua ghép kênh — không cần xác thực thêm.",
-    "tip_shortcuts": "Nhấn {{shortcut}} bất cứ lúc nào để xem toàn bộ phím tắt."
+    "tip_shortcuts": "Nhấn {{shortcut}} bất cứ lúc nào để xem toàn bộ phím tắt.",
+    "disclaimer_title": "Tuyên bố miễn trừ",
+    "disclaimer_desc": "Vui lòng đọc các điều khoản sau trước khi bắt đầu.",
+    "disclaimer_no_warranty": "Không bảo hành",
+    "disclaimer_no_warranty_text": "OxideTerm được cung cấp \"nguyên trạng\", không kèm theo bất kỳ bảo đảm nào. Toàn bộ rủi ro về chất lượng và hiệu suất của phần mềm thuộc về bạn.",
+    "disclaimer_data_security": "Dữ liệu và Bảo mật",
+    "disclaimer_data_security_text": "Bạn hoàn toàn chịu trách nhiệm bảo vệ thông tin xác thực SSH, khóa riêng tư và cấu hình máy chủ của mình. Tác giả không chịu trách nhiệm cho việc mất dữ liệu, sự cố bảo mật hoặc truy cập trái phép.",
+    "disclaimer_ai": "Tính năng AI (OxideSens)",
+    "disclaimer_ai_text": "Kết quả do AI tạo ra chỉ mang tính tham khảo và không cấu thành tư vấn chuyên nghiệp. Luôn kiểm tra các lệnh do AI tạo trước khi thực thi. Nội dung terminal có thể được gửi tới các nhà cung cấp AI bên thứ ba khi tính năng này được bật.",
+    "disclaimer_accept": "Tôi đã đọc và đồng ý với các điều khoản trên",
+    "disclaimer_gpl_note": "Điều khoản giấy phép đầy đủ: GPL-3.0 §15–16. Xem DISCLAIMER.md để biết chi tiết."
   },
   "shortcuts_modal": {
     "title": "Phím tắt bàn phím",

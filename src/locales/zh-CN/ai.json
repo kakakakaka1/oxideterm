@@ -102,6 +102,7 @@
       "compress_dialog": "压缩对话"
     },
     "model_selector": {
+      "ok": "OK",
       "no_key": "无密钥",
       "no_key_warning": "请先配置 API Key",
       "offline": "离线",

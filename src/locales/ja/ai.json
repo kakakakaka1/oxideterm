@@ -102,6 +102,7 @@
       "compress_dialog": "対話を圧縮"
     },
     "model_selector": {
+      "ok": "OK",
       "no_key": "キーなし",
       "no_key_warning": "先に API Key を設定してください",
       "offline": "オフライン",
