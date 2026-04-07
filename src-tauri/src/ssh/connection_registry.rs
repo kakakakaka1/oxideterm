@@ -48,9 +48,9 @@ use tracing::{debug, error, info, warn};
 use zeroize::Zeroizing;
 
 use super::auth::{
-    DEFAULT_AUTH_TIMEOUT_SECS, authenticate_password, authenticate_publickey_best_algo,
-    build_client_config, ensure_auth_success, load_certificate_auth_material,
-    load_private_key_material, try_kbi_auth_chain,
+    DEFAULT_AUTH_TIMEOUT_SECS, authenticate_certificate_best_algo, authenticate_password,
+    authenticate_publickey_best_algo, build_client_config, ensure_auth_success,
+    load_certificate_auth_material, load_private_key_material, try_kbi_auth_chain,
 };
 use super::handle_owner::HandleController;
 use super::{AuthMethod as SshAuthMethod, SshClient, SshConfig};
@@ -1135,8 +1135,7 @@ impl SshConnectionRegistry {
                 )
                 .map_err(|e| ConnectionRegistryError::ConnectionFailed(e.to_string()))?;
 
-                handle
-                    .authenticate_openssh_cert(&target_config.username, key, cert)
+                authenticate_certificate_best_algo(&mut handle, &target_config.username, key, cert)
                     .await
                     .map_err(|e| {
                         ConnectionRegistryError::ConnectionFailed(format!(

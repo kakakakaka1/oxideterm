@@ -33,9 +33,9 @@ use russh::client::{self, Handle};
 use tracing::{debug, info};
 
 use super::auth::{
-    DEFAULT_AUTH_TIMEOUT_SECS, authenticate_password, authenticate_publickey_best_algo,
-    build_client_config, ensure_auth_success, load_certificate_auth_material,
-    load_private_key_material,
+    DEFAULT_AUTH_TIMEOUT_SECS, authenticate_certificate_best_algo, authenticate_password,
+    authenticate_publickey_best_algo, build_client_config, ensure_auth_success,
+    load_certificate_auth_material, load_private_key_material,
 };
 use super::client::ClientHandler;
 use super::config::AuthMethod;
@@ -254,10 +254,7 @@ async fn direct_connect(
                 passphrase.as_ref().map(|p| p.as_str()),
             )?;
 
-            handle
-                .authenticate_openssh_cert(&hop.username, key, cert)
-                .await
-                .map_err(|e| SshError::AuthenticationFailed(e.to_string()))?
+            authenticate_certificate_best_algo(&mut handle, &hop.username, key, cert).await?
         }
         AuthMethod::Agent => {
             // Connect to SSH Agent and authenticate
@@ -372,10 +369,7 @@ async fn connect_via_stream(
                 passphrase.as_ref().map(|p| p.as_str()),
             )?;
 
-            handle
-                .authenticate_openssh_cert(&hop.username, key, cert)
-                .await
-                .map_err(|e| SshError::AuthenticationFailed(e.to_string()))?
+            authenticate_certificate_best_algo(&mut handle, &hop.username, key, cert).await?
         }
         AuthMethod::Agent => {
             // Connect to SSH Agent and authenticate

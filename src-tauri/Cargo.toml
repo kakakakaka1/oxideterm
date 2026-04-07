@@ -44,6 +44,8 @@ tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "time", "
 # SSH Protocol
 russh = { version = "0.59", default-features = false, features = ["ring", "rsa", "flate2"] }
 russh-sftp = "2"
+signature = "2"
+ssh-encoding = "0.2"
 
 # WebSocket
 tokio-tungstenite = "0.24"

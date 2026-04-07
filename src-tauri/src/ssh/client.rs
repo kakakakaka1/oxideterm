@@ -12,9 +12,9 @@ use russh::*;
 use tracing::{debug, info, warn};
 
 use super::auth::{
-    DEFAULT_AUTH_TIMEOUT_SECS, authenticate_password, authenticate_publickey_best_algo,
-    build_client_config, ensure_auth_success, load_certificate_auth_material,
-    load_private_key_material, try_kbi_auth_chain,
+    DEFAULT_AUTH_TIMEOUT_SECS, authenticate_certificate_best_algo, authenticate_password,
+    authenticate_publickey_best_algo, build_client_config, ensure_auth_success,
+    load_certificate_auth_material, load_private_key_material, try_kbi_auth_chain,
 };
 use super::config::{AuthMethod, SshConfig};
 use super::error::SshError;
@@ -119,16 +119,8 @@ impl SshClient {
                     passphrase.as_ref().map(|p| p.as_str()),
                 )?;
 
-                // Authenticate with certificate
-                handle
-                    .authenticate_openssh_cert(&self.config.username, key, cert)
-                    .await
-                    .map_err(|e| {
-                        SshError::AuthenticationFailed(format!(
-                            "Certificate authentication failed: {}",
-                            e
-                        ))
-                    })?
+                authenticate_certificate_best_algo(&mut handle, &self.config.username, key, cert)
+                    .await?
             }
             AuthMethod::KeyboardInteractive => {
                 // KeyboardInteractive is handled by the separate KBI flow (commands/kbi.rs)

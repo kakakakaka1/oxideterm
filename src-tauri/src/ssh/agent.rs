@@ -46,12 +46,17 @@
 use std::future::Future;
 
 use russh::client::Handle;
+use russh::keys::Algorithm;
 use russh::keys::HashAlg;
 use russh::keys::agent::AgentIdentity;
 use russh::keys::agent::client::{AgentClient, AgentStream};
 use russh::{AgentAuthError, Signer};
 use tracing::{debug, info, warn};
 
+use crate::ssh::auth::{
+    auth_algorithm_attempt_order, resolve_server_rsa_preference,
+    server_allows_more_publickey_attempts,
+};
 use crate::ssh::error::SshError;
 
 /// Send-safe wrapper around [`AgentClient`] implementing the [`Signer`] trait.
@@ -190,8 +195,11 @@ impl SshAgentClient {
             keys.len()
         );
 
+        let server_rsa_preference = resolve_server_rsa_preference(handle).await;
+
         // 2. Try each key until one succeeds
         let mut last_error: Option<String> = None;
+        let mut publickey_exhausted = false;
         for key in &keys {
             debug!(
                 "Trying agent key: {} ({})",
@@ -199,31 +207,69 @@ impl SshAgentClient {
                 key.comment()
             );
 
-            match handle
-                .authenticate_publickey_with(
-                    &username,
-                    key.public_key().into_owned(),
-                    None,
-                    &mut AgentSigner {
-                        agent: &mut self.agent,
-                    },
-                )
-                .await
-            {
-                Ok(result) if result.success() => {
-                    info!(
-                        "SSH Agent authentication succeeded with key: {}",
-                        key.comment()
-                    );
-                    return Ok(());
+            let algorithms = auth_algorithm_attempt_order(
+                matches!(key.public_key().algorithm(), Algorithm::Rsa { .. }),
+                server_rsa_preference,
+            );
+
+            let mut key_rejected = false;
+            for hash_alg in algorithms {
+                match handle
+                    .authenticate_publickey_with(
+                        &username,
+                        key.public_key().into_owned(),
+                        hash_alg,
+                        &mut AgentSigner {
+                            agent: &mut self.agent,
+                        },
+                    )
+                    .await
+                {
+                    Ok(result) if result.success() => {
+                        info!(
+                            "SSH Agent authentication succeeded with key: {}",
+                            key.comment()
+                        );
+                        return Ok(());
+                    }
+                    Ok(result) => {
+                        key_rejected = true;
+                        debug!(
+                            "Agent key {} rejected with algorithm {:?}",
+                            key.comment(),
+                            hash_alg
+                        );
+
+                        if !server_allows_more_publickey_attempts(&result) {
+                            publickey_exhausted = true;
+                            break;
+                        }
+                    }
+                    Err(AgentAuthError::Send(error)) => {
+                        return Err(SshError::AgentError(format!(
+                            "SSH Agent transport error while signing with key {}: {}",
+                            key.comment(),
+                            error
+                        )));
+                    }
+                    Err(AgentAuthError::Key(error)) => {
+                        warn!(
+                            "Agent signing error for key {} with algorithm {:?}: {}",
+                            key.comment(),
+                            hash_alg,
+                            error
+                        );
+                        last_error = Some(format!("{}", error));
+                    }
                 }
-                Ok(_failure) => {
-                    debug!("Key rejected by server: {}", key.comment());
-                }
-                Err(e) => {
-                    warn!("Agent signing error for key {}: {}", key.comment(), e);
-                    last_error = Some(format!("{}", e));
-                }
+            }
+
+            if publickey_exhausted {
+                break;
+            }
+
+            if key_rejected {
+                debug!("Key rejected by server: {}", key.comment());
             }
         }
 

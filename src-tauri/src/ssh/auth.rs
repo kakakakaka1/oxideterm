@@ -9,11 +9,17 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use russh::MethodKind;
+use russh::Signer as RusshSigner;
 use russh::client;
 use russh::keys::HashAlg;
+use russh::keys::agent::AgentIdentity;
 use russh::keys::key::PrivateKeyWithHashAlg;
-use russh::keys::{Certificate, PrivateKey};
+use russh::keys::ssh_key::private::KeypairData;
+use russh::keys::{Algorithm, Certificate, PrivateKey};
+use signature::Signer as SignatureSigner;
+use ssh_encoding::Encode;
 use tauri::AppHandle;
+use thiserror::Error;
 use tracing::{debug, info};
 
 use super::client::ClientHandler;
@@ -26,6 +32,40 @@ use crate::path_utils::expand_tilde;
 
 pub(crate) const DEFAULT_AUTH_TIMEOUT_SECS: u64 = 30;
 const PASSWORD_RETRY_DELAY_MS: u64 = 500;
+const RSA_AUTH_ALGORITHMS: [Option<HashAlg>; 3] =
+    [Some(HashAlg::Sha512), Some(HashAlg::Sha256), None];
+
+#[derive(Debug, Error)]
+enum LocalSignerError {
+    #[error(transparent)]
+    Send(#[from] russh::SendError),
+    #[error("{0}")]
+    Sign(String),
+}
+
+struct LocalKeySigner {
+    key: Arc<PrivateKey>,
+}
+
+impl LocalKeySigner {
+    fn new(key: Arc<PrivateKey>) -> Self {
+        Self { key }
+    }
+}
+
+impl RusshSigner for LocalKeySigner {
+    type Error = LocalSignerError;
+
+    fn auth_sign(
+        &mut self,
+        _key: &AgentIdentity,
+        hash_alg: Option<HashAlg>,
+        to_sign: Vec<u8>,
+    ) -> impl Future<Output = Result<Vec<u8>, Self::Error>> + Send {
+        let key = Arc::clone(&self.key);
+        async move { sign_auth_payload_with_hash_alg(key.as_ref(), hash_alg, &to_sign) }
+    }
+}
 
 pub(crate) fn build_client_config() -> client::Config {
     client::Config {
@@ -310,6 +350,67 @@ pub(crate) fn load_private_key_material(
     Ok(Arc::new(key))
 }
 
+pub(crate) async fn resolve_server_rsa_preference(
+    handle: &client::Handle<ClientHandler>,
+) -> Option<Option<HashAlg>> {
+    match handle.best_supported_rsa_hash().await {
+        Ok(server_preference) => {
+            if let Some(hash_alg) = server_preference {
+                debug!(
+                    "Server advertised RSA hash preference via EXT_INFO: {:?}",
+                    hash_alg
+                );
+            } else {
+                debug!(
+                    "Server did not advertise RSA hash preference, falling back to local ordering"
+                );
+            }
+            server_preference
+        }
+        Err(error) => {
+            debug!(
+                "Failed to query server RSA hash preference via EXT_INFO: {}",
+                error
+            );
+            None
+        }
+    }
+}
+
+pub(crate) fn auth_algorithm_attempt_order(
+    is_rsa: bool,
+    server_preference: Option<Option<HashAlg>>,
+) -> Vec<Option<HashAlg>> {
+    if !is_rsa {
+        return vec![None];
+    }
+
+    match server_preference {
+        Some(None) => vec![None],
+        Some(Some(preferred_hash)) => {
+            let mut algorithms = vec![Some(preferred_hash)];
+            algorithms.extend(
+                RSA_AUTH_ALGORITHMS
+                    .iter()
+                    .copied()
+                    .filter(|candidate| *candidate != Some(preferred_hash)),
+            );
+            algorithms
+        }
+        None => RSA_AUTH_ALGORITHMS.to_vec(),
+    }
+}
+
+pub(crate) fn server_allows_more_publickey_attempts(result: &client::AuthResult) -> bool {
+    matches!(
+        result,
+        client::AuthResult::Failure {
+            remaining_methods,
+            ..
+        } if remaining_methods.contains(&MethodKind::PublicKey)
+    )
+}
+
 /// Authenticate with a public key, negotiating the best RSA signature algorithm.
 ///
 /// For RSA keys, the SSH server may advertise supported signature algorithms via
@@ -327,54 +428,69 @@ pub(crate) async fn authenticate_publickey_best_algo(
     username: &str,
     key: Arc<PrivateKey>,
 ) -> Result<client::AuthResult, SshError> {
-    // Query the server's preferred RSA hash algorithm via RFC 8308 EXT_INFO.
-    // This waits up to ~1s for the server to send its EXT_INFO message.
-    match handle.best_supported_rsa_hash().await {
-        Ok(Some(hash_alg)) => {
-            // Server supports EXT_INFO:
-            //   Some(HashAlg) = server prefers this specific algorithm
-            //   None          = server explicitly rejects rsa-sha2-*, use legacy ssh-rsa
-            debug!(
-                "Server advertised RSA hash preference via EXT_INFO: {:?}",
-                hash_alg
-            );
-            let key_material = PrivateKeyWithHashAlg::new(Arc::clone(&key), hash_alg);
-            match handle.authenticate_publickey(username, key_material).await {
-                Ok(client::AuthResult::Success) => Ok(client::AuthResult::Success),
-                Ok(result) => {
-                    // EXT_INFO advertised algorithm was rejected — this can happen with
-                    // misconfigured servers. Fall back to strongest-first negotiation
-                    // if the server still accepts publickey attempts.
-                    if let client::AuthResult::Failure {
-                        ref remaining_methods,
-                        ..
-                    } = result
-                    {
-                        if remaining_methods.contains(&MethodKind::PublicKey) {
-                            debug!(
-                                "EXT_INFO advertised {:?} but server rejected it, \
-                                 falling back to algorithm negotiation",
-                                hash_alg
-                            );
-                            return try_publickey_with_algorithm_fallback(handle, username, key)
-                                .await;
-                        }
-                    }
-                    Ok(result)
+    let is_rsa = matches!(key.algorithm(), Algorithm::Rsa { .. });
+    let algorithms =
+        auth_algorithm_attempt_order(is_rsa, resolve_server_rsa_preference(handle).await);
+
+    try_publickey_with_algorithm_fallback(handle, username, key, &algorithms).await
+}
+
+pub(crate) async fn authenticate_certificate_best_algo(
+    handle: &mut client::Handle<ClientHandler>,
+    username: &str,
+    key: Arc<PrivateKey>,
+    cert: Certificate,
+) -> Result<client::AuthResult, SshError> {
+    let is_rsa = matches!(cert.algorithm(), Algorithm::Rsa { .. });
+    let algorithms =
+        auth_algorithm_attempt_order(is_rsa, resolve_server_rsa_preference(handle).await);
+    let mut signer = LocalKeySigner::new(key);
+    let mut last_result = None;
+
+    for (index, hash_alg) in algorithms.iter().copied().enumerate() {
+        match handle
+            .authenticate_certificate_with(username, cert.clone(), hash_alg, &mut signer)
+            .await
+        {
+            Ok(client::AuthResult::Success) => {
+                debug!("Certificate auth succeeded with algorithm {:?}", hash_alg);
+                return Ok(client::AuthResult::Success);
+            }
+            Ok(result) => {
+                if !server_allows_more_publickey_attempts(&result) {
+                    debug!(
+                        "Server removed publickey from allowed methods after certificate attempt {:?}",
+                        hash_alg
+                    );
+                    return Ok(result);
                 }
-                Err(e) => Err(SshError::AuthenticationFailed(e.to_string())),
+
+                if index < algorithms.len() - 1 {
+                    debug!(
+                        "Certificate auth with {:?} rejected, trying next algorithm",
+                        hash_alg
+                    );
+                }
+                last_result = Some(result);
+            }
+            Err(error) => {
+                return Err(SshError::AuthenticationFailed(format!(
+                    "Certificate authentication failed: {}",
+                    error
+                )));
             }
         }
-        _ => {
-            // Server doesn't support EXT_INFO or the query failed.
-            // Try algorithms from strongest to weakest to avoid downgrade attacks.
-            debug!(
-                "Server did not advertise RSA hash preference, \
-                 trying signature algorithms: SHA-512 → SHA-256 → SHA-1"
-            );
-            try_publickey_with_algorithm_fallback(handle, username, key).await
-        }
     }
+
+    last_result.map_or_else(
+        || {
+            Err(SshError::AuthenticationFailed(
+                "Certificate authentication failed after exhausting compatible signature algorithms"
+                    .to_string(),
+            ))
+        },
+        Ok,
+    )
 }
 
 /// Try public key authentication with RSA signature algorithms in descending
@@ -388,17 +504,14 @@ async fn try_publickey_with_algorithm_fallback(
     handle: &mut client::Handle<ClientHandler>,
     username: &str,
     key: Arc<PrivateKey>,
+    algorithms: &[Option<HashAlg>],
 ) -> Result<client::AuthResult, SshError> {
-    // Strongest first to prevent downgrade attacks.
-    // `None` = legacy ssh-rsa (SHA-1), included for compatibility with older servers.
-    let algorithms: &[Option<HashAlg>] = &[Some(HashAlg::Sha512), Some(HashAlg::Sha256), None];
-
     let mut last_result = None;
 
-    for (i, hash_alg) in algorithms.iter().enumerate() {
+    for (i, hash_alg) in algorithms.iter().copied().enumerate() {
         // Arc::clone only increments the reference count — the private key
         // material stays in a single heap allocation, not duplicated.
-        let key_material = PrivateKeyWithHashAlg::new(Arc::clone(&key), hash_alg.clone());
+        let key_material = PrivateKeyWithHashAlg::new(Arc::clone(&key), hash_alg);
 
         match handle.authenticate_publickey(username, key_material).await {
             Ok(client::AuthResult::Success) => {
@@ -406,20 +519,13 @@ async fn try_publickey_with_algorithm_fallback(
                 return Ok(client::AuthResult::Success);
             }
             Ok(result) => {
-                // Check if the server still allows publickey attempts
-                if let client::AuthResult::Failure {
-                    ref remaining_methods,
-                    ..
-                } = result
-                {
-                    if !remaining_methods.contains(&MethodKind::PublicKey) {
-                        debug!(
-                            "Server removed publickey from allowed methods after {:?}, \
-                             stopping algorithm negotiation",
-                            hash_alg
-                        );
-                        return Ok(result);
-                    }
+                if !server_allows_more_publickey_attempts(&result) {
+                    debug!(
+                        "Server removed publickey from allowed methods after {:?}, \
+                         stopping algorithm negotiation",
+                        hash_alg
+                    );
+                    return Ok(result);
                 }
 
                 if i < algorithms.len() - 1 {
@@ -459,6 +565,25 @@ pub(crate) fn load_certificate_auth_material(
     })?;
 
     Ok((key, cert))
+}
+
+fn sign_auth_payload_with_hash_alg(
+    key: &PrivateKey,
+    hash_alg: Option<HashAlg>,
+    data: &[u8],
+) -> Result<Vec<u8>, LocalSignerError> {
+    let signature = match key.key_data() {
+        KeypairData::Rsa(rsa_keypair) => SignatureSigner::try_sign(&(rsa_keypair, hash_alg), data)
+            .map_err(|error| LocalSignerError::Sign(error.to_string()))?,
+        keypair => SignatureSigner::try_sign(keypair, data)
+            .map_err(|error| LocalSignerError::Sign(error.to_string()))?,
+    };
+
+    let mut encoded = Vec::new();
+    signature
+        .encode(&mut encoded)
+        .map_err(|error| LocalSignerError::Sign(error.to_string()))?;
+    Ok(encoded)
 }
 
 #[cfg(test)]
@@ -503,6 +628,27 @@ mod tests {
             partial_success: true,
         }));
         assert!(!should_retry_password_auth(&client::AuthResult::Success));
+    }
+
+    #[test]
+    fn test_auth_algorithm_attempt_order_uses_server_preference_first() {
+        assert_eq!(
+            auth_algorithm_attempt_order(true, Some(Some(HashAlg::Sha256))),
+            vec![Some(HashAlg::Sha256), Some(HashAlg::Sha512), None]
+        );
+    }
+
+    #[test]
+    fn test_auth_algorithm_attempt_order_respects_explicit_sha1_only_server() {
+        assert_eq!(auth_algorithm_attempt_order(true, Some(None)), vec![None]);
+    }
+
+    #[test]
+    fn test_auth_algorithm_attempt_order_skips_hash_negotiation_for_non_rsa_keys() {
+        assert_eq!(
+            auth_algorithm_attempt_order(false, Some(Some(HashAlg::Sha512))),
+            vec![None]
+        );
     }
 
     #[tokio::test]
@@ -579,12 +725,12 @@ mod tests {
     }
 
     #[test]
-    fn test_load_public_key_auth_material_loads_generated_key() {
+    fn test_load_private_key_material_loads_generated_key() {
         let temp_dir = tempdir().unwrap();
         let key_path = temp_dir.path().join("id_ed25519");
         write_test_key(&key_path, None);
 
-        load_public_key_auth_material(key_path.to_str().unwrap(), None).unwrap();
+        load_private_key_material(key_path.to_str().unwrap(), None).unwrap();
     }
 
     #[test]
