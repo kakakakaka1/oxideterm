@@ -195,7 +195,7 @@ export const OnboardingModal = () => {
 
   // Scan SSH config hosts when reaching the quick-start step
   useEffect(() => {
-    if (!open || step !== 3) return;
+    if (!open || step !== 6) return;
     api.listSshConfigHosts()
       .then((hosts) => setHostCount(hosts.filter((h) => h.alias !== '*').length))
       .catch(() => setHostCount(0));
@@ -332,7 +332,7 @@ export const OnboardingModal = () => {
     </div>
   );
 
-  /** Step 1 — Appearance (Theme + Font) */
+  /** Step 2 — Appearance (Theme + Font) */
   const renderAppearance = () => (
     <div className="px-8 pt-6 pb-6 space-y-5">
       <div className="flex items-center gap-2">
@@ -408,7 +408,7 @@ export const OnboardingModal = () => {
     </div>
   );
 
-  /** Step 2 — Core Workflow */
+  /** Step 3 — Core Workflow */
   const renderWorkflow = () => {
     const workflows = [
       { icon: Server, key: 'workflow_connect' },
@@ -462,7 +462,7 @@ export const OnboardingModal = () => {
     );
   };
 
-  /** Step 3 — Quick Start + Shortcuts */
+  /** Step 6 — Quick Start + Shortcuts */
   const renderQuickStart = () => {
     const mod = isMac ? '⌘' : 'Ctrl';
     const shortcutGroups = [
@@ -592,7 +592,7 @@ export const OnboardingModal = () => {
     );
   };
 
-  /** Step 4 — Features + Finish */
+  /** Step 4 — Features */
   const renderFeatures = () => (
     <div className="px-8 pt-6 pb-6 space-y-4">
       <div className="flex items-center gap-2">
@@ -744,7 +744,7 @@ export const OnboardingModal = () => {
     </div>
   );
 
-  /** Step 6 — Disclaimer */
+  /** Step 1 — Disclaimer */
   const renderDisclaimer = () => (
     <div className="px-8 pt-6 pb-6 space-y-4">
       <div className="flex items-center gap-2">
@@ -808,9 +808,9 @@ export const OnboardingModal = () => {
     </div>
   );
 
-  const STEP_ICONS = [Globe, Palette, Route, Sparkles, Shield, SquareTerminal, ScrollText];
-  const STEP_TITLE_KEYS = ['welcome', 'appearance_title', 'workflow_title', 'quick_start', 'features', 'cli_step_title', 'disclaimer_title'];
-  const stepRenderers = [renderWelcome, renderAppearance, renderWorkflow, renderQuickStart, renderFeatures, renderCliCompanion, renderDisclaimer];
+  const STEP_ICONS = [Globe, ScrollText, Palette, Route, Shield, SquareTerminal, Sparkles];
+  const STEP_TITLE_KEYS = ['welcome', 'disclaimer_title', 'appearance_title', 'workflow_title', 'features', 'cli_step_title', 'quick_start'];
+  const stepRenderers = [renderWelcome, renderDisclaimer, renderAppearance, renderWorkflow, renderFeatures, renderCliCompanion, renderQuickStart];
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v && disclaimerAccepted) handleClose(); }}>
@@ -824,8 +824,9 @@ export const OnboardingModal = () => {
             return (
               <button
                 key={i}
-                onClick={() => setStep(i)}
-                className={`flex items-center justify-center w-7 h-7 rounded-full transition-all focus-visible:ring-2 focus-visible:ring-[var(--theme-accent)] focus-visible:outline-none ${
+                onClick={() => { if (i <= 1 || disclaimerAccepted) setStep(i); }}
+                aria-disabled={!disclaimerAccepted && i > 1}
+                className={`flex items-center justify-center w-7 h-7 rounded-full transition-all focus-visible:ring-2 focus-visible:ring-[var(--theme-accent)] focus-visible:outline-none ${!disclaimerAccepted && i > 1 ? 'opacity-40 cursor-not-allowed ' : ''}${
                   i === step
                     ? 'bg-[var(--theme-accent)] text-[var(--theme-accent-text)] scale-110'
                     : i < step
@@ -857,13 +858,13 @@ export const OnboardingModal = () => {
             )}
           </div>
           <div className="flex items-center gap-2">
-            {canGoNext && (
+            {canGoNext && disclaimerAccepted && (
               <Button variant="ghost" size="sm" onClick={() => setStep(TOTAL_STEPS - 1)} className="text-theme-text-muted">
                 {t('onboarding.skip')}
               </Button>
             )}
             {canGoNext ? (
-              <Button size="sm" onClick={() => setStep(step + 1)} className="gap-1.5">
+              <Button size="sm" onClick={() => setStep(step + 1)} disabled={step === 1 && !disclaimerAccepted} className="gap-1.5">
                 {t('onboarding.next')}
                 <ArrowRight className="h-3.5 w-3.5" />
               </Button>
