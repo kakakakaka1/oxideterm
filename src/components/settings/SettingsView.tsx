@@ -628,6 +628,30 @@ const HelpAboutSection = () => {
             {/* Tech Stack */}
             <div className="rounded-lg border border-theme-border bg-theme-bg-card p-5">
                 <h4 className="text-sm font-medium text-theme-text mb-4 uppercase tracking-wider">
+                    {t('settings_view.help.diagnostics')}
+                </h4>
+                <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <span className="text-theme-text">{t('settings_view.help.open_logs')}</span>
+                            <p className="text-xs text-theme-text-muted mt-0.5">{t('settings_view.help.open_logs_hint')}</p>
+                        </div>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            className="gap-2 shrink-0"
+                            onClick={() => api.openLogDirectory().catch(() => {})}
+                        >
+                            <FolderOpen className="h-3.5 w-3.5" />
+                            {t('settings_view.help.open')}
+                        </Button>
+                    </div>
+                </div>
+            </div>
+
+            {/* Tech Stack */}
+            <div className="rounded-lg border border-theme-border bg-theme-bg-card p-5">
+                <h4 className="text-sm font-medium text-theme-text mb-4 uppercase tracking-wider">
                     {t('settings_view.help.tech_stack')}
                 </h4>
                 <div className="flex flex-wrap gap-2">

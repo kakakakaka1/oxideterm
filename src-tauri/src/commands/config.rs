@@ -1474,6 +1474,20 @@ pub async fn reset_data_directory() -> Result<bool, String> {
     Ok(true)
 }
 
+/// Open the log directory in the system file manager
+#[tauri::command]
+pub async fn open_log_directory(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    let log_dir = crate::config::storage::log_dir().map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&log_dir)
+        .map_err(|e| format!("Failed to create log directory: {}", e))?;
+    let path_str = log_dir.to_string_lossy().to_string();
+    app.opener()
+        .reveal_item_in_dir(&path_str)
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Check if a directory already contains OxideTerm data files
 #[tauri::command]
 pub async fn check_data_directory(path: String) -> Result<DataDirCheck, String> {

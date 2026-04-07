@@ -425,6 +425,11 @@ export const api = {
     return invoke('check_data_directory', { path });
   },
 
+  openLogDirectory: async (): Promise<void> => {
+    if (USE_MOCK) return;
+    return invoke('open_log_directory');
+  },
+
   getSshConfigPath: async (): Promise<string> => {
     if (USE_MOCK) return '~/.ssh/config';
     return invoke('get_ssh_config_path');
