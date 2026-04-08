@@ -20,6 +20,7 @@ import { useTerminalViewShortcuts } from '../../hooks/useTerminalKeyboard';
 import { SearchBar, DeepSearchState } from './SearchBar';
 import { AiInlinePanel, type CursorPosition } from './AiInlinePanel';
 import { PasteConfirmOverlay, shouldConfirmPaste } from './PasteConfirmOverlay';
+import { getProtectedPasteDecision } from '../../lib/terminalPaste';
 import { terminalLinkHandler } from '../../lib/safeUrl';
 import { SearchMatch, SessionInfo } from '../../types';
 import { listen } from '@tauri-apps/api/event';
@@ -39,6 +40,7 @@ import { runInputPipeline, runOutputPipeline } from '../../lib/plugin/pluginTerm
 import { useSessionTreeStore } from '../../store/sessionTreeStore';
 import { useReconnectOrchestratorStore } from '../../store/reconnectOrchestratorStore';
 import { hexToRgba, getBackgroundFitStyles, isLowEndGPU, forceViewportTransparent, clearViewportTransparent } from '../../lib/terminalHelpers';
+import { encodeTerminalExecuteInput, encodeTerminalTextInput } from '../../lib/terminalInput';
 import {
   MSG_TYPE_DATA, MSG_TYPE_HEARTBEAT, MSG_TYPE_ERROR,
   HEADER_SIZE, encodeHeartbeatFrame, encodeDataFrame, encodeResizeFrame,
@@ -1688,23 +1690,9 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
       
       const { command } = event.payload;
-      // Encode and send command to SSH terminal (without executing - user can review and press Enter)
-      // For multiline commands, use bracketed paste mode to insert as one unit
-      const encoder = new TextEncoder();
-      
-      // Check if command is multiline
-      if (command.includes('\n')) {
-        // Use bracketed paste mode: \x1b[200~ ... \x1b[201~
-        // This tells the shell to treat the entire block as pasted text
-        const bracketedPaste = `\x1b[200~${command}\x1b[201~`;
-        const payload = encoder.encode(bracketedPaste);
-        const frame = encodeDataFrame(payload);
-        ws.send(frame);
-      } else {
-        const payload = encoder.encode(command);
-        const frame = encodeDataFrame(payload);
-        ws.send(frame);
-      }
+      const payload = encodeTerminalTextInput(command);
+      const frame = encodeDataFrame(payload);
+      ws.send(frame);
     }).then((fn) => {
       if (mounted) {
         unlistenFn = fn;
@@ -2022,9 +2010,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
     
-    // Send text as if user typed it (but don't execute - let user review)
-    const encoder = new TextEncoder();
-    const payload = encoder.encode(text);
+    const payload = encodeTerminalTextInput(text);
     const frame = encodeDataFrame(payload);
     ws.send(frame);
   }, []);
@@ -2035,9 +2021,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
     
-    // Send command followed by newline
-    const encoder = new TextEncoder();
-    const payload = encoder.encode(command + '\n');
+    const payload = encodeTerminalExecuteInput(command);
     const frame = encodeDataFrame(payload);
     ws.send(frame);
   }, []);
@@ -2054,8 +2038,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
     if (pendingPaste) {
       const ws = wsRef.current;
       if (ws && ws.readyState === WebSocket.OPEN) {
-        const encoder = new TextEncoder();
-        const payload = encoder.encode(pendingPaste);
+        const payload = encodeTerminalTextInput(pendingPaste);
         const frame = encodeDataFrame(payload);
         ws.send(frame);
       }
@@ -2076,13 +2059,15 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
 
     const handlePaste = (e: ClipboardEvent) => {
       const text = e.clipboardData?.getData('text');
-      if (!text) return;
+      const decision = getProtectedPasteDecision(text, !inputLockedRef.current);
 
-      // Skip if input is locked (reconnecting)
-      if (inputLockedRef.current) return;
+      if (decision === 'block') {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
 
-      // Check if paste needs confirmation
-      if (shouldConfirmPaste(text)) {
+      if (decision === 'confirm' && text) {
         e.preventDefault();
         e.stopPropagation();
         setPendingPaste(text);

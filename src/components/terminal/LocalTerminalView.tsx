@@ -19,11 +19,13 @@ import { useTerminalViewShortcuts } from '../../hooks/useTerminalKeyboard';
 import { SearchBar } from './SearchBar';
 import { AiInlinePanel, type CursorPosition } from './AiInlinePanel';
 import { PasteConfirmOverlay, shouldConfirmPaste } from './PasteConfirmOverlay';
+import { getProtectedPasteDecision } from '../../lib/terminalPaste';
 import { terminalLinkHandler } from '../../lib/safeUrl';
 import { listen } from '@tauri-apps/api/event';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { useTranslation } from 'react-i18next';
 import { hexToRgba, getBackgroundFitStyles, isLowEndGPU, forceViewportTransparent, clearViewportTransparent } from '../../lib/terminalHelpers';
+import { encodeTerminalExecuteInput, encodeTerminalTextInput } from '../../lib/terminalInput';
 import { 
   registerTerminalBuffer, 
   unregisterTerminalBuffer,
@@ -989,22 +991,8 @@ export const LocalTerminalView: React.FC<LocalTerminalViewProps> = ({
       if (!mounted || !isMountedRef.current || !isRunning) return;
       
       const { command } = event.payload;
-      // Write command to terminal (without executing - user can review and press Enter)
-      // For multiline commands, we use bracketed paste mode markers if terminal supports it
-      // This ensures the entire command is pasted as one unit
-      const encoder = new TextEncoder();
-      
-      // Check if command is multiline
-      if (command.includes('\n')) {
-        // Use bracketed paste mode: \x1b[200~ ... \x1b[201~
-        // This tells the shell to treat the entire block as pasted text
-        const bracketedPaste = `\x1b[200~${command}\x1b[201~`;
-        const bytes = encoder.encode(bracketedPaste);
-        writeTerminal(sessionId, bytes);
-      } else {
-        const bytes = encoder.encode(command);
-        writeTerminal(sessionId, bytes);
-      }
+      const bytes = encodeTerminalTextInput(command);
+      writeTerminal(sessionId, bytes);
     }).then((fn) => {
       if (mounted) {
         unlistenFn = fn;
@@ -1230,25 +1218,21 @@ export const LocalTerminalView: React.FC<LocalTerminalViewProps> = ({
   // Handle AI insert (paste text into terminal)
   const handleAiInsert = useCallback((text: string) => {
     if (!terminalRef.current || !isRunning) return;
-    const encoder = new TextEncoder();
-    const bytes = encoder.encode(text);
+    const bytes = encodeTerminalTextInput(text);
     writeTerminal(sessionId, bytes);
   }, [sessionId, isRunning, writeTerminal]);
 
   // Handle AI execute (paste and send enter)
   const handleAiExecute = useCallback((command: string) => {
     if (!terminalRef.current || !isRunning) return;
-    const encoder = new TextEncoder();
-    // Send command + newline
-    const bytes = encoder.encode(command + '\n');
+    const bytes = encodeTerminalExecuteInput(command);
     writeTerminal(sessionId, bytes);
   }, [sessionId, isRunning, writeTerminal]);
 
   // Paste protection: handle pending paste confirm
   const handlePasteConfirm = useCallback(() => {
     if (pendingPaste && isRunning) {
-      const encoder = new TextEncoder();
-      const bytes = encoder.encode(pendingPaste);
+      const bytes = encodeTerminalTextInput(pendingPaste);
       writeTerminal(sessionId, bytes);
     }
     setPendingPaste(null);
@@ -1267,10 +1251,15 @@ export const LocalTerminalView: React.FC<LocalTerminalViewProps> = ({
 
     const handlePaste = (e: ClipboardEvent) => {
       const text = e.clipboardData?.getData('text');
-      if (!text || !isRunning) return;
+      const decision = getProtectedPasteDecision(text, isRunning);
 
-      // Check if paste needs confirmation
-      if (shouldConfirmPaste(text)) {
+      if (decision === 'block') {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+
+      if (decision === 'confirm' && text) {
         e.preventDefault();
         e.stopPropagation();
         setPendingPaste(text);

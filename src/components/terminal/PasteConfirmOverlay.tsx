@@ -16,6 +16,7 @@
 import React, { useEffect, useRef, useCallback } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { PASTE_CHAR_THRESHOLD, PASTE_LINE_THRESHOLD, shouldConfirmPaste } from '../../lib/terminalPaste';
 
 interface PasteConfirmOverlayProps {
   /** 要粘贴的内容 */
@@ -26,26 +27,10 @@ interface PasteConfirmOverlayProps {
   onCancel: () => void;
 }
 
-/** 行数阈值：超过此行数才触发确认 */
-export const PASTE_LINE_THRESHOLD = 1;
-/** 字符阈值：超过此长度才触发确认（配合行数使用） */
-export const PASTE_CHAR_THRESHOLD = 50;
 /** 预览显示的最大行数 */
 const PREVIEW_MAX_LINES = 5;
 
-/**
- * 检查是否需要粘贴确认
- * @param content 粘贴内容
- * @returns 是否需要确认
- */
-export function shouldConfirmPaste(content: string): boolean {
-  // 检测换行符（包含 \r\n 和 \n）
-  const hasNewline = content.includes('\n');
-  const lineCount = content.split('\n').length;
-  
-  // 仅当有换行且超过阈值时才确认
-  return hasNewline && (lineCount > PASTE_LINE_THRESHOLD || content.length > PASTE_CHAR_THRESHOLD);
-}
+export { PASTE_CHAR_THRESHOLD, PASTE_LINE_THRESHOLD, shouldConfirmPaste };
 
 export const PasteConfirmOverlay: React.FC<PasteConfirmOverlayProps> = ({
   content,

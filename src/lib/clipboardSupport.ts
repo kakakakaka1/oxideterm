@@ -80,7 +80,9 @@ function installOsc52Fallback(term: Terminal): Disposable {
     const semicolonIdx = data.indexOf(';');
     if (semicolonIdx === -1) return true;
 
+    const selection = data.slice(0, semicolonIdx);
     const payload = data.slice(semicolonIdx + 1);
+    if (selection !== 'c') return true;
     if (!payload || payload === '?') return true;
 
     if (payload.length > MAX_OSC52_BASE64_LENGTH) {
@@ -90,6 +92,10 @@ function installOsc52Fallback(term: Terminal): Disposable {
 
     try {
       const text = decodeBase64Utf8(payload);
+      if (!navigator.clipboard?.writeText) {
+        console.warn('[OSC 52] Clipboard write is unavailable in this environment');
+        return true;
+      }
       navigator.clipboard.writeText(text).catch((err) => {
         console.warn('[OSC 52] Clipboard write failed:', err);
       });
