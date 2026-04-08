@@ -12,6 +12,7 @@ import { homeDir } from '@tauri-apps/api/path';
 import { open } from '@tauri-apps/plugin-dialog';
 import { api } from '../../../lib/api';
 import type { FileInfo, SortField, SortDirection, DriveInfo } from '../types';
+import { getLocalParentPath, joinLocalPath, normalizeLocalPath } from '../pathUtils';
 
 export interface UseLocalFilesOptions {
   initialPath?: string;
@@ -114,8 +115,7 @@ export function useLocalFiles(options: UseLocalFilesOptions = {}): UseLocalFiles
         const batch = entries.slice(i, i + BATCH_SIZE);
         const results = await Promise.all(
           batch.map(async (entry) => {
-            const basePath = path.endsWith('/') ? path.slice(0, -1) : path;
-            const fullPath = `${basePath}/${entry.name}`;
+            const fullPath = joinLocalPath(path, entry.name);
             const isDir = entry.isDirectory === true;
             const isSymlink = entry.isSymlink === true;
             // Symlinks to directories keep 'Directory' so navigation/sorting works;
@@ -213,37 +213,7 @@ export function useLocalFiles(options: UseLocalFilesOptions = {}): UseLocalFiles
   
   // Path utilities
   const getParentPath = useCallback((currentPath: string): string | '__DRIVES__' => {
-    // Windows drive root
-    if (/^[A-Za-z]:\\?$/.test(currentPath) || /^[A-Za-z]:$/.test(currentPath)) {
-      return '__DRIVES__';
-    }
-    // Unix root
-    if (currentPath === '/') {
-      return '/';
-    }
-    
-    const normalized = currentPath.replace(/\\/g, '/');
-    const parts = normalized.split('/').filter(Boolean);
-    parts.pop();
-    
-    // Windows drive letter
-    if (parts.length === 1 && /^[A-Za-z]:$/.test(parts[0])) {
-      return parts[0] + '\\';
-    }
-    // Unix or Windows path
-    if (parts.length === 0) {
-      if (/^[A-Za-z]:/.test(currentPath)) {
-        return currentPath.substring(0, 3);
-      }
-      return '/';
-    }
-    
-    const separator = currentPath.includes('\\') ? '\\' : '/';
-    const result = parts.join(separator);
-    if (/^[A-Za-z]:$/.test(result)) {
-      return result + '\\';
-    }
-    return currentPath.startsWith('/') ? '/' + result : result;
+    return getLocalParentPath(currentPath);
   }, []);
   
   // Navigation
@@ -251,7 +221,7 @@ export function useLocalFiles(options: UseLocalFilesOptions = {}): UseLocalFiles
     if (target === '..') {
       const parent = getParentPath(path);
       if (parent !== '__DRIVES__') {
-        setPath(parent);
+        setPath(normalizeLocalPath(parent));
       }
       // If __DRIVES__, caller should handle showing drives dialog
     } else if (target === '~') {
@@ -307,7 +277,7 @@ export function useLocalFiles(options: UseLocalFilesOptions = {}): UseLocalFiles
   
   // Create folder
   const createFolder = useCallback(async (name: string) => {
-    const newPath = `${path}/${name}`;
+    const newPath = joinLocalPath(path, name);
     await mkdir(newPath);
     await refresh();
   }, [path, refresh]);
@@ -315,7 +285,7 @@ export function useLocalFiles(options: UseLocalFilesOptions = {}): UseLocalFiles
   // Delete files
   const deleteFiles = useCallback(async (names: string[]) => {
     for (const name of names) {
-      const filePath = `${path}/${name}`;
+      const filePath = joinLocalPath(path, name);
       await remove(filePath, { recursive: true });
     }
     await refresh();
@@ -323,8 +293,8 @@ export function useLocalFiles(options: UseLocalFilesOptions = {}): UseLocalFiles
   
   // Rename file
   const renameFile = useCallback(async (oldName: string, newName: string) => {
-    const oldPath = `${path}/${oldName}`;
-    const newPath = `${path}/${newName}`;
+    const oldPath = joinLocalPath(path, oldName);
+    const newPath = joinLocalPath(path, newName);
     await fsRename(oldPath, newPath);
     await refresh();
   }, [path, refresh]);

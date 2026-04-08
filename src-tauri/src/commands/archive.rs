@@ -6,7 +6,7 @@
 //! Tauri commands for file compression and extraction.
 
 use serde::Serialize;
-use std::fs::{self, File};
+use std::fs::{self, File, OpenOptions};
 use std::path::Path;
 use walkdir::WalkDir;
 use zip::write::SimpleFileOptions;
@@ -146,6 +146,10 @@ pub async fn compress_files(files: Vec<String>, archive_path: String) -> Result<
                 let entry = entry.map_err(|e| format!("Failed to read directory: {}", e))?;
                 let entry_path = entry.path();
 
+                if entry.file_type().is_symlink() {
+                    continue;
+                }
+
                 // Calculate relative path
                 let relative_path = entry_path
                     .strip_prefix(path.parent().unwrap_or(path))
@@ -223,8 +227,17 @@ pub async fn extract_archive(archive_path: String, dest_path: String) -> Result<
                 }
             }
 
-            let mut outfile =
-                File::create(&outpath).map_err(|e| format!("Failed to create file: {}", e))?;
+            let mut outfile = OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&outpath)
+                .map_err(|e| {
+                    if e.kind() == std::io::ErrorKind::AlreadyExists {
+                        format!("Refusing to overwrite existing file: {}", outpath.display())
+                    } else {
+                        format!("Failed to create file: {}", e)
+                    }
+                })?;
 
             std::io::copy(&mut file, &mut outfile)
                 .map_err(|e| format!("Failed to write file: {}", e))?;
@@ -241,4 +254,89 @@ pub async fn extract_archive(archive_path: String, dest_path: String) -> Result<
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use tempfile::tempdir;
+    use zip::write::SimpleFileOptions;
+
+    fn create_zip(path: &Path, entries: &[(&str, &[u8])]) {
+        let file = File::create(path).unwrap();
+        let mut zip = ZipWriter::new(file);
+        let options = SimpleFileOptions::default();
+
+        for (name, contents) in entries {
+            zip.start_file(name, options).unwrap();
+            zip.write_all(contents).unwrap();
+        }
+
+        zip.finish().unwrap();
+    }
+
+    #[tokio::test]
+    async fn extract_archive_writes_regular_files() {
+        let temp = tempdir().unwrap();
+        let archive_path = temp.path().join("sample.zip");
+        let dest_path = temp.path().join("out");
+        create_zip(&archive_path, &[("nested/file.txt", b"hello")]);
+
+        extract_archive(
+            archive_path.to_string_lossy().to_string(),
+            dest_path.to_string_lossy().to_string(),
+        )
+        .await
+        .unwrap();
+
+        let extracted = std::fs::read_to_string(dest_path.join("nested/file.txt")).unwrap();
+        assert_eq!(extracted, "hello");
+    }
+
+    #[tokio::test]
+    async fn extract_archive_refuses_to_overwrite_existing_files() {
+        let temp = tempdir().unwrap();
+        let archive_path = temp.path().join("sample.zip");
+        let dest_path = temp.path().join("out");
+        std::fs::create_dir_all(dest_path.join("nested")).unwrap();
+        std::fs::write(dest_path.join("nested/file.txt"), b"existing").unwrap();
+        create_zip(&archive_path, &[("nested/file.txt", b"replacement")]);
+
+        let err = extract_archive(
+            archive_path.to_string_lossy().to_string(),
+            dest_path.to_string_lossy().to_string(),
+        )
+        .await
+        .unwrap_err();
+
+        assert!(err.contains("Refusing to overwrite existing file"));
+        let existing = std::fs::read_to_string(dest_path.join("nested/file.txt")).unwrap();
+        assert_eq!(existing, "existing");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn compress_files_skips_symlink_entries() {
+        use std::os::unix::fs::symlink;
+
+        let temp = tempdir().unwrap();
+        let source_dir = temp.path().join("source");
+        let archive_path = temp.path().join("sample.zip");
+        std::fs::create_dir_all(&source_dir).unwrap();
+        std::fs::write(source_dir.join("real.txt"), b"hello").unwrap();
+        symlink(source_dir.join("real.txt"), source_dir.join("link.txt")).unwrap();
+
+        compress_files(
+            vec![source_dir.to_string_lossy().to_string()],
+            archive_path.to_string_lossy().to_string(),
+        )
+        .await
+        .unwrap();
+
+        let file = File::open(&archive_path).unwrap();
+        let mut archive = ZipArchive::new(file).unwrap();
+        assert!(archive.by_name("source/real.txt").is_ok());
+        assert!(archive.by_name("source/link.txt").is_err());
+    }
 }

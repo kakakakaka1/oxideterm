@@ -41,6 +41,7 @@ import type { FileInfo, FilePreview, PreviewType, FileMetadata, ArchiveInfo, Che
 import { readFile, stat, writeTextFile, copyFile } from '@tauri-apps/plugin-fs';
 import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import { platform } from '../../lib/platform';
+import { isWindowsDriveRoot, joinLocalPath, normalizeLocalPath, validateLocalFileName } from './pathUtils';
 
 // File extension categorization
 const TEXT_EXTENSIONS = new Set(['txt', 'log', 'ini', 'conf', 'cfg', 'env']);
@@ -114,17 +115,6 @@ function getFileExtension(filename: string): string {
     return '';
   }
   return filename.substring(lastDot + 1).toLowerCase();
-}
-
-// Helper: Normalize file path (remove double slashes, handle trailing slashes)
-function normalizePath(filePath: string): string {
-  // Replace multiple consecutive slashes with single slash (except for protocol like file://)
-  let normalized = filePath.replace(/([^:])\/+/g, '$1/');
-  // Remove trailing slash unless it's the root
-  if (normalized.length > 1 && normalized.endsWith('/')) {
-    normalized = normalized.slice(0, -1);
-  }
-  return normalized;
 }
 
 // Language detection by extension
@@ -215,7 +205,7 @@ export const LocalFileManager: React.FC<LocalFileManagerProps> = ({ className })
   const handlePreview = useCallback(async (file: FileInfo) => {
     try {
       // Normalize path to avoid double slashes and other issues
-      const filePath = normalizePath(file.path);
+      const filePath = normalizeLocalPath(file.path);
       
       // Find the index in previewable files
       const idx = previewableFiles.findIndex(f => f.path === file.path);
@@ -243,7 +233,10 @@ export const LocalFileManager: React.FC<LocalFileManagerProps> = ({ className })
       const isText = TEXT_EXTENSIONS.has(ext);
       const shouldStream = (isCode || isText) && fileSize >= STREAM_PREVIEW_THRESHOLD;
       
-      if (IMAGE_EXTENSIONS.has(ext)) {
+      if ((IMAGE_EXTENSIONS.has(ext) || FONT_EXTENSIONS.has(ext) || PDF_EXTENSIONS.has(ext) || OFFICE_EXTENSIONS.has(ext)) && fileSize > MAX_PREVIEW_SIZE) {
+        previewType = 'too-large';
+        data = '';
+      } else if (IMAGE_EXTENSIONS.has(ext)) {
         previewType = 'image';
         // Read image and convert to data URL safely
         const content = await readFile(filePath);
@@ -445,7 +438,7 @@ export const LocalFileManager: React.FC<LocalFileManagerProps> = ({ className })
   const handleNavigate = useCallback((target: string) => {
     if (target === '..') {
       const parent = localFiles.path;
-      if (/^[A-Za-z]:\\?$/.test(parent) || /^[A-Za-z]:$/.test(parent)) {
+      if (isWindowsDriveRoot(parent)) {
         handleShowDrives();
         return;
       }
@@ -463,10 +456,16 @@ export const LocalFileManager: React.FC<LocalFileManagerProps> = ({ className })
   
   // Handle new folder
   const handleNewFolder = useCallback(async () => {
-    if (!inputValue.trim()) return;
+    const name = inputValue.trim();
+    if (!name) return;
+    const validationError = validateLocalFileName(name);
+    if (validationError) {
+      toastError(t('fileManager.error'), t(validationError, { ns: 'ide' }));
+      return;
+    }
     try {
-      await localFiles.createFolder(inputValue.trim());
-      toastSuccess(t('fileManager.folderCreated'), inputValue.trim());
+      await localFiles.createFolder(name);
+      toastSuccess(t('fileManager.folderCreated'), name);
       setNewFolderDialog(false);
       setInputValue('');
     } catch (err) {
@@ -476,10 +475,16 @@ export const LocalFileManager: React.FC<LocalFileManagerProps> = ({ className })
   
   // Handle rename
   const handleRename = useCallback(async () => {
-    if (!renameDialog || !inputValue.trim()) return;
+    const name = inputValue.trim();
+    if (!renameDialog || !name) return;
+    const validationError = validateLocalFileName(name);
+    if (validationError) {
+      toastError(t('fileManager.error'), t(validationError, { ns: 'ide' }));
+      return;
+    }
     try {
-      await localFiles.renameFile(renameDialog, inputValue.trim());
-      toastSuccess(t('fileManager.renamed'), `${renameDialog} → ${inputValue.trim()}`);
+      await localFiles.renameFile(renameDialog, name);
+      toastSuccess(t('fileManager.renamed'), `${renameDialog} → ${name}`);
       setRenameDialog(null);
       setInputValue('');
       selection.clearSelection();
@@ -538,15 +543,15 @@ export const LocalFileManager: React.FC<LocalFileManagerProps> = ({ className })
   const handleNewFileConfirm = useCallback(async () => {
     const name = newFileInputValue.trim();
     if (!name) return;
-    // Block path traversal characters in file names
-    if (name.includes('/') || name.includes('\\') || name.includes('..')) {
-      toastError(t('fileManager.error'), 'Invalid file name');
+    const validationError = validateLocalFileName(name);
+    if (validationError) {
+      toastError(t('fileManager.error'), t(validationError, { ns: 'ide' }));
       return;
     }
     try {
-      const filePath = `${localFiles.path}/${name}`;
+      const filePath = joinLocalPath(localFiles.path, name);
       await writeTextFile(filePath, '');
-      localFiles.refresh();
+      await localFiles.refresh();
       toastSuccess(t('fileManager.fileCreated'), name);
       setNewFileDialog(false);
     } catch (err) {
@@ -558,13 +563,18 @@ export const LocalFileManager: React.FC<LocalFileManagerProps> = ({ className })
   const handleDuplicate = useCallback(async (fileNames: string[]) => {
     try {
       for (const name of fileNames) {
-        const srcPath = `${localFiles.path}/${name}`;
+        const srcPath = joinLocalPath(localFiles.path, name);
         const ext = name.lastIndexOf('.') > 0 ? name.slice(name.lastIndexOf('.')) : '';
         const base = ext ? name.slice(0, name.lastIndexOf('.')) : name;
-        const destPath = `${localFiles.path}/${base} copy${ext}`;
+        let suffix = 0;
+        let destPath = joinLocalPath(localFiles.path, `${base} copy${ext}`);
+        while (await stat(destPath).then(() => true).catch(() => false)) {
+          suffix += 1;
+          destPath = joinLocalPath(localFiles.path, `${base} copy (${suffix})${ext}`);
+        }
         await copyFile(srcPath, destPath);
       }
-      localFiles.refresh();
+      await localFiles.refresh();
       toastSuccess(t('fileManager.duplicated'), `${fileNames.length}`);
     } catch (err) {
       toastError(t('fileManager.error'), String(err));
@@ -682,7 +692,7 @@ export const LocalFileManager: React.FC<LocalFileManagerProps> = ({ className })
       } catch (err) {
         toastError(t('fileManager.error'), String(err));
       }
-      localFiles.refresh();
+      await localFiles.refresh();
     }
   }, [fileClipboard, localFiles, toastError, t]);
   
@@ -698,7 +708,7 @@ export const LocalFileManager: React.FC<LocalFileManagerProps> = ({ className })
       } catch (err) {
         toastError(t('fileManager.error'), String(err));
       }
-      localFiles.refresh();
+      await localFiles.refresh();
     }
   }, [getSelectedFiles, fileArchive, localFiles, toastError, t]);
   
@@ -709,13 +719,13 @@ export const LocalFileManager: React.FC<LocalFileManagerProps> = ({ className })
       // Extract to a folder with same name as archive
       const archiveName = files[0].name;
       const folderName = archiveName.replace(/\.(zip|tar|gz|tgz|tar\.gz|bz2|xz|7z)$/i, '');
-      const destPath = `${localFiles.path}/${folderName}`;
+      const destPath = joinLocalPath(localFiles.path, folderName);
       try {
         await fileArchive.extract(files[0].path, destPath);
       } catch (err) {
         toastError(t('fileManager.error'), String(err));
       }
-      localFiles.refresh();
+      await localFiles.refresh();
     }
   }, [getSelectedFiles, fileArchive, localFiles, toastError, t]);
   

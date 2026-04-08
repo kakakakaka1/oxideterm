@@ -9,6 +9,7 @@
 import { useState, useCallback } from 'react';
 import { copyFile, rename, mkdir, readDir } from '@tauri-apps/plugin-fs';
 import type { FileInfo, ClipboardData, ClipboardMode } from '../types';
+import { joinLocalPath } from '../pathUtils';
 
 export interface PasteProgress {
   /** Currently processing file index (1-based) */
@@ -91,8 +92,8 @@ export function useFileClipboard(options: UseFileClipboardOptions = {}): UseFile
     try {
       const entries = await readDir(dirPath);
       for (const entry of entries) {
-        if (entry.isDirectory) {
-          count += await countDirFiles(`${dirPath}/${entry.name}`, depth + 1, visited);
+        if (entry.isDirectory && entry.isSymlink !== true) {
+          count += await countDirFiles(joinLocalPath(dirPath, entry.name), depth + 1, visited);
         } else {
           count++;
         }
@@ -138,10 +139,10 @@ export function useFileClipboard(options: UseFileClipboardOptions = {}): UseFile
     const entries = await readDir(srcPath);
     
     for (const entry of entries) {
-      const srcChildPath = `${srcPath}/${entry.name}`;
-      const destChildPath = `${destPath}/${entry.name}`;
+      const srcChildPath = joinLocalPath(srcPath, entry.name);
+      const destChildPath = joinLocalPath(destPath, entry.name);
       
-      if (entry.isDirectory) {
+      if (entry.isDirectory && entry.isSymlink !== true) {
         await copyDirectory(srcChildPath, destChildPath, tracker);
       } else {
         await copyFile(srcChildPath, destChildPath);
@@ -176,7 +177,7 @@ export function useFileClipboard(options: UseFileClipboardOptions = {}): UseFile
     let destName = name;
 
     while (attempt < MAX_COLLISION_RETRIES) {
-      const destFilePath = `${destDir}/${destName}`;
+      const destFilePath = joinLocalPath(destDir, destName);
       try {
         if (isDirectory) {
           if (mode === 'copy') {

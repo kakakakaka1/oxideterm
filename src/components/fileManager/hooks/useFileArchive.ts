@@ -9,6 +9,7 @@
 import { useCallback, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { FileInfo } from '../types';
+import { getLocalBaseName, joinLocalPath } from '../pathUtils';
 
 export interface UseFileArchiveOptions {
   onSuccess?: (message: string) => void;
@@ -59,7 +60,7 @@ export function useFileArchive(options: UseFileArchiveOptions = {}): UseFileArch
           : `Archive_${new Date().toISOString().slice(0, 10)}.zip`
       );
       
-      const archivePath = `${destPath}/${name}`;
+      const archivePath = joinLocalPath(destPath, name);
       const filePaths = files.map(f => f.path);
       
       // Call Rust backend to create archive
@@ -92,7 +93,7 @@ export function useFileArchive(options: UseFileArchiveOptions = {}): UseFileArch
         destPath,
       });
       
-      const archiveName = archivePath.split('/').pop() || 'archive';
+      const archiveName = getLocalBaseName(archivePath) || 'archive';
       onSuccess?.(`Extracted ${archiveName}`);
       return true;
     } catch (err) {
