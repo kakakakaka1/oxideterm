@@ -1109,6 +1109,38 @@ mod tests {
     }
 
     #[test]
+    fn map_incomplete_transfer_info_marks_only_paused_and_failed_transfers_resumable() {
+        let mut paused = make_progress();
+        paused.status = TransferStatus::Paused;
+
+        let mut failed = make_progress();
+        failed.status = TransferStatus::Failed;
+
+        let mut active = make_progress();
+        active.status = TransferStatus::Active;
+
+        let paused_info = map_incomplete_transfer_info(paused);
+        let failed_info = map_incomplete_transfer_info(failed);
+        let active_info = map_incomplete_transfer_info(active);
+
+        assert!(paused_info.can_resume);
+        assert!(failed_info.can_resume);
+        assert!(!active_info.can_resume);
+    }
+
+    #[test]
+    fn map_incomplete_transfer_info_preserves_status_and_progress_shape() {
+        let info = map_incomplete_transfer_info(make_progress());
+
+        assert_eq!(info.transfer_type, "Download");
+        assert_eq!(info.status, "Failed");
+        assert_eq!(info.source_path, "/remote/file.txt");
+        assert_eq!(info.destination_path, "/local/file.txt");
+        assert_eq!(info.progress_percent, 50.0);
+        assert_eq!(info.error.as_deref(), Some("boom"));
+    }
+
+    #[test]
     fn build_transfer_complete_event_uses_node_scoped_payload() {
         let event = build_transfer_complete_event(
             "node-1",

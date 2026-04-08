@@ -56,6 +56,7 @@ import { readDir, stat, remove, rename, mkdir } from '@tauri-apps/plugin-fs';
 import { homeDir } from '@tauri-apps/api/path';
 import { open } from '@tauri-apps/plugin-dialog';
 import { registerSftpContext, unregisterSftpContext } from '../../lib/sftpContextRegistry';
+import { normalizeTransferFailure, resolveTransferCompletionUpdate } from './transferCompletion';
 
 // 🔴 Key-Driven: 全局路径记忆 Map — keyed by nodeId (stable across reconnects)
 const sftpPathMemory = new Map<string, string>();
@@ -1330,16 +1331,16 @@ export const SFTPView = ({ nodeId }: { nodeId: string }) => {
         if (!mounted) return; // 组件已卸载，忽略事件
         
         const { transfer_id, success, error } = event.payload;
-        if (success) {
-            setTransferState(transfer_id, 'completed');
-            // Refresh file lists
-            refreshLocalFiles();
-            nodeSftpListDir(nodeId, remotePath).then(setRemoteFiles);
-        } else {
-            const transfer = getAllTransfers().find((item) => item.id === transfer_id);
-            if (transfer?.state !== 'cancelled') {
-              setTransferState(transfer_id, 'error', error || 'Transfer failed');
-            }
+        const transfer = getAllTransfers().find((item) => item.id === transfer_id);
+        const nextUpdate = resolveTransferCompletionUpdate(transfer?.state, success, error);
+
+        if (nextUpdate?.state === 'completed') {
+          setTransferState(transfer_id, 'completed');
+          // Refresh file lists
+          refreshLocalFiles();
+          nodeSftpListDir(nodeId, remotePath).then(setRemoteFiles);
+        } else if (nextUpdate?.state === 'error') {
+          setTransferState(transfer_id, 'error', nextUpdate.error);
         }
       }).then((fn) => {
         if (mounted) {
@@ -1485,11 +1486,10 @@ export const SFTPView = ({ nodeId }: { nodeId: string }) => {
           await nodeSftpDownload(nodeId, remoteFilePath, localFilePath, transferId);
         }
       }
-      setTransferState(transferId, 'completed');
       return true;
     } catch (err) {
       console.error("Transfer failed:", err);
-      setTransferState(transferId, 'error', String(err));
+      setTransferState(transferId, 'error', normalizeTransferFailure(err));
       return false;
     }
   };

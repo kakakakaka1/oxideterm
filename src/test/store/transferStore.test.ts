@@ -1,5 +1,23 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const apiMocks = vi.hoisted(() => ({
+  sftpPauseTransfer: vi.fn().mockResolvedValue(true),
+  sftpResumeTransfer: vi.fn().mockResolvedValue(true),
+  sftpCancelTransfer: vi.fn().mockResolvedValue(true),
+}));
+
+vi.mock('@/lib/api', () => ({
+  api: apiMocks,
+}));
+
+vi.mock('@/i18n', () => ({
+  default: {
+    t: (key: string) => key,
+  },
+}));
+
 import {
+  useTransferStore,
   formatBytes,
   formatSpeed,
   calculateSpeed,
@@ -22,6 +40,86 @@ function makeTransfer(overrides: Partial<TransferItem> = {}): TransferItem {
     ...overrides,
   } as TransferItem;
 }
+
+function resetTransferStore() {
+  useTransferStore.setState({ transfers: new Map() });
+}
+
+describe('useTransferStore', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetTransferStore();
+  });
+
+  it('keeps paused transfers paused when progress arrives', () => {
+    useTransferStore.setState({
+      transfers: new Map([['tx-1', makeTransfer({ id: 'tx-1', state: 'paused', size: 500 })]]),
+    });
+
+    useTransferStore.getState().updateProgress('tx-1', 250, 500, 42);
+
+    const transfer = useTransferStore.getState().transfers.get('tx-1');
+    expect(transfer?.state).toBe('paused');
+    expect(transfer?.backendSpeed).toBe(42);
+  });
+
+  it('does not mark indeterminate transfers completed when total size is unknown', () => {
+    useTransferStore.setState({
+      transfers: new Map([['tx-1', makeTransfer({ id: 'tx-1', size: 0, state: 'pending' })]]),
+    });
+
+    useTransferStore.getState().updateProgress('tx-1', 2048, 0, 512);
+
+    const transfer = useTransferStore.getState().transfers.get('tx-1');
+    expect(transfer?.state).toBe('active');
+    expect(transfer?.size).toBe(0);
+    expect(transfer?.transferred).toBe(2048);
+  });
+
+  it('interrupts only active or pending transfers for the selected node', () => {
+    useTransferStore.setState({
+      transfers: new Map([
+        ['active', makeTransfer({ id: 'active', nodeId: 'node-1', state: 'active' })],
+        ['pending', makeTransfer({ id: 'pending', nodeId: 'node-1', state: 'pending' })],
+        ['paused', makeTransfer({ id: 'paused', nodeId: 'node-1', state: 'paused' })],
+        ['other', makeTransfer({ id: 'other', nodeId: 'node-2', state: 'active' })],
+      ]),
+    });
+
+    useTransferStore.getState().interruptTransfersByNode('node-1', 'lost');
+
+    expect(useTransferStore.getState().transfers.get('active')?.state).toBe('error');
+    expect(useTransferStore.getState().transfers.get('pending')?.state).toBe('error');
+    expect(useTransferStore.getState().transfers.get('paused')?.state).toBe('paused');
+    expect(useTransferStore.getState().transfers.get('other')?.state).toBe('active');
+  });
+
+  it('marks a transfer cancelled even if backend cancellation fails', async () => {
+    apiMocks.sftpCancelTransfer.mockRejectedValueOnce(new Error('backend failed'));
+    useTransferStore.setState({
+      transfers: new Map([['tx-1', makeTransfer({ id: 'tx-1', state: 'active' })]]),
+    });
+
+    await useTransferStore.getState().cancelTransfer('tx-1');
+
+    expect(apiMocks.sftpCancelTransfer).toHaveBeenCalledWith('tx-1');
+    expect(useTransferStore.getState().transfers.get('tx-1')?.state).toBe('cancelled');
+  });
+
+  it('pauses and resumes transfers through the backend control APIs', async () => {
+    useTransferStore.setState({
+      transfers: new Map([['tx-1', makeTransfer({ id: 'tx-1', state: 'active' })]]),
+    });
+
+    await useTransferStore.getState().pauseTransfer('tx-1');
+    expect(apiMocks.sftpPauseTransfer).toHaveBeenCalledWith('tx-1');
+    expect(useTransferStore.getState().transfers.get('tx-1')?.state).toBe('paused');
+
+    await useTransferStore.getState().resumeTransfer('tx-1');
+    expect(apiMocks.sftpResumeTransfer).toHaveBeenCalledWith('tx-1');
+    expect(useTransferStore.getState().transfers.get('tx-1')?.state).toBe('pending');
+  });
+});
 
 describe('formatBytes', () => {
   it('formats 0 bytes', () => {

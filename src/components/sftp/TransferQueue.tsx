@@ -228,6 +228,7 @@ export const TransferQueue = ({ nodeId }: { nodeId: string }) => {
                       <Button
                         size="icon"
                         variant="ghost"
+                        aria-label={t('sftp.queue.resume_tooltip')}
                         className="h-6 w-6 text-yellow-500 hover:text-yellow-400 hover:bg-yellow-500/10"
                         onClick={() => handleResumeIncomplete(transfer)}
                       >
@@ -315,6 +316,7 @@ export const TransferQueue = ({ nodeId }: { nodeId: string }) => {
                            <Button 
                              size="icon" 
                              variant="ghost" 
+                             aria-label={t('sftp.queue.pause_tooltip')}
                              className="h-6 w-6 hover:text-yellow-500"
                              onClick={() => handlePause(item)}
                            >
@@ -331,6 +333,7 @@ export const TransferQueue = ({ nodeId }: { nodeId: string }) => {
                            <Button 
                              size="icon" 
                              variant="ghost" 
+                             aria-label={t('sftp.queue.resume_tooltip')}
                              className="h-6 w-6 hover:text-green-500"
                              onClick={() => handleResume(item)}
                            >
@@ -347,6 +350,9 @@ export const TransferQueue = ({ nodeId }: { nodeId: string }) => {
                          <Button 
                            size="icon" 
                            variant="ghost" 
+                           aria-label={(item.state === 'active' || item.state === 'pending' || item.state === 'paused')
+                             ? t('sftp.queue.cancel_tooltip')
+                             : t('sftp.queue.remove_tooltip')}
                            className={`h-6 w-6 ${
                              (item.state === 'active' || item.state === 'pending' || item.state === 'paused') 
                              ? 'hover:text-red-400' 

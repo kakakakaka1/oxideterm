@@ -1,7 +1,8 @@
-import { render, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createMutableSelectorStore } from '@/test/helpers/mockStore';
 import type { NodeStateSnapshot } from '@/types';
+import type { TransferItem } from '@/store/transferStore';
 
 const apiMocks = vi.hoisted(() => ({
   nodeSftpListIncompleteTransfers: vi.fn(),
@@ -17,7 +18,7 @@ const nodeStateMock = vi.hoisted(() => ({
 }));
 
 const transferStoreState = vi.hoisted(() => ({
-  getAllTransfers: vi.fn(() => []),
+  getAllTransfers: vi.fn((): TransferItem[] => []),
   clearCompleted: vi.fn(),
   cancelTransfer: vi.fn(),
   removeTransfer: vi.fn(),
@@ -33,6 +34,12 @@ vi.mock('@/lib/api', () => ({
 
 vi.mock('@/hooks/useNodeState', () => ({
   useNodeState: () => nodeStateMock.value,
+}));
+
+vi.mock('@/components/ui/tooltip', () => ({
+  Tooltip: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  TooltipTrigger: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  TooltipContent: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
 vi.mock('@/store/transferStore', async () => {
@@ -54,6 +61,21 @@ vi.mock('react-i18next', async (importOriginal) => {
         }
         if (key === 'sftp.queue.active_count') {
           return `active ${String(options?.count ?? 0)}`;
+        }
+        if (key === 'sftp.queue.clear_done') {
+          return 'clear done';
+        }
+        if (key === 'sftp.queue.resume_tooltip') {
+          return 'resume transfer';
+        }
+        if (key === 'sftp.queue.pause_tooltip') {
+          return 'pause transfer';
+        }
+        if (key === 'sftp.queue.cancel_tooltip') {
+          return 'cancel transfer';
+        }
+        if (key === 'sftp.queue.remove_tooltip') {
+          return 'remove transfer';
         }
         return key;
       },
@@ -79,6 +101,22 @@ function makeIncompleteTransfer(
     error: 'boom',
     progress_percent: 50,
     can_resume: true,
+    ...overrides,
+  };
+}
+
+function makeTransfer(overrides: Partial<TransferItem> = {}): TransferItem {
+  return {
+    id: 'tx-1',
+    nodeId: 'node-1',
+    name: 'file.txt',
+    localPath: '/local/file.txt',
+    remotePath: '/remote/file.txt',
+    direction: 'download',
+    size: 10,
+    transferred: 5,
+    state: 'active',
+    startTime: Date.now(),
     ...overrides,
   };
 }
@@ -136,5 +174,85 @@ describe('TransferQueue', () => {
     render(<TransferQueue nodeId="node-1" />);
 
     expect(apiMocks.nodeSftpListIncompleteTransfers).not.toHaveBeenCalled();
+  });
+
+  it('resumes an incomplete transfer with the active node id and removes it from the incomplete list', async () => {
+    apiMocks.nodeSftpListIncompleteTransfers.mockResolvedValue([makeIncompleteTransfer()]);
+
+    render(<TransferQueue nodeId="node-1" />);
+
+    await screen.findByRole('button', { name: 'incomplete 1' });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'incomplete 1' }));
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'resume transfer' }));
+    });
+
+    await waitFor(() => {
+      expect(apiMocks.nodeSftpResumeTransfer).toHaveBeenCalledWith('node-1', 'transfer-1');
+    });
+
+    expect(transferStoreState.addTransfer).toHaveBeenCalledWith({
+      id: 'transfer-1',
+      nodeId: 'node-1',
+      name: 'file.txt',
+      localPath: '/local/file.txt',
+      remotePath: '/remote/file.txt',
+      direction: 'download',
+      size: 10,
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText('file.txt')).not.toBeInTheDocument();
+    });
+  });
+
+  it('silently ignores incompatible stored transfer payloads', async () => {
+    apiMocks.nodeSftpListIncompleteTransfers.mockRejectedValue(new Error('deserialize invalid type'));
+
+    render(<TransferQueue nodeId="node-1" />);
+
+    await waitFor(() => {
+      expect(apiMocks.nodeSftpListIncompleteTransfers).toHaveBeenCalledWith('node-1');
+    });
+
+    expect(screen.queryByRole('button', { name: 'incomplete 1' })).not.toBeInTheDocument();
+  });
+
+  it('routes active and paused item actions through the transfer store', async () => {
+    transferStoreState.getAllTransfers.mockReturnValue([
+      makeTransfer({ id: 'active-1', state: 'active' }),
+      makeTransfer({ id: 'paused-1', state: 'paused', name: 'paused.txt' }),
+    ]);
+
+    render(<TransferQueue nodeId="node-1" />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'pause transfer' }));
+      fireEvent.click(screen.getByRole('button', { name: 'resume transfer' }));
+    });
+
+    expect(transferStoreState.pauseTransfer).toHaveBeenCalledWith('active-1');
+    expect(transferStoreState.resumeTransfer).toHaveBeenCalledWith('paused-1');
+  });
+
+  it('clears done items and removes finished rows through the expected actions', async () => {
+    transferStoreState.getAllTransfers.mockReturnValue([
+      makeTransfer({ id: 'done-1', state: 'completed' }),
+    ]);
+
+    render(<TransferQueue nodeId="node-1" />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'clear done' }));
+    });
+    expect(transferStoreState.clearCompleted).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'remove transfer' }));
+    });
+    expect(transferStoreState.removeTransfer).toHaveBeenCalledWith('done-1');
   });
 });
