@@ -199,4 +199,71 @@ describe('ForwardsView', () => {
     expect(apiMocks.nodeUpdateForward).not.toHaveBeenCalled();
     expect(screen.getByText('forwards.form.port_invalid')).toBeInTheDocument();
   });
+
+  it('submits parsed numeric ports when creating a valid local forward', async () => {
+    render(<ForwardsView nodeId="node-1" />);
+
+    await act(async () => {
+      fireEvent.click(screen.getAllByRole('button', { name: 'forwards.actions.new_forward' })[0]);
+    });
+
+    const hostInputs = screen.getAllByPlaceholderText('forwards.form.host_placeholder');
+    const portInputs = screen.getAllByPlaceholderText('forwards.form.port_placeholder');
+
+    await act(async () => {
+      fireEvent.change(hostInputs[0], { target: { value: '127.0.0.1' } });
+      fireEvent.change(portInputs[0], { target: { value: '8080' } });
+      fireEvent.change(hostInputs[1], { target: { value: 'service.internal' } });
+      fireEvent.change(portInputs[1], { target: { value: '3000' } });
+      fireEvent.click(screen.getByRole('button', { name: 'forwards.form.create_forward' }));
+    });
+
+    await waitFor(() => {
+      expect(apiMocks.nodeCreateForward).toHaveBeenCalledWith(
+        expect.objectContaining({
+          node_id: 'node-1',
+          bind_address: '127.0.0.1',
+          bind_port: 8080,
+          target_host: 'service.internal',
+          target_port: 3000,
+          check_health: true,
+        }),
+      );
+    });
+  });
+
+  it('submits parsed numeric ports when editing a stopped forward', async () => {
+    apiMocks.nodeListForwards.mockResolvedValue([makeForward()]);
+
+    render(<ForwardsView nodeId="node-1" />);
+
+    await screen.findByRole('button', { name: 'forwards.actions.edit' });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'forwards.actions.edit' }));
+    });
+
+    const hostInputs = screen.getAllByPlaceholderText('forwards.form.host_placeholder');
+    const portInputs = screen.getAllByPlaceholderText('forwards.form.port_placeholder');
+
+    await act(async () => {
+      fireEvent.change(hostInputs[0], { target: { value: '0.0.0.0' } });
+      fireEvent.change(portInputs[0], { target: { value: '9090' } });
+      fireEvent.change(hostInputs[1], { target: { value: 'new-target.internal' } });
+      fireEvent.change(portInputs[1], { target: { value: '4000' } });
+      fireEvent.click(screen.getByRole('button', { name: 'forwards.form.save_changes' }));
+    });
+
+    await waitFor(() => {
+      expect(apiMocks.nodeUpdateForward).toHaveBeenCalledWith(
+        expect.objectContaining({
+          node_id: 'node-1',
+          forward_id: 'forward-1',
+          bind_address: '0.0.0.0',
+          bind_port: 9090,
+          target_host: 'new-target.internal',
+          target_port: 4000,
+        }),
+      );
+    });
+  });
 });

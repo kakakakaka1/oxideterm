@@ -1090,7 +1090,7 @@ async function phaseRestoreForwards(nodeId: string) {
     try {
       const live = await api.nodeListForwards(entry.nodeId);
       for (const f of live) {
-        liveForwardKeys.add(`${f.forward_type}:${f.bind_address}:${f.bind_port}`);
+        liveForwardKeys.add(getForwardRestoreKey(f));
       }
     } catch {
       // Node may not have forwarding initialized yet — that's fine
@@ -1099,13 +1099,13 @@ async function phaseRestoreForwards(nodeId: string) {
     for (const rule of entry.rules) {
       if (job.abortController.signal.aborted) return;
 
-      const key = `${rule.forward_type}:${rule.bind_address}:${rule.bind_port}`;
+      const key = getForwardRestoreKey(rule);
 
       // Re-check live forwards right before creation to catch user actions during the loop
       try {
         const freshLive = await api.nodeListForwards(entry.nodeId);
         for (const f of freshLive) {
-          liveForwardKeys.add(`${f.forward_type}:${f.bind_address}:${f.bind_port}`);
+          liveForwardKeys.add(getForwardRestoreKey(f));
         }
       } catch {
         // Best-effort; fall back to cached set
@@ -1141,6 +1141,22 @@ async function phaseRestoreForwards(nodeId: string) {
     console.debug(`[Orchestrator] Restored ${restored} forward rules`);
   }
   exitPhase(nodeId, 'ok', `restored ${restored} forward(s)`);
+}
+
+function getForwardRestoreKey(rule: {
+  forward_type: string;
+  bind_address: string;
+  bind_port: number;
+  target_host: string;
+  target_port: number;
+}) {
+  return [
+    rule.forward_type,
+    rule.bind_address,
+    rule.bind_port,
+    rule.target_host,
+    rule.target_port,
+  ].join(':');
 }
 
 // ─── Phase 4: Resume Transfers ──────────────────────────────────────────────

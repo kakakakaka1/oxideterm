@@ -440,4 +440,49 @@ describe('reconnectOrchestratorStore', () => {
     );
     expect(store.getState().getJob('root')?.status).toBe('done');
   });
+
+  it('restores distinct forwards that share the same bind address and port but have different targets', async () => {
+    treeStoreMock.nodes.clear();
+    treeStoreMock.nodes.set(
+      'root',
+      makeUnifiedNode({
+        id: 'root',
+        runtime: { connectionId: 'conn-root', status: 'link-down', terminalIds: [], sftpSessionId: null },
+      }),
+    );
+    apiMocks.nodeListForwards
+      .mockResolvedValueOnce([
+        makeForwardRule({ id: 'forward-1', bind_port: 8080, target_host: 'service-a', target_port: 3000 }),
+        makeForwardRule({ id: 'forward-2', bind_port: 8080, target_host: 'service-b', target_port: 4000 }),
+      ])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    const store = await loadStore();
+    store.getState().scheduleReconnect('root');
+
+    await vi.advanceTimersByTimeAsync(500);
+    await flushMicrotasks();
+
+    expect(apiMocks.nodeCreateForward).toHaveBeenCalledTimes(2);
+    expect(apiMocks.nodeCreateForward).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        bind_address: '127.0.0.1',
+        bind_port: 8080,
+        target_host: 'service-a',
+        target_port: 3000,
+      }),
+    );
+    expect(apiMocks.nodeCreateForward).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        bind_address: '127.0.0.1',
+        bind_port: 8080,
+        target_host: 'service-b',
+        target_port: 4000,
+      }),
+    );
+  });
 });

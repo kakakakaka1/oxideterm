@@ -20,6 +20,29 @@ use crate::commands::forwarding::{
 use crate::forwarding::{ForwardRule, ForwardRuleUpdate, ForwardStatus, ForwardType};
 use crate::router::{NodeRouter, RouteError};
 
+fn parse_forward_type(forward_type: &str) -> Result<ForwardType, String> {
+    match forward_type {
+        "local" => Ok(ForwardType::Local),
+        "remote" => Ok(ForwardType::Remote),
+        "dynamic" => Ok(ForwardType::Dynamic),
+        other => Err(format!("Unknown forward type: {}", other)),
+    }
+}
+
+fn build_unreachable_port_error(target_host: &str, target_port: u16) -> String {
+    format!(
+        "Target port {}:{} is not reachable. Please ensure the service is running on the remote server.\n\nTroubleshooting:\n• Check if service is running: ss -tlnp | grep {}\n• Verify the port number is correct\n• Try connecting manually: nc -zv {} {}",
+        target_host, target_port, target_port, target_host, target_port
+    )
+}
+
+fn build_health_check_error_message(error: &str) -> String {
+    format!(
+        "Failed to check port availability: {}\n\nYou can skip this check with the 'Skip port availability check' option.",
+        error
+    )
+}
+
 /// 辅助函数：从 NodeRouter 获取 terminal_session_id
 async fn resolve_terminal_session_id(
     router: &NodeRouter,
@@ -77,15 +100,13 @@ pub async fn node_create_forward(
         RouteError::NotConnected(format!("No forwarding manager for node {}", node_id))
     })?;
 
-    let fwd_type = match forward_type.as_str() {
-        "local" => ForwardType::Local,
-        "remote" => ForwardType::Remote,
-        "dynamic" => ForwardType::Dynamic,
-        other => {
+    let fwd_type = match parse_forward_type(&forward_type) {
+        Ok(kind) => kind,
+        Err(error) => {
             return Ok(ForwardResponse {
                 success: false,
                 forward: None,
-                error: Some(format!("Unknown forward type: {}", other)),
+                error: Some(error),
             });
         }
     };
@@ -106,10 +127,7 @@ pub async fn node_create_forward(
                 info!("Port {}:{} is available", target_host, target_port);
             }
             Ok(false) => {
-                let error_msg = format!(
-                    "Target port {}:{} is not reachable. Please ensure the service is running on the remote server.\n\nTroubleshooting:\n• Check if service is running: ss -tlnp | grep {}\n• Verify the port number is correct\n• Try connecting manually: nc -zv {} {}",
-                    target_host, target_port, target_port, target_host, target_port
-                );
+                let error_msg = build_unreachable_port_error(&target_host, target_port);
                 error!("Port health check failed: {}", error_msg);
                 return Ok(ForwardResponse {
                     success: false,
@@ -118,10 +136,7 @@ pub async fn node_create_forward(
                 });
             }
             Err(e) => {
-                let error_msg = format!(
-                    "Failed to check port availability: {}\n\nYou can skip this check with the 'Skip port availability check' option.",
-                    e
-                );
+                let error_msg = build_health_check_error_message(&e.to_string());
                 error!("Health check error: {}", error_msg);
                 return Ok(ForwardResponse {
                     success: false,
@@ -170,6 +185,39 @@ pub async fn node_create_forward(
             forward: None,
             error: Some(e.to_string()),
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_forward_type_accepts_supported_variants() {
+        assert!(matches!(parse_forward_type("local"), Ok(ForwardType::Local)));
+        assert!(matches!(parse_forward_type("remote"), Ok(ForwardType::Remote)));
+        assert!(matches!(parse_forward_type("dynamic"), Ok(ForwardType::Dynamic)));
+    }
+
+    #[test]
+    fn parse_forward_type_rejects_unknown_values() {
+        let error = parse_forward_type("udp").unwrap_err();
+        assert!(error.contains("Unknown forward type: udp"));
+    }
+
+    #[test]
+    fn unreachable_port_error_includes_troubleshooting_details() {
+        let message = build_unreachable_port_error("service.internal", 3000);
+        assert!(message.contains("Target port service.internal:3000 is not reachable"));
+        assert!(message.contains("ss -tlnp | grep 3000"));
+        assert!(message.contains("nc -zv service.internal 3000"));
+    }
+
+    #[test]
+    fn health_check_error_mentions_skip_option() {
+        let message = build_health_check_error_message("timeout");
+        assert!(message.contains("Failed to check port availability: timeout"));
+        assert!(message.contains("Skip port availability check"));
     }
 }
 
