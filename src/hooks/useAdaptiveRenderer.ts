@@ -81,36 +81,92 @@ const FLOW_MAX_BACKPRESSURE_BYTES = 8 * 1024 * 1024; // 8 MB
 // ─── Cursor Control Detection ─────────────────────────────────────────
 
 /**
- * Check if a data chunk starts with a CSI cursor-control or erase sequence.
+ * Find the first destructive CSI cursor-control / erase sequence in a chunk.
  *
- * Async prompt themes (spaceship-zsh, starship) redraw the prompt area by
- * emitting cursor-up + erase-line sequences.  When these arrive in the same
- * RAF window as prior command output (e.g. `ls`), the combined
- * `term.write()` causes the output to flash and vanish.
+ * Async prompt themes (spaceship-zsh, starship) often emit printable output
+ * and then immediately redraw the prompt area with cursor-up + erase-line.
+ * If both land in one network chunk, batching them into a single `term.write()`
+ * lets the destructive sequence wipe the fresh command output before the browser
+ * paints it. Returning the boundary lets callers flush the printable prefix
+ * first, then apply the prompt redraw in a later write.
  *
  * Detected final bytes (after CSI params):
  *   A = Cursor Up,  B = Cursor Down,  H/f = Cursor Position,
  *   G = Cursor Horizontal Absolute,  J = Erase in Display,  K = Erase in Line
+ *
+ * Returns the byte offset of the first matching ESC[ sequence, or -1 if none.
  */
-function startsWithCursorControl(data: Uint8Array): boolean {
-  if (data.length < 3) return false;
+export function findCursorControlBoundary(data: Uint8Array): number {
+  if (data.length < 3) return -1;
 
-  // CSI = ESC [ (0x1b 0x5b)
-  if (data[0] !== 0x1b || data[1] !== 0x5b) return false;
+  for (let start = 0; start <= data.length - 3; start++) {
+    // CSI = ESC [ (0x1b 0x5b)
+    if (data[start] !== 0x1b || data[start + 1] !== 0x5b) continue;
 
-  // Scan for the final byte (first byte in 0x40-0x7E after optional params)
-  for (let i = 2; i < Math.min(data.length, 12); i++) {
-    const b = data[i];
-    // Parameter bytes: 0-9 ; < = > ? (0x30–0x3F)
-    if (b >= 0x30 && b <= 0x3f) continue;
-    // Intermediate bytes: SP ! " # … / (0x20–0x2F)
-    if (b >= 0x20 && b <= 0x2f) continue;
-    // Final byte — check if it's cursor movement or erase
-    //   A(0x41) B(0x42) G(0x47) H(0x48) J(0x4A) K(0x4B) f(0x66)
-    return (
-      b === 0x41 || b === 0x42 || b === 0x47 || b === 0x48 ||
-      b === 0x4a || b === 0x4b || b === 0x66
-    );
+    // Scan for the final byte (first byte in 0x40-0x7E after optional params)
+    for (let i = start + 2; i < Math.min(data.length, start + 12); i++) {
+      const b = data[i];
+      // Parameter bytes: 0-9 ; < = > ? (0x30–0x3F)
+      if (b >= 0x30 && b <= 0x3f) continue;
+      // Intermediate bytes: SP ! " # … / (0x20–0x2F)
+      if (b >= 0x20 && b <= 0x2f) continue;
+      // Final byte — check if it's cursor movement or erase
+      //   A(0x41) B(0x42) G(0x47) H(0x48) J(0x4A) K(0x4B) f(0x66)
+      if (
+        b === 0x41 || b === 0x42 || b === 0x47 || b === 0x48 ||
+        b === 0x4a || b === 0x4b || b === 0x66
+      )
+        return start;
+
+      break;
+    }
+  }
+
+  return -1;
+}
+
+function findTrailingPartialCursorControlStart(data: Uint8Array): number {
+  if (data.length === 0) return -1;
+
+  const searchStart = Math.max(0, data.length - 12);
+  for (let start = data.length - 1; start >= searchStart; start--) {
+    if (data[start] !== 0x1b) continue;
+
+    if (start === data.length - 1) {
+      return start;
+    }
+
+    if (data[start + 1] !== 0x5b) {
+      continue;
+    }
+
+    let validPartial = true;
+    for (let i = start + 2; i < data.length; i++) {
+      const b = data[i];
+      if (b >= 0x30 && b <= 0x3f) continue;
+      if (b >= 0x20 && b <= 0x2f) continue;
+      validPartial = false;
+      break;
+    }
+
+    if (validPartial) {
+      return start;
+    }
+  }
+
+  return -1;
+}
+
+function concatUint8Arrays(left: Uint8Array, right: Uint8Array): Uint8Array {
+  const combined = new Uint8Array(left.length + right.length);
+  combined.set(left, 0);
+  combined.set(right, left.length);
+  return combined;
+}
+
+function hasLineBreak(data: Uint8Array): boolean {
+  for (const byte of data) {
+    if (byte === 0x0a) return true;
   }
   return false;
 }
@@ -309,6 +365,8 @@ export function useAdaptiveRenderer(opts: UseAdaptiveRendererOptions): AdaptiveR
     (data: Uint8Array) => {
       if (!terminalRef.current || !mountedRef.current) return;
 
+      let nextData = data;
+
       const currentMode = modeRef.current;
 
       // Mode: 'off' — direct write, no batching
@@ -320,14 +378,32 @@ export function useAdaptiveRenderer(opts: UseAdaptiveRendererOptions): AdaptiveR
       // FlowControl: if blocked, divert to backpressure queue
       if (blockedRef.current) {
         if (backpressureBytesRef.current < FLOW_MAX_BACKPRESSURE_BYTES) {
-          backpressureQueueRef.current.push(data);
-          backpressureBytesRef.current += data.length;
+          backpressureQueueRef.current.push(nextData);
+          backpressureBytesRef.current += nextData.length;
         } else {
           console.warn(
-            `[AdaptiveRenderer] Backpressure queue full (${(backpressureBytesRef.current / 1024 / 1024).toFixed(1)}MB), dropping ${data.length} bytes`,
+            `[AdaptiveRenderer] Backpressure queue full (${(backpressureBytesRef.current / 1024 / 1024).toFixed(1)}MB), dropping ${nextData.length} bytes`,
           );
         }
         return;
+      }
+
+      const lastPending = pendingRef.current[pendingRef.current.length - 1];
+      if (lastPending) {
+        const partialStart = findTrailingPartialCursorControlStart(lastPending);
+        if (partialStart >= 0) {
+          const pendingPrefix = lastPending.subarray(0, partialStart);
+          const pendingSuffix = lastPending.subarray(partialStart);
+          const merged = concatUint8Arrays(pendingSuffix, nextData);
+
+          if (findCursorControlBoundary(merged) === 0) {
+            pendingRef.current.pop();
+            if (pendingPrefix.length > 0) {
+              pendingRef.current.push(pendingPrefix);
+            }
+            nextData = merged;
+          }
+        }
       }
 
       // If currently idle AND the page is hidden (or window has no focus),
@@ -336,7 +412,7 @@ export function useAdaptiveRenderer(opts: UseAdaptiveRendererOptions): AdaptiveR
       // while the tab is backgrounded, which would accumulate large pending
       // buffers since RAF is throttled/suspended in background tabs.
       if (tierRef.current === 'idle' && document.hidden) {
-        pendingRef.current.push(data);
+        pendingRef.current.push(nextData);
         // Reset idle interval to min so data gets flushed soon
         idleIntervalRef.current = IDLE_INTERVAL_MIN_MS;
         // Ensure an idle tick is scheduled
@@ -349,22 +425,32 @@ export function useAdaptiveRenderer(opts: UseAdaptiveRendererOptions): AdaptiveR
         exitIdle();
       }
 
-      // ── Cursor-control split (Phase 2 — async-prompt defence) ────
-      // If this chunk starts with a CSI cursor-control/erase sequence AND
-      // there is already pending data, flush the pending data immediately
-      // so that xterm commits it to the screen buffer (and the browser can
-      // paint) before the destructive cursor movement arrives in the next
-      // RAF frame.  This prevents async prompt themes (spaceship-zsh) from
-      // erasing command output that was batched into the same write call.
-      if (pendingRef.current.length > 0 && startsWithCursorControl(data)) {
-        flush();
-        // Cancel the current RAF — we just flushed everything, and the new
-        // cursor-control chunk should be written in a fresh RAF frame.
-        cancelRaf();
-      }
+      // ── Cursor-control split (Phase 3 — async-prompt defence) ────
+      // Split chunks that contain a destructive cursor-control sequence
+      // anywhere inside them, not just at byte 0. This covers the common
+      // spaceship-zsh case where command output and prompt redraw are emitted
+      // in the same SSH/WebSocket payload.
+      const controlBoundary = findCursorControlBoundary(nextData);
+      if (controlBoundary >= 0) {
+        const prefix = controlBoundary > 0 ? nextData.subarray(0, controlBoundary) : null;
+        const shouldSplit = pendingRef.current.length > 0 || (prefix !== null && hasLineBreak(prefix));
 
-      // Push to pending buffer
-      pendingRef.current.push(data);
+        if (shouldSplit && prefix !== null && prefix.length > 0) {
+          pendingRef.current.push(prefix);
+        }
+
+        if (shouldSplit && pendingRef.current.length > 0) {
+          flush();
+          // Cancel the current RAF — we just flushed everything, and the new
+          // cursor-control tail should be written in a fresh RAF frame.
+          cancelRaf();
+          pendingRef.current.push(nextData.subarray(controlBoundary));
+        } else {
+          pendingRef.current.push(nextData);
+        }
+      } else {
+        pendingRef.current.push(nextData);
+      }
 
       // Reset idle countdown
       resetIdleTimer();
