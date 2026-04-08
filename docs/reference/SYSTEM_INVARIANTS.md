@@ -1,4 +1,4 @@
-# OxideTerm 系统不变量与设计约束文档 (v1.9.1)
+# OxideTerm 系统不变量与设计约束文档 (v1.9.2)
 
 > **本文档约束所有未来实现**。任何修改必须遵守这些不变量。
 >
@@ -9,6 +9,7 @@
 > **v1.4.0 新增**：Strong Consistency Sync 和 Key-Driven Reset 约束。
 > **v1.6.2 新增**：Reconnect Orchestrator 统一管理所有重连逻辑。
 > **v1.8.0 新增**：Oxide-Next NodeRouter 架构 — nodeId 单键主权。
+> **v1.9.2 新增**：Terminal I/O、ANSI Replay、本地文件管理、SFTP 恢复链与运行时约束。
 
 ---
 
@@ -138,6 +139,63 @@ set((state) => ({
 }));
 await useAppStore.getState().refreshConnections();  // 关键！
 ```
+
+### 0.4.1 异步状态回写约束
+
+**定义**：任何跨 tick / import / promise 的状态回写都必须重新读取最新 store 状态，不能依赖旧闭包快照。
+
+**不变量**：
+- **`settingsStore.updateSftp` 这类异步后端同步必须在异步回调内部读取最新 store state，不得使用捕获的旧 SFTP 配置快照**
+- **前端订阅型 hook 在依赖 `sessionId` 前必须先完成门禁；`useForwardEvents` 不得在 sessionId 未解析时订阅全局 forwarding 事件**
+
+### 0.5 Terminal 输入与剪贴板约束
+
+**定义**：终端输入链路必须在 SSH 与本地 PTY 两侧保持完全一致的语义，避免一侧使用 bracketed paste、另一侧裸发。
+
+**不变量**：
+- **多行终端文本注入必须一致使用 bracketed paste**；适用于 AI insert、AI execute、确认后的多行 paste，以及任何等价的程序化文本注入
+- **执行型输入必须在 bracketed paste 包裹完成后再追加末尾换行**，不得先换行再包裹
+- **确认粘贴必须共享统一 helper/判定逻辑**，不得让 SSH 终端、本地终端、AI 注入各自维护不同的多行判定
+- **保护粘贴必须只有三种结果：`block`、`confirm`、`passthrough`**
+- **终端处于非交互态（如 reconnect lock、本地 PTY 已停止）时，paste 事件必须被显式阻断，不能继续让 xterm 消费输入**
+- **xterm `attachCustomKeyEventHandler` 在本仓库中视为单槽位能力**；新增自定义按键逻辑必须合并到现有 handler，而不是再挂第二个 handler
+- **`smartCopy` 与 `osc52Clipboard` 必须保持职责分离**：前者只处理用户选区复制，后者只处理终端应用发出的 OSC 52 序列
+- **OSC 52 支持必须保持写入本地剪贴板的单向语义**；读请求必须返回空，不得允许远端程序读取本地剪贴板内容
+- **OSC 52 fallback 路径必须与 addon 语义一致**：仅接受 selector `c`、拒绝 oversized/invalid payload、剪贴板 API 不可用时明确告警
+- **`osc52Clipboard` 的开关状态必须在 handler 执行时实时读取**，启停不得依赖终端 remount
+
+### 0.6 Terminal 输出分块与 ANSI 回放约束
+
+**定义**：终端渲染层既要正确处理异步 prompt 的重绘控制序列，也要避免错误地把 ANSI 颜色绑定到错误的文本行。
+
+**不变量**：
+- **Adaptive batching 必须在 chunk 的任意位置检测 destructive CSI**，不能只检查字节 0
+- **只有在已有 pending output，或 chunk 前缀已经出现换行时，才允许把同一块输出拆成多次写入**；普通 inline redraw 不得被过度拆分
+- **SSH scroll buffer 的 `text` 与 `ansi_text` 必须分离**；搜索/AI 读 plain text，回放/预填色彩保留依赖可选的 `ansi_text`
+- **当 parser 无法证明 raw ANSI 行与解析后文本行可以 1:1 对齐时，必须丢弃该批次的 `ansi_text`**，不得冒险把错误 ANSI 绑到错误文本行上
+
+### 0.7 本地文件管理与归档约束
+
+**定义**：本地文件管理必须跨 Windows/macOS/Linux 保持正确的路径、剪贴板与归档安全语义。
+
+**不变量**：
+- **本地文件管理器中的路径拼接必须统一经过 `src/components/fileManager/pathUtils.ts`**；不得手写 `'/'` 字符串拼接
+- **任何以 `\\` 开头的路径都必须视为 Windows 路径**，即使分隔符已混合（如 `\\server//share`）
+- **目录 symlink 在递归复制/计数时必须按叶子节点处理**，防止跨平台 symlink loop
+- **目录粘贴必须拒绝目标位于源目录自身或其后代目录中的情况**，防止把文件夹复制进自己内部
+- **同目录 cut/paste 判定必须基于归一化路径相等性，而不是原始字符串相等性**，以兼容 Windows 大小写和 slash 变体
+- **导航切换期间到达的旧 refresh 结果必须被丢弃**，旧路径的慢响应/权限错误不得覆盖当前视图状态
+- **文件选择状态在 refresh/navigation 后必须裁剪掉已消失项；shift-select 若旧 anchor 丢失必须回退到本次点击项**
+- **archive 解压写文件必须使用原子性的 `create_new(true)` 语义**，不得先检查后创建
+- **archive 压缩必须跳过 symlink 条目**，不得把 symlink target 内容打进 zip
+
+### 0.8 i18n 运行时约束
+
+**定义**：运行时翻译的真实源头是 `en`，而不是 locale parity 检查结果。
+
+**不变量**：
+- **任何新增的运行时 i18n key 必须先存在于 `en`**，否则即使 `pnpm i18n:check` 通过，UI 仍可能显示原始 key 字符串
+- **新增 key 必须同时同步到所有 locale**；只补非英文 locale 不是合法状态
 
 ---
 
@@ -358,6 +416,27 @@ queued → snapshot → grace-period → ssh-connect → await-terminal → rest
 - ❌ **v1.4.0**: 重连成功后复用旧 `connectionId`
 - ❌ **v1.6.2**: 在 `useConnectionEvents` 中直接执行重连逻辑（必须委托给 orchestrator）
 
+### 3.3.1 重连快照与恢复链约束
+
+**不变量**：
+- **`resetNodeState` 等 destructive reset 不得发生在 snapshot 之前**
+- **forward restore 的去重键必须包含 `forward_type`、`bind_address`、`bind_port`、`target_host`、`target_port`**；仅按 bind 端点去重会错误合并不同规则
+- **`restart_forward` 在创建新 forward 成功前不得从 `stopped_forwards` 中移除旧规则**，失败时必须保持 stopped 状态可恢复
+- **单条 forward 恢复失败不得阻断后续 forward 规则的恢复**
+- **transfer-only reconnect 必须按 `nodeId` 理解快照条目**；即使历史字段名仍叫 `oldSessionId`，`await-terminal` 与 `resume-transfers` 也必须按 node-scoped 语义处理
+- **IDE reconnect restore 在 transfer 阶段尚未初始化 SFTP 时必须主动 bootstrap SFTP**
+- **same-project IDE restore 绝不能覆盖 snapshot 窗口之后已经变 dirty 的 tabs**
+- **`ssh-connect` 的 retry 路径在 sleep/backoff 前必须先关闭当前 `phaseHistory` 条目**，不得留下 dangling `running` 阶段
+
+### 3.3.2 SFTP 恢复链与进度一致性约束
+
+**不变量**：
+- **TransferQueue 恢复 resumed transfer 时必须重新绑定活动 `nodeId`**，不得继续使用持久化的旧 `session_id` / `connection_id`
+- **目录上传/下载必须持久化显式的 `TransferStrategy` 恢复元数据**，恢复链必须区分 `file`、`directory_recursive`、`directory_tar`
+- **递归目录深度防护在触发时必须显式返回失败**，不得以 `Ok(0)` 等伪成功形式吞掉错误
+- **`transferStore.updateProgress` 必须忽略已完成/已取消/已报错任务的迟到 progress 事件**，防止 complete/progress 乱序把终态回退
+- **SFTP preview 的临时资产文件必须在所有 close path、preview replacement 和组件 unmount 上清理**，不能只依赖单一路径
+
 ### 3.4 状态机转换约束
 
 **Session 状态机（不可跳过状态）**：
@@ -453,6 +532,19 @@ Disconnected 是终态，必须移除 Session
 - **token 错误必须立即关闭连接**（不得继续处理）
 - **token 只能使用一次**（不得重放）
 
+### 5.4 平台打包与本地网络权限
+
+**不变量**：
+- **macOS 15+ 的 app bundle 若需要访问局域网 SSH 目标，必须提供 `NSLocalNetworkUsageDescription`**
+- **该声明必须通过 `src-tauri/Info.plist` 与 `tauri.conf.json` 的 macOS infoPlist wiring 一并进入最终 bundle**；只在 CLI 可用不代表 bundle 合法可连
+
+### 5.5 SSH 认证兼容性约束
+
+**不变量**：
+- **默认私钥位置探测必须继续遍历后续候选 key**；遇到加密 key 时，不得提前终止整个 fallback 链
+- **只有在所有后续默认 key 都不可用时，才允许把错误上升为 `PassphraseRequired`**
+- **russh 0.59 下的 RSA SHA-2 认证必须显式协商**；agent auth 必须传入 `hash_alg`，本地 certificate auth 必须显式提供 signer/对应 API，不能依赖库自动协商
+
 ---
 
 ## 6. 扩展边界（允许 vs 禁止）
@@ -541,4 +633,4 @@ Disconnected 是终态，必须移除 Session
 
 ---
 
-*文档版本: v1.9.1 (Strong Sync + Key-Driven Reset + Orchestrator + Oxide-Next) | 最后更新: 2026-02-11*
+*文档版本: v1.9.2 (Strong Sync + Key-Driven Reset + Orchestrator + Oxide-Next + Terminal/FileManager/SFTP Recovery) | 最后更新: 2026-04-08*
