@@ -344,7 +344,7 @@ describe('sessionTreeStore', () => {
         ['term-side', 'node-1'],
       ]),
       linkDownNodeIds: new Set(['node-1']),
-      reconnectProgress: new Map([['node-1', { phase: 'ssh-connect', percentage: 50 }]]),
+      reconnectProgress: new Map([['node-1', { attempt: 1, maxAttempts: 3, nextRetryMs: 1000 }]]),
     });
     useSessionTreeStore.getState().rebuildUnifiedNodes();
 

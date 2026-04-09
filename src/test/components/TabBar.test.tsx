@@ -1,13 +1,14 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createMutableSelectorStore } from '@/test/helpers/mockStore';
+import type { Tab } from '@/types';
 
 const confirmMock = vi.hoisted(() => vi.fn<() => Promise<boolean>>());
 
 const appStoreState = vi.hoisted(() => ({
   tabs: [
     { id: 'tab-1', type: 'terminal', title: 'SSH 1', sessionId: 'session-1' },
-  ],
+  ] as Tab[],
   activeTabId: 'tab-1' as string | null,
   networkOnline: true,
   setActiveTab: vi.fn(),
