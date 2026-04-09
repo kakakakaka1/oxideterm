@@ -71,7 +71,7 @@ https://github.com/user-attachments/assets/4ba033aa-94b5-4ed4-980c-5c3f9f21db7e
 | SSH 库依赖 OpenSSL | **russh 0.59**：基于 `ring` 编译的纯 Rust SSH——零 C 依赖 |
 | 100+ MB 的 Electron 应用 | **Tauri 2.0**：原生 Rust 后端，25–40 MB 二进制文件 |
 | AI 被锁定在单一供应商 | **OxideSens**：40+ 工具、MCP 协议、RAG 知识库——支持 OpenAI/Ollama/DeepSeek 及任何兼容 API |
-| 凭证存储在明文配置文件中 | **仅系统钥匙串**：密码和 API 密钥绝不落盘；`.oxide` 文件使用 ChaCha20-Poly1305 + Argon2id 加密 |
+| 凭证存储在明文配置文件中 | **静态加密**：密码和 API 密钥保存在 OS 密钥链中，已保存连接的元数据在本地密封存储，`.oxide` 文件使用 ChaCha20-Poly1305 + Argon2id 加密 |
 | 依赖云端、需要注册账号 | **本地优先**：零账号、零遥测、零云同步——数据留在你的设备上。AI 密钥自行提供 |
 
 ---
@@ -103,7 +103,7 @@ https://github.com/user-attachments/assets/4ba033aa-94b5-4ed4-980c-5c3f9f21db7e
 | **AI（OxideSens）** | 内联面板（`⌘I`）+ 侧边栏聊天、终端缓冲区捕获（单窗格/所有窗格）、多源上下文（IDE/SFTP/Git）、40+ 自主工具、MCP 服务器集成、RAG 知识库（BM25 + 向量混合搜索）、SSE 流式输出 |
 | **插件** | 运行时 ESM 加载、18 个 API 命名空间、24 个 UI Kit 组件、冻结 API + Proxy ACL、熔断器、错误时自动禁用 |
 | **CLI** | `oxt` 伴侣工具：JSON-RPC 2.0 基于 Unix Socket / Named Pipe、`status`/`list`/`ping`、人类可读 + JSON 输出 |
-| **安全** | .oxide 加密导出（ChaCha20-Poly1305 + Argon2id 256 MB）、OS 密钥链、Touch ID（macOS）、主机密钥 TOFU、`zeroize` 内存清除 |
+| **安全** | .oxide 加密导出（ChaCha20-Poly1305 + Argon2id 256 MB）、本地配置静态加密、OS 密钥链、Touch ID（macOS）、主机密钥 TOFU、`zeroize` 内存清除 |
 | **国际化** | 11 种语言：EN、简体中文、繁體中文、日本語、한국어、FR、DE、ES、IT、PT-BR、VI |
 
 ---

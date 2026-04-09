@@ -141,7 +141,7 @@
 
 ### `list_saved_connections`
 
-返回所有已保存的连接配置（来自 `connections.json`）。
+返回所有已保存的连接配置（来自本地加密配置存储，由 `connections.json` 提供 envelope）。
 
 **参数**：`{}`
 

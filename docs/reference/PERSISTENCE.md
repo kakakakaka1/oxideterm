@@ -877,7 +877,7 @@ api.drillDown() → 添加子节点
 
 | 文件 | 内容 | 说明 |
 |------|------|------|
-| `~/.oxideterm/connections.json` | 保存的连接 + proxy_chain | 已有实现 |
+| `~/.oxideterm/connections.json` | 保存的连接 + proxy_chain 的加密 envelope | 已有实现 |
 | `~/.oxideterm/groups.json` | 连接分组 | 已有实现 |
 
 ### 14.4 不持久化（运行时状态）

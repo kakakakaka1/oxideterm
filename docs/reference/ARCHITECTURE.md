@@ -1564,12 +1564,12 @@ stateDiagram-v2
 
 OxideTerm 采用双层安全模型（分离存储）：
 
-1. **配置文件 (`connections.json`)**：仅存储 Keychain 引用 ID (如 `oxideterm-uuid`)，不存储任何敏感信息。
-2. **系统钥匙串 (System Keychain)**：存储真实的密码数据，由操作系统提供底层保护。
+1. **本地配置文件 (`connections.json`)**：使用加密 envelope 持久化连接元数据，并仅存储 Keychain 引用 ID (如 `oxideterm-uuid`) 而不写入真实凭据。
+2. **系统钥匙串 (System Keychain)**：存储真实的密码、私钥口令等敏感数据，由操作系统提供底层保护。
 
 **优势**：
-- 即使配置文件泄露，攻击者也无法获取真实密码
-- 支持云同步配置文件 (`.oxide` / json) 而不暴露凭据
+- 即使配置文件泄露，攻击者也无法直接获得真实密码，连接元数据也不会以明文落盘
+- 支持云同步配置导出 (`.oxide`) 而不暴露凭据
 
 ```rust
 // macOS: Keychain Services

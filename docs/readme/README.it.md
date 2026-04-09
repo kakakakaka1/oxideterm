@@ -71,7 +71,7 @@ https://github.com/user-attachments/assets/4ba033aa-94b5-4ed4-980c-5c3f9f21db7e
 | Le librerie SSH dipendono da OpenSSL | **russh 0.59**: SSH puro in Rust compilato con `ring` — zero dipendenze C |
 | App Electron da 100+ MB | **Tauri 2.0**: backend Rust nativo, binario da 25–40 MB |
 | IA vincolata a un provider | **OxideSens**: 40+ strumenti, protocollo MCP, knowledge base RAG — funziona con OpenAI/Ollama/DeepSeek/qualsiasi API compatibile |
-| Credenziali in file di configurazione in chiaro | **Solo portachiavi di sistema**: password e chiavi API mai scritte su disco; file `.oxide` cifrati con ChaCha20-Poly1305 + Argon2id |
+| Credenziali in file di configurazione in chiaro | **Cifratura a riposo**: password e chiavi API restano nel portachiavi del sistema operativo, i metadati delle connessioni salvate vengono sigillati localmente e i file `.oxide` sono cifrati con ChaCha20-Poly1305 + Argon2id |
 | Strumenti dipendenti dal cloud che richiedono un account | **Local-first**: zero account, zero telemetria, zero sincronizzazione cloud — i tuoi dati restano sul tuo dispositivo. Porta la tua chiave AI |
 
 ---
@@ -103,7 +103,7 @@ https://github.com/user-attachments/assets/4ba033aa-94b5-4ed4-980c-5c3f9f21db7e
 | **IA (OxideSens)** | Pannello inline (`⌘I`) + chat laterale, cattura buffer terminale (pannello singolo/tutti), contesto multi-sorgente (IDE/SFTP/Git), 40+ strumenti autonomi, integrazione server MCP, knowledge base RAG (ricerca ibrida BM25 + vettori), streaming SSE |
 | **Plugin** | Caricamento ESM runtime, 18 namespace API, 24 componenti UI Kit, API congelata + ACL Proxy, circuit breaker, disattivazione automatica in caso di errori |
 | **CLI** | Companion `oxt`: JSON-RPC 2.0 tramite Unix Socket / Named Pipe, `status`/`list`/`ping`, output leggibile + JSON |
-| **Sicurezza** | Export crittografato .oxide (ChaCha20-Poly1305 + Argon2id 256 MB), portachiavi OS, Touch ID (macOS), TOFU chiave host, pulizia memoria `zeroize` |
+| **Sicurezza** | Export .oxide crittografato (ChaCha20-Poly1305 + Argon2id 256 MB), configurazione locale cifrata a riposo, portachiavi OS, Touch ID (macOS), TOFU chiave host, pulizia memoria `zeroize` |
 | **i18n** | 11 lingue: EN, 简体中文, 繁體中文, 日本語, 한국어, FR, DE, ES, IT, PT-BR, VI |
 
 ---

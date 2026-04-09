@@ -23,8 +23,9 @@ pub mod touch_id;
 pub use keychain::{Keychain, KeychainError};
 pub use ssh_config::{SshConfigError, SshConfigHost, default_ssh_config_path, parse_ssh_config};
 pub use storage::{
-    BootstrapConfig, ConfigStorage, StorageError, config_dir, connections_file, default_dir,
-    get_data_dir_info, save_bootstrap_config,
+    BootstrapConfig, CONFIG_ENCRYPTION_KEY_LEN, ConfigStorage, ConfigStorageFormat, LoadedConfig,
+    StorageError, config_dir, connections_file, default_dir, get_data_dir_info,
+    save_bootstrap_config,
 };
 pub use types::{
     CONFIG_VERSION, ConfigFile, ConnectionOptions, ProxyHopConfig, SavedAuth, SavedConnection,

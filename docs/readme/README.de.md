@@ -71,7 +71,7 @@ https://github.com/user-attachments/assets/4ba033aa-94b5-4ed4-980c-5c3f9f21db7e
 | SSH-Bibliotheken hängen von OpenSSL ab | **russh 0.59**: reines Rust-SSH kompiliert mit `ring` — null C-Abhängigkeiten |
 | 100+ MB Electron-Apps | **Tauri 2.0**: natives Rust-Backend, 25–40 MB Binärdatei |
 | KI an einen Anbieter gebunden | **OxideSens**: 40+ Werkzeuge, MCP-Protokoll, RAG-Wissensdatenbank — funktioniert mit OpenAI/Ollama/DeepSeek/jeder kompatiblen API |
-| Zugangsdaten in Klartextkonfiguration | **Nur OS-Schlüsselbund**: Passwörter und API-Schlüssel werden nie auf die Festplatte geschrieben; `.oxide`-Dateien mit ChaCha20-Poly1305 + Argon2id verschlüsselt |
+| Zugangsdaten in Klartextkonfiguration | **Verschlüsselt im Ruhezustand**: Passwörter und API-Schlüssel bleiben im OS-Schlüsselbund, Metadaten gespeicherter Verbindungen werden lokal versiegelt, und `.oxide`-Dateien sind mit ChaCha20-Poly1305 + Argon2id verschlüsselt |
 | Cloud-abhängig, Konto erforderlich | **Local-first**: kein Konto, keine Telemetrie, keine Cloud-Synchronisation — Ihre Daten bleiben auf Ihrem Gerät. KI-Schlüssel selbst bereitstellen |
 
 ---
@@ -103,7 +103,7 @@ https://github.com/user-attachments/assets/4ba033aa-94b5-4ed4-980c-5c3f9f21db7e
 | **KI (OxideSens)** | Inline-Panel (`⌘I`) + Seitenleisten-Chat, Terminal-Buffer-Erfassung (einzelnes/alle Fenster), Multi-Quellen-Kontext (IDE/SFTP/Git), 40+ autonome Werkzeuge, MCP-Server-Integration, RAG-Wissensdatenbank (BM25 + Vektor-Hybridsuche), SSE-Streaming |
 | **Plugins** | Laufzeit-ESM-Laden, 18 API-Namensräume, 24 UI-Kit-Komponenten, eingefrorene API + Proxy-ACL, Circuit Breaker, automatische Deaktivierung bei Fehlern |
 | **CLI** | `oxt`-Companion: JSON-RPC 2.0 über Unix Socket / Named Pipe, `status`/`list`/`ping`, menschenlesbare + JSON-Ausgabe |
-| **Sicherheit** | .oxide-verschlüsselter Export (ChaCha20-Poly1305 + Argon2id 256 MB), Betriebssystem-Schlüsselbund, Touch ID (macOS), Host-Key-TOFU, `zeroize`-Speicherbereinigung |
+| **Sicherheit** | .oxide-verschlüsselter Export (ChaCha20-Poly1305 + Argon2id 256 MB), lokal verschlüsselte Konfiguration im Ruhezustand, Betriebssystem-Schlüsselbund, Touch ID (macOS), Host-Key-TOFU, `zeroize`-Speicherbereinigung |
 | **i18n** | 11 Sprachen: EN, 简体中文, 繁體中文, 日本語, 한국어, FR, DE, ES, IT, PT-BR, VI |
 
 ---

@@ -71,7 +71,7 @@ https://github.com/user-attachments/assets/4ba033aa-94b5-4ed4-980c-5c3f9f21db7e
 | Las bibliotecas SSH dependen de OpenSSL | **russh 0.59**: SSH puro en Rust compilado con `ring` — cero dependencias C |
 | Apps Electron de 100+ MB | **Tauri 2.0**: backend Rust nativo, binario de 25–40 MB |
 | IA limitada a un proveedor | **OxideSens**: 40+ herramientas, protocolo MCP, base de conocimiento RAG — funciona con OpenAI/Ollama/DeepSeek/cualquier API compatible |
-| Credenciales en archivos de texto plano | **Solo llavero del sistema**: contraseñas y claves API nunca se escriben en disco; archivos `.oxide` cifrados con ChaCha20-Poly1305 + Argon2id |
+| Credenciales en archivos de texto plano | **Cifrado en reposo**: contraseñas y claves API permanecen en el llavero del SO, los metadatos de conexiones guardadas se sellan localmente y los archivos `.oxide` se cifran con ChaCha20-Poly1305 + Argon2id |
 | Herramientas dependientes de la nube que requieren cuenta | **Local primero**: sin cuentas, sin telemetría, sin sincronización en la nube — tus datos se quedan en tu máquina. Trae tu propia clave de IA |
 
 ---
@@ -103,7 +103,7 @@ https://github.com/user-attachments/assets/4ba033aa-94b5-4ed4-980c-5c3f9f21db7e
 | **IA (OxideSens)** | Panel inline (`⌘I`) + chat lateral, captura de buffer del terminal (panel único/todos), contexto multi-fuente (IDE/SFTP/Git), 40+ herramientas autónomas, integración de servidores MCP, base de conocimiento RAG (búsqueda híbrida BM25 + vectores), streaming SSE |
 | **Plugins** | Carga ESM en tiempo de ejecución, 18 espacios de nombres API, 24 componentes UI Kit, API congelada + ACL Proxy, disyuntor, desactivación automática en caso de errores |
 | **CLI** | Companion `oxt`: JSON-RPC 2.0 vía Unix Socket / Named Pipe, `status`/`list`/`ping`, salida legible + JSON |
-| **Seguridad** | Exportación cifrada .oxide (ChaCha20-Poly1305 + Argon2id 256 MB), llavero del SO, Touch ID (macOS), TOFU de clave de host, limpieza de memoria `zeroize` |
+| **Seguridad** | Exportación .oxide cifrada (ChaCha20-Poly1305 + Argon2id 256 MB), configuración local cifrada en reposo, llavero del SO, Touch ID (macOS), TOFU de clave de host, limpieza de memoria `zeroize` |
 | **i18n** | 11 idiomas: EN, 简体中文, 繁體中文, 日本語, 한국어, FR, DE, ES, IT, PT-BR, VI |
 
 ---

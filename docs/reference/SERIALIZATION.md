@@ -9,7 +9,7 @@ OxideTerm 使用两种序列化格式：
 | 格式 | 库 | 用途 |
 |------|-----|------|
 | **MessagePack** | `rmp-serde` | 二进制持久化（redb 嵌入式数据库、.oxide 加密负载、滚动缓冲区） |
-| **JSON** | `serde_json` | 人类可读配置（~/.oxideterm/connections.json、.oxide 明文元数据） |
+| **JSON** | `serde_json` | 自描述封装（加密的本地配置 envelope、.oxide 明文元数据、bootstrap 配置） |
 
 ## 序列化架构图
 
@@ -39,13 +39,15 @@ OxideTerm 使用两种序列化格式：
 │  │                  JSON (serde_json)                   │   │
 │  │                                                      │   │
 │  │  应用场景:                                           │   │
-│  │  • ~/.oxideterm/connections.json (用户配置)         │   │
+│  │  • ~/.oxideterm/connections.json (加密配置封装)      │   │
+│  │  • ~/.oxideterm/bootstrap.json (数据目录配置)        │   │
 │  │  • .oxide 文件 metadata 段 (明文可读)                │   │
 │  │                                                      │   │
 │  │  选择原因:                                           │   │
-│  │  ✓ 人类可编辑 (调试友好)                             │   │
+│  │  ✓ 自描述、跨版本可演进                              │   │
+│  │  ✓ 保留 envelope 可读性，但隐藏连接元数据            │   │
 │  │  ✓ 无需解密即可查看 .oxide 文件信息                 │   │
-│  │  ✓ 版本控制友好 (Git diff 可读)                     │   │
+│  │  ✓ bootstrap 配置仍保持简单可读                     │   │
 │  └─────────────────────────────────────────────────────┘   │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
@@ -83,7 +85,7 @@ flowchart LR
 
 | 操作 | 序列化格式 | Strong Sync 行为 |
 |------|-----------|------------------|
-| 保存连接配置 | JSON | 触发 `refreshConnections()` |
+| 保存连接配置 | JSON 加密 envelope | 触发 `refreshConnections()` |
 | 会话恢复 | MessagePack | 恢复后触发 `connection:update` |
 | 端口转发规则持久化 | MessagePack | 重连后自动恢复，触发同步 |
 | 路径记忆 (SFTP) | 内存 Map | Key-Driven 重建时从 Map 恢复 |
@@ -437,39 +439,22 @@ pub enum EncryptedAuth {
 
 ---
 
-### 为什么配置文件保持 JSON？
+### 为什么配置文件仍然使用 JSON envelope？
 
-1. **可编辑性**: 用户可能需要手动修改配置（例如：批量修改端口号）
-2. **可调试性**: 出问题时可以直接查看文件内容
-3. **版本控制友好**: Git diff 友好，便于跟踪配置变化
-4. **人类可读**: `connections.json` 可以作为配置备份参考
+1. **自描述格式**: 可以在不改变文件扩展名的前提下标记算法、版本和密文载荷
+2. **平滑迁移**: 旧版明文 JSON 可以被识别并自动迁移到加密格式
+3. **易于诊断**: 出问题时仍能识别 envelope 版本与算法，而不会暴露连接元数据
+4. **职责分离**: bootstrap 等非敏感配置继续保持简单 JSON，连接配置则默认加密落盘
 
-**示例**: `connections.json` 文件片段
+**示例**: `connections.json` 加密 envelope 片段
 
 ```json
 {
   "version": 1,
-  "connections": [
-    {
-      "id": "conn-123",
-      "name": "Production Server",
-      "host": "prod.example.com",
-      "port": 22,
-      "username": "admin",
-      "auth": {
-        "type": "password",
-        "keychain_id": "oxideterm-a1b2c3d4-e5f6-7890-abcd"
-      },
-      "group": "Production",
-      "options": {
-        "jump_host": null,
-        "local_forward": [],
-        "remote_forward": [],
-        "dynamic_forward": null
-      }
-    }
-  ],
-  "groups": ["Production", "Staging", "Development"]
+    "format": "oxideterm.config.encrypted",
+    "algorithm": "chacha20poly1305",
+    "nonce": "1YEU2SB4m5T4A8Pj",
+    "ciphertext": "3A4v...省略密文...Q=="
 }
 ```
 
@@ -483,7 +468,7 @@ pub enum EncryptedAuth {
 // MessagePack (使用命名字段格式，支持默认值和可选字段)
 let bytes: Vec<u8> = rmp_serde::to_vec_named(&data)?;
 
-// JSON (人类可读配置)
+// JSON (自描述 envelope / 明文 metadata)
 let json: String = serde_json::to_string_pretty(&data)?;
 ```
 
@@ -493,7 +478,7 @@ let json: String = serde_json::to_string_pretty(&data)?;
 // MessagePack
 let data: T = rmp_serde::from_slice(&bytes)?;
 
-// JSON  
+// JSON
 let data: T = serde_json::from_str(&json)?;
 ```
 

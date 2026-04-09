@@ -10,12 +10,45 @@
 //! If `~/.oxideterm/bootstrap.json` contains `{ "data_dir": "/custom/path" }`,
 //! all data files will be stored at that custom path instead.
 
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+use chacha20poly1305::{ChaCha20Poly1305, KeyInit, Nonce, aead::Aead};
+use rand::RngCore;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
+use zeroize::Zeroizing;
 
 use super::types::{CONFIG_VERSION, ConfigFile};
+
+const ENCRYPTED_CONFIG_FORMAT: &str = "oxideterm.config.encrypted";
+const ENCRYPTED_CONFIG_VERSION: u32 = 1;
+const ENCRYPTED_CONFIG_ALGORITHM: &str = "chacha20poly1305";
+pub const CONFIG_ENCRYPTION_KEY_LEN: usize = 32;
+const CONFIG_ENCRYPTION_NONCE_LEN: usize = 12;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConfigStorageFormat {
+    Missing,
+    Plaintext,
+    Encrypted,
+    RecoveredDefault,
+}
+
+#[derive(Debug, Clone)]
+pub struct LoadedConfig {
+    pub config: ConfigFile,
+    pub format: ConfigStorageFormat,
+}
+
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+struct EncryptedConfigEnvelope {
+    format: String,
+    version: u32,
+    algorithm: String,
+    nonce: String,
+    ciphertext: String,
+}
 
 /// Configuration storage errors
 #[derive(Debug, thiserror::Error)]
@@ -29,8 +62,37 @@ pub enum StorageError {
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
 
+    #[error("MessagePack encode error: {0}")]
+    MsgPackEncode(#[from] rmp_serde::encode::Error),
+
+    #[error("MessagePack decode error: {0}")]
+    MsgPackDecode(#[from] rmp_serde::decode::Error),
+
+    #[error("Base64 error: {0}")]
+    Base64(#[from] base64::DecodeError),
+
     #[error("Config version {found} is newer than supported {supported}")]
     VersionTooNew { found: u32, supported: u32 },
+
+    #[error(
+        "Encrypted config requires the local config key from the OS keychain; restore the keychain entry or recover from backup"
+    )]
+    MissingEncryptionKey,
+
+    #[error("Invalid encrypted config format")]
+    InvalidEncryptedConfigFormat,
+
+    #[error("Unsupported encrypted config version {found}")]
+    UnsupportedEncryptedConfigVersion { found: u32 },
+
+    #[error("Unsupported encrypted config algorithm: {0}")]
+    UnsupportedEncryptedConfigAlgorithm(String),
+
+    #[error("Failed to encrypt config")]
+    EncryptionFailed,
+
+    #[error("Failed to decrypt config")]
+    DecryptionFailed,
 }
 
 /// Bootstrap configuration stored at the fixed default location.
@@ -180,70 +242,162 @@ impl ConfigStorage {
         Ok(())
     }
 
-    /// Load configuration from disk
-    /// Returns default config if file doesn't exist
-    /// If config is corrupted, creates a backup and returns default config
-    pub async fn load(&self) -> Result<ConfigFile, StorageError> {
+    fn is_encrypted_document(document: &serde_json::Value) -> bool {
+        document.get("format").and_then(serde_json::Value::as_str) == Some(ENCRYPTED_CONFIG_FORMAT)
+    }
+
+    fn validate_config_version(config: ConfigFile) -> Result<ConfigFile, StorageError> {
+        if config.version > CONFIG_VERSION {
+            return Err(StorageError::VersionTooNew {
+                found: config.version,
+                supported: CONFIG_VERSION,
+            });
+        }
+
+        Ok(config)
+    }
+
+    fn encrypt_config(
+        &self,
+        config: &ConfigFile,
+        key: &[u8; CONFIG_ENCRYPTION_KEY_LEN],
+    ) -> Result<EncryptedConfigEnvelope, StorageError> {
+        let plaintext = Zeroizing::new(rmp_serde::to_vec_named(config)?);
+        let mut nonce = [0u8; CONFIG_ENCRYPTION_NONCE_LEN];
+        rand::rngs::OsRng.fill_bytes(&mut nonce);
+
+        let cipher = ChaCha20Poly1305::new_from_slice(key)
+            .map_err(|_| StorageError::InvalidEncryptedConfigFormat)?;
+        let ciphertext = cipher
+            .encrypt(Nonce::from_slice(&nonce), plaintext.as_ref())
+            .map_err(|_| StorageError::EncryptionFailed)?;
+
+        Ok(EncryptedConfigEnvelope {
+            format: ENCRYPTED_CONFIG_FORMAT.to_string(),
+            version: ENCRYPTED_CONFIG_VERSION,
+            algorithm: ENCRYPTED_CONFIG_ALGORITHM.to_string(),
+            nonce: BASE64.encode(nonce),
+            ciphertext: BASE64.encode(ciphertext),
+        })
+    }
+
+    fn decrypt_config(
+        &self,
+        envelope: EncryptedConfigEnvelope,
+        key: &[u8; CONFIG_ENCRYPTION_KEY_LEN],
+    ) -> Result<ConfigFile, StorageError> {
+        if envelope.format != ENCRYPTED_CONFIG_FORMAT {
+            return Err(StorageError::InvalidEncryptedConfigFormat);
+        }
+
+        if envelope.version != ENCRYPTED_CONFIG_VERSION {
+            return Err(StorageError::UnsupportedEncryptedConfigVersion {
+                found: envelope.version,
+            });
+        }
+
+        if envelope.algorithm != ENCRYPTED_CONFIG_ALGORITHM {
+            return Err(StorageError::UnsupportedEncryptedConfigAlgorithm(
+                envelope.algorithm,
+            ));
+        }
+
+        let nonce = BASE64.decode(envelope.nonce)?;
+        let nonce: [u8; CONFIG_ENCRYPTION_NONCE_LEN] = nonce
+            .try_into()
+            .map_err(|_| StorageError::InvalidEncryptedConfigFormat)?;
+        let ciphertext = BASE64.decode(envelope.ciphertext)?;
+
+        let cipher = ChaCha20Poly1305::new_from_slice(key)
+            .map_err(|_| StorageError::InvalidEncryptedConfigFormat)?;
+        let plaintext = Zeroizing::new(
+            cipher
+                .decrypt(Nonce::from_slice(&nonce), ciphertext.as_ref())
+                .map_err(|_| StorageError::DecryptionFailed)?,
+        );
+
+        let config: ConfigFile = rmp_serde::from_slice(&plaintext)?;
+        Self::validate_config_version(config)
+    }
+
+    async fn recover_from_corruption(
+        &self,
+        err: impl std::fmt::Display,
+    ) -> Result<LoadedConfig, StorageError> {
+        tracing::warn!("Config file corrupted: {}", err);
+
+        match self.backup().await {
+            Ok(backup_path) => {
+                tracing::warn!(
+                    "Corrupted config backed up to {:?}, using defaults",
+                    backup_path
+                );
+            }
+            Err(backup_err) => {
+                tracing::error!("Failed to backup corrupted config: {}", backup_err);
+            }
+        }
+
+        Ok(LoadedConfig {
+            config: ConfigFile::default(),
+            format: ConfigStorageFormat::RecoveredDefault,
+        })
+    }
+
+    /// Load configuration from disk.
+    /// Returns default config if file doesn't exist.
+    /// Supports legacy plaintext JSON and the encrypted envelope format.
+    /// Legacy plaintext corruption falls back to defaults after creating a backup.
+    pub async fn load_with_key(
+        &self,
+        key: Option<&[u8; CONFIG_ENCRYPTION_KEY_LEN]>,
+    ) -> Result<LoadedConfig, StorageError> {
         match fs::read_to_string(&self.path).await {
             Ok(contents) => {
-                match serde_json::from_str::<ConfigFile>(&contents) {
-                    Ok(config) => {
-                        // Check version
-                        if config.version > CONFIG_VERSION {
-                            return Err(StorageError::VersionTooNew {
-                                found: config.version,
-                                supported: CONFIG_VERSION,
-                            });
-                        }
-                        // TODO: Run migrations if config.version < CONFIG_VERSION
-                        // Currently CONFIG_VERSION == 1, so no migrations needed yet.
-                        // When CONFIG_VERSION is bumped, add migration steps here:
-                        //
-                        // let mut config = config;
-                        // if config.version < 2 {
-                        //     // migrate v1 → v2: e.g. rename fields, add defaults
-                        //     config.version = 2;
-                        // }
-                        // if config.version < 3 { ... }
-                        Ok(config)
-                    }
-                    Err(e) => {
-                        // JSON 解析失败 - 配置文件损坏
-                        tracing::warn!("Config file corrupted: {}", e);
+                let document = match serde_json::from_str::<serde_json::Value>(&contents) {
+                    Ok(document) => document,
+                    Err(err) => return self.recover_from_corruption(err).await,
+                };
 
-                        // 创建备份
-                        match self.backup().await {
-                            Ok(backup_path) => {
-                                tracing::warn!(
-                                    "Corrupted config backed up to {:?}, using defaults",
-                                    backup_path
-                                );
-                            }
-                            Err(backup_err) => {
-                                tracing::error!(
-                                    "Failed to backup corrupted config: {}",
-                                    backup_err
-                                );
-                            }
-                        }
+                if Self::is_encrypted_document(&document) {
+                    let envelope: EncryptedConfigEnvelope = serde_json::from_value(document)
+                        .map_err(|_| StorageError::InvalidEncryptedConfigFormat)?;
+                    let key = key.ok_or(StorageError::MissingEncryptionKey)?;
+                    let config = self.decrypt_config(envelope, key)?;
+                    return Ok(LoadedConfig {
+                        config,
+                        format: ConfigStorageFormat::Encrypted,
+                    });
+                }
 
-                        // 返回默认配置
-                        Ok(ConfigFile::default())
-                    }
+                match serde_json::from_value::<ConfigFile>(document) {
+                    Ok(config) => Ok(LoadedConfig {
+                        config: Self::validate_config_version(config)?,
+                        format: ConfigStorageFormat::Plaintext,
+                    }),
+                    Err(err) => self.recover_from_corruption(err).await,
                 }
             }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(ConfigFile::default()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(LoadedConfig {
+                config: ConfigFile::default(),
+                format: ConfigStorageFormat::Missing,
+            }),
             Err(e) => Err(StorageError::Io(e)),
         }
     }
 
-    /// Save configuration to disk
-    pub async fn save(&self, config: &ConfigFile) -> Result<(), StorageError> {
+    /// Save configuration to disk as an encrypted JSON envelope.
+    pub async fn save_encrypted(
+        &self,
+        config: &ConfigFile,
+        key: &[u8; CONFIG_ENCRYPTION_KEY_LEN],
+    ) -> Result<(), StorageError> {
         self.ensure_dir().await?;
 
         // Write to temp file first, then rename (atomic write)
         let temp_path = self.path.with_extension("json.tmp");
-        let json = serde_json::to_string_pretty(config)?;
+        let envelope = self.encrypt_config(config, key)?;
+        let json = serde_json::to_string_pretty(&envelope)?;
 
         let mut file = fs::File::create(&temp_path).await?;
         file.write_all(json.as_bytes()).await?;
@@ -296,19 +450,24 @@ mod tests {
     use super::*;
     use tempfile::tempdir;
 
+    fn test_key() -> [u8; CONFIG_ENCRYPTION_KEY_LEN] {
+        [7u8; CONFIG_ENCRYPTION_KEY_LEN]
+    }
+
     #[tokio::test]
     async fn test_load_nonexistent() {
         let temp = tempdir().unwrap();
         let path = temp.path().join("test.json");
         let storage = ConfigStorage::with_path(path);
 
-        let config = storage.load().await.unwrap();
-        assert_eq!(config.version, CONFIG_VERSION);
-        assert!(config.connections.is_empty());
+        let loaded = storage.load_with_key(None).await.unwrap();
+        assert_eq!(loaded.config.version, CONFIG_VERSION);
+        assert!(loaded.config.connections.is_empty());
+        assert_eq!(loaded.format, ConfigStorageFormat::Missing);
     }
 
     #[tokio::test]
-    async fn test_save_and_load() {
+    async fn test_save_and_load_encrypted() {
         let temp = tempdir().unwrap();
         let path = temp.path().join("test.json");
         let storage = ConfigStorage::with_path(path);
@@ -316,9 +475,45 @@ mod tests {
         let mut config = ConfigFile::default();
         config.groups.push("Work".to_string());
 
-        storage.save(&config).await.unwrap();
+        storage.save_encrypted(&config, &test_key()).await.unwrap();
 
-        let loaded = storage.load().await.unwrap();
-        assert_eq!(loaded.groups, vec!["Work"]);
+        let raw = fs::read_to_string(storage.path()).await.unwrap();
+        assert!(!raw.contains("Work"));
+
+        let loaded = storage.load_with_key(Some(&test_key())).await.unwrap();
+        assert_eq!(loaded.config.groups, vec!["Work"]);
+        assert_eq!(loaded.format, ConfigStorageFormat::Encrypted);
+    }
+
+    #[tokio::test]
+    async fn test_load_legacy_plaintext() {
+        let temp = tempdir().unwrap();
+        let path = temp.path().join("test.json");
+        let storage = ConfigStorage::with_path(path.clone());
+
+        let mut config = ConfigFile::default();
+        config.groups.push("Work".to_string());
+        fs::write(path, serde_json::to_string_pretty(&config).unwrap())
+            .await
+            .unwrap();
+
+        let loaded = storage.load_with_key(None).await.unwrap();
+        assert_eq!(loaded.config.groups, vec!["Work"]);
+        assert_eq!(loaded.format, ConfigStorageFormat::Plaintext);
+    }
+
+    #[tokio::test]
+    async fn test_encrypted_load_requires_key() {
+        let temp = tempdir().unwrap();
+        let path = temp.path().join("test.json");
+        let storage = ConfigStorage::with_path(path);
+
+        storage
+            .save_encrypted(&ConfigFile::default(), &test_key())
+            .await
+            .unwrap();
+
+        let err = storage.load_with_key(None).await.unwrap_err();
+        assert!(matches!(err, StorageError::MissingEncryptionKey));
     }
 }

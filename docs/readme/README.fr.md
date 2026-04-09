@@ -71,7 +71,7 @@ https://github.com/user-attachments/assets/4ba033aa-94b5-4ed4-980c-5c3f9f21db7e
 | Les bibliothèques SSH dépendent d'OpenSSL | **russh 0.59** : SSH pur Rust compilé avec `ring` — zéro dépendance C |
 | Applications Electron de 100+ Mo | **Tauri 2.0** : backend Rust natif, binaire de 25–40 Mo |
 | IA verrouillée sur un fournisseur | **OxideSens** : 40+ outils, protocole MCP, base de connaissances RAG — fonctionne avec OpenAI/Ollama/DeepSeek/toute API compatible |
-| Identifiants stockés en clair | **Trousseau système uniquement** : mots de passe et clés API jamais écrits sur disque ; fichiers `.oxide` chiffrés ChaCha20-Poly1305 + Argon2id |
+| Identifiants stockés en clair | **Chiffrement au repos** : mots de passe et clés API restent dans le trousseau OS, les métadonnées des connexions enregistrées sont scellées localement, et les fichiers `.oxide` sont chiffrés avec ChaCha20-Poly1305 + Argon2id |
 | Outils dépendants du cloud et nécessitant un compte | **Local d'abord** : zéro compte, zéro télémétrie, zéro synchronisation cloud — vos données restent sur votre machine. Clé AI à fournir soi-même |
 
 ---
@@ -103,7 +103,7 @@ https://github.com/user-attachments/assets/4ba033aa-94b5-4ed4-980c-5c3f9f21db7e
 | **IA (OxideSens)** | Panneau inline (`⌘I`) + chat latéral, capture du buffer terminal (panneau unique/tous), contexte multi-sources (IDE/SFTP/Git), 40+ outils autonomes, intégration serveur MCP, base de connaissances RAG (recherche hybride BM25 + vecteurs), streaming SSE |
 | **Plugins** | Chargement ESM en runtime, 18 espaces de noms API, 24 composants UI Kit, API gelée + ACL Proxy, disjoncteur, désactivation automatique en cas d'erreurs |
 | **CLI** | Companion `oxt` : JSON-RPC 2.0 via Unix Socket / Named Pipe, `status`/`list`/`ping`, sortie humaine + JSON |
-| **Sécurité** | Export chiffré .oxide (ChaCha20-Poly1305 + Argon2id 256 Mo), trousseau OS, Touch ID (macOS), TOFU clé hôte, nettoyage mémoire `zeroize` |
+| **Sécurité** | Export .oxide chiffré (ChaCha20-Poly1305 + Argon2id 256 Mo), configuration locale chiffrée au repos, trousseau OS, Touch ID (macOS), TOFU clé hôte, nettoyage mémoire `zeroize` |
 | **i18n** | 11 langues : EN, 简体中文, 繁體中文, 日本語, 한국어, FR, DE, ES, IT, PT-BR, VI |
 
 ---

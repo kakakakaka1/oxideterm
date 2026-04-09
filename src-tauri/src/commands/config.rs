@@ -6,10 +6,13 @@
 //! Tauri commands for managing saved connections and SSH config import.
 
 use crate::config::{
-    AiProviderVault, ConfigFile, ConfigStorage, Keychain, KeychainError, ProxyHopConfig, SavedAuth,
-    SavedConnection, SshConfigHost, default_ssh_config_path, parse_ssh_config,
+    AiProviderVault, CONFIG_ENCRYPTION_KEY_LEN, ConfigFile, ConfigStorage, ConfigStorageFormat,
+    Keychain, KeychainError, ProxyHopConfig, SavedAuth, SavedConnection, SshConfigHost,
+    default_ssh_config_path, parse_ssh_config,
 };
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use parking_lot::RwLock;
+use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -20,6 +23,63 @@ use super::forwarding::ForwardingRegistry;
 
 /// Service name for AI provider API keys in system keychain
 const AI_KEYCHAIN_SERVICE: &str = "com.oxideterm.ai";
+const CONFIG_KEYCHAIN_SERVICE: &str = "com.oxideterm.config";
+const CONFIG_KEYCHAIN_ID: &str = "local-config-master-key";
+
+fn decode_config_encryption_key(secret: &str) -> Result<[u8; CONFIG_ENCRYPTION_KEY_LEN], String> {
+    let decoded = BASE64
+        .decode(secret)
+        .map_err(|e| format!("Failed to decode local config key: {}", e))?;
+    decoded.try_into().map_err(|_| {
+        format!(
+            "Invalid local config key length: expected {} bytes",
+            CONFIG_ENCRYPTION_KEY_LEN
+        )
+    })
+}
+
+fn load_config_encryption_key(
+    keychain: &Keychain,
+) -> Result<Option<[u8; CONFIG_ENCRYPTION_KEY_LEN]>, String> {
+    match keychain.get(CONFIG_KEYCHAIN_ID) {
+        Ok(secret) => decode_config_encryption_key(&secret).map(Some),
+        Err(KeychainError::NotFound(_)) => Ok(None),
+        Err(err) => Err(err.to_string()),
+    }
+}
+
+fn create_config_encryption_key(
+    keychain: &Keychain,
+) -> Result<[u8; CONFIG_ENCRYPTION_KEY_LEN], String> {
+    let mut key = [0u8; CONFIG_ENCRYPTION_KEY_LEN];
+    rand::rngs::OsRng.fill_bytes(&mut key);
+    let encoded = Zeroizing::new(BASE64.encode(key));
+
+    keychain
+        .store(CONFIG_KEYCHAIN_ID, encoded.as_str())
+        .map_err(|e| e.to_string())?;
+
+    Ok(key)
+}
+
+fn get_or_create_config_encryption_key(
+    keychain: &Keychain,
+) -> Result<([u8; CONFIG_ENCRYPTION_KEY_LEN], bool), String> {
+    if let Some(existing) = load_config_encryption_key(keychain)? {
+        return Ok((existing, false));
+    }
+
+    Ok((create_config_encryption_key(keychain)?, true))
+}
+
+fn rollback_new_config_key(keychain: &Keychain) {
+    if let Err(err) = keychain.delete(CONFIG_KEYCHAIN_ID) {
+        tracing::warn!(
+            "Failed to roll back newly created local config key after save failure: {}",
+            err
+        );
+    }
+}
 
 /// AI provider configuration synced from frontend settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -37,6 +97,7 @@ pub struct AiProviderConfig {
 pub struct ConfigState {
     storage: ConfigStorage,
     config: RwLock<ConfigFile>,
+    config_keychain: Keychain,
     keychain: Keychain,
     pub(crate) ai_keychain: Keychain,
     /// In-memory cache for AI provider API keys.
@@ -53,11 +114,59 @@ impl ConfigState {
     /// Create new config state, loading from disk
     pub async fn new() -> Result<Self, String> {
         let storage = ConfigStorage::new().map_err(|e| e.to_string())?;
-        let config = storage.load().await.map_err(|e| e.to_string())?;
+        let config_keychain = Keychain::with_service(CONFIG_KEYCHAIN_SERVICE);
+        let loaded = match storage.load_with_key(None).await {
+            Ok(loaded) => loaded,
+            Err(crate::config::StorageError::MissingEncryptionKey) => {
+                let existing_config_key = load_config_encryption_key(&config_keychain)
+                    .map_err(|err| {
+                        format!(
+                            "Unable to unlock encrypted local config because the OS keychain is unavailable: {}",
+                            err
+                        )
+                    })?
+                    .ok_or_else(|| {
+                        "Encrypted local config found but the OS keychain entry is missing. Restore the keychain entry or recover from backup."
+                            .to_string()
+                    })?;
+
+                storage
+                    .load_with_key(Some(&existing_config_key))
+                    .await
+                    .map_err(|e| e.to_string())?
+            }
+            Err(err) => return Err(err.to_string()),
+        };
+
+        if loaded.format == ConfigStorageFormat::Plaintext {
+            let (config_key, created_key) = get_or_create_config_encryption_key(&config_keychain)
+                .map_err(|err| {
+                    format!(
+                        "Unable to migrate plaintext local config to encrypted storage because the OS keychain is unavailable: {}",
+                        err
+                    )
+                })?;
+
+            if let Err(err) = storage.save_encrypted(&loaded.config, &config_key).await {
+                if created_key {
+                    rollback_new_config_key(&config_keychain);
+                }
+
+                return Err(format!(
+                    "Loaded legacy plaintext local config but failed to migrate it to encrypted storage: {}",
+                    err
+                ));
+            }
+
+            tracing::info!(
+                "Migrated local config storage from plaintext JSON to encrypted envelope"
+            );
+        }
 
         Ok(Self {
             storage,
-            config: RwLock::new(config),
+            config: RwLock::new(loaded.config),
+            config_keychain,
             keychain: Keychain::new(),
             ai_keychain: Keychain::with_biometrics(AI_KEYCHAIN_SERVICE),
             api_key_cache: RwLock::new(HashMap::new()),
@@ -68,7 +177,18 @@ impl ConfigState {
     /// Save config to disk
     async fn save(&self) -> Result<(), String> {
         let config = self.config.read().clone();
-        self.storage.save(&config).await.map_err(|e| e.to_string())
+        let (config_key, created_key) = get_or_create_config_encryption_key(&self.config_keychain)?;
+
+        match self.storage.save_encrypted(&config, &config_key).await {
+            Ok(()) => Ok(()),
+            Err(err) => {
+                if created_key {
+                    rollback_new_config_key(&self.config_keychain);
+                }
+
+                Err(err.to_string())
+            }
+        }
     }
 
     /// Public API: Get a snapshot of the config

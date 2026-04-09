@@ -71,7 +71,7 @@ https://github.com/user-attachments/assets/4ba033aa-94b5-4ed4-980c-5c3f9f21db7e
 | SSH ライブラリが OpenSSL に依存 | **russh 0.59**：`ring` でコンパイルされた純粋な Rust SSH — C 依存ゼロ |
 | 100 MB 超の Electron アプリ | **Tauri 2.0**：ネイティブ Rust バックエンド、25〜40 MB のバイナリ |
 | AI が特定プロバイダーにロックイン | **OxideSens**：40 以上のツール、MCP プロトコル、RAG ナレッジベース — OpenAI/Ollama/DeepSeek/互換 API に対応 |
-| 認証情報が平文設定ファイルに保存 | **OS キーチェーンのみ**：パスワードと API キーはディスクに書き込まれません；`.oxide` ファイルは ChaCha20-Poly1305 + Argon2id で暗号化 |
+| 認証情報が平文設定ファイルに保存 | **保存時暗号化**：パスワードと API キーは OS キーチェーンに保持され、保存済み接続のメタデータはローカルで暗号化保管されます；`.oxide` ファイルは ChaCha20-Poly1305 + Argon2id で暗号化 |
 | クラウド依存・アカウント必須のツール | **ローカルファースト**：アカウント不要・テレメトリなし・クラウド同期なし——データは手元に。AI キーは自分で用意 |
 
 ---
@@ -103,7 +103,7 @@ https://github.com/user-attachments/assets/4ba033aa-94b5-4ed4-980c-5c3f9f21db7e
 | **AI（OxideSens）** | インラインパネル（`⌘I`）+ サイドバーチャット、ターミナルバッファキャプチャ（単一/全ペイン）、マルチソースコンテキスト（IDE/SFTP/Git）、40 以上の自律ツール、MCP サーバー統合、RAG ナレッジベース（BM25 + ベクトルハイブリッド検索）、ストリーミング SSE |
 | **プラグイン** | ランタイム ESM ローディング、18 の API 名前空間、24 の UI Kit コンポーネント、凍結 API + Proxy ACL、サーキットブレーカー、エラー時の自動無効化 |
 | **CLI** | `oxt` コンパニオン：JSON-RPC 2.0 over Unix Socket / Named Pipe、`status`/`list`/`ping`、ヒューマン & JSON 出力 |
-| **セキュリティ** | .oxide 暗号化エクスポート（ChaCha20-Poly1305 + Argon2id 256 MB）、OS キーチェーン、Touch ID（macOS）、ホストキー TOFU、`zeroize` メモリクリア |
+| **セキュリティ** | .oxide 暗号化エクスポート（ChaCha20-Poly1305 + Argon2id 256 MB）、ローカル設定の保存時暗号化、OS キーチェーン、Touch ID（macOS）、ホストキー TOFU、`zeroize` メモリクリア |
 | **i18n** | 11 言語：EN, 简体中文, 繁體中文, 日本語, 한국어, FR, DE, ES, IT, PT-BR, VI |
 
 ---

@@ -71,7 +71,7 @@ https://github.com/user-attachments/assets/4ba033aa-94b5-4ed4-980c-5c3f9f21db7e
 | Thư viện SSH phụ thuộc OpenSSL | **russh 0.59**: SSH thuần Rust biên dịch với `ring` — không phụ thuộc C |
 | Ứng dụng Electron hơn 100 MB | **Tauri 2.0**: backend Rust gốc, tệp nhị phân 25–40 MB |
 | AI bị khóa vào một nhà cung cấp | **OxideSens**: 40+ công cụ, giao thức MCP, cơ sở kiến thức RAG — hoạt động với OpenAI/Ollama/DeepSeek/bất kỳ API tương thích nào |
-| Thông tin xác thực lưu trong file cấu hình dạng rõ | **Chỉ dùng keychain hệ thống**: mật khẩu và API key không bao giờ ghi xuống đĩa; file `.oxide` mã hóa bằng ChaCha20-Poly1305 + Argon2id |
+| Thông tin xác thực lưu trong file cấu hình dạng rõ | **Mã hóa khi lưu trữ**: mật khẩu và API key nằm trong keychain hệ thống, metadata của kết nối đã lưu được niêm phong cục bộ và file `.oxide` được mã hóa bằng ChaCha20-Poly1305 + Argon2id |
 | Công cụ phụ thuộc cloud, yêu cầu tài khoản | **Ưu tiên cục bộ**: không tài khoản, không telemetry, không đồng bộ cloud — dữ liệu của bạn ở trên máy bạn. Tự cung cấp API key AI |
 
 ---
@@ -103,7 +103,7 @@ https://github.com/user-attachments/assets/4ba033aa-94b5-4ed4-980c-5c3f9f21db7e
 | **AI (OxideSens)** | Bảng inline (`⌘I`) + trò chuyện thanh bên, thu thập bộ đệm terminal (bảng đơn/tất cả), ngữ cảnh đa nguồn (IDE/SFTP/Git), 40+ công cụ tự động, tích hợp máy chủ MCP, cơ sở kiến thức RAG (tìm kiếm lai BM25 + vector), streaming SSE |
 | **Plugin** | Tải ESM runtime, 18 không gian tên API, 24 thành phần UI Kit, API đóng băng + ACL Proxy, ngắt mạch, tự động vô hiệu hóa khi có lỗi |
 | **CLI** | Công cụ đồng hành `oxt`: JSON-RPC 2.0 qua Unix Socket / Named Pipe, `status`/`list`/`ping`, đầu ra dạng người đọc + JSON |
-| **Bảo mật** | Xuất mã hóa .oxide (ChaCha20-Poly1305 + Argon2id 256 MB), chuỗi khóa hệ điều hành, Touch ID (macOS), TOFU khóa máy chủ, xóa bộ nhớ `zeroize` |
+| **Bảo mật** | Xuất .oxide được mã hóa (ChaCha20-Poly1305 + Argon2id 256 MB), cấu hình cục bộ được mã hóa khi lưu trữ, chuỗi khóa hệ điều hành, Touch ID (macOS), TOFU khóa máy chủ, xóa bộ nhớ `zeroize` |
 | **i18n** | 11 ngôn ngữ: EN, 简体中文, 繁體中文, 日本語, 한국어, FR, DE, ES, IT, PT-BR, VI |
 
 ---

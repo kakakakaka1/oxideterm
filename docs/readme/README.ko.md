@@ -71,7 +71,7 @@ https://github.com/user-attachments/assets/4ba033aa-94b5-4ed4-980c-5c3f9f21db7e
 | SSH 라이브러리가 OpenSSL에 의존 | **russh 0.59**: `ring`으로 컴파일된 순수 Rust SSH — C 의존성 제로 |
 | 100 MB 이상의 Electron 앱 | **Tauri 2.0**: 네이티브 Rust 백엔드, 25~40 MB 바이너리 |
 | AI가 특정 프로바이더에 종속 | **OxideSens**: 40개 이상 도구, MCP 프로토콜, RAG 지식 베이스 — OpenAI/Ollama/DeepSeek/호환 API 지원 |
-| 자격 증명이 일반 텍스트 설정에 저장 | **OS 키체인만 사용**: 비밀번호와 API 키는 디스크에 기록되지 않음; `.oxide` 파일은 ChaCha20-Poly1305 + Argon2id 암호화 |
+| 자격 증명이 일반 텍스트 설정에 저장 | **저장 시 암호화**: 비밀번호와 API 키는 OS 키체인에 보관되고, 저장된 연결 메타데이터는 로컬에서 암호화되어 보관됨; `.oxide` 파일은 ChaCha20-Poly1305 + Argon2id 암호화 |
 | 클라우드 종속, 계정 필수 도구 | **로컬 우선**: 계정 없음, 텔레메트리 없음, 클라우드 동기화 없음 — 데이터는 내 기기에만. AI 키는 직접 제공 |
 
 ---
@@ -103,7 +103,7 @@ https://github.com/user-attachments/assets/4ba033aa-94b5-4ed4-980c-5c3f9f21db7e
 | **AI (OxideSens)** | 인라인 패널(`⌘I`) + 사이드바 채팅, 터미널 버퍼 캡처(단일/전체 창), 멀티 소스 컨텍스트(IDE/SFTP/Git), 40개 이상 자율 도구, MCP 서버 통합, RAG 지식 베이스(BM25 + 벡터 하이브리드 검색), 스트리밍 SSE |
 | **플러그인** | 런타임 ESM 로딩, 18개 API 네임스페이스, 24개 UI Kit 컴포넌트, 동결 API + Proxy ACL, 서킷 브레이커, 오류 시 자동 비활성화 |
 | **CLI** | `oxt` 컴패니언: JSON-RPC 2.0 over Unix Socket / Named Pipe, `status`/`list`/`ping`, 사람 읽기 & JSON 출력 |
-| **보안** | .oxide 암호화 내보내기(ChaCha20-Poly1305 + Argon2id 256 MB), OS 키체인, Touch ID(macOS), 호스트 키 TOFU, `zeroize` 메모리 클리어 |
+| **보안** | .oxide 암호화 내보내기(ChaCha20-Poly1305 + Argon2id 256 MB), 로컬 설정 저장 시 암호화, OS 키체인, Touch ID(macOS), 호스트 키 TOFU, `zeroize` 메모리 클리어 |
 | **i18n** | 11개 언어: EN, 简体中文, 繁體中文, 日本語, 한국어, FR, DE, ES, IT, PT-BR, VI |
 
 ---
