@@ -8,6 +8,9 @@ body:
         **Not for security issues** — use [Report a vulnerability](https://github.com/AnalyseDeCircuit/OxideTerm/security/advisories/new) instead.
         **非安全漏洞** — 请用 GitHub 私密漏洞报告，勿用本模板。
 
+        **One bug per issue.** Please do not combine multiple unrelated bugs — open separate issues instead.
+        **每个 Issue 只报一个 bug。** 请勿将多个不相关的问题合并提交，请分别创建 Issue。
+
   - type: input
     id: version
     attributes:
@@ -94,6 +97,8 @@ body:
         - label: I have tested with the latest release and can still reproduce the issue / 我已使用最新正式版测试，问题仍然存在
           required: true
         - label: I searched existing issues for duplicates / 我已搜索过是否已有相同 Issue
+          required: true
+        - label: This issue describes a single bug (not a list of unrelated problems or feature requests) / 本 Issue 只描述一个 bug（而非多个不相关的问题或功能建议）
           required: true
         - label: I have provided the OxideTerm version, platform, and steps to reproduce / 我已提供版本号、平台及复现步骤
           required: true
