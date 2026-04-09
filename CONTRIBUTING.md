@@ -109,7 +109,7 @@ All contributions must meet the following standards. Familiarity with these is e
 
 ## Questions
 
-Use [GitHub Issues](https://github.com/AnalyseDeCircuit/OxideTerm/issues) for general questions (not for undisclosed security issues — use [SECURITY.md](SECURITY.md)).
+Use [GitHub Discussions Q&A](https://github.com/AnalyseDeCircuit/oxideterm/discussions/categories/q-a) for general questions (not for undisclosed security issues — use [SECURITY.md](SECURITY.md)).
 
 ---
 

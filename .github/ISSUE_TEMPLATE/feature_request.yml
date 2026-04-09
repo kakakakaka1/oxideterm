@@ -39,7 +39,9 @@ body:
     id: proposal
     attributes:
       label: Proposed solution / 期望方案
-      description: How would you like it to work? Mockups or examples welcome.
+      description: |
+        How would you like it to work? Mockups or examples welcome.
+        Answers like "N/A", "none", "you figure it out" will cause the issue to be closed.
     validations:
       required: true
 
@@ -84,6 +86,6 @@ body:
         - label: I have described a concrete problem or use case and a proposed solution / 我已描述了具体的问题或使用场景，并给出了期望方案
           required: true
         - label: |
-            I understand OxideTerm is free, open-source software — not a commercial product with 24/7 support. The author's time and energy are limited. I agree that issues with insufficient information or prolonged inactivity may be closed without further notice.
-            我明白 OxideTerm 是免费开源软件，而非提供 7×24 小时支持的商业产品，作者本人时间与精力均有限。我同意：任何信息不足或长时间无回复的 Issue 将有可能被直接关闭。
+            I understand OxideTerm is free, open-source software — not a commercial product with 24/7 support. The author's time and energy are limited. I agree that issues with vague descriptions, low-effort content, insufficient information, or prolonged inactivity may be closed without further notice.
+            我明白 OxideTerm 是免费开源软件，而非提供 7×24 小时支持的商业产品，作者本人时间与精力均有限。我同意：描述模糊、内容敷衍、信息不足或长时间无回复的 Issue 将有可能被直接关闭。
           required: true
