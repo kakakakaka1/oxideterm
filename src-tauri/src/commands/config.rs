@@ -364,6 +364,86 @@ fn build_saved_auth(
     }
 }
 
+fn build_saved_auth_for_update(
+    existing_auth: &SavedAuth,
+    auth_type: &str,
+    password: Option<&str>,
+    key_path: Option<&str>,
+    cert_path: Option<&str>,
+    keychain: &crate::config::keychain::Keychain,
+) -> Result<SavedAuth, String> {
+    match auth_type {
+        "password" => {
+            if let Some(pwd) = password {
+                if let SavedAuth::Password {
+                    keychain_id: Some(existing_keychain_id),
+                } = existing_auth
+                {
+                    keychain
+                        .store(existing_keychain_id, pwd)
+                        .map_err(|e| e.to_string())?;
+                    Ok(SavedAuth::Password {
+                        keychain_id: Some(existing_keychain_id.clone()),
+                    })
+                } else {
+                    build_saved_auth(auth_type, Some(pwd), key_path, cert_path, keychain)
+                }
+            } else if let SavedAuth::Password { keychain_id } = existing_auth {
+                Ok(SavedAuth::Password {
+                    keychain_id: keychain_id.clone(),
+                })
+            } else {
+                Ok(SavedAuth::Password { keychain_id: None })
+            }
+        }
+        "key" => {
+            let kp = key_path.ok_or("Key path required for key authentication")?;
+            match existing_auth {
+                SavedAuth::Key {
+                    key_path: existing_key_path,
+                    has_passphrase,
+                    passphrase_keychain_id,
+                } if existing_key_path == kp => Ok(SavedAuth::Key {
+                    key_path: kp.to_string(),
+                    has_passphrase: *has_passphrase,
+                    passphrase_keychain_id: passphrase_keychain_id.clone(),
+                }),
+                _ => Ok(SavedAuth::Key {
+                    key_path: kp.to_string(),
+                    has_passphrase: false,
+                    passphrase_keychain_id: None,
+                }),
+            }
+        }
+        "certificate" => {
+            let kp = key_path.ok_or("Key path required for certificate authentication")?;
+            let cp = cert_path.ok_or("Certificate path required for certificate authentication")?;
+            match existing_auth {
+                SavedAuth::Certificate {
+                    key_path: existing_key_path,
+                    cert_path: existing_cert_path,
+                    has_passphrase,
+                    passphrase_keychain_id,
+                } if existing_key_path == kp && existing_cert_path == cp => {
+                    Ok(SavedAuth::Certificate {
+                        key_path: kp.to_string(),
+                        cert_path: cp.to_string(),
+                        has_passphrase: *has_passphrase,
+                        passphrase_keychain_id: passphrase_keychain_id.clone(),
+                    })
+                }
+                _ => Ok(SavedAuth::Certificate {
+                    key_path: kp.to_string(),
+                    cert_path: cp.to_string(),
+                    has_passphrase: false,
+                    passphrase_keychain_id: None,
+                }),
+            }
+        }
+        _ => Ok(SavedAuth::Agent),
+    }
+}
+
 /// Save (create or update) a connection
 #[tauri::command]
 pub async fn save_connection(
@@ -507,7 +587,8 @@ pub async fn save_connection(
                 conn.options.agent_forwarding = agent_forwarding;
             }
 
-            conn.auth = build_saved_auth(
+            conn.auth = build_saved_auth_for_update(
+                &conn.auth,
                 &request.auth_type,
                 request.password.as_ref().map(|s| s.as_str()),
                 request.key_path.as_deref(),
@@ -630,6 +711,106 @@ pub async fn save_connection(
     state.save().await?;
 
     Ok(ConnectionInfo::from(&connection))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn build_saved_auth_for_update_preserves_saved_password_when_no_new_password_is_provided() {
+        let existing = SavedAuth::Password {
+            keychain_id: Some("kc-1".to_string()),
+        };
+
+        let updated = build_saved_auth_for_update(
+            &existing,
+            "password",
+            None,
+            None,
+            None,
+            &Keychain::with_service("com.oxideterm.test"),
+        )
+        .unwrap();
+
+        assert_eq!(
+            updated,
+            SavedAuth::Password {
+                keychain_id: Some("kc-1".to_string())
+            }
+        );
+    }
+
+    #[test]
+    fn build_saved_auth_for_update_preserves_key_passphrase_for_unchanged_key_path() {
+        let existing = SavedAuth::Key {
+            key_path: "/tmp/id_ed25519".to_string(),
+            has_passphrase: true,
+            passphrase_keychain_id: Some("kc-pass".to_string()),
+        };
+
+        let updated = build_saved_auth_for_update(
+            &existing,
+            "key",
+            None,
+            Some("/tmp/id_ed25519"),
+            None,
+            &Keychain::with_service("com.oxideterm.test"),
+        )
+        .unwrap();
+
+        assert_eq!(updated, existing);
+    }
+
+    #[test]
+    fn build_saved_auth_for_update_clears_key_passphrase_when_key_path_changes() {
+        let existing = SavedAuth::Key {
+            key_path: "/tmp/id_ed25519".to_string(),
+            has_passphrase: true,
+            passphrase_keychain_id: Some("kc-pass".to_string()),
+        };
+
+        let updated = build_saved_auth_for_update(
+            &existing,
+            "key",
+            None,
+            Some("/tmp/id_rsa"),
+            None,
+            &Keychain::with_service("com.oxideterm.test"),
+        )
+        .unwrap();
+
+        assert_eq!(
+            updated,
+            SavedAuth::Key {
+                key_path: "/tmp/id_rsa".to_string(),
+                has_passphrase: false,
+                passphrase_keychain_id: None,
+            }
+        );
+    }
+
+    #[test]
+    fn build_saved_auth_for_update_preserves_certificate_passphrase_when_paths_are_unchanged() {
+        let existing = SavedAuth::Certificate {
+            key_path: "/tmp/id_ed25519".to_string(),
+            cert_path: "/tmp/id_ed25519-cert.pub".to_string(),
+            has_passphrase: true,
+            passphrase_keychain_id: Some("kc-cert".to_string()),
+        };
+
+        let updated = build_saved_auth_for_update(
+            &existing,
+            "certificate",
+            None,
+            Some("/tmp/id_ed25519"),
+            Some("/tmp/id_ed25519-cert.pub"),
+            &Keychain::with_service("com.oxideterm.test"),
+        )
+        .unwrap();
+
+        assert_eq!(updated, existing);
+    }
 }
 
 /// Delete a connection

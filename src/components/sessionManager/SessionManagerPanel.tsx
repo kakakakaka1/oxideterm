@@ -9,6 +9,7 @@ import { ConnectionTable } from './ConnectionTable';
 import { ManagerToolbar } from './ManagerToolbar';
 import { OxideExportModal } from '../modals/OxideExportModal';
 import { OxideImportModal } from '../modals/OxideImportModal';
+import { EditConnectionModal } from '../modals/EditConnectionModal';
 import { EditConnectionPropertiesModal } from '../modals/EditConnectionPropertiesModal';
 import { connectToSaved } from '../../lib/connectToSaved';
 import { useAppStore } from '../../store/appStore';
@@ -51,6 +52,7 @@ export const SessionManagerPanel = () => {
   const [showExport, setShowExport] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [editingConnectionId, setEditingConnectionId] = useState<string | null>(null);
+  const [connectPromptConnectionId, setConnectPromptConnectionId] = useState<string | null>(null);
 
   // Connect action
   const handleConnect = useCallback(async (connectionId: string) => {
@@ -58,7 +60,13 @@ export const SessionManagerPanel = () => {
       createTab,
       toast,
       t,
-      onError: (id) => setEditingConnectionId(id),
+      onError: (id, reason) => {
+        if (reason === 'missing-password') {
+          setConnectPromptConnectionId(id);
+          return;
+        }
+        setEditingConnectionId(id);
+      },
     });
   }, [createTab, toast, t]);
 
@@ -183,6 +191,17 @@ export const SessionManagerPanel = () => {
         }}
         connection={editingConnectionId ? allConnections.find(c => c.id === editingConnectionId) ?? null : null}
         onSaved={refresh}
+      />
+
+      <EditConnectionModal
+        open={!!connectPromptConnectionId}
+        onOpenChange={(open) => {
+          if (!open) {
+            setConnectPromptConnectionId(null);
+          }
+        }}
+        connection={connectPromptConnectionId ? allConnections.find(c => c.id === connectPromptConnectionId) ?? null : null}
+        onConnect={refresh}
       />
 
       <OxideExportModal

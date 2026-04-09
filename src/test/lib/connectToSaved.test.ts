@@ -209,4 +209,66 @@ describe('connectToSaved', () => {
 
     expect(onError).not.toHaveBeenCalled();
   });
+
+  it('requests a password prompt instead of attempting a fresh connection when password is missing', async () => {
+    apiMocks.getSavedConnectionForConnect.mockResolvedValue({
+      name: 'Missing Password',
+      host: 'example.com',
+      port: 22,
+      username: 'tester',
+      auth_type: 'password',
+      agent_forwarding: false,
+      proxy_chain: [],
+    });
+    const onError = vi.fn();
+
+    await connectToSaved('saved-missing-password', {
+      createTab: vi.fn(),
+      toast: vi.fn(),
+      t: (key: string) => key,
+      onError,
+    });
+
+    expect(onError).toHaveBeenCalledWith('saved-missing-password', 'missing-password');
+    expect(sessionTreeState.addRootNode).not.toHaveBeenCalled();
+    expect(sessionTreeState.connectNodeWithAncestors).not.toHaveBeenCalled();
+  });
+
+  it('reuses an active node without prompting for password when a terminal already exists', async () => {
+    sessionTreeState.nodes = [
+      {
+        id: 'node-active',
+        depth: 0,
+        host: 'example.com',
+        port: 22,
+        username: 'tester',
+        runtime: { status: 'active', terminalIds: ['term-1'] },
+      },
+    ];
+    sessionTreeState.getNode.mockReturnValue({
+      id: 'node-active',
+      runtime: { terminalIds: ['term-1'] },
+    });
+    appStoreState.tabs = [{ id: 'tab-1', type: 'terminal', sessionId: 'term-1' }];
+    apiMocks.getSavedConnectionForConnect.mockResolvedValue({
+      name: 'Active Password Conn',
+      host: 'example.com',
+      port: 22,
+      username: 'tester',
+      auth_type: 'password',
+      agent_forwarding: false,
+      proxy_chain: [],
+    });
+    const onError = vi.fn();
+
+    await connectToSaved('saved-active-password', {
+      createTab: vi.fn(),
+      toast: vi.fn(),
+      t: (key: string) => key,
+      onError,
+    });
+
+    expect(onError).not.toHaveBeenCalled();
+    expect(appStoreState.activeTabId).toBe('tab-1');
+  });
 });

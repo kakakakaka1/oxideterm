@@ -11,7 +11,7 @@ export type ConnectToSavedOptions = {
   createTab: (type: 'terminal', sessionId: string) => void;
   toast: (props: { title: string; description: string; variant?: ToastVariant }) => void;
   t: (key: string, options?: Record<string, unknown>) => string;
-  onError?: (connectionId: string) => void;
+  onError?: (connectionId: string, reason?: 'missing-password' | 'connect-failed') => void;
 };
 
 /**
@@ -45,6 +45,8 @@ export async function connectToSaved(
 
   try {
     const savedConn = await api.getSavedConnectionForConnect(connectionId);
+
+    const requiresPasswordPrompt = (authType?: string, password?: string) => authType === 'password' && !password;
 
     // ========== Proxy Chain 支持 ==========
     if (savedConn.proxy_chain && savedConn.proxy_chain.length > 0) {
@@ -108,6 +110,12 @@ export async function connectToSaved(
       n.username === savedConn.username
     );
 
+    const canReuseActiveNode = !!existingNode && existingNode.runtime.status === 'active';
+    if (!canReuseActiveNode && requiresPasswordPrompt(savedConn.auth_type, savedConn.password)) {
+      onError?.(connectionId, 'missing-password');
+      return;
+    }
+
     let nodeId: string;
 
     if (existingNode) {
@@ -162,7 +170,7 @@ export async function connectToSaved(
       !errorMsg.includes('already connected') &&
       !errorMsg.includes('CHAIN_LOCK_BUSY') &&
       !errorMsg.includes('NODE_LOCK_BUSY')) {
-      onError?.(connectionId);
+      onError?.(connectionId, 'connect-failed');
     }
   }
 }
