@@ -63,6 +63,11 @@ function copySelection(selection: string): void {
   });
 }
 
+function consumeKeyboardEvent(event: KeyboardEvent): void {
+  event.preventDefault();
+  event.stopPropagation();
+}
+
 export function attachTerminalSmartCopy(
   term: Terminal,
   options: TerminalSmartCopyOptions,
@@ -86,6 +91,7 @@ export function attachTerminalSmartCopy(
         return true;
       }
 
+      consumeKeyboardEvent(event);
       copySelection(selection);
       return false;
     }
@@ -95,6 +101,7 @@ export function attachTerminalSmartCopy(
         return true;
       }
 
+      consumeKeyboardEvent(event);
       options.onPasteShortcut();
       return false;
     }

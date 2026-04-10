@@ -28,6 +28,13 @@ function createTerminalMock() {
   };
 }
 
+function createShortcutEvent(init: KeyboardEventInit): KeyboardEvent {
+  const event = new KeyboardEvent('keydown', init);
+  vi.spyOn(event, 'preventDefault');
+  vi.spyOn(event, 'stopPropagation');
+  return event;
+}
+
 describe('attachTerminalSmartCopy', () => {
   beforeEach(() => {
     setOverrides(new Map());
@@ -45,6 +52,7 @@ describe('attachTerminalSmartCopy', () => {
     const writeText = vi.mocked(navigator.clipboard.writeText);
     const hasSelection = vi.mocked(term.hasSelection);
     const getSelection = vi.mocked(term.getSelection);
+    const event = createShortcutEvent({ key: 'c', ctrlKey: true });
 
     hasSelection.mockReturnValue(true);
     getSelection.mockReturnValue('selected output');
@@ -54,10 +62,12 @@ describe('attachTerminalSmartCopy', () => {
       isEnabled: () => true,
     });
 
-    const handled = getHandler()?.(new KeyboardEvent('keydown', { key: 'c', ctrlKey: true }));
+    const handled = getHandler()?.(event);
 
     expect(handled).toBe(false);
     expect(writeText).toHaveBeenCalledWith('selected output');
+    expect(event.preventDefault).toHaveBeenCalledOnce();
+    expect(event.stopPropagation).toHaveBeenCalledOnce();
   });
 
   it('lets Ctrl+C pass through when nothing is selected', () => {
@@ -114,6 +124,31 @@ describe('attachTerminalSmartCopy', () => {
     expect(writeText).not.toHaveBeenCalled();
   });
 
+  it('lets a customized terminal paste shortcut pass through when the terminal is inactive', () => {
+    const { term, getHandler } = createTerminalMock();
+    const onPasteShortcut = vi.fn();
+    const event = createShortcutEvent({ key: 'v', ctrlKey: true });
+
+    setOverrides(new Map([
+      ['terminal.paste', {
+        other: { key: 'v', ctrl: true, shift: false, alt: false, meta: false },
+      }],
+    ]));
+
+    attachTerminalSmartCopy(term, {
+      isActive: () => false,
+      isEnabled: () => true,
+      onPasteShortcut,
+    });
+
+    const handled = getHandler()?.(event);
+
+    expect(handled).toBe(true);
+    expect(onPasteShortcut).not.toHaveBeenCalled();
+    expect(event.preventDefault).not.toHaveBeenCalled();
+    expect(event.stopPropagation).not.toHaveBeenCalled();
+  });
+
   it('restores the default pass-through handler on dispose', () => {
     const { term } = createTerminalMock();
     const attachCustomKeyEventHandler = vi.mocked(term.attachCustomKeyEventHandler);
@@ -149,6 +184,7 @@ describe('attachTerminalSmartCopy', () => {
   it('consumes a customized terminal paste shortcut and invokes the callback', () => {
     const { term, getHandler } = createTerminalMock();
     const onPasteShortcut = vi.fn();
+    const event = createShortcutEvent({ key: 'v', ctrlKey: true });
 
     setOverrides(new Map([
       ['terminal.paste', {
@@ -162,10 +198,12 @@ describe('attachTerminalSmartCopy', () => {
       onPasteShortcut,
     });
 
-    const handled = getHandler()?.(new KeyboardEvent('keydown', { key: 'v', ctrlKey: true }));
+    const handled = getHandler()?.(event);
 
     expect(handled).toBe(false);
     expect(onPasteShortcut).toHaveBeenCalledOnce();
+    expect(event.preventDefault).toHaveBeenCalledOnce();
+    expect(event.stopPropagation).toHaveBeenCalledOnce();
   });
 
   it('still lets Ctrl+Shift+V pass through to xterm after remapping terminal paste to Ctrl+V', () => {
