@@ -429,6 +429,7 @@ PlanView.displayName = 'PlanView';
 
 const STEP_ICONS: Record<AgentStep['type'], React.ElementType> = {
   plan: ListChecks,
+  contract: ListChecks,
   tool_call: Terminal,
   observation: FileText,
   decision: Zap,
@@ -436,6 +437,7 @@ const STEP_ICONS: Record<AgentStep['type'], React.ElementType> = {
   user_input: Shield,
   verify: CheckCircle2,
   review: ScanSearch,
+  handoff: FastForward,
 };
 
 const StepEntry = memo(({ step }: { step: AgentStep }) => {
@@ -531,6 +533,161 @@ const StepLog = memo(({ steps }: { steps: AgentStep[] }) => {
   );
 });
 StepLog.displayName = 'StepLog';
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Contract / Review / Lineage Panels
+// ═══════════════════════════════════════════════════════════════════════════
+
+const ContractCard = memo(({ task }: { task: AgentTask }) => {
+  const { t } = useTranslation();
+  const contract = task.activeContract;
+
+  if (!contract) return null;
+
+  return (
+    <div className="rounded-lg border border-theme-border bg-theme-bg-hover/60 p-3 space-y-2">
+      <div className="flex items-center gap-2 text-sm font-medium text-theme-text">
+        <ListChecks className="w-4 h-4 text-theme-accent" />
+        {t('agent.contract.title')}
+      </div>
+      <div className="text-xs text-theme-text">
+        <span className="text-theme-text-muted">{t('agent.contract.objective')}:</span> {contract.objective}
+      </div>
+      {contract.plannedActions.length > 0 && (
+        <div className="text-xs text-theme-text-muted space-y-1">
+          <div>{t('agent.contract.actions')}</div>
+          <ul className="space-y-1 pl-4 list-disc text-theme-text">
+            {contract.plannedActions.map((action) => (
+              <li key={action}>{action}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {contract.verificationChecklist.length > 0 && (
+        <div className="text-xs text-theme-text-muted space-y-1">
+          <div>{t('agent.contract.verification')}</div>
+          <ul className="space-y-1 pl-4 list-disc text-theme-text">
+            {contract.verificationChecklist.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {(contract.riskFlags.length > 0 || contract.approvalPlan.requiresUserApprovalFor.length > 0) && (
+        <div className="grid grid-cols-1 gap-2 text-xs md:grid-cols-2">
+          <div className="rounded-md bg-theme-bg px-2.5 py-2">
+            <div className="text-theme-text-muted mb-1">{t('agent.contract.risks')}</div>
+            <div className="text-theme-text">{contract.riskFlags.length > 0 ? contract.riskFlags.join(', ') : t('agent.contract.none')}</div>
+          </div>
+          <div className="rounded-md bg-theme-bg px-2.5 py-2">
+            <div className="text-theme-text-muted mb-1">{t('agent.contract.approvals')}</div>
+            <div className="text-theme-text">
+              {contract.approvalPlan.requiresUserApprovalFor.length > 0
+                ? contract.approvalPlan.requiresUserApprovalFor.join(', ')
+                : t('agent.contract.none')}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+});
+ContractCard.displayName = 'ContractCard';
+
+const REVIEW_BADGE_CLASS: Record<NonNullable<AgentTask['lastReview']>['assessment'], string> = {
+  pass: 'text-green-400 bg-green-500/10 border-green-500/30',
+  needs_correction: 'text-amber-300 bg-amber-500/10 border-amber-500/30',
+  reset_required: 'text-orange-300 bg-orange-500/10 border-orange-500/30',
+  critical_failure: 'text-red-300 bg-red-500/10 border-red-500/30',
+};
+
+const ReviewCard = memo(({ task }: { task: AgentTask }) => {
+  const { t } = useTranslation();
+  const review = task.lastReview;
+
+  if (!review) return null;
+
+  return (
+    <div className="rounded-lg border border-theme-border bg-theme-bg-hover/60 p-3 space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 text-sm font-medium text-theme-text">
+          <ScanSearch className="w-4 h-4 text-theme-accent" />
+          {t('agent.review.title')}
+        </div>
+        <span className={cn('rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide', REVIEW_BADGE_CLASS[review.assessment])}>
+          {t(`agent.review.assessment.${review.assessment}`)}
+        </span>
+      </div>
+      <p className="text-xs text-theme-text">{review.summary}</p>
+      {review.blockingFindings.length > 0 && (
+        <div className="space-y-1 text-xs text-theme-text-muted">
+          <div>{t('agent.review.blocking')}</div>
+          <ul className="space-y-1 pl-4 list-disc text-theme-text">
+            {review.blockingFindings.map((finding) => (
+              <li key={finding}>{finding}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {review.suggestions.length > 0 && (
+        <div className="space-y-1 text-xs text-theme-text-muted">
+          <div>{t('agent.review.suggestions')}</div>
+          <ul className="space-y-1 pl-4 list-disc text-theme-text">
+            {review.suggestions.map((suggestion) => (
+              <li key={suggestion}>{suggestion}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+});
+ReviewCard.displayName = 'ReviewCard';
+
+const LineageCard = memo(({ task }: { task: AgentTask }) => {
+  const { t } = useTranslation();
+
+  if (!task.lineageId) return null;
+
+  return (
+    <div className="rounded-lg border border-theme-border bg-theme-bg-hover/60 p-3 space-y-2">
+      <div className="flex items-center gap-2 text-sm font-medium text-theme-text">
+        <History className="w-4 h-4 text-theme-accent" />
+        {t('agent.lineage.title')}
+      </div>
+      <div className="grid grid-cols-1 gap-2 text-xs md:grid-cols-3">
+        <div className="rounded-md bg-theme-bg px-2.5 py-2">
+          <div className="text-theme-text-muted mb-1">{t('agent.lineage.id')}</div>
+          <div className="text-theme-text font-mono break-all">{task.lineageId}</div>
+        </div>
+        <div className="rounded-md bg-theme-bg px-2.5 py-2">
+          <div className="text-theme-text-muted mb-1">{t('agent.lineage.reset_count')}</div>
+          <div className="text-theme-text">{task.resetCount}</div>
+        </div>
+        <div className="rounded-md bg-theme-bg px-2.5 py-2">
+          <div className="text-theme-text-muted mb-1">{t('agent.lineage.source')}</div>
+          <div className="text-theme-text break-all">{task.handoffFromTaskId || t('agent.lineage.none')}</div>
+        </div>
+      </div>
+      {task.lineageArtifacts.length > 0 && (
+        <div className="space-y-1 text-xs text-theme-text-muted">
+          <div>{t('agent.lineage.handoffs')}</div>
+          <div className="space-y-1">
+            {task.lineageArtifacts.slice(-3).map((artifact) => (
+              <div key={artifact.id} className="rounded-md bg-theme-bg px-2.5 py-2 text-theme-text">
+                <div className="font-medium">{artifact.summary}</div>
+                <div className="text-[10px] text-theme-text-muted mt-1">
+                  {new Date(artifact.createdAt).toLocaleString()}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+});
+LineageCard.displayName = 'LineageCard';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Approval Bar
@@ -780,7 +937,7 @@ ControlBar.displayName = 'ControlBar';
 const TaskSummary = memo(({ task }: { task: AgentTask }) => {
   const { t } = useTranslation();
 
-  if (task.status !== 'completed' && task.status !== 'failed') return null;
+  if (task.status !== 'completed' && task.status !== 'failed' && task.status !== 'handed_off') return null;
 
   return (
     <div
@@ -788,17 +945,25 @@ const TaskSummary = memo(({ task }: { task: AgentTask }) => {
         'rounded-lg border p-3',
         task.status === 'completed'
           ? 'border-green-500/30 bg-green-500/5'
+          : task.status === 'handed_off'
+            ? 'border-amber-500/30 bg-amber-500/5'
           : 'border-red-500/30 bg-red-500/5',
       )}
     >
       <div className="flex items-center gap-2 mb-1">
         {task.status === 'completed' ? (
           <CheckCircle2 className="w-4 h-4 text-green-400" />
+        ) : task.status === 'handed_off' ? (
+          <FastForward className="w-4 h-4 text-amber-400" />
         ) : (
           <XCircle className="w-4 h-4 text-red-400" />
         )}
         <span className="text-sm font-medium text-theme-text">
-          {task.status === 'completed' ? t('agent.summary.completed') : t('agent.summary.failed')}
+          {task.status === 'completed'
+            ? t('agent.summary.completed')
+            : task.status === 'handed_off'
+              ? t('agent.summary.handed_off')
+              : t('agent.summary.failed')}
         </span>
       </div>
       {task.summary && (
@@ -961,10 +1126,17 @@ const TaskHistory = memo(({ onRerun, onResume, onRerunWithPlan }: { onRerun: (go
             >
               {task.status === 'completed' ? (
                 <CheckCircle2 className="w-3 h-3 text-green-400 flex-shrink-0" />
+              ) : task.status === 'handed_off' ? (
+                <FastForward className="w-3 h-3 text-amber-400 flex-shrink-0" />
               ) : (
                 <XCircle className="w-3 h-3 text-red-400 flex-shrink-0" />
               )}
-              <span className="flex-1 truncate">{task.goal}</span>
+              <div className="flex-1 min-w-0">
+                <div className="truncate">{task.goal}</div>
+                <div className="text-[10px] text-theme-text-muted truncate">
+                  {t('agent.lineage.reset_count')}: {task.resetCount ?? 0}
+                </div>
+              </div>
               <span className="text-[10px] flex-shrink-0 group-hover:hidden">
                 {task.completedAt ? new Date(task.completedAt).toLocaleTimeString() : ''}
               </span>
@@ -1198,6 +1370,9 @@ export const AgentPanel = () => {
       {/* Scrollable Content */}
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
         {activeTask && <PlanView task={activeTask} allowSkip />}
+        {activeTask && <ContractCard task={activeTask} />}
+        {activeTask && <ReviewCard task={activeTask} />}
+        {activeTask && <LineageCard task={activeTask} />}
         <StepLog steps={activeTask?.steps ?? []} />
         {activeTask && <TaskSummary task={activeTask} />}
         <TaskHistory onRerun={handleStart} onResume={handleResume} onRerunWithPlan={handleRerunWithPlan} />

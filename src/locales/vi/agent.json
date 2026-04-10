@@ -19,6 +19,15 @@
       "title": "Kế hoạch",
       "skip_step": "Bỏ qua"
     },
+    "contract": {
+      "title": "Hợp đồng vòng",
+      "objective": "Mục tiêu",
+      "actions": "Hành động dự kiến",
+      "verification": "Danh sách xác minh",
+      "risks": "Rủi ro",
+      "approvals": "Kế hoạch phê duyệt",
+      "none": "Không có"
+    },
     "roles": {
       "title": "Vai trò",
       "planner": "Lập kế hoạch",
@@ -27,6 +36,7 @@
     },
     "step": {
       "plan": "Lập kế hoạch",
+      "contract": "Hợp đồng",
       "tool_call": "Gọi công cụ",
       "observation": "Quan sát",
       "decision": "Quyết định",
@@ -35,6 +45,7 @@
       "user_input": "Nhập liệu",
       "verify": "Xác minh",
       "review": "Đánh giá",
+      "handoff": "Bàn giao",
       "summary": "Tóm tắt",
       "expand": "Xem thêm",
       "collapse": "Thu gọn"
@@ -55,6 +66,7 @@
       "executing": "Đang thực thi...",
       "paused": "Đã tạm dừng",
       "completed": "Hoàn thành",
+      "handed_off": "Đã bàn giao",
       "failed": "Thất bại",
       "cancelled": "Đã hủy",
       "awaiting_approval": "Đang chờ phê duyệt"
@@ -68,7 +80,27 @@
     },
     "summary": {
       "completed": "Nhiệm vụ hoàn thành",
+      "handed_off": "Nhiệm vụ đã bàn giao",
       "failed": "Nhiệm vụ thất bại"
+    },
+    "review": {
+      "title": "Cổng rà soát",
+      "blocking": "Phát hiện chặn",
+      "suggestions": "Đề xuất",
+      "assessment": {
+        "pass": "Đạt",
+        "needs_correction": "Cần chỉnh sửa",
+        "reset_required": "Cần đặt lại",
+        "critical_failure": "Lỗi nghiêm trọng"
+      }
+    },
+    "lineage": {
+      "title": "Dòng tác vụ",
+      "id": "ID dòng tác vụ",
+      "reset_count": "Số lần reset",
+      "source": "Nguồn handoff",
+      "handoffs": "Handoff gần đây",
+      "none": "Không có"
     },
     "history": {
       "title": "Lịch sử ({{count}})",
@@ -89,6 +121,7 @@
       "context_overflow": "Đạt giới hạn ngữ cảnh, nhiệm vụ đã dừng",
       "max_rounds": "Đạt số vòng tối đa, nhiệm vụ có thể chưa hoàn thiện",
       "no_progress": "Đại lý đã dừng: không có tiến triển sau nhiều vòng",
+      "pause_timeout": "Nhiệm vụ đại lý đã bị hủy sau khi tạm dừng quá lâu",
       "reviewer_stopped": "Người đánh giá đã dừng tác vụ"
     },
     "customRoles": {

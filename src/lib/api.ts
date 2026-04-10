@@ -1512,6 +1512,24 @@ export const api = {
     return invoke('agent_history_clear_checkpoint');
   },
 
+  /** Save a handoff artifact for a lineage */
+  agentHistorySaveHandoff: async (lineageId: string, handoffId: string, handoffJson: string): Promise<void> => {
+    if (USE_MOCK) return;
+    return invoke('agent_history_save_handoff', { lineageId, handoffId, handoffJson });
+  },
+
+  /** Load a single handoff artifact */
+  agentHistoryGetHandoff: async (handoffId: string): Promise<string | null> => {
+    if (USE_MOCK) return null;
+    return invoke('agent_history_get_handoff', { handoffId });
+  },
+
+  /** List all handoff artifacts for a lineage */
+  agentHistoryListLineage: async (lineageId: string): Promise<string[]> => {
+    if (USE_MOCK) return [];
+    return invoke('agent_history_list_lineage', { lineageId });
+  },
+
   /** Delete a single agent task by ID */
   agentHistoryDelete: async (taskId: string): Promise<void> => {
     if (USE_MOCK) return;

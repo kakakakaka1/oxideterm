@@ -8,6 +8,8 @@
 //!   - task_steps_v2:  "task_id:NNNN" → zstd(JSON step)       — per-step storage
 //!   - task_index_v2:  "index" → MessagePack(Vec<IndexEntry>)  — ordered index
 //!   - checkpoint_v2:  "active" → zstd(JSON AgentTask)         — crash-recovery
+//!   - handoff_v1:     handoff_id → zstd(JSON handoff)         — proactive reset state
+//!   - lineage_v1:     lineage_id → MessagePack(Vec<handoff>)  — lineage lookup
 
 use redb::{Database, ReadableTable, TableDefinition};
 use serde::{Deserialize, Serialize};
@@ -45,6 +47,12 @@ const INDEX_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("task_ind
 /// Table: checkpoint for crash recovery (key: "active", value: zstd JSON)
 const CHECKPOINT_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("checkpoint_v2");
 
+/// Table: handoff artifact JSON (key: handoff_id, value: zstd JSON)
+const HANDOFF_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("handoff_v1");
+
+/// Table: lineage index (key: lineage_id, value: MessagePack Vec<handoff_id>)
+const LINEAGE_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("lineage_v1");
+
 const INDEX_KEY: &str = "index";
 const CHECKPOINT_KEY: &str = "active";
 
@@ -74,6 +82,18 @@ pub struct TaskMeta {
     pub plan_description: Option<String>,
     /// Full plan JSON for plan reuse
     pub plan_json: Option<String>,
+    /// Last reviewer assessment (if available)
+    pub last_assessment: Option<String>,
+    /// Latest round contract JSON snapshot
+    pub latest_contract_json: Option<String>,
+    /// Latest review JSON snapshot
+    pub latest_review_json: Option<String>,
+    /// Shared reset lineage identifier
+    pub lineage_id: Option<String>,
+    /// Number of resets before this task
+    pub reset_count: u32,
+    /// Source task ID that handed work off into this task
+    pub handoff_from_task_id: Option<String>,
     /// Context tab type at task creation
     pub context_tab_type: Option<String>,
 }
@@ -187,6 +207,8 @@ impl AgentHistoryStore {
             let _ = txn.open_table(STEPS_TABLE)?;
             let _ = txn.open_table(INDEX_TABLE)?;
             let _ = txn.open_table(CHECKPOINT_TABLE)?;
+            let _ = txn.open_table(HANDOFF_TABLE)?;
+            let _ = txn.open_table(LINEAGE_TABLE)?;
         }
         txn.commit()?;
 
@@ -481,6 +503,77 @@ impl AgentHistoryStore {
         Ok(())
     }
 
+    // ─── Handoff / Lineage ──────────────────────────────────────────────
+
+    pub fn save_handoff(
+        &self,
+        lineage_id: &str,
+        handoff_id: &str,
+        handoff_json: &str,
+    ) -> Result<(), AgentHistoryError> {
+        let compressed = zstd::encode_all(handoff_json.as_bytes(), ZSTD_LEVEL)
+            .map_err(|e| AgentHistoryError::Compression(format!("zstd encode failed: {}", e)))?;
+
+        let txn = self.db.begin_write()?;
+        {
+            let mut handoff_table = txn.open_table(HANDOFF_TABLE)?;
+            handoff_table.insert(handoff_id, compressed.as_slice())?;
+
+            let mut lineage_table = txn.open_table(LINEAGE_TABLE)?;
+            let mut lineage = self.read_string_index_from_table(&lineage_table, lineage_id)?;
+            if !lineage.iter().any(|entry| entry == handoff_id) {
+                lineage.push(handoff_id.to_string());
+            }
+            let lineage_bytes = rmp_serde::to_vec(&lineage)?;
+            lineage_table.insert(lineage_id, lineage_bytes.as_slice())?;
+        }
+        txn.commit()?;
+        Ok(())
+    }
+
+    pub fn get_handoff(&self, handoff_id: &str) -> Result<Option<String>, AgentHistoryError> {
+        let txn = self.db.begin_read()?;
+        let handoff_table = txn.open_table(HANDOFF_TABLE)?;
+        match handoff_table.get(handoff_id)? {
+            Some(entry) => {
+                let decompressed = zstd::decode_all(entry.value()).map_err(|e| {
+                    AgentHistoryError::Compression(format!("zstd decode failed: {}", e))
+                })?;
+                let json = String::from_utf8(decompressed).map_err(|e| {
+                    AgentHistoryError::Compression(format!("UTF-8 decode failed: {}", e))
+                })?;
+                Ok(Some(json))
+            }
+            None => Ok(None),
+        }
+    }
+
+    pub fn list_lineage(&self, lineage_id: &str) -> Result<Vec<String>, AgentHistoryError> {
+        let txn = self.db.begin_read()?;
+        let lineage_table = txn.open_table(LINEAGE_TABLE)?;
+        let handoff_table = txn.open_table(HANDOFF_TABLE)?;
+
+        let lineage = self.read_string_index_from_table(&lineage_table, lineage_id)?;
+        let mut results = Vec::new();
+
+        for handoff_id in lineage {
+            match handoff_table.get(handoff_id.as_str())? {
+                Some(entry) => {
+                    match zstd::decode_all(entry.value()) {
+                        Ok(decompressed) => match String::from_utf8(decompressed) {
+                            Ok(json) => results.push(json),
+                            Err(e) => warn!("Skipping handoff {} (UTF-8 error): {}", handoff_id, e),
+                        },
+                        Err(e) => warn!("Skipping handoff {} (decompression error): {}", handoff_id, e),
+                    }
+                }
+                None => warn!("Handoff {} in lineage {} but not in handoff table", handoff_id, lineage_id),
+            }
+        }
+
+        Ok(results)
+    }
+
     // ─── Delete / Clear ──────────────────────────────────────────────────
 
     /// Delete a single task (metadata + all steps).
@@ -528,6 +621,26 @@ impl AgentHistoryStore {
 
             let mut cp_table = txn.open_table(CHECKPOINT_TABLE)?;
             let _ = cp_table.remove(CHECKPOINT_KEY);
+
+            let mut handoff_table = txn.open_table(HANDOFF_TABLE)?;
+            let mut handoff_keys = Vec::new();
+            for entry in handoff_table.iter()? {
+                let (key, _) = entry?;
+                handoff_keys.push(key.value().to_string());
+            }
+            for key in handoff_keys {
+                let _ = handoff_table.remove(key.as_str());
+            }
+
+            let mut lineage_table = txn.open_table(LINEAGE_TABLE)?;
+            let mut lineage_keys = Vec::new();
+            for entry in lineage_table.iter()? {
+                let (key, _) = entry?;
+                lineage_keys.push(key.value().to_string());
+            }
+            for key in lineage_keys {
+                let _ = lineage_table.remove(key.as_str());
+            }
         }
         txn.commit()?;
         info!("Agent history cleared (v2)");
@@ -543,6 +656,20 @@ impl AgentHistoryStore {
         match table.get(INDEX_KEY)? {
             Some(entry) => {
                 let index: Vec<TaskIndexEntry> = rmp_serde::from_slice(entry.value())?;
+                Ok(index)
+            }
+            None => Ok(Vec::new()),
+        }
+    }
+
+    fn read_string_index_from_table<T: ReadableTable<&'static str, &'static [u8]>>(
+        &self,
+        table: &T,
+        key: &str,
+    ) -> Result<Vec<String>, AgentHistoryError> {
+        match table.get(key)? {
+            Some(entry) => {
+                let index: Vec<String> = rmp_serde::from_slice(entry.value())?;
                 Ok(index)
             }
             None => Ok(Vec::new()),
@@ -616,6 +743,12 @@ mod tests {
             step_count: 1,
             plan_description: None,
             plan_json: None,
+            last_assessment: None,
+            latest_contract_json: None,
+            latest_review_json: None,
+            lineage_id: Some(task_id.to_string()),
+            reset_count: 0,
+            handoff_from_task_id: None,
             context_tab_type: None,
         }
     }
@@ -650,5 +783,21 @@ mod tests {
             Err(AgentHistoryError::NotFound(_))
         ));
         assert!(store.get_steps("task-2", 0, 10).unwrap().is_empty());
+    }
+
+    #[test]
+    fn save_and_list_handoff_lineage() {
+        let (_temp_dir, store) = create_store();
+        let handoff_json = r#"{"id":"handoff-1","summary":"reset"}"#;
+
+        store
+            .save_handoff("lineage-1", "handoff-1", handoff_json)
+            .unwrap();
+
+        let single = store.get_handoff("handoff-1").unwrap();
+        let lineage = store.list_lineage("lineage-1").unwrap();
+
+        assert_eq!(single.as_deref(), Some(handoff_json));
+        assert_eq!(lineage, vec![handoff_json.to_string()]);
     }
 }

@@ -19,6 +19,15 @@
       "title": "Plan",
       "skip_step": "Ignorer"
     },
+    "contract": {
+      "title": "Contrat de tour",
+      "objective": "Objectif",
+      "actions": "Actions prévues",
+      "verification": "Liste de vérification",
+      "risks": "Risques",
+      "approvals": "Plan d'approbation",
+      "none": "Aucun"
+    },
     "roles": {
       "title": "Rôles",
       "planner": "Planificateur",
@@ -27,6 +36,7 @@
     },
     "step": {
       "plan": "Planification",
+      "contract": "Contrat",
       "tool_call": "Appel d'outil",
       "observation": "Observation",
       "decision": "Décision",
@@ -35,6 +45,7 @@
       "user_input": "Entrée utilisateur",
       "verify": "Vérifier",
       "review": "Révision",
+      "handoff": "Handoff",
       "summary": "Résumé",
       "expand": "Voir plus",
       "collapse": "Réduire"
@@ -55,6 +66,7 @@
       "executing": "Exécution...",
       "paused": "En pause",
       "completed": "Terminé",
+      "handed_off": "Transmis",
       "failed": "Échoué",
       "cancelled": "Annulé",
       "awaiting_approval": "En attente d'approbation"
@@ -68,7 +80,27 @@
     },
     "summary": {
       "completed": "Tâche terminée",
+      "handed_off": "Tâche transmise",
       "failed": "Tâche échouée"
+    },
+    "review": {
+      "title": "Porte de révision",
+      "blocking": "Constats bloquants",
+      "suggestions": "Suggestions",
+      "assessment": {
+        "pass": "Validé",
+        "needs_correction": "Correction requise",
+        "reset_required": "Réinitialisation requise",
+        "critical_failure": "Échec critique"
+      }
+    },
+    "lineage": {
+      "title": "Lignée",
+      "id": "ID de lignée",
+      "reset_count": "Réinitialisations",
+      "source": "Source du handoff",
+      "handoffs": "Handoffs récents",
+      "none": "Aucun"
     },
     "history": {
       "title": "Historique ({{count}})",
@@ -89,6 +121,7 @@
       "context_overflow": "Limite de contexte atteinte, tâche arrêtée",
       "max_rounds": "Nombre max de tours atteint, tâche peut être incomplète",
       "no_progress": "Agent arrêté : aucun progrès après plusieurs tours",
+      "pause_timeout": "La tâche de l'agent a été annulée après une pause trop longue",
       "reviewer_stopped": "Le réviseur a arrêté la tâche"
     },
     "customRoles": {

@@ -1622,6 +1622,17 @@ export type AgentRolesConfig = {
   reviewer: AgentReviewerConfig;
 };
 
+export type AgentRiskFlag = 'security' | 'state-sync' | 'destructive-write' | 'external-side-effect';
+
+export type AgentReviewAssessment = 'pass' | 'needs_correction' | 'reset_required' | 'critical_failure';
+
+export type AgentReviewCategory =
+  | 'contractAdherence'
+  | 'correctness'
+  | 'safety'
+  | 'efficiency'
+  | 'verificationQuality';
+
 /** Agent task execution status */
 export type AgentTaskStatus =
   | 'planning'
@@ -1629,6 +1640,7 @@ export type AgentTaskStatus =
   | 'paused'
   | 'awaiting_approval'
   | 'completed'
+  | 'handed_off'
   | 'failed'
   | 'cancelled';
 
@@ -1650,6 +1662,70 @@ export type AgentPlanStep = {
   status: 'pending' | 'completed' | 'skipped';
 };
 
+export type AgentRoundContract = {
+  id: string;
+  taskId: string;
+  roundIndex: number;
+  objective: string;
+  scopeIn: string[];
+  scopeOut: string[];
+  plannedActions: string[];
+  expectedTools: string[];
+  verificationChecklist: string[];
+  exitCriteria: string[];
+  riskFlags: AgentRiskFlag[];
+  approvalPlan: {
+    expectedApprovalCount: number | null;
+    requiresUserApprovalFor: string[];
+  };
+};
+
+export type AgentReviewScore = {
+  score: number;
+  passed: boolean;
+  findings: string[];
+};
+
+export type AgentReviewScorecard = {
+  contractAdherence: AgentReviewScore;
+  correctness: AgentReviewScore;
+  safety: AgentReviewScore;
+  efficiency: AgentReviewScore;
+  verificationQuality: AgentReviewScore;
+};
+
+export type AgentReviewResult = {
+  assessment: AgentReviewAssessment;
+  summary: string;
+  blockingFindings: string[];
+  suggestions: string[];
+  scorecard: AgentReviewScorecard;
+  shouldContinue: boolean;
+};
+
+export type AgentHandoffArtifact = {
+  id: string;
+  lineageId: string;
+  sourceTaskId: string;
+  sourceRound: number;
+  targetGoal: string;
+  summary: string;
+  completedWork: string[];
+  remainingWork: string[];
+  knownRisks: string[];
+  repeatedFailures: string[];
+  nextBestActions: string[];
+  preservedContext: {
+    planDescription: string | null;
+    currentPlanStepIndex: number | null;
+    relevantFiles: string[];
+    relevantCommands: string[];
+  };
+  contractSnapshot: AgentRoundContract | null;
+  reviewerSnapshot: AgentReviewResult | null;
+  createdAt: number;
+};
+
 /** A single step in agent execution history */
 export type AgentStep = {
   /** Unique step ID */
@@ -1657,7 +1733,7 @@ export type AgentStep = {
   /** Which round this step belongs to (0-based) */
   roundIndex: number;
   /** Step type */
-  type: 'plan' | 'tool_call' | 'observation' | 'decision' | 'error' | 'user_input' | 'verify' | 'review';
+  type: 'plan' | 'contract' | 'tool_call' | 'observation' | 'decision' | 'error' | 'user_input' | 'verify' | 'review' | 'handoff';
   /** Text content (AI reasoning, plan text, error message, etc.) */
   content: string;
   /** Tool call details (only for type === 'tool_call') */
@@ -1704,6 +1780,18 @@ export type AgentTask = {
   summary: string | null;
   /** Error message if failed */
   error: string | null;
+  /** Reset lineage ID shared across handoff tasks */
+  lineageId: string;
+  /** Number of handoff resets that happened before this task */
+  resetCount: number;
+  /** Current round contract */
+  activeContract: AgentRoundContract | null;
+  /** Most recent reviewer result */
+  lastReview: AgentReviewResult | null;
+  /** Task ID that handed work off into this task */
+  handoffFromTaskId: string | null;
+  /** Handoff artifacts for this lineage, newest last */
+  lineageArtifacts: AgentHandoffArtifact[];
   /** Tab type at task creation time — determines which tab-specific tools are available */
   contextTabType?: TabType | null;
   /** If this task was resumed from a previous task, the round to resume from */
@@ -1729,6 +1817,12 @@ export type AgentTaskMeta = {
   stepCount: number;
   planDescription: string | null;
   planJson: string | null;
+  lastAssessment: AgentReviewAssessment | null;
+  latestContractJson: string | null;
+  latestReviewJson: string | null;
+  lineageId: string | null;
+  resetCount: number;
+  handoffFromTaskId: string | null;
   contextTabType?: string | null;
 };
 

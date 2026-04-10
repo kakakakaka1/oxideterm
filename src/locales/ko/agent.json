@@ -19,6 +19,15 @@
       "title": "계획",
       "skip_step": "건너뛰기"
     },
+    "contract": {
+      "title": "라운드 계약",
+      "objective": "목표",
+      "actions": "계획된 작업",
+      "verification": "검증 체크리스트",
+      "risks": "위험",
+      "approvals": "승인 계획",
+      "none": "없음"
+    },
     "roles": {
       "title": "역할 설정",
       "planner": "플래너",
@@ -27,6 +36,7 @@
     },
     "step": {
       "plan": "계획",
+      "contract": "계약",
       "tool_call": "도구 호출",
       "observation": "관찰",
       "decision": "결정",
@@ -35,6 +45,7 @@
       "user_input": "사용자 입력",
       "verify": "검증",
       "review": "리뷰",
+      "handoff": "인계",
       "summary": "요약",
       "expand": "더 보기",
       "collapse": "접기"
@@ -55,6 +66,7 @@
       "executing": "실행 중...",
       "paused": "일시 중지",
       "completed": "완료",
+      "handed_off": "인계됨",
       "failed": "실패",
       "cancelled": "취소됨",
       "awaiting_approval": "승인 대기"
@@ -68,7 +80,27 @@
     },
     "summary": {
       "completed": "작업 완료",
+      "handed_off": "작업 인계됨",
       "failed": "작업 실패"
+    },
+    "review": {
+      "title": "리뷰 게이트",
+      "blocking": "차단 이슈",
+      "suggestions": "제안",
+      "assessment": {
+        "pass": "통과",
+        "needs_correction": "수정 필요",
+        "reset_required": "리셋 필요",
+        "critical_failure": "치명적 실패"
+      }
+    },
+    "lineage": {
+      "title": "계보",
+      "id": "계보 ID",
+      "reset_count": "리셋 횟수",
+      "source": "핸드오프 출처",
+      "handoffs": "최근 핸드오프",
+      "none": "없음"
     },
     "history": {
       "title": "기록 ({{count}})",
@@ -89,6 +121,7 @@
       "context_overflow": "컨텍스트 한도 도달, 작업 중지됨",
       "max_rounds": "최대 라운드 도달, 작업이 불완전할 수 있음",
       "no_progress": "에이전트 중지: 여러 라운드 동안 진행 없음",
+      "pause_timeout": "에이전트 작업이 너무 오래 일시 중지되어 자동 취소되었습니다",
       "reviewer_stopped": "리뷰어가 작업을 중지했습니다"
     },
     "customRoles": {

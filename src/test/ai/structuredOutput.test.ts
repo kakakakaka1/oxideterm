@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { parsePlanResponse } from '@/lib/ai/agentPlanner';
+import { parseRoundContract } from '@/lib/ai/agentContract';
 import { parseReview } from '@/lib/ai/agentReviewer';
 import { parseCompletionResponse } from '@/lib/ai/structuredOutput';
 
@@ -69,7 +70,7 @@ describe('planner structured output parsing', () => {
 });
 
 describe('reviewer structured output parsing', () => {
-  it('parses top-level review drift with synonym keys and camelCase boolean', () => {
+  it('parses top-level review drift with synonym keys and synthesizes a scorecard', () => {
     const text = `
     {
       "assessment": "needs revision",
@@ -81,27 +82,51 @@ describe('reviewer structured output parsing', () => {
 
     expect(parseReview(text)).toEqual({
       assessment: 'needs_correction',
-      findings: 'The agent skipped verification.',
+      summary: 'The agent skipped verification.',
+      blockingFindings: ['The agent skipped verification.'],
       suggestions: ['Re-run the final verification command'],
+      scorecard: {
+        contractAdherence: { score: 4, passed: false, findings: ['The agent skipped verification.'] },
+        correctness: { score: 4, passed: false, findings: ['The agent skipped verification.'] },
+        safety: { score: 8, passed: true, findings: [] },
+        efficiency: { score: 6, passed: true, findings: [] },
+        verificationQuality: { score: 4, passed: false, findings: ['The agent skipped verification.'] },
+      },
       shouldContinue: true,
     });
   });
 
-  it('parses fenced JSON review payloads with string suggestions and inferred stop on critical issues', () => {
+  it('parses fenced JSON review payloads with scorecard fields', () => {
     const text = `\`\`\`json
     {
       "review": {
-        "assessment": "critical",
-        "findings": "A destructive command targeted the wrong path.",
-        "suggestions": "Stop execution; confirm the target directory before retrying."
+        "assessment": "critical_failure",
+        "summary": "A destructive command targeted the wrong path.",
+        "blockingFindings": ["Wrong path targeted"],
+        "suggestions": "Stop execution; confirm the target directory before retrying.",
+        "scorecard": {
+          "safety": { "score": 1, "passed": false, "findings": ["Wrong path targeted"] },
+          "correctness": { "score": 3, "passed": false, "findings": ["Wrong path targeted"] },
+          "contractAdherence": { "score": 4, "passed": false, "findings": ["Wrong path targeted"] },
+          "efficiency": { "score": 5, "passed": true, "findings": [] },
+          "verificationQuality": { "score": 5, "passed": true, "findings": [] }
+        }
       }
     }
     \`\`\``;
 
     expect(parseReview(text)).toEqual({
-      assessment: 'critical_issue',
-      findings: 'A destructive command targeted the wrong path.',
+      assessment: 'critical_failure',
+      summary: 'A destructive command targeted the wrong path.',
+      blockingFindings: ['Wrong path targeted'],
       suggestions: ['Stop execution', 'confirm the target directory before retrying.'],
+      scorecard: {
+        safety: { score: 1, passed: false, findings: ['Wrong path targeted'] },
+        correctness: { score: 3, passed: false, findings: ['Wrong path targeted'] },
+        contractAdherence: { score: 4, passed: false, findings: ['Wrong path targeted'] },
+        efficiency: { score: 5, passed: true, findings: [] },
+        verificationQuality: { score: 5, passed: true, findings: [] },
+      },
       shouldContinue: false,
     });
   });
@@ -110,19 +135,71 @@ describe('reviewer structured output parsing', () => {
     const text = `Reviewer output follows:\n{
       "result": {
         "review": {
-          "assessment": "on_track",
-          "findings": "Progress is consistent.",
+          "assessment": "pass",
+          "summary": "Progress is consistent.",
+          "blockingFindings": [],
           "suggestions": ["Keep the current plan"],
+          "scorecard": {
+            "contractAdherence": { "score": 8, "passed": true, "findings": [] },
+            "correctness": { "score": 8, "passed": true, "findings": [] },
+            "safety": { "score": 9, "passed": true, "findings": [] },
+            "efficiency": { "score": 8, "passed": true, "findings": [] },
+            "verificationQuality": { "score": 8, "passed": true, "findings": [] }
+          },
           "should_continue": "true"
         }
       }
     }\nEnd of review.`;
 
     expect(parseReview(text)).toEqual({
-      assessment: 'on_track',
-      findings: 'Progress is consistent.',
+      assessment: 'pass',
+      summary: 'Progress is consistent.',
+      blockingFindings: [],
       suggestions: ['Keep the current plan'],
+      scorecard: {
+        contractAdherence: { score: 8, passed: true, findings: [] },
+        correctness: { score: 8, passed: true, findings: [] },
+        safety: { score: 9, passed: true, findings: [] },
+        efficiency: { score: 8, passed: true, findings: [] },
+        verificationQuality: { score: 8, passed: true, findings: [] },
+      },
       shouldContinue: true,
+    });
+  });
+});
+
+describe('round contract parsing', () => {
+  it('parses a structured contract payload wrapped in prose', () => {
+    const text = `Use this contract:\n{
+      "contract": {
+        "objective": "Verify the repaired service",
+        "scopeIn": ["Run health checks", "Inspect logs"],
+        "scopeOut": ["Do not change configuration"],
+        "plannedActions": ["Run curl /healthz", "Tail the service log"],
+        "expectedTools": ["terminal_exec"],
+        "verificationChecklist": ["Health endpoint returns 200"],
+        "exitCriteria": ["Health checks pass"],
+        "riskFlags": ["external-side-effect"],
+        "approvalPlan": {
+          "expectedApprovalCount": 1,
+          "requiresUserApprovalFor": ["terminal_exec"]
+        }
+      }
+    }`;
+
+    expect(parseRoundContract(text)).toMatchObject({
+      objective: 'Verify the repaired service',
+      scopeIn: ['Run health checks', 'Inspect logs'],
+      scopeOut: ['Do not change configuration'],
+      plannedActions: ['Run curl /healthz', 'Tail the service log'],
+      expectedTools: ['terminal_exec'],
+      verificationChecklist: ['Health endpoint returns 200'],
+      exitCriteria: ['Health checks pass'],
+      riskFlags: ['external-side-effect'],
+      approvalPlan: {
+        expectedApprovalCount: 1,
+        requiresUserApprovalFor: ['terminal_exec'],
+      },
     });
   });
 });

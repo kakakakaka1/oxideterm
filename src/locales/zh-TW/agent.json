@@ -19,6 +19,15 @@
       "title": "計劃",
       "skip_step": "跳過"
     },
+    "contract": {
+      "title": "回合契約",
+      "objective": "目標",
+      "actions": "計畫動作",
+      "verification": "驗證檢查清單",
+      "risks": "風險",
+      "approvals": "審批計畫",
+      "none": "無"
+    },
     "roles": {
       "title": "角色配置",
       "planner": "規劃器",
@@ -27,6 +36,7 @@
     },
     "step": {
       "plan": "規劃",
+      "contract": "契約",
       "tool_call": "工具呼叫",
       "observation": "觀察",
       "decision": "決策",
@@ -35,6 +45,7 @@
       "user_input": "使用者輸入",
       "verify": "驗證",
       "review": "審查",
+      "handoff": "交接",
       "summary": "總結",
       "expand": "展開更多",
       "collapse": "收起"
@@ -55,6 +66,7 @@
       "executing": "執行中...",
       "paused": "已暫停",
       "completed": "已完成",
+      "handed_off": "已交接",
       "failed": "失敗",
       "cancelled": "已取消",
       "awaiting_approval": "等待批准"
@@ -68,7 +80,27 @@
     },
     "summary": {
       "completed": "任務完成",
+      "handed_off": "任務已交接",
       "failed": "任務失敗"
+    },
+    "review": {
+      "title": "審查閘門",
+      "blocking": "阻塞發現",
+      "suggestions": "建議",
+      "assessment": {
+        "pass": "通過",
+        "needs_correction": "需要修正",
+        "reset_required": "需要重置",
+        "critical_failure": "嚴重失敗"
+      }
+    },
+    "lineage": {
+      "title": "脈絡鏈",
+      "id": "脈絡鏈 ID",
+      "reset_count": "重置次數",
+      "source": "交接來源",
+      "handoffs": "最近交接",
+      "none": "無"
     },
     "history": {
       "title": "歷史記錄 ({{count}})",
@@ -89,6 +121,7 @@
       "context_overflow": "上下文已達上限，任務已停止",
       "max_rounds": "已達最大輪次，任務可能未完成",
       "no_progress": "Agent 已停止：多輪無進展",
+      "pause_timeout": "Agent 任務暫停過久，已自動取消",
       "reviewer_stopped": "審查器已停止任務"
     },
     "customRoles": {

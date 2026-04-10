@@ -19,6 +19,15 @@
       "title": "Piano",
       "skip_step": "Salta"
     },
+    "contract": {
+      "title": "Contratto del round",
+      "objective": "Obiettivo",
+      "actions": "Azioni pianificate",
+      "verification": "Checklist di verifica",
+      "risks": "Rischi",
+      "approvals": "Piano di approvazione",
+      "none": "Nessuno"
+    },
     "roles": {
       "title": "Ruoli",
       "planner": "Pianificatore",
@@ -27,6 +36,7 @@
     },
     "step": {
       "plan": "Pianificazione",
+      "contract": "Contratto",
       "tool_call": "Chiamata strumento",
       "observation": "Osservazione",
       "decision": "Decisione",
@@ -35,6 +45,7 @@
       "user_input": "Input utente",
       "verify": "Verifica",
       "review": "Revisione",
+      "handoff": "Handoff",
       "summary": "Riepilogo",
       "expand": "Mostra altro",
       "collapse": "Mostra meno"
@@ -55,6 +66,7 @@
       "executing": "Esecuzione...",
       "paused": "In pausa",
       "completed": "Completato",
+      "handed_off": "Passato di mano",
       "failed": "Fallito",
       "cancelled": "Annullato",
       "awaiting_approval": "In attesa di approvazione"
@@ -68,7 +80,27 @@
     },
     "summary": {
       "completed": "Compito completato",
+      "handed_off": "Compito passato di mano",
       "failed": "Compito fallito"
+    },
+    "review": {
+      "title": "Controllo revisione",
+      "blocking": "Problemi bloccanti",
+      "suggestions": "Suggerimenti",
+      "assessment": {
+        "pass": "Superato",
+        "needs_correction": "Correzione necessaria",
+        "reset_required": "Reset richiesto",
+        "critical_failure": "Errore critico"
+      }
+    },
+    "lineage": {
+      "title": "Linea di esecuzione",
+      "id": "ID linea",
+      "reset_count": "Reset",
+      "source": "Origine handoff",
+      "handoffs": "Handoff recenti",
+      "none": "Nessuno"
     },
     "history": {
       "title": "Cronologia ({{count}})",
@@ -89,6 +121,7 @@
       "context_overflow": "Limite di contesto raggiunto, compito interrotto",
       "max_rounds": "Numero massimo di turni raggiunto, il compito potrebbe essere incompleto",
       "no_progress": "Agente fermato: nessun progresso dopo più turni",
+      "pause_timeout": "L'attività dell'agente è stata annullata dopo una pausa troppo lunga",
       "reviewer_stopped": "Il revisore ha fermato l'attività"
     },
     "customRoles": {

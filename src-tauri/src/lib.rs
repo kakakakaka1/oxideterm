@@ -713,6 +713,9 @@ pub fn run() {
         commands::agent_history_save_checkpoint,
         commands::agent_history_load_checkpoint,
         commands::agent_history_clear_checkpoint,
+        commands::agent_history_save_handoff,
+        commands::agent_history_get_handoff,
+        commands::agent_history_list_lineage,
         commands::agent_history_delete,
         commands::agent_history_clear,
         // RAG document retrieval commands
@@ -1042,6 +1045,9 @@ pub fn run() {
         commands::agent_history_save_checkpoint,
         commands::agent_history_load_checkpoint,
         commands::agent_history_clear_checkpoint,
+        commands::agent_history_save_handoff,
+        commands::agent_history_get_handoff,
+        commands::agent_history_list_lineage,
         commands::agent_history_delete,
         commands::agent_history_clear,
         // RAG document retrieval commands

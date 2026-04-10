@@ -21,6 +21,9 @@ import { getProvider } from './providerRegistry';
 import { buildAgentSystemPrompt } from './agentSystemPrompt';
 import { buildPlannerSystemPrompt, parsePlanResponse } from './agentPlanner';
 import { buildReviewerSystemPrompt, buildReviewPrompt, formatReviewFeedback, parseReview, shouldRunReviewerForRound } from './agentReviewer';
+import { buildRoundContractPrompt, buildRoundContractSystemPrompt, fallbackRoundContract, formatRoundContractForExecutor, parseRoundContract } from './agentContract';
+import { buildHandoffArtifact, formatHandoffForExecutor } from './agentHandoff';
+import { finalizeReviewResult, shouldTriggerContextReset } from './agentReviewPolicy';
 import { getToolsForContext } from './tools';
 import { estimateTokens, getModelContextWindow, responseReserve } from './tokenUtils';
 import { getActiveCwd, getActivePaneMetadata } from '../terminalRegistry';
@@ -45,7 +48,15 @@ import {
   createStep,
 } from './roles';
 import type { ChatMessage, AiStreamProvider } from './providers';
-import type { AgentTask, AgentStep, AgentPlanStep, AgentRoleConfig, AgentReviewerConfig, TabType } from '../../types';
+import type {
+  AgentReviewResult,
+  AgentRoleConfig,
+  AgentReviewerConfig,
+  AgentRoundContract,
+  AgentTask,
+  AgentStep,
+  TabType,
+} from '../../types';
 import type { ToolExecutionContext } from './tools';
 /** Cache for resolveActiveToolContext — skip IPC if focused node hasn't changed */
 let _cachedToolContext: { nodeId: string; context: ToolExecutionContext } | null = null;
@@ -320,6 +331,109 @@ async function resolveRoleConfig(
   }
 }
 
+function normalizeRoundContract(contract: AgentRoundContract, taskId: string, roundIndex: number): AgentRoundContract {
+  return {
+    ...contract,
+    id: contract.id || crypto.randomUUID(),
+    taskId,
+    roundIndex,
+  };
+}
+
+function buildSyntheticReview(summary: string): AgentReviewResult {
+  return {
+    assessment: 'needs_correction',
+    summary,
+    blockingFindings: [summary],
+    suggestions: ['Re-run the review with a narrower scope and explicit verification.'],
+    scorecard: {
+      contractAdherence: { score: 3, passed: false, findings: [summary] },
+      correctness: { score: 3, passed: false, findings: [summary] },
+      safety: { score: 8, passed: true, findings: [] },
+      efficiency: { score: 5, passed: true, findings: [] },
+      verificationQuality: { score: 2, passed: false, findings: [summary] },
+    },
+    shouldContinue: true,
+  };
+}
+
+async function buildContractForRound(options: {
+  task: AgentTask;
+  round: number;
+  recentSteps: AgentStep[];
+  executorConfig: ResolvedRoleConfig;
+  signal: AbortSignal;
+}): Promise<AgentRoundContract> {
+  const { task, round, recentSteps, executorConfig, signal } = options;
+  const contractMessages: ChatMessage[] = [
+    { role: 'system', content: buildRoundContractSystemPrompt() },
+    {
+      role: 'user',
+      content: buildRoundContractPrompt({
+        taskId: task.id,
+        goal: task.goal,
+        roundIndex: round,
+        plan: task.plan,
+        recentSteps,
+        lastReview: task.lastReview,
+      }),
+    },
+  ];
+
+  try {
+    const result = await runSingleShot(executorConfig, contractMessages, signal);
+    const parsed = parseRoundContract(result.text);
+    if (parsed) {
+      return normalizeRoundContract(parsed, task.id, round);
+    }
+  } catch (error) {
+    console.warn('[AgentOrchestrator] Contract builder failed, using fallback:', error);
+  }
+
+  return fallbackRoundContract({
+    taskId: task.id,
+    roundIndex: round,
+    goal: task.goal,
+    plan: task.plan,
+    lastReview: task.lastReview,
+  });
+}
+
+async function runReviewerRound(options: {
+  task: AgentTask;
+  round: number;
+  maxRounds: number;
+  contract: AgentRoundContract | null;
+  recentSteps: AgentStep[];
+  reviewerConfig: ResolvedRoleConfig;
+  signal: AbortSignal;
+}): Promise<AgentReviewResult> {
+  const { task, round, maxRounds, contract, recentSteps, reviewerConfig, signal } = options;
+
+  const reviewMessages: ChatMessage[] = [
+    { role: 'system', content: buildReviewerSystemPrompt() },
+    { role: 'user', content: buildReviewPrompt(task.goal, contract, recentSteps, round, maxRounds) },
+  ];
+
+  const result = await runSingleShot(reviewerConfig, reviewMessages, signal);
+  const parsed = parseReview(result.text);
+  if (!parsed) {
+    return buildSyntheticReview('Reviewer output could not be parsed into a scorecard.');
+  }
+  return finalizeReviewResult(parsed, task.lastReview);
+}
+
+function finishTask(summary: string, status: 'completed' | 'failed'): void {
+  const store = useAgentStore.getState;
+  const plan = store().activeTask?.plan;
+  if (plan) {
+    store().setPlan({ ...plan, currentStepIndex: plan.steps.length });
+  }
+  store().setTaskSummary(summary);
+  store().setTaskStatus(status);
+  showToast(status === 'completed' ? 'agent.toast.task_completed' : 'agent.toast.task_failed', status === 'completed' ? 'success' : 'error');
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Main Entry: Run Agent
 // ═══════════════════════════════════════════════════════════════════════════
@@ -327,478 +441,470 @@ async function resolveRoleConfig(
 // Concurrency guard — prevents overlapping runAgent() calls
 let _agentRunning = false;
 
-export async function runAgent(task: AgentTask, signal: AbortSignal): Promise<void> {
-  if (_agentRunning) {
-    throw new Error('Agent task already running');
-  }
-  _agentRunning = true;
-  _cachedToolContext = null; // Reset cache for new task
+async function executeTask(task: AgentTask, signal: AbortSignal): Promise<{ nextTask: AgentTask; nextSignal: AbortSignal } | null> {
   const store = useAgentStore.getState;
+  const settings = useSettingsStore.getState().settings;
+  const provider = settings.ai.providers.find((entry) => entry.id === task.providerId);
+  if (!provider) throw new Error(`Provider not found: ${task.providerId}`);
+  if (!provider.enabled) throw new Error(`Provider is disabled: ${provider.name}`);
+  if (!provider.baseUrl) throw new Error(`Provider has no base URL: ${provider.name}`);
 
-  try {
-    // ── Get provider config ──────────────────────────────────────────────
-    const settings = useSettingsStore.getState().settings;
-    const provider = settings.ai.providers.find(p => p.id === task.providerId);
-    if (!provider) throw new Error(`Provider not found: ${task.providerId}`);
-    if (!provider.enabled) throw new Error(`Provider is disabled: ${provider.name}`);
-    if (!provider.baseUrl) throw new Error(`Provider has no base URL: ${provider.name}`);
+  const aiProvider = getProvider(provider.type);
+  const apiKey = await getApiKeyForProvider(provider.id, provider.type);
 
-    const aiProvider = getProvider(provider.type);
-    const apiKey = await getApiKeyForProvider(provider.id, provider.type);
+  const agentRoles = settings.ai.agentRoles;
+  const executorConfig = { provider: aiProvider, baseUrl: provider.baseUrl, model: task.model, apiKey };
+  const plannerConfig = await resolveRoleConfig(agentRoles?.planner, executorConfig);
+  const reviewerRoleConfig = agentRoles?.reviewer;
+  const reviewerConfig = await resolveRoleConfig(reviewerRoleConfig, executorConfig);
+  const reviewInterval = reviewerRoleConfig?.enabled ? (reviewerRoleConfig.interval ?? DEFAULT_REVIEW_INTERVAL) : 0;
 
-    // ── Resolve role-specific configs ────────────────────────────────────
-    const agentRoles = settings.ai.agentRoles;
-    const executorFallback = { provider: aiProvider, baseUrl: provider.baseUrl, model: task.model, apiKey };
-    const plannerConfig = await resolveRoleConfig(agentRoles?.planner, executorFallback);
-    const reviewerRoleConfig = agentRoles?.reviewer;
-    const reviewerConfig = await resolveRoleConfig(reviewerRoleConfig, executorFallback);
-    const reviewInterval = reviewerRoleConfig?.enabled ? (reviewerRoleConfig.interval ?? DEFAULT_REVIEW_INTERVAL) : 0;
+  const disabledToolNames = settings.ai.toolUse?.disabledTools ?? [];
+  const disabledSet = new Set(disabledToolNames);
+  const { useMcpRegistry } = await import('./mcp');
 
-    // ── Tool resolution (refreshed each round to track tab switches) ────
-    const disabledToolNames = settings.ai.toolUse?.disabledTools ?? [];
-    const disabledSet = new Set(disabledToolNames);
+  const resolveTools = () => {
+    const appState = useAppStore.getState();
+    const activeTab = appState.tabs.find((entry) => entry.id === appState.activeTabId);
+    const activeTabType = activeTab?.type ?? null;
+    const hasAnySSH = appState.sessions.size > 0;
+    let resolved = getToolsForContext(activeTabType, hasAnySSH, disabledSet);
+    const mcpTools = useMcpRegistry.getState().getAllMcpToolDefinitions();
+    if (mcpTools.length > 0) {
+      const filtered = mcpTools.filter((entry) => !disabledSet.has(entry.name));
+      if (filtered.length > 0) resolved = [...resolved, ...filtered];
+    }
+    return resolved;
+  };
 
-    // Pre-load MCP registry once
-    const { useMcpRegistry } = await import('./mcp');
+  let tools = resolveTools();
+  const sessionsDesc = await getSessionsDescription();
+  const contextWindow = getModelContextWindow(
+    task.model,
+    settings.ai.modelContextWindows,
+    task.providerId,
+    settings.ai.userContextWindows,
+  );
+  const reserve = responseReserve(contextWindow);
+  const messages: ChatMessage[] = [];
+  const cwd = getActiveCwd();
 
-    /** Resolve tools for the current active tab type, merging MCP tools. */
-    const resolveTools = () => {
-      const appState = useAppStore.getState();
-      const activeTab = appState.tabs.find(t => t.id === appState.activeTabId);
-      const activeTabType = activeTab?.type ?? null;
-      const hasAnySSH = appState.sessions.size > 0;
-      let resolved = getToolsForContext(activeTabType, hasAnySSH, disabledSet);
-      const mcpTools = useMcpRegistry.getState().getAllMcpToolDefinitions();
-      if (mcpTools.length > 0) {
-        const filtered = mcpTools.filter(t => !disabledSet.has(t.name));
-        if (filtered.length > 0) resolved = [...resolved, ...filtered];
-      }
-      return resolved;
+  const snapshotEnvContext = () => {
+    const paneMetadata = getActivePaneMetadata();
+    const snap = useAppStore.getState();
+    const tab = snap.tabs.find((entry) => entry.id === snap.activeTabId);
+    const result = {
+      activeTabType: (tab?.type ?? null) as TabType | null,
+      terminalType: (paneMetadata?.terminalType ?? null) as 'terminal' | 'local_terminal' | null,
+      connectionInfo: undefined as string | undefined,
+      remoteEnvDesc: undefined as string | undefined,
+      localOS: platform.isMac ? 'macOS' : platform.isWindows ? 'Windows' : 'Linux',
     };
-
-    let tools = resolveTools();
-
-    // ── Build initial context ────────────────────────────────────────────
-    const sessionsDesc = await getSessionsDescription();
-    const contextWindow = getModelContextWindow(
-      task.model,
-      settings.ai.modelContextWindows,
-      task.providerId,
-      settings.ai.userContextWindows,
-    );
-    const reserve = responseReserve(contextWindow);
-
-    // ── Conversation history for LLM ─────────────────────────────────────
-    const messages: ChatMessage[] = [];
-
-    // Snapshot CWD at task creation, so it won't drift if user switches panes
-    const cwd = getActiveCwd();
-
-    // Snapshot environment context (refreshed per-round via snapshotEnvContext)
-    const snapshotEnvContext = () => {
-      const paneMetadata = getActivePaneMetadata();
-      const snap = useAppStore.getState();
-      const tab = snap.tabs.find(t => t.id === snap.activeTabId);
-      const result = {
-        activeTabType: (tab?.type ?? null) as TabType | null,
-        terminalType: (paneMetadata?.terminalType ?? null) as 'terminal' | 'local_terminal' | null,
-        connectionInfo: undefined as string | undefined,
-        remoteEnvDesc: undefined as string | undefined,
-        localOS: platform.isMac ? 'macOS' : platform.isWindows ? 'Windows' : 'Linux',
-      };
-      if (result.terminalType === 'terminal' && paneMetadata?.sessionId) {
-        const session = snap.sessions.get(paneMetadata.sessionId);
-        if (session?.connectionId) {
-          const conn = snap.connections.get(session.connectionId);
-          if (conn) {
-            result.connectionInfo = `${conn.username}@${conn.host}`;
-            if (conn.remoteEnv) {
-              const { osType, osVersion, arch, kernel, shell } = conn.remoteEnv;
-              const parts: string[] = [osType];
-              if (osVersion) parts.push(osVersion);
-              if (arch) parts.push(arch);
-              if (kernel) parts.push(`kernel ${kernel}`);
-              if (shell) parts.push(`shell ${shell}`);
-              result.remoteEnvDesc = parts.join(', ');
-            }
+    if (result.terminalType === 'terminal' && paneMetadata?.sessionId) {
+      const session = snap.sessions.get(paneMetadata.sessionId);
+      if (session?.connectionId) {
+        const conn = snap.connections.get(session.connectionId);
+        if (conn) {
+          result.connectionInfo = `${conn.username}@${conn.host}`;
+          if (conn.remoteEnv) {
+            const { osType, osVersion, arch, kernel, shell } = conn.remoteEnv;
+            const parts: string[] = [osType];
+            if (osVersion) parts.push(osVersion);
+            if (arch) parts.push(arch);
+            if (kernel) parts.push(`kernel ${kernel}`);
+            if (shell) parts.push(`shell ${shell}`);
+            result.remoteEnvDesc = parts.join(', ');
           }
         }
       }
-      return result;
-    };
+    }
+    return result;
+  };
 
-    const envCtx = snapshotEnvContext();
-    const { activeTabType, terminalType, connectionInfo, localOS, remoteEnvDesc } = envCtx;
-
-    let systemPrompt = buildAgentSystemPrompt({
+  const initialEnv = snapshotEnvContext();
+  messages.push({
+    role: 'system',
+    content: buildAgentSystemPrompt({
       autonomyLevel: task.autonomyLevel,
       maxRounds: task.maxRounds,
       currentRound: 0,
       availableSessions: sessionsDesc,
-      activeTabType,
-      terminalType,
-      connectionInfo,
-      localOS,
-      remoteEnvDesc,
+      activeTabType: initialEnv.activeTabType,
+      terminalType: initialEnv.terminalType,
+      connectionInfo: initialEnv.connectionInfo,
+      localOS: initialEnv.localOS,
+      remoteEnvDesc: initialEnv.remoteEnvDesc,
       cwd: cwd ?? undefined,
-    });
+    }),
+  });
+  messages.push({ role: 'user', content: `Task: ${task.goal}` });
 
-    messages.push({ role: 'system', content: systemPrompt });
-    messages.push({ role: 'user', content: `Task: ${task.goal}` });
+  if (task.handoffFromTaskId && task.lineageArtifacts.length > 0) {
+    messages.push({ role: 'user', content: formatHandoffForExecutor(task.lineageArtifacts[task.lineageArtifacts.length - 1]) });
+  }
 
-    // ── Resume Path: rebuild messages from prior steps ────────────────────
-    let startRound = 0;
-    if (task.resumeFromRound != null && task.steps.length > 0) {
-      // Rebuild LLM conversation from the preserved steps
-      rebuildMessagesFromSteps(messages, task.steps);
-
-      // Inform LLM we're resuming
-      const skippedStepDescs = task.plan?.steps
-        .filter(s => s.status === 'skipped')
-        .map(s => s.description) ?? [];
-      let resumeNote = `\n\n[System: This task is being resumed from round ${task.resumeFromRound}. Continue executing the remaining plan steps.]`;
-      if (skippedStepDescs.length > 0) {
-        resumeNote += `\n[The user has skipped these steps — do NOT execute them: ${skippedStepDescs.join('; ')}]`;
-      }
-      messages.push({ role: 'user', content: resumeNote });
-
-      startRound = task.resumeFromRound;
-      store().setTaskStatus('executing');
-    } else if (task.plan) {
-      // ── Seeded Plan (reuse from previous task) ─────────────────────────
-      // Plan already set by startTask with seedPlan — skip planning phase
-      const planStep = createStep(0, 'plan', task.plan.description ?? task.goal);
-      store().appendStep(planStep);
-      store().updateStep(planStep.id, {
-        content: task.plan.description ?? '',
-        status: 'completed',
-        durationMs: 0,
-      });
-      messages.push({ role: 'assistant', content: `Plan:\n${task.plan.steps.map((s, i) => `${i + 1}. ${s.description}`).join('\n')}` });
-      store().setTaskStatus('executing');
-    } else {
-      // ── Phase 1: Planning ──────────────────────────────────────────────
-      // Use planner role if configured (may use a different, cheaper/faster model)
-      const useDedicatedPlanner = !!agentRoles?.planner?.enabled && !!agentRoles.planner.providerId && !!agentRoles.planner.model;
-
-      const planStep = createStep(0, 'plan', '');
-      store().appendStep(planStep);
-      store().updateStep(planStep.id, { status: 'running' });
-
-      let planText = '';
-      let planThinking = '';
-
-      if (useDedicatedPlanner) {
-        // Dedicated planner: Use planner-specific prompt (no tools, plan-only)
-        const plannerPrompt = buildPlannerSystemPrompt({
-          autonomyLevel: task.autonomyLevel,
-          maxRounds: task.maxRounds,
-          availableSessions: sessionsDesc,
-        });
-        const plannerMessages: ChatMessage[] = [
-          { role: 'system', content: plannerPrompt + (cwd ? `\nCurrent working directory: ${cwd}` : '') },
-          { role: 'user', content: `Task: ${task.goal}` },
-        ];
-
-        try {
-          const result = await runSingleShot(
-            { provider: plannerConfig.provider, baseUrl: plannerConfig.baseUrl, model: plannerConfig.model, apiKey: plannerConfig.apiKey },
-            plannerMessages,
-            signal,
-          );
-          planText = result.text;
-          planThinking = result.thinkingContent;
-        } catch (planErr) {
-          store().updateStep(planStep.id, {
-            status: 'error',
-            content: planText || (planErr instanceof Error ? planErr.message : String(planErr)),
-            durationMs: Date.now() - planStep.timestamp,
-          });
-          throw planErr;
-        }
-      } else {
-        // Default: executor model handles planning (existing behavior)
-        try {
-          const result = await runSingleShot(
-            { provider: aiProvider, baseUrl: provider.baseUrl, model: task.model, apiKey },
-            messages,
-            signal,
-          );
-          planText = result.text;
-          planThinking = result.thinkingContent;
-        } catch (planErr) {
-          store().updateStep(planStep.id, {
-            status: 'error',
-            content: planText || (planErr instanceof Error ? planErr.message : String(planErr)),
-            durationMs: Date.now() - planStep.timestamp,
-          });
-          throw planErr;
-        }
-      }
-
-      // Parse plan
-      const parsedPlan = parsePlanResponse(planText);
-      if (parsedPlan) {
-        store().setPlan({
-          description: parsedPlan.description,
-          steps: parsedPlan.steps,
-          currentStepIndex: 0,
-        });
-      }
-
-      store().updateStep(planStep.id, {
-        content: planText,
-        status: 'completed',
-        durationMs: Date.now() - planStep.timestamp,
-      });
-
-      // Include reasoning_content for thinking models (Kimi K2.5, DeepSeek-R1)
-      const planAssistantMsg: ChatMessage = { role: 'assistant', content: planText };
-      if (planThinking) {
-        planAssistantMsg.reasoning_content = planThinking;
-      }
-      messages.push(planAssistantMsg);
-      store().setTaskStatus('executing');
+  let startRound = 0;
+  if (task.resumeFromRound != null && task.steps.length > 0) {
+    rebuildMessagesFromSteps(messages, task.steps);
+    const skippedStepDescs = task.plan?.steps
+      .filter((step) => step.status === 'skipped')
+      .map((step) => step.description) ?? [];
+    let resumeNote = `\n\n[System: This task is being resumed from round ${task.resumeFromRound}. Continue executing the remaining plan steps.]`;
+    if (skippedStepDescs.length > 0) {
+      resumeNote += `\n[The user has skipped these steps — do NOT execute them: ${skippedStepDescs.join('; ')}]`;
     }
+    messages.push({ role: 'user', content: resumeNote });
+    startRound = task.resumeFromRound;
+    store().setTaskStatus('executing');
+  } else if (task.plan) {
+    const planStep = createStep(0, 'plan', task.plan.description ?? task.goal);
+    store().appendStep(planStep);
+    store().updateStep(planStep.id, {
+      content: task.plan.description ?? '',
+      status: 'completed',
+      durationMs: 0,
+    });
+    messages.push({ role: 'assistant', content: `Plan:\n${task.plan.steps.map((step, index) => `${index + 1}. ${step.description}`).join('\n')}` });
+    store().setTaskStatus('executing');
+  } else {
+    const useDedicatedPlanner = !!agentRoles?.planner?.enabled && !!agentRoles.planner.providerId && !!agentRoles.planner.model;
+    const planStep = createStep(0, 'plan', '');
+    store().appendStep(planStep);
+    store().updateStep(planStep.id, { status: 'running' });
 
-    // ── Phase 2: Execution Loop ──────────────────────────────────────────
-    let emptyRoundCount = 0;
-    for (let round = startRound; round < task.maxRounds; round++) {
-      if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+    let planText = '';
+    let planThinking = '';
 
-      // Wait if paused (with 30-minute safety timeout, decoupled from poll loop)
-      if (store().activeTask?.status === 'paused') {
-        const MAX_PAUSE_MS = 30 * 60 * 1000;
-        let pauseTimedOut = false;
-        const pauseTimer = setTimeout(() => { pauseTimedOut = true; }, MAX_PAUSE_MS);
-        try {
-          while (store().activeTask?.status === 'paused') {
-            if (pauseTimedOut) {
-              store().setTaskSummary('Task auto-cancelled: paused for over 30 minutes.');
-              store().setTaskStatus('cancelled');
-              showToast('agent.toast.pause_timeout', 'warning');
-              return;
-            }
-            await new Promise(r => setTimeout(r, 200));
-            if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
-          }
-        } finally {
-          clearTimeout(pauseTimer);
-        }
-      }
+    const planningMessages: ChatMessage[] = useDedicatedPlanner
+      ? [
+          {
+            role: 'system',
+            content: buildPlannerSystemPrompt({
+              autonomyLevel: task.autonomyLevel,
+              maxRounds: task.maxRounds,
+              availableSessions: sessionsDesc,
+            }) + (cwd ? `\nCurrent working directory: ${cwd}` : ''),
+          },
+          { role: 'user', content: `Task: ${task.goal}` },
+        ]
+      : messages;
 
-      store().incrementRound();
-      _cachedToolContext = null; // Invalidate per-round to pick up focus changes
-
-      // Refresh tools to pick up tab switches (e.g. after open_tab / open_session_tab)
-      tools = resolveTools();
-
-      // Update system prompt with current round (refresh env context for tab switches)
-      const roundEnv = snapshotEnvContext();
-      const liveAutonomyLevel = useAgentStore.getState().autonomyLevel;
-      messages[0] = {
-        role: 'system',
-        content: buildAgentSystemPrompt({
-          autonomyLevel: liveAutonomyLevel,
-          maxRounds: task.maxRounds,
-          currentRound: round,
-          availableSessions: sessionsDesc,
-          activeTabType: roundEnv.activeTabType,
-          terminalType: roundEnv.terminalType,
-          connectionInfo: roundEnv.connectionInfo,
-          localOS: roundEnv.localOS,
-          remoteEnvDesc: roundEnv.remoteEnvDesc,
-          cwd: cwd ?? undefined,
-        }),
-      };
-
-      // Trim history if needed
-      const budget = contextWindow - reserve;
-      const trimmed = trimMessages(messages, budget);
-
-      // Stream LLM response via RoleRunner
-      const streamResult = await streamCompletion(
-        { provider: aiProvider, baseUrl: provider.baseUrl, model: task.model, apiKey },
-        trimmed,
-        tools,
+    try {
+      const result = await runSingleShot(
+        useDedicatedPlanner ? plannerConfig : executorConfig,
+        planningMessages,
         signal,
       );
+      planText = result.text;
+      planThinking = result.thinkingContent;
+    } catch (planErr) {
+      store().updateStep(planStep.id, {
+        status: 'error',
+        content: planText || (planErr instanceof Error ? planErr.message : String(planErr)),
+        durationMs: Date.now() - planStep.timestamp,
+      });
+      throw planErr;
+    }
 
-      const { text: responseText, thinkingContent, toolCalls: collectedToolCalls } = streamResult;
+    const parsedPlan = parsePlanResponse(planText);
+    if (parsedPlan) {
+      store().setPlan({
+        description: parsedPlan.description,
+        steps: parsedPlan.steps,
+        currentStepIndex: 0,
+      });
+    }
 
-      // Check if LLM returned a completion response (no tool calls)
-      if (collectedToolCalls.length === 0) {
-        const completion = parseCompletionResponse(responseText);
+    store().updateStep(planStep.id, {
+      content: planText,
+      status: 'completed',
+      durationMs: Date.now() - planStep.timestamp,
+    });
 
-        // Record the decision/observation
-        const decisionStep = createStep(round, 'decision', responseText);
-        store().appendStep(decisionStep);
-        store().updateStep(decisionStep.id, { status: 'completed' });
+    const planAssistantMsg: ChatMessage = { role: 'assistant', content: planText };
+    if (planThinking) {
+      planAssistantMsg.reasoning_content = planThinking;
+    }
+    messages.push(planAssistantMsg);
+    store().setTaskStatus('executing');
+  }
 
-        // Include reasoning_content for thinking models (Kimi K2.5, DeepSeek-R1)
-        const decisionMsg: ChatMessage = { role: 'assistant', content: responseText };
-        if (thinkingContent) {
-          decisionMsg.reasoning_content = thinkingContent;
-        }
-        messages.push(decisionMsg);
+  let emptyRoundCount = 0;
+  for (let round = startRound; round < task.maxRounds; round++) {
+    if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
 
-        if (completion) {
-          // Advance plan to final step so the indicator shows full progress
-          const currentPlan = store().activeTask?.plan;
-          if (currentPlan) {
-            store().setPlan({ ...currentPlan, currentStepIndex: currentPlan.steps.length });
+    if (store().activeTask?.status === 'paused') {
+      const maxPauseMs = 30 * 60 * 1000;
+      let pauseTimedOut = false;
+      const pauseTimer = setTimeout(() => {
+        pauseTimedOut = true;
+      }, maxPauseMs);
+      try {
+        while (store().activeTask?.status === 'paused') {
+          if (pauseTimedOut) {
+            store().setTaskSummary('Task auto-cancelled: paused for over 30 minutes.');
+            store().setTaskStatus('cancelled');
+            showToast('agent.toast.pause_timeout', 'warning');
+            return null;
           }
-          // Task is done
-          store().setTaskSummary(completion.summary + (completion.details ? `\n\n${completion.details}` : ''));
-          store().setTaskStatus(completion.status);
-          const variant = completion.status === 'completed' ? 'success' : 'error';
-          showToast(variant === 'success' ? 'agent.toast.task_completed' : 'agent.toast.task_failed', variant);
-          return;
+          await new Promise((resolve) => setTimeout(resolve, 200));
+          if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+        }
+      } finally {
+        clearTimeout(pauseTimer);
+      }
+    }
+
+    store().incrementRound();
+    _cachedToolContext = null;
+    tools = resolveTools();
+
+    const liveTask = store().activeTask ?? task;
+    const roundEnv = snapshotEnvContext();
+    const liveAutonomyLevel = useAgentStore.getState().autonomyLevel;
+    messages[0] = {
+      role: 'system',
+      content: buildAgentSystemPrompt({
+        autonomyLevel: liveAutonomyLevel,
+        maxRounds: task.maxRounds,
+        currentRound: round,
+        availableSessions: sessionsDesc,
+        activeTabType: roundEnv.activeTabType,
+        terminalType: roundEnv.terminalType,
+        connectionInfo: roundEnv.connectionInfo,
+        localOS: roundEnv.localOS,
+        remoteEnvDesc: roundEnv.remoteEnvDesc,
+        cwd: cwd ?? undefined,
+      }),
+    };
+
+    const contractContextSteps = liveTask.steps.filter((step) => step.roundIndex >= Math.max(0, round - 1));
+    const contractStep = createStep(round, 'contract', '');
+    store().appendStep(contractStep);
+    store().updateStep(contractStep.id, { status: 'running' });
+
+    const contract = await buildContractForRound({
+      task: liveTask,
+      round,
+      recentSteps: contractContextSteps,
+      executorConfig,
+      signal,
+    });
+    store().setActiveContract(contract);
+    store().updateStep(contractStep.id, {
+      status: 'completed',
+      durationMs: Date.now() - contractStep.timestamp,
+      content: JSON.stringify(contract, null, 2),
+    });
+    messages.push({ role: 'user', content: formatRoundContractForExecutor(contract) });
+
+    const budget = contextWindow - reserve;
+    const trimmed = trimMessages(messages, budget);
+    const streamResult = await streamCompletion(executorConfig, trimmed, tools, signal);
+    const { text: responseText, thinkingContent, toolCalls: collectedToolCalls } = streamResult;
+
+    const responseMessage: ChatMessage = { role: 'assistant', content: responseText };
+    if (thinkingContent) {
+      responseMessage.reasoning_content = thinkingContent;
+    }
+
+    if (collectedToolCalls.length === 0) {
+      const completion = parseCompletionResponse(responseText);
+      const decisionStep = createStep(round, 'decision', responseText);
+      store().appendStep(decisionStep);
+      store().updateStep(decisionStep.id, { status: 'completed' });
+      messages.push(responseMessage);
+
+      if (completion) {
+        const currentSteps = store().activeTask?.steps ?? [];
+        const recentSteps = currentSteps.filter((step) => step.roundIndex >= Math.max(0, round - Math.max(1, reviewInterval)) && step.roundIndex <= round);
+        const reviewStep = createStep(round, 'review', '');
+        store().appendStep(reviewStep);
+        store().updateStep(reviewStep.id, { status: 'running' });
+
+        const review = await runReviewerRound({
+          task: store().activeTask ?? liveTask,
+          round,
+          maxRounds: task.maxRounds,
+          contract,
+          recentSteps,
+          reviewerConfig,
+          signal,
+        });
+        store().setLastReview(review);
+        store().updateStep(reviewStep.id, {
+          status: review.assessment === 'critical_failure' ? 'error' : 'completed',
+          durationMs: Date.now() - reviewStep.timestamp,
+          content: JSON.stringify(review, null, 2),
+        });
+
+        if (review.assessment === 'pass') {
+          finishTask(completion.summary + (completion.details ? `\n\n${completion.details}` : ''), completion.status);
+          return null;
         }
 
-        // Track consecutive empty rounds (no tool calls and no completion)
-        emptyRoundCount++;
-        if (emptyRoundCount >= MAX_EMPTY_ROUNDS) {
-          const p = store().activeTask?.plan;
-          if (p) store().setPlan({ ...p, currentStepIndex: p.steps.length });
-          store().setTaskSummary('Agent stopped: no actionable response after multiple rounds.');
-          store().setTaskStatus('completed');
-          showToast('agent.toast.no_progress', 'warning');
-          return;
+        if (review.assessment === 'critical_failure') {
+          finishTask(review.summary, 'failed');
+          showToast('agent.toast.reviewer_stopped', 'warning');
+          return null;
         }
 
-        // If no tool calls and no completion, the LLM is asking for input or thinking
-        // Continue to next round with the response as context
+        if (review.assessment === 'reset_required') {
+          const handoffArtifact = buildHandoffArtifact({
+            task: store().activeTask ?? liveTask,
+            reason: review.summary,
+          });
+          const nextTask = await store().createHandoffTask(handoffArtifact);
+          if (!nextTask) return null;
+          const nextSignal = useAgentStore.getState().abortController?.signal;
+          if (!nextSignal) return null;
+          return { nextTask, nextSignal };
+        }
+
+        const feedbackMsg = formatReviewFeedback(review, round);
+        if (feedbackMsg) {
+          messages.push({ role: 'user', content: feedbackMsg });
+        }
         continue;
       }
 
-      // Reset empty round counter — we got tool calls
-      emptyRoundCount = 0;
-
-      // Record assistant message with tool calls
-      // Include reasoning_content for thinking models (Kimi K2.5, DeepSeek-R1)
-      const assistantMsg: ChatMessage = {
-        role: 'assistant',
-        content: responseText,
-        tool_calls: collectedToolCalls,
-      };
-      if (thinkingContent) {
-        assistantMsg.reasoning_content = thinkingContent;
-      }
-      messages.push(assistantMsg);
-
-      // ── Tool Approval & Execution (delegated to RoleRunner) ──────────
-      const toolContext = await resolveActiveToolContext();
-      const { results: toolResults, allSucceeded } = await processToolCalls(
-        collectedToolCalls,
-        round,
-        task,
-        toolContext,
-        signal,
-      );
-
-      // Add tool results to conversation
-      messages.push(...toolResults);
-
-      // Condense old tool messages to save context
-      if (round >= CONDENSE_AFTER_ROUND) {
-        condenseToolMessages(messages);
-      }
-
-      // Context overflow protection
-      const currentTokens = estimateTotalTokens(messages);
-      if (currentTokens > contextWindow * CONTEXT_OVERFLOW_RATIO) {
-        const p = store().activeTask?.plan;
-        if (p) store().setPlan({ ...p, currentStepIndex: p.steps.length });
-        store().setTaskSummary('Context window approaching limit. Task stopped to prevent errors.');
+      emptyRoundCount++;
+      if (emptyRoundCount >= MAX_EMPTY_ROUNDS) {
+        const plan = store().activeTask?.plan;
+        if (plan) store().setPlan({ ...plan, currentStepIndex: plan.steps.length });
+        store().setTaskSummary('Agent stopped: no actionable response after multiple rounds.');
         store().setTaskStatus('completed');
-        showToast('agent.toast.context_overflow', 'warning');
-        return;
+        showToast('agent.toast.no_progress', 'warning');
+        return null;
       }
+      continue;
+    }
 
-      // Advance plan step only if all tools in this round succeeded
-      if (allSucceeded && store().activeTask?.plan) {
-        store().advancePlanStep();
-      }
+    emptyRoundCount = 0;
+    responseMessage.tool_calls = collectedToolCalls;
+    messages.push(responseMessage);
 
-      // ── Reviewer Check ────────────────────────────────────────────────
-      // Invoke the reviewer at configured intervals to audit recent actions
-      if (shouldRunReviewerForRound(round, reviewInterval)) {
-        if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+    const toolContext = await resolveActiveToolContext();
+    const { results: toolResults, allSucceeded } = await processToolCalls(
+      collectedToolCalls,
+      round,
+      store().activeTask ?? liveTask,
+      toolContext,
+      signal,
+    );
+    messages.push(...toolResults);
 
-        try {
-          const currentSteps = store().activeTask?.steps ?? [];
-          // Get recent steps for the reviewer (last reviewInterval rounds)
-          const recentSteps = currentSteps.filter(
-            s => s.roundIndex > round - reviewInterval && s.roundIndex <= round,
-          );
+    if (round >= CONDENSE_AFTER_ROUND) {
+      condenseToolMessages(messages);
+    }
 
-          if (recentSteps.length > 0) {
-            const reviewerPrompt = buildReviewerSystemPrompt();
-            const reviewContent = buildReviewPrompt(task.goal, recentSteps, round, task.maxRounds);
-            const reviewMessages: ChatMessage[] = [
-              { role: 'system', content: reviewerPrompt },
-              { role: 'user', content: reviewContent },
-            ];
+    const currentTokens = estimateTotalTokens(messages);
+    if (shouldTriggerContextReset(currentTokens, contextWindow, CONTEXT_OVERFLOW_RATIO)) {
+      const contextHandoff = buildHandoffArtifact({
+        task: store().activeTask ?? liveTask,
+        reason: 'Context window approaching limit. Resetting with a fresh handoff.',
+      });
+      const nextTask = await store().createHandoffTask(contextHandoff);
+      if (!nextTask) return null;
+      const nextSignal = useAgentStore.getState().abortController?.signal;
+      if (!nextSignal) return null;
+      return { nextTask, nextSignal };
+    }
 
-            const reviewResult = await runSingleShot(
-              { provider: reviewerConfig.provider, baseUrl: reviewerConfig.baseUrl, model: reviewerConfig.model, apiKey: reviewerConfig.apiKey },
-              reviewMessages,
-              signal,
-            );
-            const reviewText = reviewResult.text;
+    let review: AgentReviewResult | null = null;
+    if (shouldRunReviewerForRound(round, reviewInterval)) {
+      try {
+        const currentSteps = store().activeTask?.steps ?? [];
+        const recentSteps = currentSteps.filter((step) => step.roundIndex > round - reviewInterval && step.roundIndex <= round);
+        if (recentSteps.length > 0) {
+          const reviewStep = createStep(round, 'review', '');
+          store().appendStep(reviewStep);
+          store().updateStep(reviewStep.id, { status: 'running' });
 
-            // Record review step
-            const reviewStep = createStep(round, 'review', reviewText);
-            store().appendStep(reviewStep);
-            store().updateStep(reviewStep.id, { status: 'completed' });
+          review = await runReviewerRound({
+            task: store().activeTask ?? liveTask,
+            round,
+            maxRounds: task.maxRounds,
+            contract,
+            recentSteps,
+            reviewerConfig,
+            signal,
+          });
+          store().setLastReview(review);
+          store().updateStep(reviewStep.id, {
+            status: review.assessment === 'critical_failure' ? 'error' : 'completed',
+            durationMs: Date.now() - reviewStep.timestamp,
+            content: JSON.stringify(review, null, 2),
+          });
 
-            // Parse and act on review
-            const review = parseReview(reviewText);
-            if (!review) {
-              // Record failed parse so user can see the raw response
-              store().updateStep(reviewStep.id, { status: 'error', content: `[Review parse failed] ${reviewText.slice(0, 500)}` });
-            } else if (review) {
-              if (!review.shouldContinue) {
-                // Critical issue — stop execution
-                const p = store().activeTask?.plan;
-                if (p) store().setPlan({ ...p, currentStepIndex: p.steps.length });
-                store().setTaskSummary(`Reviewer stopped task: ${review.findings}`);
-                store().setTaskStatus('failed');
-                showToast('agent.toast.reviewer_stopped', 'warning');
-                return;
-              }
-
-              // Inject review feedback into executor's conversation
-              const feedbackMsg = formatReviewFeedback(review, round);
-              if (feedbackMsg) {
-                messages.push({ role: 'user', content: feedbackMsg });
-              }
-            }
+          if (review.assessment === 'critical_failure') {
+            finishTask(review.summary, 'failed');
+            showToast('agent.toast.reviewer_stopped', 'warning');
+            return null;
           }
-        } catch (reviewErr) {
-          // Reviewer failure is non-fatal — record as visible error step and continue
-          const errMsg = reviewErr instanceof Error ? reviewErr.message : String(reviewErr);
-          const errStep = createStep(round, 'error', `Reviewer failed: ${errMsg}`);
-          store().appendStep(errStep);
-          store().updateStep(errStep.id, { status: 'error' });
+
+          if (review.assessment === 'reset_required') {
+            const handoffArtifact = buildHandoffArtifact({
+              task: store().activeTask ?? liveTask,
+              reason: review.summary,
+            });
+            const nextTask = await store().createHandoffTask(handoffArtifact);
+            if (!nextTask) return null;
+            const nextSignal = useAgentStore.getState().abortController?.signal;
+            if (!nextSignal) return null;
+            return { nextTask, nextSignal };
+          }
+
+          const feedbackMsg = formatReviewFeedback(review, round);
+          if (feedbackMsg) {
+            messages.push({ role: 'user', content: feedbackMsg });
+          }
         }
+      } catch (reviewErr) {
+        const errMsg = reviewErr instanceof Error ? reviewErr.message : String(reviewErr);
+        const errStep = createStep(round, 'error', `Reviewer failed: ${errMsg}`);
+        store().appendStep(errStep);
+        store().updateStep(errStep.id, { status: 'error' });
       }
     }
 
-    // Max rounds reached
-    const p = store().activeTask?.plan;
-    if (p) store().setPlan({ ...p, currentStepIndex: p.steps.length });
-    store().setTaskSummary('Maximum rounds reached. Task may be incomplete.');
-    store().setTaskStatus('completed');
-    showToast('agent.toast.max_rounds', 'warning');
+    if (allSucceeded && (!review || review.assessment === 'pass') && store().activeTask?.plan) {
+      store().advancePlanStep();
+    }
+  }
 
+  const finalPlan = store().activeTask?.plan;
+  if (finalPlan) store().setPlan({ ...finalPlan, currentStepIndex: finalPlan.steps.length });
+  store().setTaskSummary('Maximum rounds reached. Task may be incomplete.');
+  store().setTaskStatus('completed');
+  showToast('agent.toast.max_rounds', 'warning');
+  return null;
+}
+
+export async function runAgent(task: AgentTask, signal: AbortSignal): Promise<void> {
+  if (_agentRunning) {
+    throw new Error('Agent task already running');
+  }
+
+  _agentRunning = true;
+  _cachedToolContext = null;
+
+  try {
+    let currentTask: AgentTask | null = task;
+    let currentSignal: AbortSignal | null = signal;
+
+    while (currentTask && currentSignal) {
+      const next = await executeTask(currentTask, currentSignal);
+      if (!next) break;
+      currentTask = next.nextTask;
+      currentSignal = next.nextSignal;
+      _cachedToolContext = null;
+    }
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') {
-      // Already handled by cancelTask
       return;
     }
-    store().setTaskError(err instanceof Error ? err.message : String(err));
+    useAgentStore.getState().setTaskError(err instanceof Error ? err.message : String(err));
     showToast('agent.toast.task_failed', 'error');
   } finally {
     _agentRunning = false;

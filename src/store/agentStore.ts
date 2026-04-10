@@ -11,7 +11,19 @@
 import { create } from 'zustand';
 import { api } from '../lib/api';
 import { MAX_STEPS } from '../lib/ai/agentConfig';
-import type { AgentTask, AgentStep, AgentApproval, AutonomyLevel, AgentTaskStatus, AgentPlan, TabType, AgentTaskMeta } from '../types';
+import type {
+  AgentApproval,
+  AgentHandoffArtifact,
+  AgentPlan,
+  AgentReviewResult,
+  AgentRoundContract,
+  AgentStep,
+  AgentTask,
+  AgentTaskMeta,
+  AgentTaskStatus,
+  AutonomyLevel,
+  TabType,
+} from '../types';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Constants
@@ -49,6 +61,12 @@ function buildTaskMeta(task: AgentTask): AgentTaskMeta {
     stepCount: task.steps.length,
     planDescription: task.plan?.description ?? null,
     planJson: task.plan ? JSON.stringify(task.plan) : null,
+    lastAssessment: task.lastReview?.assessment ?? null,
+    latestContractJson: task.activeContract ? JSON.stringify(task.activeContract) : null,
+    latestReviewJson: task.lastReview ? JSON.stringify(task.lastReview) : null,
+    lineageId: task.lineageId,
+    resetCount: task.resetCount,
+    handoffFromTaskId: task.handoffFromTaskId,
     contextTabType: task.contextTabType ?? null,
   };
 }
@@ -75,7 +93,21 @@ async function persistTaskAndClearCheckpoint(task: AgentTask): Promise<void> {
 
 function isTaskTerminal(task: AgentTask | null): boolean {
   if (!task) return true;
-  return task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled';
+  return task.status === 'completed' || task.status === 'handed_off' || task.status === 'failed' || task.status === 'cancelled';
+}
+
+async function loadLineageArtifacts(lineageId: string | null): Promise<AgentHandoffArtifact[]> {
+  if (!lineageId) return [];
+  const jsonList = await api.agentHistoryListLineage(lineageId);
+  const artifacts: AgentHandoffArtifact[] = [];
+  for (const json of jsonList) {
+    try {
+      artifacts.push(JSON.parse(json) as AgentHandoffArtifact);
+    } catch {
+      // skip malformed artifacts
+    }
+  }
+  return artifacts;
 }
 
 /** Load steps from backend and reconstruct a full AgentTask from meta */
@@ -90,6 +122,15 @@ async function loadFullTask(meta: AgentTaskMeta): Promise<AgentTask> {
   if (meta.planJson) {
     try { plan = JSON.parse(meta.planJson); } catch { /* skip */ }
   }
+  let activeContract: AgentRoundContract | null = null;
+  if (meta.latestContractJson) {
+    try { activeContract = JSON.parse(meta.latestContractJson); } catch { /* skip */ }
+  }
+  let lastReview: AgentReviewResult | null = null;
+  if (meta.latestReviewJson) {
+    try { lastReview = JSON.parse(meta.latestReviewJson); } catch { /* skip */ }
+  }
+  const lineageArtifacts = await loadLineageArtifacts(meta.lineageId ?? null);
   return {
     id: meta.id,
     goal: meta.goal,
@@ -105,6 +146,12 @@ async function loadFullTask(meta: AgentTaskMeta): Promise<AgentTask> {
     completedAt: meta.completedAt,
     summary: meta.summary,
     error: meta.error,
+    lineageId: meta.lineageId ?? meta.id,
+    resetCount: meta.resetCount ?? 0,
+    activeContract,
+    lastReview,
+    handoffFromTaskId: meta.handoffFromTaskId ?? null,
+    lineageArtifacts,
     contextTabType: (meta.contextTabType as TabType) ?? null,
   };
 }
@@ -163,6 +210,12 @@ interface AgentStore {
   setTaskError: (error: string) => void;
   /** Increment round counter */
   incrementRound: () => void;
+  /** Update active contract */
+  setActiveContract: (contract: AgentRoundContract | null) => void;
+  /** Update latest review result */
+  setLastReview: (review: AgentReviewResult | null) => void;
+  /** Create a new task from a handoff artifact */
+  createHandoffTask: (artifact: AgentHandoffArtifact) => Promise<AgentTask | null>;
 
   // ─── Approval Management ───────────────────────────────────────────────
   /** Add a pending approval */
@@ -278,6 +331,12 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       completedAt: null,
       summary: null,
       error: null,
+      lineageId: crypto.randomUUID(),
+      resetCount: 0,
+      activeContract: null,
+      lastReview: null,
+      handoffFromTaskId: null,
+      lineageArtifacts: [],
       contextTabType: contextTabType ?? null,
     };
 
@@ -410,6 +469,12 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       completedAt: null,
       summary: null,
       error: null,
+      lineageId: sourceTask.lineageId,
+      resetCount: sourceTask.resetCount,
+      activeContract: null,
+      lastReview: sourceTask.lastReview,
+      handoffFromTaskId: sourceTask.handoffFromTaskId,
+      lineageArtifacts: sourceTask.lineageArtifacts,
       contextTabType: sourceTask.contextTabType,
       resumeFromRound: resumeRound,
       parentTaskId: sourceTask.id,
@@ -613,6 +678,100 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     });
   },
 
+  setActiveContract: (contract) => {
+    set((s) => {
+      if (!s.activeTask) return s;
+      return {
+        activeTask: {
+          ...s.activeTask,
+          activeContract: contract,
+        },
+      };
+    });
+  },
+
+  setLastReview: (review) => {
+    set((s) => {
+      if (!s.activeTask) return s;
+      return {
+        activeTask: {
+          ...s.activeTask,
+          lastReview: review,
+        },
+      };
+    });
+  },
+
+  createHandoffTask: async (artifact) => {
+    const current = get();
+    const sourceTask = current.activeTask;
+    if (!sourceTask) return null;
+
+    clearApprovalResolvers();
+
+    const archivedTask: AgentTask = {
+      ...sourceTask,
+      status: 'handed_off',
+      completedAt: Date.now(),
+      summary: artifact.summary,
+      lineageArtifacts: [...sourceTask.lineageArtifacts, artifact],
+    };
+
+    set((s) => ({
+      taskHistory: upsertTaskHistory(s.taskHistory, archivedTask),
+    }));
+
+    await api.agentHistorySaveHandoff(artifact.lineageId, artifact.id, JSON.stringify(artifact));
+    await persistTaskAndClearCheckpoint(archivedTask);
+
+    const handoffStep: AgentStep = {
+      id: crypto.randomUUID(),
+      roundIndex: 0,
+      type: 'handoff',
+      content: artifact.summary,
+      timestamp: Date.now(),
+      status: 'completed',
+    };
+
+    const autonomyLevel = current.autonomyLevel;
+    const newTask: AgentTask = {
+      id: crypto.randomUUID(),
+      goal: sourceTask.goal,
+      status: sourceTask.plan ? 'executing' : 'planning',
+      autonomyLevel,
+      providerId: sourceTask.providerId,
+      model: sourceTask.model,
+      plan: sourceTask.plan ? { ...sourceTask.plan } : null,
+      steps: [handoffStep],
+      currentRound: 0,
+      maxRounds: MAX_ROUNDS[autonomyLevel],
+      createdAt: Date.now(),
+      completedAt: null,
+      summary: null,
+      error: null,
+      lineageId: artifact.lineageId,
+      resetCount: sourceTask.resetCount + 1,
+      activeContract: null,
+      lastReview: artifact.reviewerSnapshot,
+      handoffFromTaskId: sourceTask.id,
+      lineageArtifacts: [...sourceTask.lineageArtifacts, artifact],
+      contextTabType: sourceTask.contextTabType ?? null,
+      parentTaskId: sourceTask.id,
+    };
+
+    const abortController = new AbortController();
+
+    set({
+      activeTask: newTask,
+      isRunning: true,
+      pendingApprovals: [],
+      abortController,
+      viewingTask: null,
+    });
+
+    return newTask;
+  },
+
   // ─── Approval Management ───────────────────────────────────────────────
 
   addApproval: (approval) => {
@@ -736,7 +895,18 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
           const recovered = JSON.parse(checkpoint) as AgentTask;
           console.info('[AgentStore] Recovered checkpoint for task:', recovered.id, recovered.goal);
           // Save recovered task as completed (crashed) and clear checkpoint
-          const crashedTask = { ...recovered, status: 'failed' as const, error: 'Task interrupted (app crash recovery)', completedAt: Date.now() };
+          const crashedTask = {
+            ...recovered,
+            status: 'failed' as const,
+            error: 'Task interrupted (app crash recovery)',
+            completedAt: Date.now(),
+            lineageId: recovered.lineageId ?? recovered.id,
+            resetCount: recovered.resetCount ?? 0,
+            activeContract: recovered.activeContract ?? null,
+            lastReview: recovered.lastReview ?? null,
+            handoffFromTaskId: recovered.handoffFromTaskId ?? null,
+            lineageArtifacts: recovered.lineageArtifacts ?? [],
+          };
           const meta = buildTaskMeta(crashedTask);
           set((s) => ({
             taskHistory: [meta, ...s.taskHistory.filter(t => t.id !== meta.id)].slice(0, 50),

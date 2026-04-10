@@ -19,6 +19,15 @@
       "title": "Plan",
       "skip_step": "Überspringen"
     },
+    "contract": {
+      "title": "Rundenvertrag",
+      "objective": "Ziel",
+      "actions": "Geplante Aktionen",
+      "verification": "Prüfliste",
+      "risks": "Risiken",
+      "approvals": "Freigabeplan",
+      "none": "Keine"
+    },
     "roles": {
       "title": "Rollen",
       "planner": "Planer",
@@ -27,6 +36,7 @@
     },
     "step": {
       "plan": "Planung",
+      "contract": "Vertrag",
       "tool_call": "Werkzeugaufruf",
       "observation": "Beobachtung",
       "decision": "Entscheidung",
@@ -35,6 +45,7 @@
       "user_input": "Benutzereingabe",
       "verify": "Überprüfen",
       "review": "Prüfung",
+      "handoff": "Übergabe",
       "summary": "Zusammenfassung",
       "expand": "Mehr anzeigen",
       "collapse": "Weniger anzeigen"
@@ -55,6 +66,7 @@
       "executing": "Ausführung...",
       "paused": "Pausiert",
       "completed": "Abgeschlossen",
+      "handed_off": "Übergeben",
       "failed": "Fehlgeschlagen",
       "cancelled": "Abgebrochen",
       "awaiting_approval": "Warte auf Genehmigung"
@@ -68,7 +80,27 @@
     },
     "summary": {
       "completed": "Aufgabe abgeschlossen",
+      "handed_off": "Aufgabe übergeben",
       "failed": "Aufgabe fehlgeschlagen"
+    },
+    "review": {
+      "title": "Review-Gate",
+      "blocking": "Blockierende Befunde",
+      "suggestions": "Vorschläge",
+      "assessment": {
+        "pass": "Bestanden",
+        "needs_correction": "Nachbessern",
+        "reset_required": "Reset erforderlich",
+        "critical_failure": "Kritischer Fehler"
+      }
+    },
+    "lineage": {
+      "title": "Lineage",
+      "id": "Lineage-ID",
+      "reset_count": "Resets",
+      "source": "Handoff-Quelle",
+      "handoffs": "Letzte Handoffs",
+      "none": "Keine"
     },
     "history": {
       "title": "Verlauf ({{count}})",
@@ -89,6 +121,7 @@
       "context_overflow": "Kontextlimit erreicht, Aufgabe gestoppt",
       "max_rounds": "Max. Runden erreicht, Aufgabe möglicherweise unvollständig",
       "no_progress": "Agent gestoppt: Kein Fortschritt nach mehreren Runden",
+      "pause_timeout": "Die Agent-Aufgabe wurde nach zu langer Pause automatisch abgebrochen",
       "reviewer_stopped": "Prüfer hat die Aufgabe gestoppt"
     },
     "customRoles": {

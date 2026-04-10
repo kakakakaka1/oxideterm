@@ -19,6 +19,15 @@
       "title": "Plan",
       "skip_step": "Omitir"
     },
+    "contract": {
+      "title": "Contrato de ronda",
+      "objective": "Objetivo",
+      "actions": "Acciones previstas",
+      "verification": "Lista de verificación",
+      "risks": "Riesgos",
+      "approvals": "Plan de aprobación",
+      "none": "Ninguno"
+    },
     "roles": {
       "title": "Roles",
       "planner": "Planificador",
@@ -27,6 +36,7 @@
     },
     "step": {
       "plan": "Planificación",
+      "contract": "Contrato",
       "tool_call": "Llamada a herramienta",
       "observation": "Observación",
       "decision": "Decisión",
@@ -35,6 +45,7 @@
       "user_input": "Entrada del usuario",
       "verify": "Verificar",
       "review": "Revisión",
+      "handoff": "Handoff",
       "summary": "Resumen",
       "expand": "Ver más",
       "collapse": "Ver menos"
@@ -55,6 +66,7 @@
       "executing": "Ejecutando...",
       "paused": "Pausado",
       "completed": "Completado",
+      "handed_off": "Transferido",
       "failed": "Fallido",
       "cancelled": "Cancelado",
       "awaiting_approval": "Esperando aprobación"
@@ -68,7 +80,27 @@
     },
     "summary": {
       "completed": "Tarea completada",
+      "handed_off": "Tarea transferida",
       "failed": "Tarea fallida"
+    },
+    "review": {
+      "title": "Puerta de revisión",
+      "blocking": "Hallazgos bloqueantes",
+      "suggestions": "Sugerencias",
+      "assessment": {
+        "pass": "Aprobado",
+        "needs_correction": "Requiere corrección",
+        "reset_required": "Requiere reinicio",
+        "critical_failure": "Fallo crítico"
+      }
+    },
+    "lineage": {
+      "title": "Linaje",
+      "id": "ID de linaje",
+      "reset_count": "Reinicios",
+      "source": "Origen del handoff",
+      "handoffs": "Handoffs recientes",
+      "none": "Ninguno"
     },
     "history": {
       "title": "Historial ({{count}})",
@@ -89,6 +121,7 @@
       "context_overflow": "Límite de contexto alcanzado, tarea detenida",
       "max_rounds": "Máximo de rondas alcanzado, la tarea puede estar incompleta",
       "no_progress": "Agente detenido: sin progreso tras varias rondas",
+      "pause_timeout": "La tarea del agente se canceló tras permanecer en pausa demasiado tiempo",
       "reviewer_stopped": "El revisor detuvo la tarea"
     },
     "customRoles": {

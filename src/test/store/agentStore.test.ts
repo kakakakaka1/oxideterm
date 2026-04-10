@@ -11,6 +11,9 @@ const apiMocks = vi.hoisted(() => ({
   agentHistorySaveCheckpoint: vi.fn(),
   agentHistoryLoadCheckpoint: vi.fn(),
   agentHistoryClearCheckpoint: vi.fn(),
+  agentHistorySaveHandoff: vi.fn(),
+  agentHistoryGetHandoff: vi.fn(),
+  agentHistoryListLineage: vi.fn(),
   agentHistoryDelete: vi.fn(),
   agentHistoryClear: vi.fn(),
 }));
@@ -28,6 +31,7 @@ function resetApiMocks(): void {
   apiMocks.agentHistoryListMeta.mockResolvedValue([]);
   apiMocks.agentHistoryGetSteps.mockResolvedValue([]);
   apiMocks.agentHistoryLoadCheckpoint.mockResolvedValue(null);
+  apiMocks.agentHistoryListLineage.mockResolvedValue([]);
 }
 
 async function loadAgentStore() {
@@ -159,6 +163,12 @@ describe('agentStore task history lifecycle', () => {
         stepCount: 0,
         planDescription: null,
         planJson: null,
+        lastAssessment: null,
+        latestContractJson: null,
+        latestReviewJson: null,
+        lineageId: 'history-task',
+        resetCount: 0,
+        handoffFromTaskId: null,
         contextTabType: null,
       }],
     });
@@ -166,5 +176,57 @@ describe('agentStore task history lifecycle', () => {
     await useAgentStore.getState().resumeHistoryTask('history-task');
 
     expect(abort).toHaveBeenCalledTimes(1);
+  });
+
+  it('creates a handoff task with incremented reset count and persisted artifact', async () => {
+    const { useAgentStore } = await loadAgentStore();
+    const state = useAgentStore.getState();
+    const task = state.startTask('stabilize service', 'provider-1', 'model-1');
+
+    useAgentStore.setState({
+      activeTask: {
+        ...task,
+        lineageId: 'lineage-1',
+        resetCount: 0,
+        activeContract: null,
+        lastReview: null,
+        handoffFromTaskId: null,
+        lineageArtifacts: [],
+      },
+    });
+
+    const nextTask = await useAgentStore.getState().createHandoffTask({
+      id: 'handoff-1',
+      lineageId: 'lineage-1',
+      sourceTaskId: task.id,
+      sourceRound: 3,
+      targetGoal: task.goal,
+      summary: 'Resetting with a fresh context.',
+      completedWork: [],
+      remainingWork: ['Verify the fix'],
+      knownRisks: [],
+      repeatedFailures: [],
+      nextBestActions: ['Verify the fix'],
+      preservedContext: {
+        planDescription: null,
+        currentPlanStepIndex: null,
+        relevantFiles: [],
+        relevantCommands: [],
+      },
+      contractSnapshot: null,
+      reviewerSnapshot: null,
+      createdAt: Date.now(),
+    });
+
+    expect(nextTask).toMatchObject({
+      lineageId: 'lineage-1',
+      resetCount: 1,
+      handoffFromTaskId: task.id,
+    });
+
+    await waitFor(() => {
+      expect(apiMocks.agentHistorySaveHandoff).toHaveBeenCalledTimes(1);
+      expect(apiMocks.agentHistorySaveMeta).toHaveBeenCalledTimes(1);
+    });
   });
 });

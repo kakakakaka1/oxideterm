@@ -147,6 +147,44 @@ pub async fn agent_history_clear_checkpoint(
         .map_err(|e| format!("Failed to clear checkpoint: {}", e))
 }
 
+/// Save a handoff artifact and attach it to a lineage.
+#[tauri::command]
+pub async fn agent_history_save_handoff(
+    lineage_id: String,
+    handoff_id: String,
+    handoff_json: String,
+    store: State<'_, Option<Arc<AgentHistoryStore>>>,
+) -> Result<(), String> {
+    let store = require_agent_history_store(&store)?;
+    store
+        .save_handoff(&lineage_id, &handoff_id, &handoff_json)
+        .map_err(|e| format!("Failed to save handoff: {}", e))
+}
+
+/// Load a single handoff artifact.
+#[tauri::command]
+pub async fn agent_history_get_handoff(
+    handoff_id: String,
+    store: State<'_, Option<Arc<AgentHistoryStore>>>,
+) -> Result<Option<String>, String> {
+    let store = require_agent_history_store(&store)?;
+    store
+        .get_handoff(&handoff_id)
+        .map_err(|e| format!("Failed to get handoff: {}", e))
+}
+
+/// List handoff artifacts for a lineage.
+#[tauri::command]
+pub async fn agent_history_list_lineage(
+    lineage_id: String,
+    store: State<'_, Option<Arc<AgentHistoryStore>>>,
+) -> Result<Vec<String>, String> {
+    let store = require_agent_history_store(&store)?;
+    store
+        .list_lineage(&lineage_id)
+        .map_err(|e| format!("Failed to list lineage: {}", e))
+}
+
 /// Delete a single agent task by ID (metadata + all steps).
 #[tauri::command]
 pub async fn agent_history_delete(

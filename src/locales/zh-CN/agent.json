@@ -19,6 +19,15 @@
       "title": "计划",
       "skip_step": "跳过"
     },
+    "contract": {
+      "title": "回合契约",
+      "objective": "目标",
+      "actions": "计划动作",
+      "verification": "验证清单",
+      "risks": "风险",
+      "approvals": "审批计划",
+      "none": "无"
+    },
     "roles": {
       "title": "角色配置",
       "planner": "规划器",
@@ -27,6 +36,7 @@
     },
     "step": {
       "plan": "规划",
+      "contract": "契约",
       "tool_call": "工具调用",
       "observation": "观察",
       "decision": "决策",
@@ -35,6 +45,7 @@
       "user_input": "用户输入",
       "verify": "验证",
       "review": "审查",
+      "handoff": "交接",
       "summary": "总结",
       "expand": "展开更多",
       "collapse": "收起"
@@ -55,6 +66,7 @@
       "executing": "执行中...",
       "paused": "已暂停",
       "completed": "已完成",
+      "handed_off": "已交接",
       "failed": "失败",
       "cancelled": "已取消",
       "awaiting_approval": "等待批准"
@@ -68,7 +80,27 @@
     },
     "summary": {
       "completed": "任务完成",
+      "handed_off": "任务已交接",
       "failed": "任务失败"
+    },
+    "review": {
+      "title": "审查闸门",
+      "blocking": "阻塞发现",
+      "suggestions": "建议",
+      "assessment": {
+        "pass": "通过",
+        "needs_correction": "需要修正",
+        "reset_required": "需要重置",
+        "critical_failure": "严重失败"
+      }
+    },
+    "lineage": {
+      "title": "任务谱系",
+      "id": "谱系 ID",
+      "reset_count": "重置次数",
+      "source": "交接来源",
+      "handoffs": "最近交接",
+      "none": "无"
     },
     "history": {
       "title": "历史记录 ({{count}})",
@@ -89,6 +121,7 @@
       "context_overflow": "上下文已达上限，任务已停止",
       "max_rounds": "已达最大轮次，任务可能未完成",
       "no_progress": "Agent 已停止：多轮无进展",
+      "pause_timeout": "Agent 任务暂停过久，已自动取消",
       "reviewer_stopped": "审查器已停止任务"
     },
     "customRoles": {

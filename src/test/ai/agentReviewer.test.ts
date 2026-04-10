@@ -18,16 +18,34 @@ describe('agentReviewer helpers', () => {
   it('formats feedback even when findings exist without suggestions', () => {
     expect(formatReviewFeedback({
       assessment: 'needs_correction',
-      findings: 'The verification step was skipped.',
+      summary: 'The verification step was skipped.',
+      blockingFindings: ['The verification step was skipped.'],
       suggestions: [],
-    }, 2)).toBe('[Review feedback after round 3]: The verification step was skipped.');
+      scorecard: {
+        contractAdherence: { score: 4, passed: false, findings: ['The verification step was skipped.'] },
+        correctness: { score: 4, passed: false, findings: ['The verification step was skipped.'] },
+        safety: { score: 8, passed: true, findings: [] },
+        efficiency: { score: 6, passed: true, findings: [] },
+        verificationQuality: { score: 3, passed: false, findings: ['The verification step was skipped.'] },
+      },
+      shouldContinue: true,
+    }, 2)).toBe('[Review feedback after round 3]: The verification step was skipped.\nBlocking findings: The verification step was skipped.');
   });
 
-  it('returns null for on-track reviews', () => {
+  it('returns null for passing reviews', () => {
     expect(formatReviewFeedback({
-      assessment: 'on_track',
-      findings: 'All good.',
+      assessment: 'pass',
+      summary: 'All good.',
+      blockingFindings: [],
       suggestions: ['Keep going'],
+      scorecard: {
+        contractAdherence: { score: 8, passed: true, findings: [] },
+        correctness: { score: 8, passed: true, findings: [] },
+        safety: { score: 8, passed: true, findings: [] },
+        efficiency: { score: 8, passed: true, findings: [] },
+        verificationQuality: { score: 8, passed: true, findings: [] },
+      },
+      shouldContinue: true,
     }, 0)).toBeNull();
   });
 });
