@@ -961,6 +961,7 @@ async fn test_agent_forward_channel_relays_to_local_agent_socket() {
         proxy_chain: None,
         strict_host_key_checking: false,
         trust_host_key: Some(false),
+        expected_host_key_fingerprint: None,
         agent_forwarding: true,
     });
 

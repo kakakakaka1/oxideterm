@@ -70,7 +70,8 @@
       "test_in_progress": "正在测试连接...",
       "test_success": "连接成功",
       "test_failed": "连接测试失败",
-      "test_elapsed": "已在 {{ms}}ms 内连接"
+      "test_elapsed": "已在 {{ms}}ms 内连接",
+      "test_host_key_changed": "主机密钥已更改。预期值：{{expected}}。实际值：{{actual}}。"
     },
     "edit_properties": {
       "title": "编辑连接",

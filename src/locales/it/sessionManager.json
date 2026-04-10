@@ -70,7 +70,8 @@
       "test_in_progress": "Test connessione in corso...",
       "test_success": "Connessione riuscita",
       "test_failed": "Test di connessione fallito",
-      "test_elapsed": "Connesso in {{ms}}ms"
+      "test_elapsed": "Connesso in {{ms}}ms",
+      "test_host_key_changed": "La chiave host è cambiata. Prevista: {{expected}}. Attuale: {{actual}}."
     },
     "edit_properties": {
       "title": "Modifica connessione",

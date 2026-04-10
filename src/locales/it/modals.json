@@ -355,6 +355,8 @@
       "test_failed": "Test di connessione fallito",
       "test_elapsed": "Connesso in {{ms}}ms",
       "test_not_supported_kbi": "Il test di connessione non è supportato per l'autenticazione 2FA",
+      "test_proxy_chain_not_supported": "La diagnostica della catena proxy non è ancora supportata. Usa Connetti per verificare l'intero percorso.",
+      "test_host_key_changed": "La chiave host è cambiata. Prevista: {{expected}}. Attuale: {{actual}}.",
       "connect": "Connetti",
       "connecting": "Connessione...",
       "connect_failed": "Connessione fallita",

@@ -65,6 +65,7 @@ impl SshClient {
             self.config.strict_host_key_checking,
             self.config.trust_host_key,
             self.config.agent_forwarding,
+            self.config.expected_host_key_fingerprint.clone(),
         );
 
         // Connect with timeout
@@ -183,6 +184,8 @@ pub struct ClientHandler {
     /// - Some(true): trust and save unknown keys
     /// - Some(false): trust for session only (don't save)
     trust_host_key: Option<bool>,
+    /// Optional fingerprint captured during preflight to prevent TOCTOU drift.
+    expected_host_key_fingerprint: Option<String>,
     /// Whether agent forwarding was requested by the client.
     /// Defense-in-depth: reject server-initiated agent channels if we never asked.
     agent_forwarding_requested: bool,
@@ -197,6 +200,7 @@ impl ClientHandler {
             port,
             strict,
             trust_host_key: None,
+            expected_host_key_fingerprint: None,
             agent_forwarding_requested: false,
             agent_forward_semaphore: std::sync::Arc::new(tokio::sync::Semaphore::new(16)),
         }
@@ -208,12 +212,14 @@ impl ClientHandler {
         strict: bool,
         trust_host_key: Option<bool>,
         agent_forwarding: bool,
+        expected_host_key_fingerprint: Option<String>,
     ) -> Self {
         Self {
             host,
             port,
             strict,
             trust_host_key,
+            expected_host_key_fingerprint,
             agent_forwarding_requested: agent_forwarding,
             agent_forward_semaphore: std::sync::Arc::new(tokio::sync::Semaphore::new(16)),
         }
@@ -233,6 +239,21 @@ impl client::Handler for ClientHandler {
         &mut self,
         server_public_key: &PublicKey,
     ) -> Result<bool, Self::Error> {
+        let actual_fingerprint = super::known_hosts::KnownHostsStore::fingerprint(server_public_key);
+
+        if let Some(expected_fingerprint) = self.expected_host_key_fingerprint.as_deref() {
+            if actual_fingerprint != expected_fingerprint {
+                warn!(
+                    "Host key changed between preflight and connect for {}:{}: expected {}, got {}",
+                    self.host, self.port, expected_fingerprint, actual_fingerprint
+                );
+                return Err(SshError::ConnectionFailed(format!(
+                    "Host key verification failed: fingerprint changed between preflight and connect. Expected: {}, Actual: {}",
+                    expected_fingerprint, actual_fingerprint
+                )));
+            }
+        }
+
         let known_hosts = get_known_hosts();
         let verification = known_hosts.verify(&self.host, self.port, server_public_key);
 

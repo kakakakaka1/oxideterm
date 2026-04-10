@@ -13,6 +13,8 @@ type ManualTestConnectionInput = {
   keyPath?: string | null;
   certPath?: string | null;
   passphrase?: string | null;
+  trustHostKey?: boolean;
+  expectedHostKeyFingerprint?: string;
 };
 
 export function requiresSavedConnectionPasswordPrompt(
@@ -29,6 +31,8 @@ export function buildTestConnectionRequest(
     port: input.port,
     username: input.username,
     name: input.name,
+    trust_host_key: input.trustHostKey,
+    expected_host_key_fingerprint: input.expectedHostKeyFingerprint,
   };
 
   switch (input.authType) {

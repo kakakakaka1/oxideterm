@@ -11,6 +11,7 @@ import { OxideExportModal } from '../modals/OxideExportModal';
 import { OxideImportModal } from '../modals/OxideImportModal';
 import { EditConnectionModal } from '../modals/EditConnectionModal';
 import { EditConnectionPropertiesModal } from '../modals/EditConnectionPropertiesModal';
+import { HostKeyConfirmDialog } from '../modals/HostKeyConfirmDialog';
 import { connectToSaved } from '../../lib/connectToSaved';
 import { useAppStore } from '../../store/appStore';
 import { useToast } from '../../hooks/useToast';
@@ -22,7 +23,7 @@ import {
   buildTestConnectionRequest,
   requiresSavedConnectionPasswordPrompt,
 } from '../../lib/testConnectionRequest';
-import type { ConnectionInfo } from '../../types';
+import type { ConnectionInfo, HostKeyStatus } from '../../types';
 import type { EditConnectionSubmitPayload } from '../modals/EditConnectionModal';
 
 export const SessionManagerPanel = () => {
@@ -60,6 +61,11 @@ export const SessionManagerPanel = () => {
   const [editingConnectionId, setEditingConnectionId] = useState<string | null>(null);
   const [connectPromptConnectionId, setConnectPromptConnectionId] = useState<string | null>(null);
   const [connectPromptAction, setConnectPromptAction] = useState<'connect' | 'test'>('connect');
+  const [testHostKeyStatus, setTestHostKeyStatus] = useState<HostKeyStatus | null>(null);
+  const [pendingTestConnection, setPendingTestConnection] = useState<{
+    label: string;
+    request: Parameters<typeof api.testConnection>[0];
+  } | null>(null);
 
   const notifySavedConnectionsChanged = useCallback(() => {
     window.dispatchEvent(new CustomEvent('saved-connections-changed', {
@@ -144,12 +150,56 @@ export const SessionManagerPanel = () => {
       description: label,
     });
     const result = await api.testConnection(request);
+    if (!result.success) {
+      const description = result.diagnostic.detail && result.diagnostic.detail !== result.diagnostic.summary
+        ? `${result.diagnostic.summary}: ${result.diagnostic.detail}`
+        : result.diagnostic.summary;
+      toast({
+        title: t('sessionManager.toast.test_failed'),
+        description,
+        variant: 'error',
+      });
+      return;
+    }
     toast({
       title: t('sessionManager.toast.test_success'),
       description: t('sessionManager.toast.test_elapsed', { ms: result.elapsedMs }),
       variant: 'success',
     });
   }, [toast, t]);
+
+  const prepareTestConnection = useCallback(async (label: string, request: Parameters<typeof api.testConnection>[0]) => {
+    const preflight = await api.sshPreflight({ host: request.host, port: request.port });
+
+    if (preflight.status === 'verified') {
+      await runTestConnection(label, request);
+      return;
+    }
+
+    if (preflight.status === 'unknown') {
+      setPendingTestConnection({ label, request });
+      setTestHostKeyStatus(preflight);
+      return;
+    }
+
+    if (preflight.status === 'changed') {
+      toast({
+        title: t('sessionManager.toast.test_failed'),
+        description: t('sessionManager.toast.test_host_key_changed', {
+          expected: preflight.expectedFingerprint,
+          actual: preflight.actualFingerprint,
+        }),
+        variant: 'error',
+      });
+      return;
+    }
+
+    toast({
+      title: t('sessionManager.toast.test_failed'),
+      description: preflight.message,
+      variant: 'error',
+    });
+  }, [runTestConnection, t, toast]);
 
   const handleTestConnection = useCallback(async (conn: ConnectionInfo) => {
     try {
@@ -160,7 +210,7 @@ export const SessionManagerPanel = () => {
         return;
       }
 
-      await runTestConnection(
+      await prepareTestConnection(
         `${conn.username}@${conn.host}:${conn.port}`,
         buildSavedConnectionTestRequest(savedConn),
       );
@@ -171,7 +221,7 @@ export const SessionManagerPanel = () => {
         variant: 'error',
       });
     }
-  }, [runTestConnection, t, toast]);
+  }, [prepareTestConnection, t, toast]);
 
   const handlePromptTestConnection = useCallback(async ({
     connection,
@@ -180,7 +230,7 @@ export const SessionManagerPanel = () => {
     keyPath,
     passphrase,
   }: EditConnectionSubmitPayload) => {
-    await runTestConnection(
+    await prepareTestConnection(
       `${connection.username}@${connection.host}:${connection.port}`,
       buildTestConnectionRequest({
         host: connection.host,
@@ -193,7 +243,22 @@ export const SessionManagerPanel = () => {
         passphrase,
       }),
     );
-  }, [runTestConnection]);
+  }, [prepareTestConnection]);
+
+  const handleAcceptTestHostKey = useCallback(async (persist: boolean) => {
+    if (!pendingTestConnection || !testHostKeyStatus || testHostKeyStatus.status !== 'unknown') {
+      return;
+    }
+
+    await runTestConnection(pendingTestConnection.label, {
+      ...pendingTestConnection.request,
+      trust_host_key: persist,
+      expected_host_key_fingerprint: testHostKeyStatus.fingerprint,
+    });
+
+    setPendingTestConnection(null);
+    setTestHostKeyStatus(null);
+  }, [pendingTestConnection, runTestConnection, testHostKeyStatus]);
 
   // Handle import/export close with refresh
   const handleImportClose = useCallback(async () => {
@@ -280,6 +345,22 @@ export const SessionManagerPanel = () => {
         action={connectPromptAction}
         onSubmit={connectPromptAction === 'test' ? handlePromptTestConnection : undefined}
         onConnect={connectPromptAction === 'connect' ? refresh : undefined}
+      />
+
+      <HostKeyConfirmDialog
+        open={!!testHostKeyStatus && testHostKeyStatus.status === 'unknown'}
+        onClose={() => {
+          setTestHostKeyStatus(null);
+          setPendingTestConnection(null);
+        }}
+        status={testHostKeyStatus}
+        host={pendingTestConnection?.request.host ?? ''}
+        port={pendingTestConnection?.request.port ?? 22}
+        onAccept={handleAcceptTestHostKey}
+        onCancel={() => {
+          setTestHostKeyStatus(null);
+          setPendingTestConnection(null);
+        }}
       />
 
       <OxideExportModal

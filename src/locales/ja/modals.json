@@ -353,6 +353,8 @@
       "test_failed": "接続テスト失敗",
       "test_elapsed": "{{ms}}ms で接続しました",
       "test_not_supported_kbi": "二要素認証ではテスト接続はサポートされていません",
+      "test_proxy_chain_not_supported": "プロキシチェーンの診断にはまだ対応していません。完全な経路を検証するには「接続」を使用してください。",
+      "test_host_key_changed": "ホストキーが変更されました。想定値: {{expected}}。実際値: {{actual}}。",
       "connect": "接続",
       "connecting": "接続中...",
       "connect_failed": "接続に失敗しました",

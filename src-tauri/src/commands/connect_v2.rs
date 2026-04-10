@@ -32,7 +32,7 @@ use crate::session::{
     AuthMethod, KeyAuth, SessionConfig, SessionInfo, SessionRegistry, SessionStats,
 };
 use crate::sftp::session::SftpRegistry;
-use crate::ssh::SshConnectionRegistry;
+use crate::ssh::{SshClient, SshConfig, SshConnectionRegistry, SshError};
 use zeroize::Zeroizing;
 
 /// Connect request from frontend
@@ -49,6 +49,10 @@ pub struct ConnectRequest {
     pub rows: u32,
     pub name: Option<String>,
     pub proxy_chain: Option<Vec<ProxyChainRequest>>,
+    #[serde(default)]
+    pub trust_host_key: Option<bool>,
+    #[serde(default)]
+    pub expected_host_key_fingerprint: Option<String>,
     #[serde(default)]
     pub buffer_config: Option<BufferConfigRequest>,
 }
@@ -411,6 +415,164 @@ pub struct TestConnectionResponse {
     pub success: bool,
     /// Time in milliseconds for the connection attempt
     pub elapsed_ms: u64,
+    /// Structured diagnostic information for the UI.
+    pub diagnostic: TestConnectionDiagnostic,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TestConnectionPhase {
+    Preparation,
+    HostKeyVerification,
+    Transport,
+    Authentication,
+    Complete,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TestConnectionCategory {
+    Success,
+    Unsupported,
+    DnsResolution,
+    Timeout,
+    Network,
+    HostKeyUnknown,
+    HostKeyChanged,
+    Authentication,
+    KeyMaterial,
+    Agent,
+    Protocol,
+    Unknown,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestConnectionDiagnostic {
+    pub phase: TestConnectionPhase,
+    pub category: TestConnectionCategory,
+    pub summary: String,
+    pub detail: String,
+}
+
+fn build_success_test_connection_response(elapsed_ms: u64) -> TestConnectionResponse {
+    TestConnectionResponse {
+        success: true,
+        elapsed_ms,
+        diagnostic: TestConnectionDiagnostic {
+            phase: TestConnectionPhase::Complete,
+            category: TestConnectionCategory::Success,
+            summary: "Connection test succeeded".to_string(),
+            detail: "SSH handshake and authentication completed successfully".to_string(),
+        },
+    }
+}
+
+fn build_failed_test_connection_response(
+    elapsed_ms: u64,
+    phase: TestConnectionPhase,
+    category: TestConnectionCategory,
+    summary: impl Into<String>,
+    detail: impl Into<String>,
+) -> TestConnectionResponse {
+    TestConnectionResponse {
+        success: false,
+        elapsed_ms,
+        diagnostic: TestConnectionDiagnostic {
+            phase,
+            category,
+            summary: summary.into(),
+            detail: detail.into(),
+        },
+    }
+}
+
+fn classify_test_connection_error(
+    error: &SshError,
+) -> (TestConnectionPhase, TestConnectionCategory, String) {
+    match error {
+        SshError::Timeout(message) => {
+            let phase = if message.to_lowercase().contains("auth") {
+                TestConnectionPhase::Authentication
+            } else {
+                TestConnectionPhase::Transport
+            };
+            (
+                phase,
+                TestConnectionCategory::Timeout,
+                "Connection attempt timed out".to_string(),
+            )
+        }
+        SshError::AuthenticationFailed(_) => (
+            TestConnectionPhase::Authentication,
+            TestConnectionCategory::Authentication,
+            "Authentication failed".to_string(),
+        ),
+        SshError::KeyError(_) | SshError::CertificateLoadError(_) | SshError::CertificateParseError(_) => (
+            TestConnectionPhase::Authentication,
+            TestConnectionCategory::KeyMaterial,
+            "Key or certificate material could not be loaded".to_string(),
+        ),
+        SshError::AgentNotAvailable(_) | SshError::AgentError(_) => (
+            TestConnectionPhase::Authentication,
+            TestConnectionCategory::Agent,
+            "SSH agent authentication failed".to_string(),
+        ),
+        SshError::ProtocolError(_) | SshError::ChannelError(_) => (
+            TestConnectionPhase::Transport,
+            TestConnectionCategory::Protocol,
+            "SSH protocol negotiation failed".to_string(),
+        ),
+        SshError::ConnectionFailed(message) => {
+            let lower = message.to_lowercase();
+            if lower.contains("failed to resolve address") || lower.contains("no address found") {
+                (
+                    TestConnectionPhase::Transport,
+                    TestConnectionCategory::DnsResolution,
+                    "DNS resolution failed".to_string(),
+                )
+            } else if lower.contains("fingerprint changed between preflight and connect")
+                || lower.contains("unknown host")
+            {
+                (
+                    TestConnectionPhase::HostKeyVerification,
+                    TestConnectionCategory::HostKeyUnknown,
+                    "Host key verification is required before testing".to_string(),
+                )
+            } else if lower.contains("host key verification failed")
+                || lower.contains("has changed")
+                || lower.contains("possible mitm")
+            {
+                (
+                    TestConnectionPhase::HostKeyVerification,
+                    TestConnectionCategory::HostKeyChanged,
+                    "Host key verification failed".to_string(),
+                )
+            } else if lower.contains("connection refused")
+                || lower.contains("network is unreachable")
+                || lower.contains("no route to host")
+                || lower.contains("connection reset")
+                || lower.contains("broken pipe")
+            {
+                (
+                    TestConnectionPhase::Transport,
+                    TestConnectionCategory::Network,
+                    "Network connection failed".to_string(),
+                )
+            } else {
+                (
+                    TestConnectionPhase::Transport,
+                    TestConnectionCategory::Unknown,
+                    "SSH connection failed".to_string(),
+                )
+            }
+        }
+        _ => (
+            TestConnectionPhase::Preparation,
+            TestConnectionCategory::Unknown,
+            "Connection test failed".to_string(),
+        ),
+    }
 }
 
 /// Test an SSH connection without creating a persistent session.
@@ -421,7 +583,6 @@ pub struct TestConnectionResponse {
 #[tauri::command]
 pub async fn test_connection(
     request: ConnectRequest,
-    connection_registry: State<'_, Arc<SshConnectionRegistry>>,
 ) -> Result<TestConnectionResponse, String> {
     info!(
         "Testing connection: {}@{}:{}",
@@ -430,45 +591,78 @@ pub async fn test_connection(
 
     let start = std::time::Instant::now();
 
-    let auth = build_session_auth(request.auth)?;
+    if request.proxy_chain.as_ref().is_some_and(|chain| !chain.is_empty()) {
+        return Ok(build_failed_test_connection_response(
+            start.elapsed().as_millis() as u64,
+            TestConnectionPhase::Preparation,
+            TestConnectionCategory::Unsupported,
+            "Proxy chain diagnostics are not supported yet",
+            "Current test-connection diagnostics only support direct SSH targets. Use Connect for full jump-host traversal.",
+        ));
+    }
 
-    let config = SessionConfig {
+    let auth = match build_session_auth(request.auth) {
+        Ok(auth) => auth,
+        Err(message) => {
+            let category = if message.to_lowercase().contains("ssh key")
+                || message.to_lowercase().contains("certificate")
+            {
+                TestConnectionCategory::KeyMaterial
+            } else {
+                TestConnectionCategory::Unknown
+            };
+
+            return Ok(build_failed_test_connection_response(
+                start.elapsed().as_millis() as u64,
+                TestConnectionPhase::Preparation,
+                category,
+                "Connection request is incomplete",
+                message,
+            ));
+        }
+    };
+
+    let config = SshConfig {
         host: request.host.clone(),
         port: request.port,
         username: request.username.clone(),
         auth,
-        name: request.name.clone(),
-        color: None,
+        timeout_secs: 30,
         cols: request.cols,
         rows: request.rows,
+        proxy_chain: None,
+        strict_host_key_checking: true,
+        trust_host_key: request.trust_host_key,
+        expected_host_key_fingerprint: request.expected_host_key_fingerprint,
         agent_forwarding: false,
     };
 
-    // Establish the connection through the pool
-    let connection_id = connection_registry
-        .connect(config)
-        .await
-        .map_err(|e| format!("{}", e))?;
-
-    let elapsed = start.elapsed();
-
-    // Immediately disconnect — this is just a test
-    if let Err(e) = connection_registry.disconnect(&connection_id).await {
-        warn!("Failed to disconnect test connection: {}", e);
-    }
+    let response = match SshClient::new(config).connect(None).await {
+        Ok(session) => {
+            drop(session);
+            build_success_test_connection_response(start.elapsed().as_millis() as u64)
+        }
+        Err(error) => {
+            let (phase, category, summary) = classify_test_connection_error(&error);
+            build_failed_test_connection_response(
+                start.elapsed().as_millis() as u64,
+                phase,
+                category,
+                summary,
+                error.to_string(),
+            )
+        }
+    };
 
     info!(
-        "Test connection succeeded in {}ms: {}@{}:{}",
-        elapsed.as_millis(),
+        "Test connection finished (success={}) for {}@{}:{}",
+        response.success,
         request.username,
         request.host,
         request.port
     );
 
-    Ok(TestConnectionResponse {
-        success: true,
-        elapsed_ms: elapsed.as_millis() as u64,
-    })
+    Ok(response)
 }
 
 /// 获取连接池中所有连接

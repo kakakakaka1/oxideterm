@@ -353,6 +353,8 @@
       "test_failed": "Teste de conexão falhou",
       "test_elapsed": "Conectado em {{ms}}ms",
       "test_not_supported_kbi": "O teste de conexão não é suportado para autenticação 2FA",
+      "test_proxy_chain_not_supported": "O diagnóstico da cadeia de proxy ainda não é compatível. Use Conectar para validar a rota completa.",
+      "test_host_key_changed": "A chave do host foi alterada. Esperado: {{expected}}. Atual: {{actual}}.",
       "connect": "Conectar",
       "connecting": "Conectando...",
       "connect_failed": "Falha na conexão",

@@ -353,6 +353,8 @@
       "test_failed": "연결 테스트 실패",
       "test_elapsed": "{{ms}}ms 만에 연결됨",
       "test_not_supported_kbi": "2단계 인증에서는 연결 테스트를 지원하지 않습니다",
+      "test_proxy_chain_not_supported": "프록시 체인 진단은 아직 지원되지 않습니다. 전체 경로를 확인하려면 연결을 사용하세요.",
+      "test_host_key_changed": "호스트 키가 변경되었습니다. 예상값: {{expected}}. 실제값: {{actual}}.",
       "connect": "연결",
       "connecting": "연결 중...",
       "connect_failed": "연결 실패",

@@ -353,6 +353,8 @@
       "test_failed": "连接测试失败",
       "test_elapsed": "已在 {{ms}}ms 内连接",
       "test_not_supported_kbi": "双因素认证不支持测试连接",
+      "test_proxy_chain_not_supported": "暂不支持代理链诊断。请使用“连接”来验证完整路径。",
+      "test_host_key_changed": "主机密钥已更改。预期值：{{expected}}。实际值：{{actual}}。",
       "connect": "连接",
       "connecting": "连接中...",
       "connect_failed": "连接失败",

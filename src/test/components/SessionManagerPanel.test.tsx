@@ -127,6 +127,12 @@ vi.mock('@/components/modals/EditConnectionModal', () => ({
   ),
 }));
 
+vi.mock('@/components/modals/HostKeyConfirmDialog', () => ({
+  HostKeyConfirmDialog: ({ open, host, port }: { open: boolean; host: string; port: number }) => (
+    open ? <div data-testid="host-key-dialog">{host}:{port}</div> : null
+  ),
+}));
+
 vi.mock('@/components/modals/EditConnectionPropertiesModal', () => ({
   EditConnectionPropertiesModal: ({ open, connection }: { open: boolean; connection: { id: string } | null }) => (
     open ? <div data-testid="properties-modal">{connection?.id}</div> : null
@@ -146,6 +152,7 @@ vi.mock('@/lib/api', () => ({
     saveConnection: vi.fn(),
     deleteConnection: vi.fn(),
     getSavedConnectionForConnect: vi.fn(),
+    sshPreflight: vi.fn(),
     testConnection: vi.fn(),
   },
 }));
@@ -162,6 +169,7 @@ import { api } from '@/lib/api';
 describe('SessionManagerPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(api.sshPreflight).mockResolvedValue({ status: 'verified' });
   });
 
   it('opens the connect password modal instead of the properties modal for missing-password failures', async () => {
@@ -231,6 +239,31 @@ describe('SessionManagerPanel', () => {
         password: 'secret',
       });
     });
+  });
+
+  it('shows host key confirmation before running a test on an unknown host', async () => {
+    vi.mocked(api.getSavedConnectionForConnect).mockResolvedValue({
+      name: 'Test Conn',
+      host: 'example.com',
+      port: 22,
+      username: 'tester',
+      auth_type: 'agent',
+      agent_forwarding: false,
+      proxy_chain: [],
+    });
+    vi.mocked(api.sshPreflight).mockResolvedValue({
+      status: 'unknown',
+      fingerprint: 'SHA256:test',
+      keyType: 'ssh-ed25519',
+    });
+
+    render(<SessionManagerPanel />);
+    fireEvent.click(screen.getByText('test-row'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('host-key-dialog')).toHaveTextContent('example.com:22');
+    });
+    expect(api.testConnection).not.toHaveBeenCalled();
   });
 
   it('broadcasts saved connection changes after deleting a connection', async () => {

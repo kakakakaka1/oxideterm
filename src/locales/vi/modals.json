@@ -355,6 +355,8 @@
       "test_failed": "Thử kết nối thất bại",
       "test_elapsed": "Đã kết nối trong {{ms}}ms",
       "test_not_supported_kbi": "Thử kết nối không được hỗ trợ cho xác thực 2FA",
+      "test_proxy_chain_not_supported": "Chưa hỗ trợ chẩn đoán chuỗi proxy. Hãy dùng Kết nối để xác thực toàn bộ tuyến.",
+      "test_host_key_changed": "Khóa máy chủ đã thay đổi. Dự kiến: {{expected}}. Thực tế: {{actual}}.",
       "connect": "Kết nối",
       "connecting": "Đang kết nối...",
       "connect_failed": "Kết nối thất bại",

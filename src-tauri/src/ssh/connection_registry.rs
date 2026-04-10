@@ -924,6 +924,7 @@ impl SshConnectionRegistry {
             proxy_chain: None,
             strict_host_key_checking: false,
             trust_host_key: None, // Connection pool uses known_hosts, no TOFU here
+            expected_host_key_fingerprint: None,
             agent_forwarding: config.agent_forwarding,
         };
 

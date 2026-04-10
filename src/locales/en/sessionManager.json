@@ -70,7 +70,8 @@
       "test_in_progress": "Testing connection...",
       "test_success": "Connection successful",
       "test_failed": "Connection test failed",
-      "test_elapsed": "Connected in {{ms}}ms"
+      "test_elapsed": "Connected in {{ms}}ms",
+      "test_host_key_changed": "Host key changed. Expected: {{expected}}. Actual: {{actual}}."
     },
     "edit_properties": {
       "title": "Edit Connection",

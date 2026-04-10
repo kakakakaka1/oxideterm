@@ -33,7 +33,11 @@ import {
 } from '../ui/select';
 import { ProxyHopConfig } from '../../types';
 import { api } from '../../lib/api';
+import type { HostKeyStatus } from '../../types';
+import type { TestConnectionRequest, TestConnectionResponse } from '../../lib/api';
+import { buildTestConnectionRequest } from '../../lib/testConnectionRequest';
 import { AddJumpServerDialog } from './AddJumpServerDialog';
+import { HostKeyConfirmDialog } from './HostKeyConfirmDialog';
 import { KbiDialog } from './KbiDialog';
 import { Plus, Trash2, Key, Lock, ChevronDown, ChevronRight, Shield, Info } from 'lucide-react';
 import { useSessionTreeStore } from '../../store/sessionTreeStore';
@@ -81,7 +85,30 @@ export const NewConnectionModal = () => {
   const [proxyChainExpanded, setProxyChainExpanded] = useState(false);
   const [agentAvailable, setAgentAvailable] = useState<boolean | null>(null);
   const [agentForwarding, setAgentForwarding] = useState(false);
+  const [testHostKeyStatus, setTestHostKeyStatus] = useState<HostKeyStatus | null>(null);
+  const [pendingTestRequest, setPendingTestRequest] = useState<TestConnectionRequest | null>(null);
   const isComposingRef = useRef(false);
+
+  const formatTestFailure = useCallback((result: TestConnectionResponse) => {
+    const { summary, detail } = result.diagnostic;
+    return detail && detail !== summary ? `${summary}: ${detail}` : summary;
+  }, []);
+
+  const executeTestConnection = useCallback(async (request: TestConnectionRequest) => {
+    const result = await api.testConnection(request);
+    if (result.success) {
+      toastSuccess(
+        t('modals.new_connection.test_success'),
+        t('modals.new_connection.test_elapsed', { ms: result.elapsedMs }),
+      );
+      return;
+    }
+
+    toastError(
+      t('modals.new_connection.test_failed'),
+      formatTestFailure(result),
+    );
+  }, [formatTestFailure, t, toastError, toastSuccess]);
 
   // Enter key submit (with IME guard)
   const handleFormKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -345,30 +372,76 @@ export const NewConnectionModal = () => {
       toastError(t('modals.new_connection.test_not_supported_kbi'));
       return;
     }
+    if (proxyServers.length > 0) {
+      toastError(
+        t('modals.new_connection.test_failed'),
+        t('modals.new_connection.test_proxy_chain_not_supported'),
+      );
+      return;
+    }
 
     setTesting(true);
     try {
-      const request = {
+      const request = buildTestConnectionRequest({
         host,
         port: parseInt(port) || 22,
         username,
-        auth_type: authType === 'default_key' ? 'default_key' : authType,
-        password: authType === 'password' ? password : undefined,
-        key_path: (authType === 'key' || authType === 'default_key' || authType === 'certificate') ? keyPath : undefined,
-        cert_path: authType === 'certificate' ? certPath : undefined,
-        passphrase: (authType === 'key' || authType === 'default_key' || authType === 'certificate') && passphrase ? passphrase : undefined,
-      };
+        name: name || undefined,
+        authType,
+        password,
+        keyPath,
+        certPath,
+        passphrase,
+      });
+      const preflight = await api.sshPreflight({ host, port: parseInt(port) || 22 });
 
-      const result = await api.testConnection(request);
-      toastSuccess(
-        t('modals.new_connection.test_success'),
-        t('modals.new_connection.test_elapsed', { ms: result.elapsedMs }),
-      );
+      if (preflight.status === 'verified') {
+        await executeTestConnection(request);
+        return;
+      }
+
+      if (preflight.status === 'unknown') {
+        setPendingTestRequest(request);
+        setTestHostKeyStatus(preflight);
+        return;
+      }
+
+      if (preflight.status === 'changed') {
+        toastError(
+          t('modals.new_connection.test_failed'),
+          t('modals.new_connection.test_host_key_changed', {
+            expected: preflight.expectedFingerprint,
+            actual: preflight.actualFingerprint,
+          }),
+        );
+        return;
+      }
+
+      toastError(t('modals.new_connection.test_failed'), preflight.message);
     } catch (e) {
       toastError(
         t('modals.new_connection.test_failed'),
         String(e),
       );
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const handleAcceptTestHostKey = async (persist: boolean) => {
+    if (!pendingTestRequest || !testHostKeyStatus || testHostKeyStatus.status !== 'unknown') {
+      return;
+    }
+
+    setTesting(true);
+    try {
+      await executeTestConnection({
+        ...pendingTestRequest,
+        trust_host_key: persist,
+        expected_host_key_fingerprint: testHostKeyStatus.fingerprint,
+      });
+      setPendingTestRequest(null);
+      setTestHostKeyStatus(null);
     } finally {
       setTesting(false);
     }
@@ -382,6 +455,25 @@ export const NewConnectionModal = () => {
         onFailure={handleKbiFailure}
       />
 
+      <HostKeyConfirmDialog
+        open={!!testHostKeyStatus && testHostKeyStatus.status === 'unknown'}
+        onClose={() => {
+          if (!testing) {
+            setTestHostKeyStatus(null);
+            setPendingTestRequest(null);
+          }
+        }}
+        status={testHostKeyStatus}
+        host={host}
+        port={parseInt(port) || 22}
+        onAccept={handleAcceptTestHostKey}
+        onCancel={() => {
+          setTestHostKeyStatus(null);
+          setPendingTestRequest(null);
+        }}
+        loading={testing}
+      />
+
       <Dialog open={modals.newConnection} onOpenChange={(open) => {
         // 关闭 modal 时清除敏感数据
         if (!open) {
@@ -389,6 +481,8 @@ export const NewConnectionModal = () => {
           setPassphrase('');
           setKbiError(null);
           setAgentForwarding(false);
+          setTestHostKeyStatus(null);
+          setPendingTestRequest(null);
           // 清除代理链中的密码
           setProxyServers(prev => prev.map(p => ({ ...p, password: undefined, passphrase: undefined })));
         }

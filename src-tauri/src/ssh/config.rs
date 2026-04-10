@@ -50,6 +50,12 @@ pub struct SshConfig {
     /// - Some(false): trust for this session only (don't save)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trust_host_key: Option<bool>,
+
+    /// Optional fingerprint captured during preflight.
+    /// When present, the connection must observe the same key fingerprint.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_host_key_fingerprint: Option<String>,
+
     /// Enable SSH agent forwarding
     #[serde(default)]
     pub agent_forwarding: bool,
@@ -163,6 +169,7 @@ impl Default for SshConfig {
             proxy_chain: None,
             strict_host_key_checking: false,
             trust_host_key: None,
+            expected_host_key_fingerprint: None,
             agent_forwarding: false,
         }
     }

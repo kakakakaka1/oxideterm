@@ -57,7 +57,12 @@ import type { PluginManifest } from '../types/plugin';
 // Toggle this for development without a backend
 const USE_MOCK = false;
 
-export type TestConnectionRequest =
+type TestConnectionRequestOptions = {
+  trust_host_key?: boolean;
+  expected_host_key_fingerprint?: string;
+};
+
+export type TestConnectionRequest = TestConnectionRequestOptions &
   | {
       host: string;
       port: number;
@@ -101,9 +106,38 @@ export type TestConnectionRequest =
       passphrase?: string;
     };
 
+export type TestConnectionPhase =
+  | 'preparation'
+  | 'host_key_verification'
+  | 'transport'
+  | 'authentication'
+  | 'complete';
+
+export type TestConnectionCategory =
+  | 'success'
+  | 'unsupported'
+  | 'dns_resolution'
+  | 'timeout'
+  | 'network'
+  | 'host_key_unknown'
+  | 'host_key_changed'
+  | 'authentication'
+  | 'key_material'
+  | 'agent'
+  | 'protocol'
+  | 'unknown';
+
+export type TestConnectionDiagnostic = {
+  phase: TestConnectionPhase;
+  category: TestConnectionCategory;
+  summary: string;
+  detail: string;
+};
+
 export type TestConnectionResponse = {
   success: boolean;
   elapsedMs: number;
+  diagnostic: TestConnectionDiagnostic;
 };
 
 export type SavedConnectionProxyHopForConnect = {
@@ -217,7 +251,18 @@ export const api = {
    * Performs full SSH handshake + auth, then immediately disconnects.
    */
   testConnection: async (request: TestConnectionRequest): Promise<TestConnectionResponse> => {
-    if (USE_MOCK) return { success: true, elapsedMs: 42 };
+    if (USE_MOCK) {
+      return {
+        success: true,
+        elapsedMs: 42,
+        diagnostic: {
+          phase: 'complete',
+          category: 'success',
+          summary: 'Connection test succeeded',
+          detail: 'Mock connection',
+        },
+      };
+    }
     return invoke('test_connection', { request });
   },
 

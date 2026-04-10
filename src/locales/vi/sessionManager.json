@@ -68,7 +68,8 @@
       "test_in_progress": "Đang thử kết nối...",
       "test_success": "Kết nối thành công",
       "test_failed": "Thử kết nối thất bại",
-      "test_elapsed": "Đã kết nối trong {{ms}}ms"
+      "test_elapsed": "Đã kết nối trong {{ms}}ms",
+      "test_host_key_changed": "Khóa máy chủ đã thay đổi. Dự kiến: {{expected}}. Thực tế: {{actual}}."
     },
     "edit_properties": {
       "title": "Sửa kết nối",

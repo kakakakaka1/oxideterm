@@ -353,6 +353,8 @@
       "test_failed": "Échec du test de connexion",
       "test_elapsed": "Connecté en {{ms}}ms",
       "test_not_supported_kbi": "Le test de connexion n'est pas pris en charge pour l'authentification 2FA",
+      "test_proxy_chain_not_supported": "Le diagnostic de la chaîne proxy n'est pas encore pris en charge. Utilisez Connecter pour valider l'itinéraire complet.",
+      "test_host_key_changed": "La clé d'hôte a changé. Attendu : {{expected}}. Actuel : {{actual}}.",
       "connect": "Connecter",
       "connecting": "Connexion en cours...",
       "connect_failed": "Échec de la connexion",

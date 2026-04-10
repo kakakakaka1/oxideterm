@@ -70,7 +70,8 @@
       "test_in_progress": "Verbindung wird getestet...",
       "test_success": "Verbindung erfolgreich",
       "test_failed": "Verbindungstest fehlgeschlagen",
-      "test_elapsed": "Verbunden in {{ms}}ms"
+      "test_elapsed": "Verbunden in {{ms}}ms",
+      "test_host_key_changed": "Host-Schlüssel wurde geändert. Erwartet: {{expected}}. Tatsächlich: {{actual}}."
     },
     "edit_properties": {
       "title": "Verbindung bearbeiten",

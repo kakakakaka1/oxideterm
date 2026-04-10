@@ -355,6 +355,8 @@
       "test_failed": "Connection Test Failed",
       "test_elapsed": "Connected in {{ms}}ms",
       "test_not_supported_kbi": "Test connection is not supported for 2FA authentication",
+      "test_proxy_chain_not_supported": "Proxy-chain diagnostics are not supported yet. Use Connect to validate the full route.",
+      "test_host_key_changed": "Host key changed. Expected: {{expected}}. Actual: {{actual}}.",
       "connect": "Connect",
       "connecting": "Connecting...",
       "connect_failed": "Connection Failed",

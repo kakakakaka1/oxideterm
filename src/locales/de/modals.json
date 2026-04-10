@@ -355,6 +355,8 @@
       "test_failed": "Verbindungstest fehlgeschlagen",
       "test_elapsed": "Verbunden in {{ms}}ms",
       "test_not_supported_kbi": "Verbindungstest wird bei Zwei-Faktor-Authentifizierung nicht unterstützt",
+      "test_proxy_chain_not_supported": "Die Proxy-Ketten-Diagnose wird derzeit nicht unterstützt. Verwenden Sie Verbinden, um die vollständige Route zu prüfen.",
+      "test_host_key_changed": "Host-Schlüssel wurde geändert. Erwartet: {{expected}}. Tatsächlich: {{actual}}.",
       "connect": "Verbinden",
       "connecting": "Verbindung wird hergestellt...",
       "connect_failed": "Verbindung fehlgeschlagen",

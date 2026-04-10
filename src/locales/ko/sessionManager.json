@@ -70,7 +70,8 @@
       "test_in_progress": "연결 테스트 중...",
       "test_success": "연결 성공",
       "test_failed": "연결 테스트 실패",
-      "test_elapsed": "{{ms}}ms 만에 연결됨"
+      "test_elapsed": "{{ms}}ms 만에 연결 됨",
+      "test_host_key_changed": "호스트 키가 변경되었습니다. 예상값: {{expected}}. 실제값: {{actual}}."
     },
     "edit_properties": {
       "title": "연결 편집",
