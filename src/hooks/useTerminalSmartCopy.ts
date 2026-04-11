@@ -20,19 +20,6 @@ function isSmartCopyShortcut(event: KeyboardEvent): boolean {
   return event.key.toLowerCase() === 'c';
 }
 
-function isNativeTerminalPasteShortcut(event: KeyboardEvent): boolean {
-  if (event.type !== 'keydown') return false;
-
-  if (platform.isMac) {
-    return event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'v';
-  }
-
-  if (platform.isWindows || platform.isLinux) {
-    return event.ctrlKey && event.shiftKey && !event.metaKey && !event.altKey && event.key.toLowerCase() === 'v';
-  }
-
-  return false;
-}
 
 function fallbackCopySelection(): void {
   if (typeof document.execCommand !== 'function') {
@@ -97,10 +84,6 @@ export function attachTerminalSmartCopy(
     }
 
     if (options.onPasteShortcut && matchAction(event, 'terminal') === 'terminal.paste') {
-      if (isNativeTerminalPasteShortcut(event)) {
-        return true;
-      }
-
       consumeKeyboardEvent(event);
       options.onPasteShortcut();
       return false;
