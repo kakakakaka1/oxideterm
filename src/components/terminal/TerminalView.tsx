@@ -46,6 +46,13 @@ import {
   HEADER_SIZE, encodeHeartbeatFrame, encodeDataFrame, encodeResizeFrame,
 } from '../../lib/wireProtocol';
 import { installTerminalClipboardSupport, readSystemClipboardText } from '../../lib/clipboardSupport';
+import {
+  armTerminalPasteShortcutSuppression,
+  createTerminalPasteShortcutSuppressionState,
+  markTerminalPasteShortcutHandled,
+  shouldSuppressTerminalPasteEvent,
+  takeTerminalPasteShortcutFallback,
+} from '../../lib/terminalPasteShortcutGuard';
 import { attachTerminalSmartCopy } from '../../hooks/useTerminalSmartCopy';
 import { useTerminalRecording } from '../../hooks/useTerminalRecording';
 import { useAdaptiveRenderer } from '../../hooks/useAdaptiveRenderer';
@@ -85,6 +92,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
   const rendererSuspendedRef = useRef(false);
   const rendererTransitionTokenRef = useRef(0);
   const webLinksAddonRef = useRef<WebLinksAddon | null>(null);
+  const pasteShortcutSuppressionRef = useRef(createTerminalPasteShortcutSuppressionState());
   // xterm.js event listener disposables - must be explicitly disposed to prevent memory leaks
   const onDataDisposableRef = useRef<{ dispose: () => void } | null>(null);
   const onResizeDisposableRef = useRef<{ dispose: () => void } | null>(null);
@@ -2085,8 +2093,16 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
   }, []);
 
   const handlePasteShortcut = useCallback(() => {
+    armTerminalPasteShortcutSuppression(pasteShortcutSuppressionRef);
     void readSystemClipboardText().then((text) => {
-      if (text === null) return;
+      if (text === null) {
+        const fallbackText = takeTerminalPasteShortcutFallback(pasteShortcutSuppressionRef);
+        if (fallbackText !== null) {
+          processTerminalPaste(fallbackText, false);
+        }
+        return;
+      }
+      markTerminalPasteShortcutHandled(pasteShortcutSuppressionRef);
       processTerminalPaste(text, false);
     });
   }, [processTerminalPaste]);
@@ -2094,10 +2110,21 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
   // Paste protection: intercept paste events
   useEffect(() => {
     const container = containerRef.current;
-    if (!container || !terminalSettings.pasteProtection) return;
+    if (!container) return;
 
     const handlePaste = (e: ClipboardEvent) => {
       const text = e.clipboardData?.getData('text');
+
+      if (shouldSuppressTerminalPasteEvent(pasteShortcutSuppressionRef, text)) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+
+      if (!terminalSettings.pasteProtection) {
+        return;
+      }
+
       if (processTerminalPaste(text, true)) {
         e.preventDefault();
         e.stopPropagation();
