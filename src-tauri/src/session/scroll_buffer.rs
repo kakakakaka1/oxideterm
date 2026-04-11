@@ -16,6 +16,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::RwLock;
 
+use super::history_archive::TerminalHistoryArchive;
 use super::search::{SearchOptions, SearchResult, search_lines};
 
 /// Default maximum lines to keep in buffer.
@@ -96,6 +97,8 @@ pub struct ScrollBuffer {
     lines: RwLock<VecDeque<TerminalLine>>,
     /// Maximum lines to keep
     max_lines: usize,
+    /// Optional cold-history archive for evicted lines
+    archive: Option<TerminalHistoryArchive>,
     /// Total lines written (including scrolled out)
     total_lines: AtomicU64,
 }
@@ -108,9 +111,18 @@ impl ScrollBuffer {
 
     /// Create a new scroll buffer with specified capacity
     pub fn with_capacity(max_lines: usize) -> Self {
+        Self::with_capacity_and_archive(max_lines, None)
+    }
+
+    /// Create a new scroll buffer with an optional cold-history archive.
+    pub fn with_capacity_and_archive(
+        max_lines: usize,
+        archive: Option<TerminalHistoryArchive>,
+    ) -> Self {
         Self {
             lines: RwLock::new(VecDeque::with_capacity(max_lines.min(1024))),
             max_lines,
+            archive,
             total_lines: AtomicU64::new(0),
         }
     }
@@ -118,15 +130,7 @@ impl ScrollBuffer {
     /// Append a new line to the buffer
     /// If buffer is full, oldest line is removed
     pub async fn append(&self, line: TerminalLine) {
-        let mut lines = self.lines.write().await;
-
-        // Remove oldest line if at capacity
-        if lines.len() >= self.max_lines {
-            lines.pop_front();
-        }
-
-        lines.push_back(line);
-        self.total_lines.fetch_add(1, Ordering::Relaxed);
+        self.append_batch(vec![line]).await;
     }
 
     /// Append multiple lines at once (more efficient)
@@ -135,17 +139,27 @@ impl ScrollBuffer {
             return;
         }
 
-        let mut lines = self.lines.write().await;
-        let count = new_lines.len();
+        let evicted = {
+            let mut lines = self.lines.write().await;
+            let count = new_lines.len();
+            let mut evicted = Vec::new();
 
-        for line in new_lines {
-            if lines.len() >= self.max_lines {
-                lines.pop_front();
+            for line in new_lines {
+                if lines.len() >= self.max_lines {
+                    if let Some(oldest) = lines.pop_front() {
+                        evicted.push(oldest);
+                    }
+                }
+                lines.push_back(line);
             }
-            lines.push_back(line);
-        }
 
-        self.total_lines.fetch_add(count as u64, Ordering::Relaxed);
+            self.total_lines.fetch_add(count as u64, Ordering::Relaxed);
+            evicted
+        };
+
+        if let Some(archive) = &self.archive {
+            archive.append_lines(evicted);
+        }
     }
 
     /// Get a range of lines from the buffer
@@ -238,6 +252,7 @@ impl ScrollBuffer {
         let buffer = Self {
             lines: RwLock::new(serialized.lines.into_iter().collect()),
             max_lines: serialized.max_lines,
+            archive: None,
             total_lines: AtomicU64::new(serialized.total_lines),
         };
 
@@ -286,6 +301,8 @@ impl Default for ScrollBuffer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::session::TerminalHistoryArchive;
+    use tempfile::TempDir;
 
     #[tokio::test]
     async fn test_append_and_get() {
@@ -398,5 +415,21 @@ mod tests {
         assert_eq!(lines.len(), 4);
         assert_eq!(lines[0].text, "line 3");
         assert_eq!(lines[3].text, "line 6");
+    }
+
+    #[tokio::test]
+    async fn test_evicted_lines_are_forwarded_to_archive() {
+        let temp_dir = TempDir::new().unwrap();
+        let archive = TerminalHistoryArchive::new_in(temp_dir.path().to_path_buf(), "buffer-archive").unwrap();
+        let session_dir = archive.session_dir();
+        let buffer = ScrollBuffer::with_capacity_and_archive(2, Some(archive.clone()));
+
+        buffer.append(TerminalLine::new("line 1".to_string())).await;
+        buffer.append(TerminalLine::new("line 2".to_string())).await;
+        buffer.append(TerminalLine::new("line 3".to_string())).await;
+        archive.flush().unwrap();
+
+        let manifest = std::fs::read_to_string(session_dir.join("manifest.json")).unwrap();
+        assert!(manifest.contains("000001.ndjson.zst"));
     }
 }

@@ -266,8 +266,8 @@ export const NewConnectionModal = () => {
     setKbiFlowActive(true);
 
     try {
-      const { useSettingsStore } = await import('../../store/settingsStore');
-      const bufferSettings = useSettingsStore.getState().settings.buffer;
+      const { useSettingsStore, deriveBackendHotLines } = await import('../../store/settingsStore');
+      const scrollback = useSettingsStore.getState().settings.terminal.scrollback;
       // Initiate KBI auth flow - this will trigger ssh_kbi_prompt events
       await invoke('ssh_connect_kbi', {
         host,
@@ -277,7 +277,7 @@ export const NewConnectionModal = () => {
         rows: 40,
         displayName: name || undefined,
         agentForwarding,
-        maxBufferLines: bufferSettings.maxLines,
+        maxBufferLines: deriveBackendHotLines(scrollback),
       });
     } catch (e) {
       console.error('Failed to start KBI flow:', e);

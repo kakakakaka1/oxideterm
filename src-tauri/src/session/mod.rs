@@ -18,6 +18,7 @@ pub mod auto_reconnect;
 pub mod env_detector;
 pub mod events;
 pub mod health;
+pub mod history_archive;
 pub mod parser;
 pub mod profiler;
 mod reconnect;
@@ -36,6 +37,9 @@ pub use events::{NetworkStatusPayload, event_names};
 pub use health::{
     HealthMetrics, HealthStatus, HealthThresholds, HealthTracker, MetricsSource, QuickHealthCheck,
     ResourceMetrics,
+};
+pub use history_archive::{
+    TerminalHistoryArchive, TerminalHistoryArchiveError, cleanup_stale_terminal_history_archives,
 };
 pub use parser::{BatchParser, parse_terminal_output, parse_terminal_output_simple};
 pub use profiler::{ProfilerState, ResourceProfiler};

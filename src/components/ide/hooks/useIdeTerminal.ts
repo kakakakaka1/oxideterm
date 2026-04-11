@@ -66,13 +66,13 @@ export function useIdeTerminal(): UseIdeTerminalResult {
     setError(null);
     
     try {
-      const { useSettingsStore } = await import('../../../store/settingsStore');
-      const bufferSettings = useSettingsStore.getState().settings.buffer;
+      const { useSettingsStore, deriveBackendHotLines } = await import('../../../store/settingsStore');
+      const scrollback = useSettingsStore.getState().settings.terminal.scrollback;
       const response: CreateTerminalResponse = await api.createTerminal({
         connectionId,
         cols: 0,
         rows: 0,
-        maxBufferLines: bufferSettings.maxLines,
+        maxBufferLines: deriveBackendHotLines(scrollback),
       });
       
       setTerminalSession(response.sessionId);

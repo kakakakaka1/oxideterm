@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::{broadcast, mpsc, oneshot};
 
+use super::history_archive::TerminalHistoryArchive;
 use super::scroll_buffer::ScrollBuffer;
 use super::state::{SessionState, SessionStateMachine};
 use crate::state::BufferConfig;
@@ -157,6 +158,8 @@ pub struct SessionEntry {
     pub handle_controller: Option<HandleController>,
     /// Terminal scroll buffer for backend storage and search
     pub scroll_buffer: Arc<ScrollBuffer>,
+    /// Session-scoped ephemeral cold archive for evicted history lines
+    pub terminal_history_archive: Option<TerminalHistoryArchive>,
     /// Buffer limits and persistence policy captured at session creation time
     pub buffer_config: BufferConfig,
     /// Output broadcast channel for terminal data (supports WS reattach)
@@ -179,6 +182,7 @@ impl SessionEntry {
     pub fn new(id: String, config: SessionConfig, order: usize) -> Self {
         let (output_tx, _) = broadcast::channel::<Vec<u8>>(256);
         let buffer_config = BufferConfig::default();
+        let terminal_history_archive = create_terminal_history_archive(&id);
         Self {
             id,
             config,
@@ -187,7 +191,11 @@ impl SessionEntry {
             ws_token: None,
             cmd_tx: None,
             handle_controller: None,
-            scroll_buffer: Arc::new(ScrollBuffer::with_capacity(buffer_config.max_lines)),
+            scroll_buffer: Arc::new(ScrollBuffer::with_capacity_and_archive(
+                buffer_config.max_lines,
+                terminal_history_archive.clone(),
+            )),
+            terminal_history_archive,
             buffer_config,
             output_tx,
             ws_detached: false,
@@ -206,6 +214,7 @@ impl SessionEntry {
         buffer_config: BufferConfig,
     ) -> Self {
         let (output_tx, _) = broadcast::channel::<Vec<u8>>(256);
+        let terminal_history_archive = create_terminal_history_archive(&id);
         Self {
             id,
             config,
@@ -214,7 +223,11 @@ impl SessionEntry {
             ws_token: None,
             cmd_tx: None,
             handle_controller: None,
-            scroll_buffer: Arc::new(ScrollBuffer::with_capacity(buffer_config.max_lines)),
+            scroll_buffer: Arc::new(ScrollBuffer::with_capacity_and_archive(
+                buffer_config.max_lines,
+                terminal_history_archive.clone(),
+            )),
+            terminal_history_archive,
             buffer_config,
             output_tx,
             ws_detached: false,
@@ -268,6 +281,31 @@ impl SessionEntry {
         }
         Ok(())
     }
+
+    pub fn schedule_terminal_history_cleanup(&self) {
+        if let Some(archive) = &self.terminal_history_archive {
+            archive.schedule_delete();
+        }
+    }
+}
+
+#[cfg(not(test))]
+fn create_terminal_history_archive(session_id: &str) -> Option<TerminalHistoryArchive> {
+    match TerminalHistoryArchive::new(session_id) {
+        Ok(archive) => Some(archive),
+        Err(error) => {
+            tracing::warn!(
+                "Failed to initialize terminal history archive for session {}: {}",
+                session_id, error
+            );
+            None
+        }
+    }
+}
+
+#[cfg(test)]
+fn create_terminal_history_archive(_session_id: &str) -> Option<TerminalHistoryArchive> {
+    None
 }
 
 /// Session statistics

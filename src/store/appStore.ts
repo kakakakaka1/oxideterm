@@ -413,15 +413,14 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
   createTerminalSession: async (connectionId: string, cols?: number, rows?: number) => {
     try {
-      // 从 settingsStore 获取后端缓冲区配置
-      const { useSettingsStore } = await import('./settingsStore');
-      const bufferSettings = useSettingsStore.getState().settings.buffer;
+      const { useSettingsStore, deriveBackendHotLines } = await import('./settingsStore');
+      const scrollback = useSettingsStore.getState().settings.terminal.scrollback;
       
       const response = await api.createTerminal({
         connectionId,
         cols,
         rows,
-        maxBufferLines: bufferSettings.maxLines,
+        maxBufferLines: deriveBackendHotLines(scrollback),
       });
       
       // 更新 sessions 和 connections

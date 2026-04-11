@@ -431,6 +431,7 @@ impl SessionRegistry {
                     let _ = cancel.send(());
                 }
                 let _ = entry.state_machine.disconnect_complete();
+                entry.schedule_terminal_history_cleanup();
                 info!("Session {} disconnected and removed", session_id);
             }
         } else {
@@ -485,6 +486,7 @@ impl SessionRegistry {
             if entry.state_machine.is_active() {
                 self.decrement_active();
             }
+            entry.schedule_terminal_history_cleanup();
             info!("Session {} removed from registry", session_id);
             entry
         })

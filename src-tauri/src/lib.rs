@@ -191,6 +191,28 @@ pub fn run() {
 
     write_startup_log("State store initialized");
 
+    match crate::session::cleanup_stale_terminal_history_archives() {
+        Ok(removed) if removed > 0 => {
+            tracing::info!(
+                "Cleaned up {} stale terminal history archive director{}",
+                removed,
+                if removed == 1 { "y" } else { "ies" }
+            );
+            write_startup_log(&format!(
+                "Cleaned up {} stale terminal history archive directories",
+                removed
+            ));
+        }
+        Ok(_) => {}
+        Err(e) => {
+            tracing::warn!("Failed to clean terminal history archives on startup: {}", e);
+            write_startup_log(&format!(
+                "WARNING: terminal history archive cleanup failed: {}",
+                e
+            ));
+        }
+    }
+
     // Initialize AI chat store for conversation persistence
     let ai_chat_db_path = match config::storage::config_dir() {
         Ok(dir) => dir.join("chat_history.redb"),

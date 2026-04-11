@@ -167,11 +167,24 @@ describe('settingsStore', () => {
     expect(localStorage.getItem('oxide-ui-state')).toBeNull();
   });
 
-  it('uses metadata-only buffer persistence defaults', async () => {
+  it('uses derived backend hot-buffer defaults', async () => {
     const useSettingsStore = await loadSettingsStore();
 
     const buffer = useSettingsStore.getState().settings.buffer;
-    expect(buffer.maxLines).toBe(8000);
+    expect(buffer.maxLines).toBe(6000);
+  });
+
+  it('clamps oversized persisted history settings on load', async () => {
+    localStorage.setItem('oxide-settings-v2', JSON.stringify(buildSavedSettings({
+      terminal: { theme: 'default', renderer: 'auto', scrollback: 100000 },
+      buffer: { maxLines: 100000 },
+    })));
+
+    const useSettingsStore = await loadSettingsStore();
+    const settings = useSettingsStore.getState().settings;
+
+    expect(settings.terminal.scrollback).toBe(20000);
+    expect(settings.buffer.maxLines).toBe(12000);
   });
 
   it('preserves an explicit osc52Clipboard false setting on load', async () => {
@@ -202,6 +215,18 @@ describe('settingsStore', () => {
     expect(useSettingsStore.getState().settings.general.language).toBe('fr-FR');
     expect(localStorage.getItem('app_lang')).toBe('fr-FR');
     expect(i18nMocks.changeLanguage).toHaveBeenCalledWith('fr-FR');
+  });
+
+  it('derives backend hot-buffer lines from scrollback changes', async () => {
+    const useSettingsStore = await loadSettingsStore();
+
+    useSettingsStore.getState().updateTerminal('scrollback', 4000);
+    expect(useSettingsStore.getState().settings.terminal.scrollback).toBe(4000);
+    expect(useSettingsStore.getState().settings.buffer.maxLines).toBe(8000);
+
+    useSettingsStore.getState().updateTerminal('scrollback', 100000);
+    expect(useSettingsStore.getState().settings.terminal.scrollback).toBe(20000);
+    expect(useSettingsStore.getState().settings.buffer.maxLines).toBe(12000);
   });
 
   it('clamps sidebar widths and records MRU commands without duplicates', async () => {

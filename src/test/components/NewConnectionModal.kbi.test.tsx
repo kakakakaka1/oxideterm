@@ -29,8 +29,8 @@ const toastState = vi.hoisted(() => ({
 const settingsStoreMock = vi.hoisted(() => ({
   getState: vi.fn(() => ({
     settings: {
-      buffer: {
-        maxLines: 7000,
+      terminal: {
+        scrollback: 3500,
       },
     },
   })),
@@ -45,6 +45,7 @@ vi.mock('@/store/sessionTreeStore', () => ({
 }));
 vi.mock('@/store/settingsStore', () => ({
   useSettingsStore: settingsStoreMock,
+  deriveBackendHotLines: (scrollback: number) => Math.min(12000, Math.max(5000, scrollback * 2)),
 }));
 vi.mock('@/hooks/useToast', () => ({
   useToast: () => toastState,

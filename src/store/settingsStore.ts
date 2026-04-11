@@ -41,6 +41,30 @@ const LEGACY_KEYS = [
   'oxide-focused-node',
 ] as const;
 
+const DEFAULT_TERMINAL_SCROLLBACK = 3000;
+const TERMINAL_SCROLLBACK_MIN = 500;
+const TERMINAL_SCROLLBACK_MAX = 20_000;
+const BACKEND_HOT_BUFFER_MIN = 5_000;
+const BACKEND_HOT_BUFFER_MAX = 12_000;
+
+function clampTerminalScrollback(scrollback: number): number {
+  if (!Number.isFinite(scrollback)) {
+    return DEFAULT_TERMINAL_SCROLLBACK;
+  }
+  return Math.min(
+    TERMINAL_SCROLLBACK_MAX,
+    Math.max(TERMINAL_SCROLLBACK_MIN, Math.round(scrollback)),
+  );
+}
+
+export function deriveBackendHotLines(scrollback: number): number {
+  const normalizedScrollback = clampTerminalScrollback(scrollback);
+  return Math.min(
+    BACKEND_HOT_BUFFER_MAX,
+    Math.max(BACKEND_HOT_BUFFER_MIN, normalizedScrollback * 2),
+  );
+}
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -123,7 +147,7 @@ export interface TerminalSettings {
 
 /** Buffer settings (used by backend) */
 export interface BufferSettings {
-  maxLines: number;          // Backend ScrollBuffer max lines
+  maxLines: number;          // Legacy persisted mirror of derived backend hot-buffer lines
 }
 
 /** UI density control */
@@ -339,7 +363,7 @@ const defaultTerminalSettings: TerminalSettings = {
   lineHeight: 1.2,
   cursorStyle: 'block',
   cursorBlink: true,
-  scrollback: 3000,
+  scrollback: DEFAULT_TERMINAL_SCROLLBACK,
   renderer: isWindows ? 'canvas' : 'auto',
   adaptiveRenderer: 'auto',  // Dynamic refresh rate: auto = three-tier adaptive
   showFpsOverlay: false,      // Hidden by default; user enables for diagnostics
@@ -356,7 +380,7 @@ const defaultTerminalSettings: TerminalSettings = {
 };
 
 const defaultBufferSettings: BufferSettings = {
-  maxLines: 8000,
+  maxLines: deriveBackendHotLines(DEFAULT_TERMINAL_SCROLLBACK),
 };
 
 const defaultAppearanceSettings: AppearanceSettings = {
@@ -549,6 +573,21 @@ function createDefaultSettings(): PersistedSettingsV2 {
   };
 }
 
+function normalizeHistorySettings(settings: PersistedSettingsV2): PersistedSettingsV2 {
+  const scrollback = clampTerminalScrollback(settings.terminal.scrollback);
+  return {
+    ...settings,
+    terminal: {
+      ...settings.terminal,
+      scrollback,
+    },
+    buffer: {
+      ...settings.buffer,
+      maxLines: deriveBackendHotLines(scrollback),
+    },
+  };
+}
+
 // ============================================================================
 // Persistence Helpers
 // ============================================================================
@@ -556,7 +595,7 @@ function createDefaultSettings(): PersistedSettingsV2 {
 /** Merge saved settings with defaults (handles version upgrades with new fields) */
 function mergeWithDefaults(saved: Partial<PersistedSettingsV2>): PersistedSettingsV2 {
   const defaults = createDefaultSettings();
-  return {
+  return normalizeHistorySettings({
     version: 2,
     general: { ...defaults.general, ...saved.general },
     terminal: { ...defaults.terminal, ...saved.terminal },
@@ -601,7 +640,7 @@ function mergeWithDefaults(saved: Partial<PersistedSettingsV2>): PersistedSettin
       : defaults.experimental,
     onboardingCompleted: saved.onboardingCompleted ?? defaults.onboardingCompleted,
     commandPaletteMru: saved.commandPaletteMru ?? defaults.commandPaletteMru,
-  };
+  });
 }
 
 /** Migrate AI settings to multi-provider format */
@@ -729,7 +768,7 @@ function loadSettings(): PersistedSettingsV2 {
         const migrated = migrateAiProviders(settings);
         // Migrate: convert old autoApproveReadOnly/autoApproveAll to per-tool map
         const migrated2 = migrateToolUseSettings(migrated);
-        return migrated2;
+        return normalizeHistorySettings(migrated2);
       }
     }
 
@@ -744,7 +783,7 @@ function loadSettings(): PersistedSettingsV2 {
   }
 
   const defaults = createDefaultSettings();
-  return migrateToolUseSettings(migrateAiProviders(defaults));
+  return normalizeHistorySettings(migrateToolUseSettings(migrateAiProviders(defaults)));
 }
 
 /** Persist settings to localStorage */
@@ -869,9 +908,19 @@ export const useSettingsStore = create<SettingsStore>()(
     // ========== Terminal Settings ==========
     updateTerminal: (key, value) => {
       set((state) => {
+        const nextTerminal = { ...state.settings.terminal, [key]: value };
+        const normalizedTerminal = key === 'scrollback'
+          ? { ...nextTerminal, scrollback: clampTerminalScrollback(Number(value)) }
+          : nextTerminal;
         const newSettings: PersistedSettingsV2 = {
           ...state.settings,
-          terminal: { ...state.settings.terminal, [key]: value },
+          terminal: normalizedTerminal,
+          buffer: key === 'scrollback'
+            ? {
+                ...state.settings.buffer,
+                maxLines: deriveBackendHotLines(normalizedTerminal.scrollback),
+              }
+            : state.settings.buffer,
         };
         persistSettings(newSettings);
         return { settings: newSettings };
