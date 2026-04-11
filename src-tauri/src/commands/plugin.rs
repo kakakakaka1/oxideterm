@@ -322,6 +322,51 @@ pub async fn read_plugin_file(plugin_id: String, relative_path: String) -> Resul
         .map_err(|e| format!("Failed to read plugin file '{}': {}", relative_path, e))
 }
 
+/// Allow a plugin package directory on the asset protocol scope and resolve an entry file.
+/// This lets package plugins load via same-origin asset URLs instead of localhost HTTP.
+#[tauri::command]
+pub fn allow_plugin_asset_entry(
+    app: tauri::AppHandle,
+    plugin_id: String,
+    relative_path: String,
+) -> Result<String, String> {
+    use tauri::Manager;
+
+    validate_plugin_id(&plugin_id)?;
+    validate_relative_path(&relative_path)?;
+
+    let plugin_root = plugins_dir()?.join(&plugin_id);
+    let canonical_root = plugin_root
+        .canonicalize()
+        .map_err(|e| format!("Failed to resolve plugin root '{}': {}", plugin_id, e))?;
+
+    if !canonical_root.is_dir() {
+        return Err(format!("Plugin root '{}' is not a directory", plugin_id));
+    }
+
+    let entry_path = canonical_root.join(&relative_path);
+    let canonical_entry = entry_path
+        .canonicalize()
+        .map_err(|e| format!("Failed to resolve plugin entry '{}': {}", relative_path, e))?;
+
+    if !canonical_entry.starts_with(&canonical_root) {
+        return Err("Path escapes plugin directory".to_string());
+    }
+
+    if canonical_entry.is_dir() {
+        return Err("Plugin entry path cannot be a directory".to_string());
+    }
+
+    app.asset_protocol_scope()
+        .allow_directory(&canonical_root, true)
+        .map_err(|e| format!("Failed to allow plugin directory: {}", e))?;
+
+    canonical_entry
+        .to_str()
+        .map(|s| s.to_string())
+        .ok_or_else(|| "Plugin entry path contains invalid UTF-8".to_string())
+}
+
 /// Save plugin configuration (enabled/disabled state for each plugin).
 /// Stored as JSON in config_dir()/plugin-config.json.
 #[tauri::command]

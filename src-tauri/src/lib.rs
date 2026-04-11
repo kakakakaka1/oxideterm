@@ -745,6 +745,7 @@ pub fn run() {
         // Plugin system commands
         commands::list_plugins,
         commands::read_plugin_file,
+        commands::allow_plugin_asset_entry,
         commands::save_plugin_config,
         commands::load_plugin_config,
         commands::scaffold_plugin,
@@ -1079,6 +1080,7 @@ pub fn run() {
         // Plugin system commands
         commands::list_plugins,
         commands::read_plugin_file,
+        commands::allow_plugin_asset_entry,
         commands::save_plugin_config,
         commands::load_plugin_config,
         // Plugin file server commands

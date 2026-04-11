@@ -12,10 +12,12 @@
  * - Error circuit breaker: auto-disable plugins that error too frequently
  */
 
+import { convertFileSrc } from '@tauri-apps/api/core';
 import { api } from '../api';
 import { usePluginStore } from '../../store/pluginStore';
 import { buildPluginContext, cleanupPluginAssets } from './pluginContextFactory';
 import { loadPluginI18n, removePluginI18n } from './pluginI18nManager';
+import { normalizePluginRelativePath } from './pluginPaths';
 import type { PluginManifest, PluginModule, PluginGlobalConfig } from '../../types/plugin';
 import packageJson from '../../../package.json';
 
@@ -179,7 +181,7 @@ export async function discoverPlugins(): Promise<PluginManifest[]> {
  * Load a plugin module via Blob URL (single-file bundles).
  */
 async function loadPluginViaBlobUrl(pluginId: string, main: string): Promise<PluginModule> {
-  const mainPath = main.replace(/^\.\//, '');
+  const mainPath = normalizePluginRelativePath(main);
   const fileBytes = await api.pluginReadFile(pluginId, mainPath);
   const blob = new Blob([new Uint8Array(fileBytes)], { type: 'application/javascript' });
   const blobUrl = URL.createObjectURL(blob);
@@ -194,6 +196,18 @@ async function loadPluginViaBlobUrl(pluginId: string, main: string): Promise<Plu
 /** Cached plugin server port */
 let pluginServerPort: number | null = null;
 
+async function loadPluginViaAssetUrl(pluginId: string, main: string): Promise<PluginModule> {
+  const mainPath = normalizePluginRelativePath(main);
+  const assetPath = await api.pluginAllowAssetEntry(pluginId, mainPath);
+  const assetUrl = convertFileSrc(assetPath);
+  return await import(/* @vite-ignore */ assetUrl);
+}
+
+function isRecoverableAssetLoadError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /failed to fetch dynamically imported module|importing a module script failed/i.test(message);
+}
+
 /**
  * Load a plugin module via the local HTTP file server (multi-file packages).
  * This allows relative imports between plugin files to resolve correctly.
@@ -202,7 +216,7 @@ async function loadPluginViaServer(pluginId: string, main: string): Promise<Plug
   if (pluginServerPort === null) {
     pluginServerPort = await api.pluginStartServer();
   }
-  const mainPath = main.replace(/^\.\//, '');
+  const mainPath = normalizePluginRelativePath(main);
   const url = `http://127.0.0.1:${pluginServerPort}/plugins/${pluginId}/${mainPath}`;
   return await import(/* @vite-ignore */ url);
 }
@@ -242,8 +256,16 @@ export async function loadPlugin(manifest: PluginManifest): Promise<void> {
     let module: PluginModule;
 
     if (manifest.format === 'package') {
-      // Multi-file package: load via local HTTP server (supports relative imports)
-      module = await loadPluginViaServer(id, manifest.main);
+      // Prefer asset URLs so package plugins stay same-origin inside the webview.
+      try {
+        module = await loadPluginViaAssetUrl(id, manifest.main);
+      } catch (assetErr) {
+        if (!isRecoverableAssetLoadError(assetErr)) {
+          throw assetErr;
+        }
+        console.warn(`[PluginLoader] Asset URL load failed for plugin "${id}", falling back to localhost server:`, assetErr);
+        module = await loadPluginViaServer(id, manifest.main);
+      }
     } else {
       // Single-file bundle (default): load via Blob URL
       module = await loadPluginViaBlobUrl(id, manifest.main);
@@ -269,7 +291,7 @@ export async function loadPlugin(manifest: PluginManifest): Promise<void> {
     if (manifest.styles && manifest.styles.length > 0) {
       for (const cssPath of manifest.styles) {
         try {
-          const normalizedPath = cssPath.replace(/^\.\//, '');
+          const normalizedPath = normalizePluginRelativePath(cssPath);
           const fileBytes = await api.pluginReadFile(id, normalizedPath);
           const cssText = new TextDecoder().decode(new Uint8Array(fileBytes));
 
@@ -397,7 +419,7 @@ export async function unloadPlugin(pluginId: string): Promise<void> {
  * Load locale files for a plugin from its locales directory.
  */
 async function loadPluginLocales(pluginId: string, localesPath: string): Promise<void> {
-  const basePath = localesPath.replace(/^\.\//, '');
+  const basePath = normalizePluginRelativePath(localesPath);
 
   // Try loading common language files
   const languages = ['en', 'zh-CN', 'ja', 'ko', 'fr-FR', 'de', 'es-ES', 'pt-BR', 'it', 'vi', 'zh-TW'];

@@ -1518,6 +1518,12 @@ export const api = {
     return invoke('read_plugin_file', { pluginId, relativePath });
   },
 
+  /** Allow a package plugin directory on the asset protocol scope and return the entry file path. */
+  pluginAllowAssetEntry: async (pluginId: string, relativePath: string): Promise<string> => {
+    if (USE_MOCK) return relativePath;
+    return invoke('allow_plugin_asset_entry', { pluginId, relativePath });
+  },
+
   /** Save plugin configuration (enabled/disabled state) */
   pluginSaveConfig: async (config: string): Promise<void> => {
     if (USE_MOCK) return;
