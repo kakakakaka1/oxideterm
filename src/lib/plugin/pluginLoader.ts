@@ -237,6 +237,26 @@ export async function loadPlugin(manifest: PluginManifest): Promise<void> {
     return;
   }
 
+  // Defensive cleanup: if the plugin was previously active (e.g. app restarted
+  // without a clean deactivate cycle), clean up stale registrations to prevent
+  // duplicate status-bar items, commands, etc.
+  const existingPlugin = store.getPlugin(id);
+  if (existingPlugin?.state === 'active' || existingPlugin?.module) {
+    try {
+      if (existingPlugin.module?.deactivate) {
+        const result = existingPlugin.module.deactivate();
+        if (result instanceof Promise) {
+          await withTimeout(result, LIFECYCLE_TIMEOUT, `Plugin "${id}" deactivate() during reload`);
+        }
+      }
+    } catch (err) {
+      console.warn(`[PluginLoader] Error during pre-load deactivate() for "${id}":`, err);
+    }
+    store.cleanupPlugin(id);
+    removePluginI18n(id);
+    cleanupPluginAssets(id);
+  }
+
   store.setPluginState(id, 'loading');
 
   // Check shared dependencies (advisory — warn but don't block)

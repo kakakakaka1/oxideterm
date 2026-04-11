@@ -412,6 +412,7 @@ export type PluginSyncAPI = {
 
 export type PluginSecretsAPI = {
   get(key: string): Promise<string | null>;
+  getMany(keys: readonly string[]): Promise<Readonly<Record<string, string | null>>>;
   set(key: string, value: string): Promise<void>;
   has(key: string): Promise<boolean>;
   delete(key: string): Promise<void>;

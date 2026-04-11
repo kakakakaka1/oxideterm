@@ -1044,6 +1044,12 @@ export function buildPluginContext(manifest: PluginManifest): PluginContext {
         key,
       });
     },
+    async getMany(keys: readonly string[]): Promise<Readonly<Record<string, string | null>>> {
+      return invoke<Readonly<Record<string, string | null>>>('get_plugin_secrets_batch', {
+        pluginId,
+        keys,
+      });
+    },
     async set(key: string, value: string): Promise<void> {
       await invoke('set_plugin_secret', {
         pluginId,

@@ -453,6 +453,41 @@ pub async fn get_plugin_secret(
     }
 }
 
+/// Retrieve multiple plugin-scoped secrets from the OS keychain.
+///
+/// On macOS this performs a single Touch ID authentication up front and then
+/// reads all requested secrets without repeating the prompt.
+#[tauri::command]
+pub async fn get_plugin_secrets_batch(
+    state: State<'_, Arc<ConfigState>>,
+    plugin_id: String,
+    keys: Vec<String>,
+) -> Result<std::collections::HashMap<String, Option<String>>, String> {
+    let mut account_ids = Vec::with_capacity(keys.len());
+    for key in &keys {
+        account_ids.push(plugin_secret_account_id(&plugin_id, key)?);
+    }
+
+    let values = state
+        .ai_keychain
+        .get_many(&account_ids)
+        .map_err(|e| format!("Failed to read plugin secrets: {}", e))?;
+
+    let mut result = std::collections::HashMap::with_capacity(keys.len());
+    for (index, key) in keys.into_iter().enumerate() {
+        let value = values.get(index).cloned().flatten();
+        if let Some(secret) = &value {
+            state
+                .api_key_cache
+                .write()
+                .insert(account_ids[index].clone(), secret.clone());
+        }
+        result.insert(key, value);
+    }
+
+    Ok(result)
+}
+
 /// Check whether a plugin-scoped secret exists in the OS keychain.
 #[tauri::command]
 pub async fn has_plugin_secret(

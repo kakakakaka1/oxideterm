@@ -39,21 +39,13 @@ pub struct ExportPreflightResult {
     pub can_export: bool,
 }
 
-/// Validate password strength
+/// Validate password strength.
+/// The Argon2id KDF (256 MB, 4 iterations) makes brute-force impractical,
+/// so we only enforce a minimum length of 6 characters.
 fn validate_password(password: &str) -> Result<(), String> {
-    if password.len() < 12 {
-        return Err("密码长度至少 12 个字符".to_string());
+    if password.len() < 6 {
+        return Err("Password must be at least 6 characters".to_string());
     }
-
-    let has_upper = password.chars().any(|c| c.is_uppercase());
-    let has_lower = password.chars().any(|c| c.is_lowercase());
-    let has_digit = password.chars().any(|c| c.is_numeric());
-    let has_special = password.chars().any(|c| !c.is_alphanumeric());
-
-    if !(has_upper && has_lower && has_digit && has_special) {
-        return Err("密码必须包含大写、小写、数字和特殊字符".to_string());
-    }
-
     Ok(())
 }
 
@@ -476,22 +468,14 @@ mod tests {
     #[test]
     fn test_password_validation() {
         // Too short
-        assert!(validate_password("Short1!").is_err());
+        assert!(validate_password("abc").is_err());
+        assert!(validate_password("12345").is_err());
 
-        // No uppercase
-        assert!(validate_password("nouppercase1!").is_err());
+        // Exactly 6 characters — valid
+        assert!(validate_password("abcdef").is_ok());
 
-        // No lowercase
-        assert!(validate_password("NOLOWERCASE1!").is_err());
-
-        // No digits
-        assert!(validate_password("NoDigits!abc").is_err());
-
-        // No special characters
-        assert!(validate_password("NoSpecial123Abc").is_err());
-
-        // Valid
+        // Longer passwords — valid
+        assert!(validate_password("mysyncpass").is_ok());
         assert!(validate_password("ValidPass123!").is_ok());
-        assert!(validate_password("MySecureP@ssw0rd").is_ok());
     }
 }

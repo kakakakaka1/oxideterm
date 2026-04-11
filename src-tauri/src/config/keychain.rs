@@ -384,6 +384,45 @@ impl Keychain {
         self.get(id)
     }
 
+    /// Retrieve multiple secrets with a single biometric authentication.
+    ///
+    /// On macOS with biometric mode enabled, this performs one Touch ID
+    /// authentication up front, then reads each secret without repeating the
+    /// prompt. Missing entries are returned as `None`.
+    pub fn get_many(&self, ids: &[String]) -> Result<Vec<Option<String>>, KeychainError> {
+        #[cfg(target_os = "macos")]
+        if self.use_biometrics {
+            if super::touch_id::is_biometric_available() {
+                super::touch_id::authenticate("OxideTerm needs to access your plugin secrets")
+                    .map_err(|e| {
+                        KeychainError::Keyring(keyring::Error::PlatformFailure(
+                            format!("Touch ID: {}", e).into(),
+                        ))
+                    })?;
+            }
+
+            let mut results = Vec::with_capacity(ids.len());
+            for id in ids {
+                match self.get_without_biometrics(id) {
+                    Ok(secret) => results.push(Some(secret)),
+                    Err(KeychainError::NotFound(_)) => results.push(None),
+                    Err(e) => return Err(e),
+                }
+            }
+            return Ok(results);
+        }
+
+        let mut results = Vec::with_capacity(ids.len());
+        for id in ids {
+            match self.get(id) {
+                Ok(secret) => results.push(Some(secret)),
+                Err(KeychainError::NotFound(_)) => results.push(None),
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(results)
+    }
+
     /// Delete a secret from the keychain.
     ///
     /// No Touch ID prompt — deletion is always allowed.

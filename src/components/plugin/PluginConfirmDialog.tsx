@@ -65,13 +65,13 @@ export function PluginConfirmDialog() {
             onClick={handleCancel}
             className="flex-1 sm:flex-none"
           >
-            {t('common.cancel', 'Cancel')}
+            {t('common.actions.cancel', 'Cancel')}
           </Button>
           <Button
             onClick={handleConfirm}
             className="flex-1 sm:flex-none bg-theme-accent hover:bg-theme-accent/80"
           >
-            {t('common.confirm', 'Confirm')}
+            {t('common.actions.confirm', 'Confirm')}
           </Button>
         </DialogFooter>
       </DialogContent>

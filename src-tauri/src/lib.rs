@@ -624,6 +624,7 @@ pub fn run() {
         commands::config::list_ai_provider_keys,
         commands::plugin::set_plugin_secret,
         commands::plugin::get_plugin_secret,
+        commands::plugin::get_plugin_secrets_batch,
         commands::plugin::has_plugin_secret,
         commands::plugin::delete_plugin_secret,
         // Oxide file export/import commands
@@ -961,6 +962,7 @@ pub fn run() {
         commands::config::list_ai_provider_keys,
         commands::plugin::set_plugin_secret,
         commands::plugin::get_plugin_secret,
+        commands::plugin::get_plugin_secrets_batch,
         commands::plugin::has_plugin_secret,
         commands::plugin::delete_plugin_secret,
         // Oxide file export/import commands
