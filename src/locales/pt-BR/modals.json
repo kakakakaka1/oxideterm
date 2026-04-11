@@ -396,11 +396,11 @@
       },
       "buffer": {
         "title": "Gerenciamento de buffer",
-        "description": "Configure o buffer de scrollback do backend para busca e persistência.",
+        "description": "Configure o buffer de rolagem do backend para reconexão e busca.",
         "max_lines": "Linhas máximas de buffer",
         "lines_hint": "Linhas antigas serão descartadas automaticamente quando o limite for atingido.",
         "new_sessions_only": "As alterações se aplicam apenas a novas sessões.",
-        "save_hint": "O conteúdo do buffer será persistido e restaurado ao reconectar à sessão."
+        "save_hint": "O conteúdo do buffer permanece em memória para busca enquanto a sessão estiver ativa."
       },
       "appearance": {
         "title": "Aparência",

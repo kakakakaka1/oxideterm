@@ -118,7 +118,7 @@
       "scrollback": "Dòng cuộn lại",
       "scrollback_hint": "Số dòng được giữ trong bộ nhớ để cuộn",
         "backend_buffer_lines": "Số dòng buffer phiên SSH",
-        "backend_buffer_lines_hint": "Số dòng được giữ ở backend cho mỗi terminal SSH để phục vụ kết nối lại, tìm kiếm và lưu trữ tùy chọn",
+        "backend_buffer_lines_hint": "Số dòng được giữ ở backend cho mỗi terminal SSH để tái kết nối và tìm kiếm",
         "backend_buffer_recommended": "Phạm vi khuyến nghị: 5.000-8.000 dòng.",
       "bg_title": "Hình nền",
       "bg_enabled": "Bật hình nền",

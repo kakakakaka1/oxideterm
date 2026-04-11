@@ -398,11 +398,11 @@
       },
       "buffer": {
         "title": "Gestione Buffer",
-        "description": "Configura il buffer di scorrimento backend per ricerca e persistenza.",
+        "description": "Configura il buffer di scorrimento backend per riconnessione e ricerca.",
         "max_lines": "Linee Massime Buffer",
         "lines_hint": "Le linee più vecchie verranno scartate automaticamente al raggiungimento del limite.",
         "new_sessions_only": "Le modifiche si applicano solo alle nuove sessioni.",
-        "save_hint": "Il contenuto del buffer verrà persistito e ripristinato alla riconnessione alla sessione."
+        "save_hint": "Il contenuto del buffer resta in memoria per la ricerca finché la sessione rimane attiva."
       },
       "appearance": {
         "title": "Aspetto",

@@ -398,11 +398,11 @@
       },
       "buffer": {
         "title": "Quản lý Buffer",
-        "description": "Cấu hình buffer cuộn backend cho tìm kiếm và lưu trữ.",
+        "description": "Cấu hình bộ đệm cuộn backend cho tái kết nối và tìm kiếm.",
         "max_lines": "Số dòng Buffer tối đa",
         "lines_hint": "Các dòng cũ hơn sẽ tự động bị xóa khi đạt giới hạn.",
         "new_sessions_only": "Thay đổi chỉ áp dụng cho phiên làm việc mới.",
-        "save_hint": "Nội dung buffer sẽ được lưu trữ và khôi phục khi kết nối lại phiên."
+        "save_hint": "Nội dung bộ đệm được giữ trong bộ nhớ để tìm kiếm khi phiên còn hoạt động."
       },
       "appearance": {
         "title": "Giao diện",

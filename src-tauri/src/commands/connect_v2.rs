@@ -57,13 +57,6 @@ pub struct ConnectRequest {
     pub trust_host_key: Option<bool>,
     #[serde(default)]
     pub expected_host_key_fingerprint: Option<String>,
-    #[serde(default)]
-    pub buffer_config: Option<BufferConfigRequest>,
-}
-
-#[derive(Debug, Deserialize, Clone)]
-pub struct BufferConfigRequest {
-    pub max_lines: usize,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -1173,7 +1166,6 @@ mod tests {
             ]),
             trust_host_key: None,
             expected_host_key_fingerprint: None,
-            buffer_config: None,
         };
 
         let diagnostic = build_proxy_failure_diagnostic(
@@ -1229,7 +1221,6 @@ mod tests {
             }]),
             trust_host_key: None,
             expected_host_key_fingerprint: None,
-            buffer_config: None,
         };
 
         let diagnostic = build_proxy_failure_diagnostic(

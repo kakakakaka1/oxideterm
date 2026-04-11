@@ -15,6 +15,7 @@
 
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
+import { api } from '../lib/api';
 import { themes, getTerminalTheme, isCustomTheme, applyCustomThemeCSS, clearCustomThemeCSS } from '../lib/themes';
 import { useToastStore } from '../hooks/useToast';
 import { getFontFamilyCSS } from '../components/fileManager/fontUtils';
@@ -705,22 +706,14 @@ function migrateToolUseSettings(settings: PersistedSettingsV2): PersistedSetting
   return newSettings;
 }
 
-/**
- * Migrate osc52Clipboard: the feature shipped as opt-in (false) but is now default-on.
- * Upgrade persisted `false` to `true` so existing users benefit without manual action.
- * Users who deliberately disabled it after it existed will be unaffected — this only
- * runs once; after migrating the value is persisted as `true` and no longer touched.
- */
-function migrateOsc52Default(settings: PersistedSettingsV2): PersistedSettingsV2 {
-  if (settings.terminal.osc52Clipboard === false) {
-    const migrated: PersistedSettingsV2 = {
-      ...settings,
-      terminal: { ...settings.terminal, osc52Clipboard: true },
-    };
-    persistSettings(migrated);
-    return migrated;
-  }
-  return settings;
+function syncSftpToBackend(sftp: SftpSettings): void {
+  const speedLimit = sftp.speedLimitEnabled ? sftp.speedLimitKBps : 0;
+  api.sftpUpdateSettings(
+    sftp.maxConcurrentTransfers,
+    speedLimit,
+  ).catch((err) => {
+    console.error('Failed to sync SFTP settings to backend:', err);
+  });
 }
 
 /** Load settings from localStorage, detect and clean legacy formats */
@@ -736,8 +729,7 @@ function loadSettings(): PersistedSettingsV2 {
         const migrated = migrateAiProviders(settings);
         // Migrate: convert old autoApproveReadOnly/autoApproveAll to per-tool map
         const migrated2 = migrateToolUseSettings(migrated);
-        // Migrate: osc52 default changed from false → true
-        return migrateOsc52Default(migrated2);
+        return migrated2;
       }
     }
 
@@ -937,28 +929,20 @@ export const useSettingsStore = create<SettingsStore>()(
 
     // ========== SFTP Settings ==========
     updateSftp: (key, value) => {
-      set((state) => {
-        const currentSftp = state.settings.sftp || defaultSftpSettings;
-        const newSettings: PersistedSettingsV2 = {
-          ...state.settings,
-          sftp: { ...currentSftp, [key]: value },
-        };
-        persistSettings(newSettings);
+      const state = get();
+      const currentSftp = state.settings.sftp || defaultSftpSettings;
+      const nextSftp = { ...currentSftp, [key]: value };
+      const newSettings: PersistedSettingsV2 = {
+        ...state.settings,
+        sftp: nextSftp,
+      };
 
-        // Sync to backend for transfer manager settings
-        if (key === 'maxConcurrentTransfers' || key === 'speedLimitEnabled' || key === 'speedLimitKBps') {
-          // Dynamically import api to avoid circular dependencies
-          import('../lib/api').then(({ api }) => {
-            const latestSftp = get().settings.sftp || defaultSftpSettings;
-            api.sftpUpdateSettings(
-              latestSftp.maxConcurrentTransfers,
-              latestSftp.speedLimitEnabled ? latestSftp.speedLimitKBps : 0
-            ).catch((err) => console.error('Failed to sync SFTP settings to backend:', err));
-          });
-        }
+      persistSettings(newSettings);
+      set({ settings: newSettings });
 
-        return { settings: newSettings };
-      });
+      if (key === 'maxConcurrentTransfers' || key === 'speedLimitEnabled' || key === 'speedLimitKBps') {
+        syncSftpToBackend(nextSftp);
+      }
     },
 
     updateIde: (key, value) => {
@@ -1378,6 +1362,7 @@ export const useSettingsStore = create<SettingsStore>()(
     resetToDefaults: () => {
       const newSettings = createDefaultSettings();
       persistSettings(newSettings);
+      syncSftpToBackend(newSettings.sftp || defaultSftpSettings);
       syncConnectionPoolToBackend(
         newSettings.connectionPool || defaultConnectionPoolSettings,
       );

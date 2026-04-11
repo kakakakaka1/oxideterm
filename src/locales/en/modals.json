@@ -398,11 +398,11 @@
       },
       "buffer": {
         "title": "Buffer Management",
-        "description": "Configure backend scroll buffer for search and persistence.",
+        "description": "Configure backend scroll buffer for reconnect and search.",
         "max_lines": "Maximum Buffer Lines",
         "lines_hint": "Older lines will be automatically discarded when limit is reached.",
         "new_sessions_only": "Changes only apply to new sessions.",
-        "save_hint": "Buffer content will be persisted and restored when reconnecting to the session."
+        "save_hint": "Buffer content stays in memory for search while the session remains active."
       },
       "appearance": {
         "title": "Appearance",

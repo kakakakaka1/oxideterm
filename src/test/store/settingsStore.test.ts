@@ -174,6 +174,26 @@ describe('settingsStore', () => {
     expect(buffer.maxLines).toBe(8000);
   });
 
+  it('preserves an explicit osc52Clipboard false setting on load', async () => {
+    localStorage.setItem('oxide-settings-v2', JSON.stringify(buildSavedSettings({
+      terminal: { theme: 'default', renderer: 'auto', osc52Clipboard: false },
+    })));
+
+    const useSettingsStore = await loadSettingsStore();
+
+    expect(useSettingsStore.getState().settings.terminal.osc52Clipboard).toBe(false);
+  });
+
+  it('defaults osc52Clipboard to true when the persisted terminal settings omit it', async () => {
+    localStorage.setItem('oxide-settings-v2', JSON.stringify(buildSavedSettings({
+      terminal: { theme: 'default', renderer: 'auto' },
+    })));
+
+    const useSettingsStore = await loadSettingsStore();
+
+    expect(useSettingsStore.getState().settings.terminal.osc52Clipboard).toBe(true);
+  });
+
   it('setLanguage persists app_lang and delegates to i18n', async () => {
     const useSettingsStore = await loadSettingsStore();
 
@@ -202,6 +222,7 @@ describe('settingsStore', () => {
 
   it('syncs SFTP settings to backend when transfer-related settings change', async () => {
     const useSettingsStore = await loadSettingsStore();
+    apiMocks.sftpUpdateSettings.mockClear();
 
     useSettingsStore.getState().updateSftp('maxConcurrentTransfers', 5);
     await waitFor(() => {
@@ -212,6 +233,26 @@ describe('settingsStore', () => {
     useSettingsStore.getState().updateSftp('speedLimitKBps', 256);
     await waitFor(() => {
       expect(apiMocks.sftpUpdateSettings.mock.calls).toContainEqual([5, 256]);
+    });
+  });
+
+  it('syncs SFTP defaults to backend when resetting settings', async () => {
+    const useSettingsStore = await loadSettingsStore();
+    apiMocks.sftpUpdateSettings.mockClear();
+
+    useSettingsStore.getState().updateSftp('maxConcurrentTransfers', 5);
+    useSettingsStore.getState().updateSftp('speedLimitEnabled', true);
+    useSettingsStore.getState().updateSftp('speedLimitKBps', 256);
+
+    await waitFor(() => {
+      expect(apiMocks.sftpUpdateSettings.mock.calls).toContainEqual([5, 256]);
+    });
+
+    apiMocks.sftpUpdateSettings.mockClear();
+    useSettingsStore.getState().resetToDefaults();
+
+    await waitFor(() => {
+      expect(apiMocks.sftpUpdateSettings).toHaveBeenCalledWith(3, 0);
     });
   });
 

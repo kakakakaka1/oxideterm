@@ -396,11 +396,11 @@
       },
       "buffer": {
         "title": "Gestion du tampon",
-        "description": "Configurer le tampon de défilement backend pour la recherche et la persistance.",
+        "description": "Configurer le tampon de défilement backend pour la reconnexion et la recherche.",
         "max_lines": "Lignes de tampon maximum",
         "lines_hint": "Les anciennes lignes seront automatiquement supprimées lorsque la limite est atteinte.",
         "new_sessions_only": "Les modifications ne s'appliquent qu'aux nouvelles sessions.",
-        "save_hint": "Le contenu du tampon sera persisté et restauré lors de la reconnexion à la session."
+        "save_hint": "Le contenu du tampon reste en mémoire pour la recherche tant que la session est active."
       },
       "appearance": {
         "title": "Apparence",

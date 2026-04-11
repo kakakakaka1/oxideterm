@@ -398,11 +398,11 @@
       },
       "buffer": {
         "title": "Pufferverwaltung",
-        "description": "Backend-Scrollpuffer für Suche und Persistenz konfigurieren.",
+        "description": "Backend-Scrollpuffer für Wiederverbindung und Suche konfigurieren.",
         "max_lines": "Maximale Pufferzeilen",
         "lines_hint": "Ältere Zeilen werden automatisch verworfen, wenn das Limit erreicht ist.",
         "new_sessions_only": "Änderungen gelten nur für neue Sitzungen.",
-        "save_hint": "Pufferinhalt wird gespeichert und bei erneuter Verbindung wiederhergestellt."
+        "save_hint": "Pufferinhalt bleibt im Speicher, solange die Sitzung aktiv ist, und steht für die Suche zur Verfügung."
       },
       "appearance": {
         "title": "Erscheinungsbild",

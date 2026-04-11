@@ -118,7 +118,7 @@
       "scrollback": "Linee Scrollback",
       "scrollback_hint": "Numero di linee mantenute in memoria per lo scorrimento",
         "backend_buffer_lines": "Linee del buffer della sessione SSH",
-        "backend_buffer_lines_hint": "Linee mantenute nel backend per ogni terminale SSH per riconnessione, ricerca e persistenza opzionale",
+        "backend_buffer_lines_hint": "Linee mantenute nel backend per ogni terminale SSH per riconnessione e ricerca",
         "backend_buffer_recommended": "Intervallo consigliato: 5.000-8.000 righe.",
       "bg_title": "Immagine di sfondo",
       "bg_enabled": "Attiva sfondo",

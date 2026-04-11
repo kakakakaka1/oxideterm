@@ -118,7 +118,7 @@
       "scrollback": "捲動緩衝區行數",
       "scrollback_hint": "保存在記憶體中供捲動的行數",
         "backend_buffer_lines": "SSH 工作階段緩衝區行數",
-        "backend_buffer_lines_hint": "每個 SSH 終端在後端保留的行數，用於重新連線、搜尋與可選的持久化",
+        "backend_buffer_lines_hint": "每個 SSH 終端在後端保留的行數，用於重連和搜尋",
         "backend_buffer_recommended": "建議範圍：5,000-8,000 行。",
       "bg_title": "背景圖片",
       "bg_enabled": "啟用背景",

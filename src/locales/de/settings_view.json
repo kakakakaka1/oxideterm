@@ -118,7 +118,7 @@
       "scrollback": "Scrollback-Zeilen",
       "scrollback_hint": "Anzahl der im Speicher für Scrollen gehaltenen Zeilen",
         "backend_buffer_lines": "Pufferzeilen der SSH-Sitzung",
-        "backend_buffer_lines_hint": "Im Backend pro SSH-Terminal gehaltene Zeilen für Wiederverbindung, Suche und optionale Persistenz",
+        "backend_buffer_lines_hint": "Im Backend pro SSH-Terminal gehaltene Zeilen für Wiederverbindung und Suche",
         "backend_buffer_recommended": "Empfohlener Bereich: 5.000-8.000 Zeilen.",
       "bg_title": "Hintergrundbild",
       "bg_enabled": "Hintergrund aktivieren",

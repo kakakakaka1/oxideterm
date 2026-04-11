@@ -358,10 +358,6 @@ export interface ProxyHopConfig {
   agent_forwarding?: boolean;
 }
 
-export interface BufferConfig {
-  max_lines: number;
-}
-
 export interface ConnectRequest {
   host: string;
   port: number;
@@ -375,7 +371,6 @@ export interface ConnectRequest {
   name?: string;
   group?: string;
   proxy_chain?: ProxyHopConfig[];
-  buffer_config?: BufferConfig;
 }
 
 // Persisted Session Types

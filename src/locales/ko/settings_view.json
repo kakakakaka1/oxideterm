@@ -118,7 +118,7 @@
       "scrollback": "스크롤백 줄",
       "scrollback_hint": "스크롤을 위해 메모리에 유지되는 줄 수",
         "backend_buffer_lines": "SSH 세션 버퍼 줄 수",
-        "backend_buffer_lines_hint": "재연결, 검색 및 선택적 영속화를 위해 SSH 터미널마다 백엔드에 유지되는 줄 수",
+        "backend_buffer_lines_hint": "각 SSH 터미널마다 백엔드에 유지되는 줄 수로, 재연결과 검색에 사용됩니다",
         "backend_buffer_recommended": "권장 범위: 5,000-8,000줄.",
       "bg_title": "배경 이미지",
       "bg_enabled": "배경 활성화",
