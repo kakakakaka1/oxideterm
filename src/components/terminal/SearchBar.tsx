@@ -8,17 +8,24 @@ import { Button } from '../ui/button';
 import { Checkbox } from '../ui/checkbox';
 import { Label } from '../ui/label';
 import { Tooltip, TooltipTrigger, TooltipContent } from '../ui/tooltip';
-import { SearchMatch } from '../../types';
+import { HistorySearchMatch, ArchivedHistoryExcerpt, ArchiveHealthSnapshot } from '../../types';
 import { useTranslation } from 'react-i18next';
 
 export type SearchMode = 'active' | 'deep';
 
 export interface DeepSearchState {
   loading: boolean;
-  matches: SearchMatch[];
+  searchId?: string;
+  matches: HistorySearchMatch[];
   totalMatches: number;
   durationMs: number;
+  searchedChunks?: number;
+  totalChunks?: number;
+  truncated?: boolean;
+  partialFailure?: boolean;
   error?: string;
+  archiveStatus?: ArchiveHealthSnapshot;
+  excerpt?: ArchivedHistoryExcerpt;
 }
 
 interface SearchBarProps {
@@ -31,7 +38,7 @@ interface SearchBarProps {
   resultCount: number;
   // Deep history search (optional - not available for local terminals)
   onDeepSearch?: (query: string, options: { caseSensitive?: boolean; regex?: boolean; wholeWord?: boolean }) => void;
-  onJumpToMatch?: (match: SearchMatch) => void;
+  onJumpToMatch?: (match: HistorySearchMatch) => void;
   deepSearchState?: DeepSearchState;
   // Whether to show deep search mode tab (default: true if onDeepSearch is provided)
   showDeepSearch?: boolean;
@@ -166,6 +173,12 @@ export const SearchBar: React.FC<SearchBarProps> = ({
   const getResultDisplay = () => {
     if (!query.trim()) return null;
     if (searchMode === 'deep') {
+      if (deepSearchState?.loading && deepSearchState.totalMatches > 0) {
+        return t('terminal.search.searching_archived', {
+          count: deepSearchState.totalMatches,
+          ms: deepSearchState.durationMs,
+        });
+      }
       if (deepSearchState?.loading) return t('terminal.search.searching');
       if (deepSearchState?.error) return t('terminal.search.error');
       if (deepSearchState?.totalMatches === 0) return t('terminal.search.no_results_history');
@@ -195,7 +208,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({
   };
   
   // Truncate line content for display
-  const truncateLine = (text: string, match: SearchMatch, maxLength: number = 60) => {
+  const truncateLine = (text: string, match: HistorySearchMatch, maxLength: number = 60) => {
     // Center around the match
     const matchStart = match.column_start;
     const matchEnd = match.column_end;
@@ -420,33 +433,71 @@ export const SearchBar: React.FC<SearchBarProps> = ({
       </div>
       
       {/* Deep Search Results List */}
-      {searchMode === 'deep' && deepSearchState && !deepSearchState.loading && deepSearchState.matches.length > 0 && (
+      {searchMode === 'deep' && deepSearchState && deepSearchState.matches.length > 0 && (
         <div 
           ref={resultsListRef}
           className="max-h-64 overflow-y-auto border-t border-theme-border"
         >
-          <div className="text-xs text-theme-text-muted px-3 py-1 bg-theme-bg sticky top-0">
-            {t('terminal.search.click_to_jump')}
+          <div className="text-xs text-theme-text-muted px-3 py-1 bg-theme-bg sticky top-0 flex items-center justify-between gap-2">
+            <span>{t('terminal.search.click_to_jump')}</span>
+            {deepSearchState.loading && (
+              <span className="inline-flex items-center gap-1">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                {t('terminal.search.searching')}
+              </span>
+            )}
           </div>
           {deepSearchState.matches.map((match, idx) => (
             <button
-              key={`${match.line_number}-${match.column_start}-${idx}`}
+              key={`${match.source}-${match.chunk_id || 'hot'}-${match.line_number}-${match.column_start}-${idx}`}
               className="w-full text-left px-3 py-2 hover:bg-theme-bg-hover border-b border-theme-border transition-colors"
               onClick={() => onJumpToMatch?.(match)}
             >
               <div className="flex items-center justify-between text-xs text-theme-text-muted mb-1">
                 <span className="font-mono">{t('terminal.search.line_number', { line: match.line_number + 1 })}</span>
+                <span className="rounded-sm border border-theme-border px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-theme-text-muted">
+                  {match.source === 'hot'
+                    ? t('terminal.search.recent_match')
+                    : t('terminal.search.archived_match')}
+                </span>
               </div>
               <div className="text-sm font-mono text-theme-text truncate">
                 {truncateLine(match.line_content, match)}
               </div>
             </button>
           ))}
-          {deepSearchState.totalMatches > deepSearchState.matches.length && (
+          {(deepSearchState.truncated || deepSearchState.totalMatches > deepSearchState.matches.length) && (
             <div className="text-xs text-theme-text-muted px-3 py-2 text-center">
               {t('terminal.search.showing_first', { total: deepSearchState.totalMatches })}
             </div>
           )}
+        </div>
+      )}
+
+      {searchMode === 'deep' && (deepSearchState?.partialFailure || deepSearchState?.archiveStatus?.degraded) && (
+        <div className="px-3 py-2 bg-amber-900/20 border-t border-amber-800 text-amber-300 text-xs">
+          {t('terminal.search.partial_results')}
+        </div>
+      )}
+
+      {searchMode === 'deep' && deepSearchState?.excerpt && (
+        <div className="border-t border-theme-border bg-theme-bg">
+          <div className="px-3 py-2 text-xs font-medium text-theme-text-muted uppercase tracking-wide">
+            {t('terminal.search.archived_preview')}
+          </div>
+          <div className="max-h-48 overflow-y-auto px-3 pb-3">
+            {deepSearchState.excerpt.lines.map((line) => (
+              <div
+                key={`${line.line_number}-${line.is_match}`}
+                className={`font-mono text-xs px-2 py-1 rounded-sm ${line.is_match ? 'bg-theme-bg-hover text-theme-text' : 'text-theme-text-muted'}`}
+              >
+                <span className="mr-3 inline-block min-w-14 text-theme-text-muted">
+                  {line.line_number + 1}
+                </span>
+                <span>{line.text}</span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
       

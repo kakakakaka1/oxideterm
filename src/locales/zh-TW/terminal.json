@@ -15,6 +15,7 @@
       "placeholder_active": "搜尋終端機輸出...",
       "placeholder_deep": "搜尋完整歷史...",
       "searching": "搜尋中...",
+      "searching_archived": "目前已找到 {{count}} 個符合項目（{{ms}}ms），正在搜尋封存歷史...",
       "error": "錯誤",
       "no_results_history": "歷史記錄中無結果",
       "matches_count": "{{count}} 個符合項目（{{ms}}ms）",
@@ -30,7 +31,11 @@
       "whole_word": "符合整個字詞",
       "click_to_jump": "點擊跳至符合位置",
       "line_number": "第 {{line}} 行",
+      "recent_match": "最近",
+      "archived_match": "已封存",
+      "archived_preview": "封存預覽",
       "showing_first": "顯示 {{total}} 個符合項目中的前 100 個",
+      "partial_results": "部分結果：某些封存片段無法搜尋。",
       "no_matches_in_history": "工作階段歷史中找不到符合項目"
     },
     "ai": {

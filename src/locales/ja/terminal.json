@@ -15,6 +15,7 @@
       "placeholder_active": "ターミナル出力を検索...",
       "placeholder_deep": "完全な履歴を検索...",
       "searching": "検索中...",
+      "searching_archived": "ここまで {{count}} 件一致 ({{ms}}ms)、アーカイブ履歴を検索中...",
       "error": "エラー",
       "no_results_history": "履歴に結果がありません",
       "matches_count": "{{count}}件の一致 ({{ms}}ms)",
@@ -30,7 +31,11 @@
       "whole_word": "単語全体を一致",
       "click_to_jump": "クリックして一致位置にジャンプ",
       "line_number": "行 {{line}}",
+      "recent_match": "最近",
+      "archived_match": "アーカイブ済み",
+      "archived_preview": "アーカイブプレビュー",
       "showing_first": "{{total}}件中最初の100件を表示",
+      "partial_results": "部分的な結果: 一部のアーカイブチャンクを検索できませんでした。",
       "no_matches_in_history": "セッション履歴に一致が見つかりません"
     },
     "ai": {

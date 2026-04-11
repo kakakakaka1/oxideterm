@@ -15,6 +15,7 @@
       "placeholder_active": "Tìm kiếm đầu ra terminal...",
       "placeholder_deep": "Tìm kiếm toàn bộ lịch sử...",
       "searching": "Đang tìm kiếm...",
+      "searching_archived": "Đã có {{count}} kết quả khớp ({{ms}}ms), đang tìm trong lịch sử lưu trữ...",
       "error": "Lỗi",
       "no_results_history": "Không có kết quả trong lịch sử",
       "matches_count": "{{count}} kết quả ({{ms}}ms)",
@@ -30,7 +31,11 @@
       "whole_word": "Khớp toàn từ",
       "click_to_jump": "Nhấn để nhảy đến vị trí kết quả",
       "line_number": "Dòng {{line}}",
+      "recent_match": "Gần đây",
+      "archived_match": "Đã lưu trữ",
+      "archived_preview": "Xem trước bản lưu trữ",
       "showing_first": "Hiển thị 100 kết quả đầu tiên trong {{total}} kết quả",
+      "partial_results": "Kết quả một phần: không thể tìm kiếm trong một số khối đã lưu trữ.",
       "no_matches_in_history": "Không tìm thấy kết quả trong lịch sử phiên"
     },
     "ai": {

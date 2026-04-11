@@ -578,6 +578,10 @@ pub fn run() {
         commands::get_all_buffer_lines,
         // Search commands
         commands::search_terminal,
+        commands::start_terminal_history_search,
+        commands::cancel_terminal_history_search,
+        commands::get_archived_history_excerpt,
+        commands::get_terminal_history_status,
         commands::scroll_to_line,
         // Session tree commands (dynamic jump host)
         commands::get_session_tree,
@@ -916,6 +920,10 @@ pub fn run() {
         commands::get_all_buffer_lines,
         // Search commands
         commands::search_terminal,
+        commands::start_terminal_history_search,
+        commands::cancel_terminal_history_search,
+        commands::get_archived_history_excerpt,
+        commands::get_terminal_history_status,
         commands::scroll_to_line,
         // Session tree commands (dynamic jump host)
         commands::get_session_tree,

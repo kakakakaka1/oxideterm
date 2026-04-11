@@ -15,6 +15,7 @@
       "placeholder_active": "터미널 출력 검색...",
       "placeholder_deep": "전체 기록 검색...",
       "searching": "검색 중...",
+      "searching_archived": "현재까지 {{count}}개 일치 ({{ms}}ms), 보관된 기록 검색 중...",
       "error": "오류",
       "no_results_history": "기록에서 결과 없음",
       "matches_count": "{{count}}개 일치 ({{ms}}ms)",
@@ -30,7 +31,11 @@
       "whole_word": "전체 단어 일치",
       "click_to_jump": "클릭하여 일치 위치로 이동",
       "line_number": "{{line}}번째 줄",
+      "recent_match": "최근",
+      "archived_match": "보관됨",
+      "archived_preview": "보관 미리보기",
       "showing_first": "{{total}}개 중 처음 100개 표시",
+      "partial_results": "부분 결과: 일부 보관된 청크는 검색할 수 없습니다.",
       "no_matches_in_history": "세션 기록에서 일치 항목을 찾을 수 없습니다"
     },
     "ai": {

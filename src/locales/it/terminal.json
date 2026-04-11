@@ -15,6 +15,7 @@
       "placeholder_active": "Cerca nell'output del terminale...",
       "placeholder_deep": "Cerca nella cronologia completa...",
       "searching": "Ricerca...",
+      "searching_archived": "{{count}} corrispondenze finora ({{ms}}ms), ricerca nella cronologia archiviata in corso...",
       "error": "Errore",
       "no_results_history": "Nessun risultato nella cronologia",
       "matches_count": "{{count}} corrispondenze ({{ms}}ms)",
@@ -30,7 +31,11 @@
       "whole_word": "Parola Intera",
       "click_to_jump": "Clicca per saltare alla posizione",
       "line_number": "Riga {{line}}",
+      "recent_match": "Recente",
+      "archived_match": "Archiviato",
+      "archived_preview": "Anteprima archivio",
       "showing_first": "Prime 100 di {{total}} corrispondenze",
+      "partial_results": "Risultati parziali: non è stato possibile cercare in alcuni blocchi archiviati.",
       "no_matches_in_history": "Nessuna corrispondenza nella cronologia della sessione"
     },
     "ai": {

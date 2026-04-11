@@ -15,6 +15,7 @@
       "placeholder_active": "Terminalausgabe durchsuchen...",
       "placeholder_deep": "Gesamten Verlauf durchsuchen...",
       "searching": "Suche läuft...",
+      "searching_archived": "Bisher {{count}} Treffer ({{ms}}ms), archivierter Verlauf wird durchsucht...",
       "error": "Fehler",
       "no_results_history": "Keine Ergebnisse im Verlauf",
       "matches_count": "{{count}} Treffer ({{ms}}ms)",
@@ -30,7 +31,11 @@
       "whole_word": "Ganzes Wort",
       "click_to_jump": "Klicken, um zur Trefferposition zu springen",
       "line_number": "Zeile {{line}}",
+      "recent_match": "Neu",
+      "archived_match": "Archiviert",
+      "archived_preview": "Archivvorschau",
       "showing_first": "Zeige erste 100 von {{total}} Treffern",
+      "partial_results": "Teilweise Ergebnisse: Einige archivierte Abschnitte konnten nicht durchsucht werden.",
       "no_matches_in_history": "Keine Treffer im Sitzungsverlauf gefunden"
     },
     "ai": {

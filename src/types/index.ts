@@ -859,6 +859,65 @@ export interface SearchResult {
   error?: string;
 }
 
+export interface ArchiveHealthSnapshot {
+  available: boolean;
+  degraded: boolean;
+  closing: boolean;
+  queued_commands: number;
+  max_queue_depth: number;
+  dropped_appends: number;
+  dropped_lines: number;
+  sealed_chunks: number;
+  last_error?: string;
+}
+
+export type HistorySearchSource = 'hot' | 'cold';
+
+export interface HistorySearchMatch {
+  source: HistorySearchSource;
+  line_number: number;
+  buffer_line_number?: number;
+  column_start: number;
+  column_end: number;
+  matched_text: string;
+  line_content: string;
+  chunk_id?: string;
+}
+
+export interface TerminalHistorySearchProgress {
+  search_id: string;
+  session_id: string;
+  done: boolean;
+  matches: HistorySearchMatch[];
+  total_matches: number;
+  duration_ms: number;
+  searched_layers: HistorySearchSource[];
+  searched_chunks: number;
+  total_chunks?: number;
+  truncated: boolean;
+  partial_failure: boolean;
+  archive_status: ArchiveHealthSnapshot;
+  error?: string;
+}
+
+export interface StartTerminalHistorySearchResponse {
+  search_id: string;
+}
+
+export interface ArchivedExcerptLine {
+  line_number: number;
+  text: string;
+  ansi_text?: string;
+  is_match: boolean;
+}
+
+export interface ArchivedHistoryExcerpt {
+  chunk_id: string;
+  start_line_number: number;
+  end_line_number: number;
+  lines: ArchivedExcerptLine[];
+}
+
 // SFTP Resume Transfer Types
 export type TransferStatusType = 'Active' | 'Paused' | 'Failed' | 'Completed' | 'Cancelled';
 export type TransferType = 'Upload' | 'Download';

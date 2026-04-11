@@ -15,6 +15,7 @@
       "placeholder_active": "搜索终端输出...",
       "placeholder_deep": "搜索完整历史...",
       "searching": "搜索中...",
+      "searching_archived": "已找到 {{count}} 个匹配项 ({{ms}}ms)，正在搜索归档历史...",
       "error": "错误",
       "no_results_history": "历史记录中无结果",
       "matches_count": "{{count}} 个匹配项 ({{ms}}ms)",
@@ -30,7 +31,11 @@
       "whole_word": "全字匹配",
       "click_to_jump": "点击跳转到匹配位置",
       "line_number": "行 {{line}}",
+      "recent_match": "最近",
+      "archived_match": "已归档",
+      "archived_preview": "归档预览",
       "showing_first": "显示前 100 个，共 {{total}} 个匹配项",
+      "partial_results": "部分结果：某些归档片段无法搜索。",
       "no_matches_in_history": "会话历史中无匹配项"
     },
     "ai": {

@@ -15,6 +15,7 @@
       "placeholder_active": "Buscar en salida del terminal...",
       "placeholder_deep": "Buscar en historial completo...",
       "searching": "Buscando...",
+      "searching_archived": "{{count}} coincidencias hasta ahora ({{ms}}ms), buscando en el historial archivado...",
       "error": "Error",
       "no_results_history": "Sin resultados en historial",
       "matches_count": "{{count}} coincidencias ({{ms}}ms)",
@@ -30,7 +31,11 @@
       "whole_word": "Palabra completa",
       "click_to_jump": "Clic para ir a coincidencia",
       "line_number": "Línea {{line}}",
+      "recent_match": "Reciente",
+      "archived_match": "Archivado",
+      "archived_preview": "Vista previa del archivo",
       "showing_first": "Mostrando primeras 100 de {{total}}",
+      "partial_results": "Resultados parciales: no se pudieron buscar algunos fragmentos archivados.",
       "no_matches_in_history": "No se encontraron coincidencias en el historial de sesión"
     },
     "ai": {

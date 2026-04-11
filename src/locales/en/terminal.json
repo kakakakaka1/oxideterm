@@ -15,6 +15,7 @@
       "placeholder_active": "Search terminal output...",
       "placeholder_deep": "Search full history...",
       "searching": "Searching...",
+      "searching_archived": "{{count}} matches so far ({{ms}}ms), searching archived history...",
       "error": "Error",
       "no_results_history": "No results in history",
       "matches_count": "{{count}} matches ({{ms}}ms)",
@@ -30,7 +31,11 @@
       "whole_word": "Match Whole Word",
       "click_to_jump": "Click to jump to match location",
       "line_number": "Line {{line}}",
+      "recent_match": "Recent",
+      "archived_match": "Archived",
+      "archived_preview": "Archived Preview",
       "showing_first": "Showing first 100 of {{total}} matches",
+      "partial_results": "Partial results: some archived chunks could not be searched.",
       "no_matches_in_history": "No matches found in session history"
     },
     "ai": {

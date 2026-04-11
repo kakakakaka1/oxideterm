@@ -39,7 +39,8 @@ pub use health::{
     ResourceMetrics,
 };
 pub use history_archive::{
-    TerminalHistoryArchive, TerminalHistoryArchiveError, cleanup_stale_terminal_history_archives,
+    ArchiveHealthSnapshot, ArchivedHistoryExcerpt, TerminalHistoryArchive,
+    TerminalHistoryArchiveError, cleanup_stale_terminal_history_archives,
 };
 pub use parser::{BatchParser, parse_terminal_output, parse_terminal_output_simple};
 pub use profiler::{ProfilerState, ResourceProfiler};

@@ -24,6 +24,9 @@ import {
   BufferStats,
   SearchOptions,
   SearchResult,
+  ArchiveHealthSnapshot,
+  StartTerminalHistorySearchResponse,
+  ArchivedHistoryExcerpt,
   SessionStats,
   QuickHealthCheck,
   IncompleteTransferInfo,
@@ -969,6 +972,57 @@ export const api = {
   searchTerminal: async (sessionId: string, options: SearchOptions): Promise<SearchResult> => {
     if (USE_MOCK) return { matches: [], total_matches: 0, duration_ms: 0 };
     return invoke('search_terminal', { sessionId, options });
+  },
+
+  startTerminalHistorySearch: async (
+    sessionId: string,
+    options: SearchOptions,
+  ): Promise<StartTerminalHistorySearchResponse> => {
+    if (USE_MOCK) return { search_id: 'mock-search-id' };
+    return invoke('start_terminal_history_search', { sessionId, options });
+  },
+
+  cancelTerminalHistorySearch: async (searchId: string): Promise<void> => {
+    if (USE_MOCK) return;
+    return invoke('cancel_terminal_history_search', { searchId });
+  },
+
+  getArchivedHistoryExcerpt: async (
+    sessionId: string,
+    chunkId: string,
+    lineNumber: number,
+    contextLines: number,
+  ): Promise<ArchivedHistoryExcerpt> => {
+    if (USE_MOCK) {
+      return {
+        chunk_id: chunkId,
+        start_line_number: lineNumber,
+        end_line_number: lineNumber,
+        lines: [],
+      };
+    }
+    return invoke('get_archived_history_excerpt', {
+      sessionId,
+      chunkId,
+      lineNumber,
+      contextLines,
+    });
+  },
+
+  getTerminalHistoryStatus: async (sessionId: string): Promise<ArchiveHealthSnapshot> => {
+    if (USE_MOCK) {
+      return {
+        available: false,
+        degraded: false,
+        closing: false,
+        queued_commands: 0,
+        max_queue_depth: 0,
+        dropped_appends: 0,
+        dropped_lines: 0,
+        sealed_chunks: 0,
+      };
+    }
+    return invoke('get_terminal_history_status', { sessionId });
   },
 
   scrollToLine: async (sessionId: string, lineNumber: number, contextLines: number): Promise<TerminalLine[]> => {

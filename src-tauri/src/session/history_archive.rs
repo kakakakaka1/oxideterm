@@ -11,7 +11,10 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::{
+    Arc, Mutex,
+    mpsc::{self, Receiver, SyncSender, TrySendError},
+};
 use std::thread;
 use tracing::{debug, warn};
 
@@ -21,6 +24,7 @@ const HISTORY_ARCHIVE_ROOT: &str = "terminal-history";
 const MANIFEST_FILE_NAME: &str = "manifest.json";
 const CHUNK_LINE_LIMIT: usize = 1_000;
 const CHUNK_BYTE_LIMIT: usize = 512 * 1024;
+const ARCHIVE_QUEUE_CAPACITY: usize = 64;
 
 #[derive(Debug, thiserror::Error)]
 pub enum TerminalHistoryArchiveError {
@@ -38,15 +42,32 @@ pub enum TerminalHistoryArchiveError {
 
     #[error("archive worker unavailable")]
     WorkerUnavailable,
+
+    #[error("archive record not found: {0}")]
+    NotFound(String),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ArchiveHealthSnapshot {
+    pub available: bool,
+    pub degraded: bool,
+    pub closing: bool,
+    pub queued_commands: usize,
+    pub max_queue_depth: usize,
+    pub dropped_appends: u64,
+    pub dropped_lines: u64,
+    pub sealed_chunks: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct ArchivedLineRecord {
-    line_number: u64,
-    timestamp: u64,
-    text: String,
+pub(crate) struct ArchivedLineRecord {
+    pub line_number: u64,
+    pub timestamp: u64,
+    pub text: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    ansi_text: Option<String>,
+    pub ansi_text: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -67,6 +88,23 @@ pub struct TerminalHistoryManifest {
     pub chunks: Vec<ArchivedChunkMetadata>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct ArchivedExcerptLine {
+    pub line_number: u64,
+    pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ansi_text: Option<String>,
+    pub is_match: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ArchivedHistoryExcerpt {
+    pub chunk_id: String,
+    pub start_line_number: u64,
+    pub end_line_number: u64,
+    pub lines: Vec<ArchivedExcerptLine>,
+}
+
 enum ArchiveCommand {
     Append(Vec<TerminalLine>),
     Flush(mpsc::Sender<Result<(), String>>),
@@ -80,8 +118,71 @@ pub struct TerminalHistoryArchive {
 }
 
 struct ArchiveHandleState {
-    tx: mpsc::Sender<ArchiveCommand>,
+    tx: SyncSender<ArchiveCommand>,
     closing: bool,
+    telemetry: Arc<Mutex<ArchiveTelemetry>>,
+}
+
+#[derive(Debug, Default)]
+struct ArchiveTelemetry {
+    available: bool,
+    degraded: bool,
+    closing: bool,
+    queued_commands: usize,
+    max_queue_depth: usize,
+    dropped_appends: u64,
+    dropped_lines: u64,
+    sealed_chunks: usize,
+    last_error: Option<String>,
+}
+
+impl ArchiveTelemetry {
+    fn snapshot(&self) -> ArchiveHealthSnapshot {
+        ArchiveHealthSnapshot {
+            available: self.available,
+            degraded: self.degraded,
+            closing: self.closing,
+            queued_commands: self.queued_commands,
+            max_queue_depth: self.max_queue_depth,
+            dropped_appends: self.dropped_appends,
+            dropped_lines: self.dropped_lines,
+            sealed_chunks: self.sealed_chunks,
+            last_error: self.last_error.clone(),
+        }
+    }
+
+    fn mark_enqueued(&mut self) {
+        self.queued_commands += 1;
+        self.max_queue_depth = self.max_queue_depth.max(self.queued_commands);
+    }
+
+    fn mark_received(&mut self) {
+        self.queued_commands = self.queued_commands.saturating_sub(1);
+    }
+
+    fn mark_chunk_sealed(&mut self, sealed_chunks: usize) {
+        self.available = true;
+        self.sealed_chunks = sealed_chunks;
+    }
+
+    fn mark_closing(&mut self) {
+        self.closing = true;
+    }
+
+    fn record_drop(&mut self, lines: usize, message: &str) -> bool {
+        let first_degrade = !self.degraded;
+        self.degraded = true;
+        self.dropped_appends += 1;
+        self.dropped_lines += lines as u64;
+        self.last_error = Some(message.to_string());
+        first_degrade
+    }
+
+    fn record_error(&mut self, message: &str) {
+        self.available = false;
+        self.degraded = true;
+        self.last_error = Some(message.to_string());
+    }
 }
 
 impl TerminalHistoryArchive {
@@ -94,11 +195,23 @@ impl TerminalHistoryArchive {
         root_dir: PathBuf,
         session_id: &str,
     ) -> Result<Self, TerminalHistoryArchiveError> {
+        Self::new_in_with_capacity(root_dir, session_id, ARCHIVE_QUEUE_CAPACITY)
+    }
+
+    fn new_in_with_capacity(
+        root_dir: PathBuf,
+        session_id: &str,
+        queue_capacity: usize,
+    ) -> Result<Self, TerminalHistoryArchiveError> {
         let session_dir = root_dir.join(session_id);
         fs::create_dir_all(&session_dir)?;
 
-        let (tx, rx) = mpsc::channel::<ArchiveCommand>();
-        let state = ArchiveWriterState::new(session_dir.clone(), session_id.to_string())?;
+        let telemetry = Arc::new(Mutex::new(ArchiveTelemetry {
+            available: true,
+            ..ArchiveTelemetry::default()
+        }));
+        let (tx, rx) = mpsc::sync_channel::<ArchiveCommand>(queue_capacity);
+        let state = ArchiveWriterState::new(session_dir.clone(), session_id.to_string(), telemetry.clone())?;
 
         thread::Builder::new()
             .name(format!("terminal-history-{session_id}"))
@@ -107,7 +220,11 @@ impl TerminalHistoryArchive {
 
         Ok(Self {
             session_dir,
-            state: Arc::new(Mutex::new(ArchiveHandleState { tx, closing: false })),
+            state: Arc::new(Mutex::new(ArchiveHandleState {
+                tx,
+                closing: false,
+                telemetry,
+            })),
         })
     }
 
@@ -116,14 +233,40 @@ impl TerminalHistoryArchive {
             return;
         }
 
+        let line_count = lines.len();
         let mut state = self.lock_state();
         if state.closing {
             return;
         }
 
-        if let Err(error) = state.tx.send(ArchiveCommand::Append(lines)) {
-            state.closing = true;
-            warn!("Terminal history archive append dropped: {}", error);
+        match state.tx.try_send(ArchiveCommand::Append(lines)) {
+            Ok(()) => {
+                lock_telemetry(&state.telemetry).mark_enqueued();
+            }
+            Err(TrySendError::Full(ArchiveCommand::Append(lines))) => {
+                let should_warn = {
+                    let mut telemetry = lock_telemetry(&state.telemetry);
+                    telemetry.record_drop(lines.len(), "archive queue full")
+                };
+                if should_warn {
+                    warn!(
+                        "Terminal history archive queue reached capacity for {:?}; subsequent deep-history results may be partial",
+                        self.session_dir
+                    );
+                }
+            }
+            Err(TrySendError::Disconnected(ArchiveCommand::Append(lines))) => {
+                state.closing = true;
+                let mut telemetry = lock_telemetry(&state.telemetry);
+                telemetry.record_drop(lines.len(), "archive worker unavailable");
+                telemetry.record_error("archive worker unavailable");
+                warn!(
+                    "Terminal history archive worker unavailable for {:?}; dropped {} evicted line(s)",
+                    self.session_dir,
+                    line_count
+                );
+            }
+            Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {}
         }
     }
 
@@ -137,6 +280,7 @@ impl TerminalHistoryArchive {
         state.tx
             .send(ArchiveCommand::Flush(tx))
             .map_err(|_| TerminalHistoryArchiveError::WorkerUnavailable)?;
+        lock_telemetry(&state.telemetry).mark_enqueued();
         drop(state);
 
         match rx.recv() {
@@ -147,19 +291,34 @@ impl TerminalHistoryArchive {
     }
 
     pub fn schedule_delete(&self) {
-        let mut state = self.lock_state();
-        if state.closing {
-            return;
-        }
-        state.closing = true;
+        let (tx, telemetry) = {
+            let mut state = self.lock_state();
+            if state.closing {
+                return;
+            }
 
-        if let Err(error) = state.tx.send(ArchiveCommand::Delete) {
-            warn!("Terminal history archive delete dropped: {}", error);
-        }
+            state.closing = true;
+            let telemetry = state.telemetry.clone();
+            lock_telemetry(&telemetry).mark_closing();
+            (state.tx.clone(), telemetry)
+        };
+
+        thread::spawn(move || {
+            if tx.send(ArchiveCommand::Delete).is_ok() {
+                lock_telemetry(&telemetry).mark_enqueued();
+            }
+        });
     }
 
     pub fn session_dir(&self) -> PathBuf {
         self.session_dir.clone()
+    }
+
+    pub fn health_snapshot(&self) -> ArchiveHealthSnapshot {
+        let state = self.lock_state();
+        let mut snapshot = lock_telemetry(&state.telemetry).snapshot();
+        snapshot.closing = snapshot.closing || state.closing;
+        snapshot
     }
 
     fn lock_state(&self) -> std::sync::MutexGuard<'_, ArchiveHandleState> {
@@ -174,13 +333,89 @@ pub fn cleanup_stale_terminal_history_archives() -> Result<usize, TerminalHistor
     cleanup_stale_archives_in(&root)
 }
 
+pub(crate) fn load_manifest(
+    session_dir: &Path,
+) -> Result<TerminalHistoryManifest, TerminalHistoryArchiveError> {
+    let manifest_path = session_dir.join(MANIFEST_FILE_NAME);
+    if !manifest_path.exists() {
+        return Err(TerminalHistoryArchiveError::NotFound(format!(
+            "manifest missing for {}",
+            session_dir.display()
+        )));
+    }
+
+    let manifest_json = fs::read_to_string(manifest_path)?;
+    Ok(serde_json::from_str(&manifest_json)?)
+}
+
+pub(crate) fn read_chunk_records(
+    session_dir: &Path,
+    chunk: &ArchivedChunkMetadata,
+) -> Result<Vec<ArchivedLineRecord>, TerminalHistoryArchiveError> {
+    let chunk_path = session_dir.join(&chunk.path);
+    let compressed = fs::read(chunk_path)?;
+    let decoded = zstd::stream::decode_all(Cursor::new(compressed))
+        .map_err(|error| TerminalHistoryArchiveError::Compression(error.to_string()))?;
+
+    decoded
+        .split(|byte| *byte == b'\n')
+        .filter(|line| !line.is_empty())
+        .map(|line| serde_json::from_slice(line).map_err(TerminalHistoryArchiveError::from))
+        .collect()
+}
+
+pub(crate) fn get_archived_excerpt(
+    session_dir: &Path,
+    chunk_id: &str,
+    line_number: u64,
+    context_lines: usize,
+) -> Result<ArchivedHistoryExcerpt, TerminalHistoryArchiveError> {
+    let manifest = load_manifest(session_dir)?;
+    let chunk = manifest
+        .chunks
+        .iter()
+        .find(|chunk| chunk.id == chunk_id)
+        .cloned()
+        .ok_or_else(|| TerminalHistoryArchiveError::NotFound(format!("chunk {}", chunk_id)))?;
+    let records = read_chunk_records(session_dir, &chunk)?;
+    let match_index = records
+        .iter()
+        .position(|record| record.line_number == line_number)
+        .ok_or_else(|| TerminalHistoryArchiveError::NotFound(format!("line {}", line_number)))?;
+
+    let start = match_index.saturating_sub(context_lines);
+    let end = (match_index + context_lines + 1).min(records.len());
+    let excerpt_lines: Vec<ArchivedExcerptLine> = records[start..end]
+        .iter()
+        .map(|record| ArchivedExcerptLine {
+            line_number: record.line_number,
+            text: record.text.clone(),
+            ansi_text: record.ansi_text.clone(),
+            is_match: record.line_number == line_number,
+        })
+        .collect();
+
+    Ok(ArchivedHistoryExcerpt {
+        chunk_id: chunk.id,
+        start_line_number: excerpt_lines
+            .first()
+            .map(|line| line.line_number)
+            .unwrap_or(line_number),
+        end_line_number: excerpt_lines
+            .last()
+            .map(|line| line.line_number)
+            .unwrap_or(line_number),
+        lines: excerpt_lines,
+    })
+}
+
 fn cleanup_stale_archives_in(root: &Path) -> Result<usize, TerminalHistoryArchiveError> {
     if !root.exists() {
         return Ok(0);
     }
 
     let mut removed = 0;
-    for entry in fs::read_dir(&root)? {
+    for entry in fs::read_dir(root)? {
         let entry = entry?;
         let path = entry.path();
         if path.is_dir() {
@@ -200,25 +435,33 @@ fn archive_root_dir() -> Result<PathBuf, TerminalHistoryArchiveError> {
     Ok(base_dir.join(HISTORY_ARCHIVE_ROOT))
 }
 
-fn archive_worker_loop(rx: mpsc::Receiver<ArchiveCommand>, mut state: ArchiveWriterState) {
+fn archive_worker_loop(rx: Receiver<ArchiveCommand>, mut state: ArchiveWriterState) {
     while let Ok(command) = rx.recv() {
+        state.telemetry_mark_received();
+
         match command {
             ArchiveCommand::Append(lines) => {
                 if let Err(error) = state.append_lines(lines) {
+                    let message = error.to_string();
+                    state.telemetry_record_error(&message);
                     warn!(
                         "Terminal history archive degraded for session {}: {}",
-                        state.manifest.session_id, error
+                        state.manifest.session_id, message
                     );
                     break;
                 }
             }
             ArchiveCommand::Flush(response_tx) => {
                 let result = state.flush().map_err(|error| error.to_string());
+                if let Err(error) = &result {
+                    state.telemetry_record_error(error);
+                }
                 let _ = response_tx.send(result);
             }
             ArchiveCommand::Delete => {
                 let session_id = state.manifest.session_id.clone();
                 if let Err(error) = state.delete_dir() {
+                    state.telemetry_record_error(&error.to_string());
                     warn!(
                         "Failed to delete terminal history archive for session {}: {}",
                         session_id, error
@@ -245,12 +488,14 @@ struct ArchiveWriterState {
     active_chunk_line_count: usize,
     active_chunk_bytes: usize,
     active_chunk_payload: Vec<u8>,
+    telemetry: Arc<Mutex<ArchiveTelemetry>>,
 }
 
 impl ArchiveWriterState {
     fn new(
         session_dir: PathBuf,
         session_id: String,
+        telemetry: Arc<Mutex<ArchiveTelemetry>>,
     ) -> Result<Self, TerminalHistoryArchiveError> {
         let manifest = TerminalHistoryManifest {
             version: 1,
@@ -271,6 +516,7 @@ impl ArchiveWriterState {
             active_chunk_line_count: 0,
             active_chunk_bytes: 0,
             active_chunk_payload: Vec::new(),
+            telemetry,
         })
     }
 
@@ -344,6 +590,7 @@ impl ArchiveWriterState {
         self.active_chunk_line_count = 0;
         self.active_chunk_bytes = 0;
         self.active_chunk_payload.clear();
+        lock_telemetry(&self.telemetry).mark_chunk_sealed(self.manifest.chunks.len());
 
         Ok(())
     }
@@ -358,6 +605,14 @@ impl ArchiveWriterState {
         }
 
         Ok(())
+    }
+
+    fn telemetry_mark_received(&self) {
+        lock_telemetry(&self.telemetry).mark_received();
+    }
+
+    fn telemetry_record_error(&self, message: &str) {
+        lock_telemetry(&self.telemetry).record_error(message);
     }
 }
 
@@ -378,6 +633,12 @@ fn write_bytes_atomic(path: &Path, payload: &[u8]) -> Result<(), TerminalHistory
     fs::write(&temp_path, payload)?;
     fs::rename(&temp_path, path)?;
     Ok(())
+}
+
+fn lock_telemetry(telemetry: &Arc<Mutex<ArchiveTelemetry>>) -> std::sync::MutexGuard<'_, ArchiveTelemetry> {
+    telemetry
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 #[cfg(test)]
@@ -401,9 +662,7 @@ mod tests {
         archive.flush().unwrap();
 
         let session_dir = archive.session_dir();
-        let manifest_path = session_dir.join(MANIFEST_FILE_NAME);
-        let manifest_json = fs::read_to_string(manifest_path).unwrap();
-        let manifest: TerminalHistoryManifest = serde_json::from_str(&manifest_json).unwrap();
+        let manifest = load_manifest(&session_dir).unwrap();
 
         assert_eq!(manifest.session_id, "session-1");
         assert_eq!(manifest.chunks.len(), 1);
@@ -444,5 +703,42 @@ mod tests {
         assert_eq!(removed, 2);
         assert!(!root.join("a").exists());
         assert!(!root.join("b").exists());
+    }
+
+    #[test]
+    fn test_read_chunk_records_and_excerpt() {
+        let temp_dir = TempDir::new().unwrap();
+        let archive = TerminalHistoryArchive::new_in(temp_dir.path().to_path_buf(), "session-3").unwrap();
+
+        archive.append_lines(vec![
+            TerminalLine::with_ansi_timestamp("alpha".to_string(), None, 1),
+            TerminalLine::with_ansi_timestamp("beta needle gamma".to_string(), None, 2),
+            TerminalLine::with_ansi_timestamp("delta".to_string(), None, 3),
+        ]);
+        archive.flush().unwrap();
+
+        let session_dir = archive.session_dir();
+        let manifest = load_manifest(&session_dir).unwrap();
+        let records = read_chunk_records(&session_dir, &manifest.chunks[0]).unwrap();
+        assert_eq!(records.len(), 3);
+        assert_eq!(records[1].line_number, 1);
+
+        let excerpt = get_archived_excerpt(&session_dir, &manifest.chunks[0].id, 1, 1).unwrap();
+        assert_eq!(excerpt.lines.len(), 3);
+        assert!(excerpt.lines[1].is_match);
+        assert_eq!(excerpt.lines[1].text, "beta needle gamma");
+    }
+
+    #[test]
+    fn test_health_snapshot_reports_sealed_chunks() {
+        let temp_dir = TempDir::new().unwrap();
+        let archive = TerminalHistoryArchive::new_in(temp_dir.path().to_path_buf(), "session-4").unwrap();
+
+        archive.append_lines(vec![TerminalLine::with_ansi_timestamp("line".to_string(), None, 1)]);
+        archive.flush().unwrap();
+
+        let health = archive.health_snapshot();
+        assert!(health.available);
+        assert_eq!(health.sealed_chunks, 1);
     }
 }

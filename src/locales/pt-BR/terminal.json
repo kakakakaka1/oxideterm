@@ -15,6 +15,7 @@
       "placeholder_active": "Pesquisar na saída do terminal...",
       "placeholder_deep": "Pesquisar no histórico completo...",
       "searching": "Pesquisando...",
+      "searching_archived": "{{count}} correspondências até agora ({{ms}}ms), pesquisando no histórico arquivado...",
       "error": "Erro",
       "no_results_history": "Sem resultados no histórico",
       "matches_count": "{{count}} correspondências ({{ms}}ms)",
@@ -30,7 +31,11 @@
       "whole_word": "Palavra inteira",
       "click_to_jump": "Clique para ir à correspondência",
       "line_number": "Linha {{line}}",
+      "recent_match": "Recente",
+      "archived_match": "Arquivado",
+      "archived_preview": "Prévia do arquivo",
       "showing_first": "Mostrando primeiras 100 de {{total}}",
+      "partial_results": "Resultados parciais: não foi possível pesquisar em alguns blocos arquivados.",
       "no_matches_in_history": "Nenhuma correspondência encontrada no histórico da sessão"
     },
     "ai": {

@@ -22,7 +22,7 @@ import { AiInlinePanel, type CursorPosition } from './AiInlinePanel';
 import { PasteConfirmOverlay } from './PasteConfirmOverlay';
 import { getProtectedPasteDecision } from '../../lib/terminalPaste';
 import { terminalLinkHandler } from '../../lib/safeUrl';
-import { SearchMatch, SessionInfo } from '../../types';
+import { SessionInfo } from '../../types';
 import { listen } from '@tauri-apps/api/event';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { Lock, Loader2, RefreshCw, AlertTriangle } from 'lucide-react';
@@ -60,8 +60,39 @@ import { RecordingControls } from './RecordingControls';
 import { FpsOverlay } from './FpsOverlay';
 import { useBroadcastStore } from '../../store/broadcastStore';
 import { broadcastToTargets } from '../../lib/terminalRegistry';
+import { HistorySearchMatch, TerminalHistorySearchProgress } from '../../types';
 
 const PREFILL_REPLAY_LINE_COUNT = 50; // Keep aligned with backend replay count
+
+function historyMatchKey(match: HistorySearchMatch): string {
+  return [
+    match.source,
+    match.chunk_id ?? 'hot',
+    match.buffer_line_number ?? match.line_number,
+    match.column_start,
+    match.column_end,
+  ].join(':');
+}
+
+function mergeHistorySearchMatches(
+  current: HistorySearchMatch[],
+  incoming: HistorySearchMatch[],
+): HistorySearchMatch[] {
+  if (incoming.length === 0) {
+    return current;
+  }
+
+  const seen = new Set(current.map(historyMatchKey));
+  const merged = [...current];
+  for (const match of incoming) {
+    const key = historyMatchKey(match);
+    if (!seen.has(key)) {
+      seen.add(key);
+      merged.push(match);
+    }
+  }
+  return merged;
+}
 
 interface TerminalViewProps {
   sessionId: string;
@@ -133,6 +164,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
   // Track current search query for navigation
   const currentSearchQueryRef = useRef<string>('');
   const currentSearchOptionsRef = useRef<ISearchOptions | undefined>(undefined);
+  const activeHistorySearchIdRef = useRef<string | null>(null);
   
   // Deep history search state
   const [deepSearchState, setDeepSearchState] = useState<DeepSearchState>({
@@ -141,6 +173,74 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
     totalMatches: 0,
     durationMs: 0,
   });
+
+  useEffect(() => {
+    let mounted = true;
+    let unlistenFn: (() => void) | null = null;
+
+    listen<TerminalHistorySearchProgress>('terminal-history-search-progress', (event) => {
+      if (!mounted || !isMountedRef.current) return;
+
+      const progress = event.payload;
+      if (progress.session_id !== sessionId) return;
+      if (!activeHistorySearchIdRef.current || progress.search_id !== activeHistorySearchIdRef.current) {
+        return;
+      }
+
+      setDeepSearchState((prev) => ({
+        ...prev,
+        searchId: progress.search_id,
+        loading: !progress.done,
+        matches: mergeHistorySearchMatches(prev.matches, progress.matches),
+        totalMatches: progress.total_matches,
+        durationMs: progress.duration_ms,
+        searchedChunks: progress.searched_chunks,
+        totalChunks: progress.total_chunks,
+        truncated: progress.truncated,
+        partialFailure: progress.partial_failure,
+        archiveStatus: progress.archive_status,
+        error: progress.error,
+      }));
+
+      if (progress.done) {
+        activeHistorySearchIdRef.current = null;
+      }
+    }).then((fn) => {
+      if (mounted) {
+        unlistenFn = fn;
+      } else {
+        fn();
+      }
+    });
+
+    return () => {
+      mounted = false;
+      unlistenFn?.();
+      const activeSearchId = activeHistorySearchIdRef.current;
+      if (activeSearchId) {
+        activeHistorySearchIdRef.current = null;
+        void api.cancelTerminalHistorySearch(activeSearchId);
+      }
+    };
+  }, [sessionId]);
+
+  useEffect(() => {
+    if (!searchOpen) return;
+
+    let cancelled = false;
+    api.getTerminalHistoryStatus(sessionId)
+      .then((archiveStatus) => {
+        if (cancelled) return;
+        setDeepSearchState((prev) => ({ ...prev, archiveStatus }));
+      })
+      .catch(() => {
+        // Deep-search health is best-effort; the actual search path reports errors explicitly.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [searchOpen, sessionId]);
   
   // P3: Backpressure handling — delegated to useAdaptiveRenderer (adaptive FPS)
   // pendingDataRef / rafIdRef are no longer needed here.
@@ -1801,6 +1901,11 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
   }, [ensureSearchAddon]);
   
   const handleCloseSearch = useCallback(() => {
+    const activeSearchId = activeHistorySearchIdRef.current;
+    if (activeSearchId) {
+      activeHistorySearchIdRef.current = null;
+      void api.cancelTerminalHistorySearch(activeSearchId);
+    }
     setSearchOpen(false);
     searchAddonRef.current?.clearDecorations();
     searchAddonRef.current?.dispose();
@@ -1814,38 +1919,55 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
   // === Deep History Search ===
   const handleDeepSearch = useCallback(async (query: string, options: { caseSensitive?: boolean; regex?: boolean; wholeWord?: boolean }) => {
     if (!query.trim()) return;
+
+    const previousSearchId = activeHistorySearchIdRef.current;
+    if (previousSearchId) {
+      activeHistorySearchIdRef.current = null;
+      void api.cancelTerminalHistorySearch(previousSearchId);
+    }
     
-    setDeepSearchState(prev => ({ ...prev, loading: true, error: undefined }));
+    setDeepSearchState({
+      loading: true,
+      matches: [],
+      totalMatches: 0,
+      durationMs: 0,
+      searchedChunks: 0,
+      totalChunks: 0,
+      truncated: false,
+      partialFailure: false,
+      error: undefined,
+      archiveStatus: undefined,
+      excerpt: undefined,
+    });
     
     try {
-      const result = await api.searchTerminal(sessionId, {
+      const result = await api.startTerminalHistorySearch(sessionId, {
         query,
         case_sensitive: options.caseSensitive || false,
         regex: options.regex || false,
         whole_word: options.wholeWord || false,
         max_matches: 100,
       });
-      
-      setDeepSearchState({
-        loading: false,
-        matches: result.matches,
-        totalMatches: result.total_matches,
-        durationMs: result.duration_ms,
-        error: result.error,
-      });
+
+      activeHistorySearchIdRef.current = result.search_id;
+      setDeepSearchState((prev) => ({ ...prev, searchId: result.search_id }));
     } catch (err) {
       setDeepSearchState({
         loading: false,
         matches: [],
         totalMatches: 0,
         durationMs: 0,
+        searchedChunks: 0,
+        totalChunks: 0,
+        truncated: false,
+        partialFailure: false,
         error: err instanceof Error ? err.message : 'Search failed',
       });
     }
   }, [sessionId]);
   
   // === Jump to search match from deep history ===
-  const handleJumpToMatch = useCallback(async (match: SearchMatch) => {
+  const handleJumpToMatch = useCallback(async (match: HistorySearchMatch) => {
     const term = terminalRef.current;
     if (!term) return;
     
@@ -1865,10 +1987,33 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
         text.slice(idx + matchedText.length)
       );
     };
+
+    if (match.source === 'cold') {
+      if (!match.chunk_id) return;
+
+      try {
+        const excerpt = await api.getArchivedHistoryExcerpt(
+          sessionId,
+          match.chunk_id,
+          match.line_number,
+          CONTEXT_LINES,
+        );
+        setDeepSearchState((prev) => ({ ...prev, excerpt }));
+      } catch (err) {
+        setDeepSearchState((prev) => ({
+          ...prev,
+          error: err instanceof Error ? err.message : 'Failed to load archived excerpt',
+        }));
+      }
+      return;
+    }
+
+    setDeepSearchState((prev) => ({ ...prev, excerpt: undefined }));
+    const targetLineNumber = match.buffer_line_number ?? Number(match.line_number);
     
     try {
       // Fetch context around the match line from backend
-      const lines = await api.scrollToLine(sessionId, match.line_number, CONTEXT_LINES);
+      const lines = await api.scrollToLine(sessionId, targetLineNumber, CONTEXT_LINES);
       
       if (lines.length === 0) {
         // Buffer might have been completely cleared
@@ -1882,8 +2027,8 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
       
       // Calculate which line in the returned array should be the match
       // scrollToLine returns: [line_number - context ... line_number ... line_number + context]
-      const startLineInBuffer = match.line_number - CONTEXT_LINES;
-      const targetIndexInResult = match.line_number - Math.max(0, startLineInBuffer);
+      const startLineInBuffer = targetLineNumber - CONTEXT_LINES;
+      const targetIndexInResult = targetLineNumber - Math.max(0, startLineInBuffer);
       
       // Validate: check if the target line still contains the matched text
       const targetLine = lines[Math.min(targetIndexInResult, lines.length - 1)];
@@ -1906,7 +2051,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         const actualLineNum = Math.max(0, startLineInBuffer) + i;
-        const isMatchLine = actualLineNum === match.line_number;
+        const isMatchLine = actualLineNum === targetLineNumber;
         
         if (isMatchLine) {
           // Highlight the matched text within the line
