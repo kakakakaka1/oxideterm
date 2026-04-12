@@ -16,6 +16,7 @@ import type {
   OxideMetadata,
   SshConnectionState,
 } from './index';
+import type { OxideAppSettingsSectionId } from '../store/settingsStore';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Plugin Manifest (plugin.json)
@@ -459,6 +460,8 @@ export type PluginSyncAPI = {
     description?: string;
     embedKeys?: boolean;
     includeAppSettings?: boolean;
+    selectedAppSettingsSections?: OxideAppSettingsSectionId[];
+    includeLocalTerminalEnvVars?: boolean;
     includePluginSettings?: boolean;
     selectedPluginIds?: string[];
     selectedForwardIds?: string[];
@@ -479,6 +482,7 @@ export type PluginSyncAPI = {
       selectedNames?: string[];
       conflictStrategy?: PluginSyncConflictStrategy;
       importAppSettings?: boolean;
+      selectedAppSettingsSections?: string[];
       importPluginSettings?: boolean;
       selectedPluginIds?: string[];
       importForwards?: boolean;

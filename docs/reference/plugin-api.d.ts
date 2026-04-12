@@ -415,6 +415,15 @@ export type ImportPreviewAppSettingsSection = Readonly<{
   containsEnvVars?: boolean;
 }>;
 
+export type OxideAppSettingsSectionId =
+  | 'general'
+  | 'terminalAppearance'
+  | 'terminalBehavior'
+  | 'appearance'
+  | 'connections'
+  | 'fileAndEditor'
+  | 'localTerminal';
+
 export type ImportPreview = Readonly<{
   totalConnections: number;
   unchanged: readonly string[];
@@ -464,6 +473,8 @@ export type PluginSyncAPI = {
     description?: string;
     embedKeys?: boolean;
     includeAppSettings?: boolean;
+    selectedAppSettingsSections?: readonly OxideAppSettingsSectionId[];
+    includeLocalTerminalEnvVars?: boolean;
     includePluginSettings?: boolean;
     selectedPluginIds?: string[];
     selectedForwardIds?: string[];
@@ -481,6 +492,7 @@ export type PluginSyncAPI = {
       selectedNames?: string[];
       conflictStrategy?: PluginSyncConflictStrategy;
       importAppSettings?: boolean;
+      selectedAppSettingsSections?: readonly string[];
       importPluginSettings?: boolean;
       selectedPluginIds?: string[];
       importForwards?: boolean;

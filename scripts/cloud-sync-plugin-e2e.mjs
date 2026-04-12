@@ -242,6 +242,7 @@ async function startHttpJsonServer() {
     etag: null,
     uploadedAt: null,
     deviceId: null,
+    sectionRevisions: null,
     bytes: null,
     forceConflictOnce: false,
   };
@@ -262,6 +263,7 @@ async function startHttpJsonServer() {
         uploadedAt: state.uploadedAt,
         deviceId: state.deviceId,
         contentLength: state.bytes?.byteLength ?? 0,
+        sectionRevisions: state.sectionRevisions,
       }));
       return;
     }
@@ -286,14 +288,25 @@ async function startHttpJsonServer() {
       }
 
       const bytes = new Uint8Array(Buffer.concat(chunks));
+      const sectionRevisionsHeader = req.headers['x-oxideterm-section-revisions'];
+      let sectionRevisions = null;
+      if (typeof sectionRevisionsHeader === 'string' && sectionRevisionsHeader) {
+        sectionRevisions = JSON.parse(sectionRevisionsHeader);
+      }
       state.bytes = bytes;
       state.exists = true;
       state.revision = req.headers['x-oxideterm-revision'];
       state.deviceId = req.headers['x-oxideterm-device-id'];
+      state.sectionRevisions = sectionRevisions;
       state.etag = sha256(bytes);
       state.uploadedAt = new Date().toISOString();
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: true, revision: state.revision, etag: state.etag }));
+      res.end(JSON.stringify({
+        ok: true,
+        revision: state.revision,
+        etag: state.etag,
+        sectionRevisions: state.sectionRevisions,
+      }));
       return;
     }
 
