@@ -224,6 +224,7 @@
       "app_settings_legacy_title": "Legacy Application Settings",
       "app_settings_legacy_description": "This file was exported before sectioned settings support. Only full settings import is available.",
       "app_settings_contains_env_vars": "Includes local terminal environment variable names",
+      "app_settings_field_recent_shells": "Các shell gần đây",
       "section_plugin_settings": "Tùy chọn plugin ({{count}} plugin)",
       "section_forwards": "Chuyển tiếp cổng đã lưu ({{count}})",
       "toggle_app_settings": "Nhập cài đặt ứng dụng",

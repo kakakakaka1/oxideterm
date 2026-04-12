@@ -224,6 +224,7 @@
       "app_settings_legacy_title": "Legacy Application Settings",
       "app_settings_legacy_description": "This file was exported before sectioned settings support. Only full settings import is available.",
       "app_settings_contains_env_vars": "Includes local terminal environment variable names",
+      "app_settings_field_recent_shells": "Recent Shells",
       "section_plugin_settings": "Plugin Preferences ({{count}} plugins)",
       "section_forwards": "Saved Port Forwards ({{count}})",
       "toggle_app_settings": "Import application settings",

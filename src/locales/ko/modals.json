@@ -224,6 +224,7 @@
       "app_settings_legacy_title": "Legacy Application Settings",
       "app_settings_legacy_description": "This file was exported before sectioned settings support. Only full settings import is available.",
       "app_settings_contains_env_vars": "Includes local terminal environment variable names",
+      "app_settings_field_recent_shells": "최근 셸",
       "section_plugin_settings": "플러그인 환경설정 ({{count}}개 플러그인)",
       "section_forwards": "저장된 포트 포워딩 ({{count}}개)",
       "toggle_app_settings": "앱 설정 가져오기",

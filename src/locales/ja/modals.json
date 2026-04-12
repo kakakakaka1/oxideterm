@@ -224,6 +224,7 @@
       "app_settings_legacy_title": "Legacy Application Settings",
       "app_settings_legacy_description": "This file was exported before sectioned settings support. Only full settings import is available.",
       "app_settings_contains_env_vars": "Includes local terminal environment variable names",
+      "app_settings_field_recent_shells": "最近使ったシェル",
       "section_plugin_settings": "プラグイン設定（{{count}} 個のプラグイン）",
       "section_forwards": "保存済みポート転送（{{count}} 件）",
       "toggle_app_settings": "アプリケーション設定をインポート",

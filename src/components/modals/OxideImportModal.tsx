@@ -127,9 +127,118 @@ export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
     }
   };
 
+  const formatAppSettingsFieldLabel = (fieldKey: string) => {
+    switch (fieldKey) {
+      case 'language':
+        return t('settings_view.general.language');
+      case 'updateChannel':
+        return t('settings_view.general.update_channel');
+      case 'theme':
+        return t('settings_view.appearance.theme');
+      case 'fontFamily':
+        return t('settings_view.terminal.font_family');
+      case 'customFontFamily':
+        return t('settings_view.terminal.custom_font_stack');
+      case 'fontSize':
+        return t('settings_view.terminal.font_size');
+      case 'lineHeight':
+        return t('settings_view.terminal.line_height');
+      case 'cursorStyle':
+        return t('settings_view.terminal.cursor_style');
+      case 'cursorBlink':
+        return t('settings_view.terminal.cursor_blink');
+      case 'backgroundEnabled':
+        return t('settings_view.terminal.bg_enabled');
+      case 'backgroundImage':
+        return t('settings_view.terminal.bg_label');
+      case 'backgroundOpacity':
+        return t('settings_view.terminal.bg_opacity');
+      case 'backgroundBlur':
+        return t('settings_view.terminal.bg_blur');
+      case 'backgroundFit':
+        return t('settings_view.terminal.bg_fit');
+      case 'backgroundEnabledTabs':
+        return t('settings_view.terminal.bg_tabs');
+      case 'scrollback':
+        return t('settings_view.terminal.scrollback');
+      case 'renderer':
+        return t('settings_view.terminal.renderer');
+      case 'adaptiveRenderer':
+        return t('settings_view.terminal.adaptive_renderer');
+      case 'showFpsOverlay':
+        return t('settings_view.terminal.show_fps_overlay');
+      case 'pasteProtection':
+        return t('settings_view.terminal.paste_protection');
+      case 'smartCopy':
+        return t('settings_view.terminal.smart_copy');
+      case 'osc52Clipboard':
+        return t('settings_view.terminal.osc52_clipboard');
+      case 'sidebarCollapsedDefault':
+        return t('modals.settings.appearance.sidebar_collapse');
+      case 'uiDensity':
+        return t('settings_view.appearance.density');
+      case 'borderRadius':
+        return t('settings_view.appearance.border_radius');
+      case 'uiFontFamily':
+        return t('settings_view.appearance.ui_font');
+      case 'animationSpeed':
+        return t('settings_view.appearance.animation');
+      case 'frostedGlass':
+        return t('settings_view.appearance.frosted_glass');
+      case 'connectionDefaults.username':
+        return t('settings_view.connections.default_username');
+      case 'connectionDefaults.port':
+        return t('settings_view.connections.default_port');
+      case 'reconnect.enabled':
+        return t('settings_view.reconnect.enabled');
+      case 'reconnect.maxAttempts':
+        return t('settings_view.reconnect.max_attempts');
+      case 'reconnect.baseDelayMs':
+        return t('settings_view.reconnect.base_delay');
+      case 'reconnect.maxDelayMs':
+        return t('settings_view.reconnect.max_delay');
+      case 'connectionPool.idleTimeoutSecs':
+        return t('settings_view.connections.idle_timeout.label');
+      case 'sftp.maxConcurrentTransfers':
+        return t('settings_view.sftp.concurrent');
+      case 'sftp.speedLimitEnabled':
+        return t('settings_view.sftp.bandwidth');
+      case 'sftp.speedLimitKBps':
+        return t('settings_view.sftp.speed_limit');
+      case 'sftp.conflictAction':
+        return t('settings_view.sftp.conflict');
+      case 'ide.autoSave':
+        return t('settings_view.ide.auto_save');
+      case 'ide.fontSize':
+        return t('settings_view.ide.font_size');
+      case 'ide.lineHeight':
+        return t('settings_view.ide.line_height');
+      case 'ide.agentMode':
+        return t('settings_view.ide.agent_mode_label');
+      case 'ide.wordWrap':
+        return t('settings_view.ide.word_wrap');
+      case 'defaultShellId':
+        return t('settings_view.local_terminal.default_shell');
+      case 'recentShellIds':
+        return t('modals.import.app_settings_field_recent_shells');
+      case 'defaultCwd':
+        return t('settings_view.local_terminal.default_cwd');
+      case 'loadShellProfile':
+        return t('settings_view.local_terminal.load_shell_profile');
+      case 'ohMyPoshEnabled':
+        return t('settings_view.local_terminal.oh_my_posh_enable');
+      case 'ohMyPoshTheme':
+        return t('settings_view.local_terminal.oh_my_posh_theme');
+      case 'customEnvVars':
+        return t('settings_view.local_terminal.custom_env');
+      default:
+        return fieldKey;
+    }
+  };
+
   const buildAppSettingsDiffEntries = (sectionId: string, importedValues?: Record<string, string>) => {
     if (!importedValues) {
-      return [] as Array<{ key: string; current: string; imported: string }>;
+      return [] as Array<{ key: string; label: string; current: string; imported: string }>;
     }
 
     const currentValues = currentAppSettingsBySection[sectionId] ?? {};
@@ -141,6 +250,7 @@ export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
     return keys
       .map((key) => ({
         key,
+        label: formatAppSettingsFieldLabel(key),
         current: currentValues[key] ?? '—',
         imported: importedValues[key] ?? '—',
       }))
@@ -647,7 +757,9 @@ export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
                                       <span className="mt-1 block text-xs text-theme-text-muted">
                                         {section.id === 'legacy'
                                           ? t('modals.import.app_settings_legacy_description')
-                                          : t('modals.import.app_settings_keys', { keys: section.fieldKeys.join(', ') })}
+                                          : t('modals.import.app_settings_keys', {
+                                              keys: section.fieldKeys.map(formatAppSettingsFieldLabel).join(', '),
+                                            })}
                                       </span>
                                       {section.containsEnvVars && (
                                         <span className="mt-1 block text-xs text-yellow-400">{t('modals.import.app_settings_contains_env_vars')}</span>
@@ -678,7 +790,7 @@ export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
                                           <ul className="space-y-2 max-h-40 overflow-y-auto text-xs">
                                             {diffEntries.map((entry) => (
                                               <li key={`${section.id}-${entry.key}`} className="rounded-md bg-theme-bg-elevated/60 px-2 py-2 text-theme-text-muted">
-                                                <p className="font-medium text-theme-text">{entry.key}</p>
+                                                <p className="font-medium text-theme-text">{entry.label}</p>
                                                 <p>{t('modals.import.app_settings_current')}: {entry.current}</p>
                                                 <p>{t('modals.import.app_settings_imported')}: {entry.imported}</p>
                                               </li>

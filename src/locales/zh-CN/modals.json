@@ -224,6 +224,7 @@
       "app_settings_legacy_title": "旧版应用设置",
       "app_settings_legacy_description": "该文件导出于分组设置支持之前，只能整包导入应用设置。",
       "app_settings_contains_env_vars": "包含本地终端环境变量名",
+      "app_settings_field_recent_shells": "最近使用的 Shell",
       "section_plugin_settings": "插件偏好设置（{{count}} 个插件）",
       "section_forwards": "已保存的端口转发（{{count}}）",
       "toggle_app_settings": "导入应用设置",
