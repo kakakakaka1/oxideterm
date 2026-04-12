@@ -44,6 +44,8 @@ import type {
   SavedForwardsSyncSnapshot,
   ApplySavedForwardsSyncSnapshotResult,
   SyncableSettingsPayload,
+  SyncableSettingsWarning,
+  ApplySyncableSettingsResult,
   LocalSyncMetadata,
   SessionTreeNodeSnapshot,
   TransferSnapshot,
@@ -440,6 +442,25 @@ function toFrozenImportPreview(preview: ImportPreview): Readonly<ImportPreview> 
     willSkip: [...preview.willSkip],
     willReplace: [...preview.willReplace],
     willMerge: [...preview.willMerge],
+    records: preview.records.map((record) => ({ ...record })),
+  });
+}
+
+function toFrozenSyncableSettingsWarning(warning: SyncableSettingsWarning): SyncableSettingsWarning {
+  return freezeSnapshot<SyncableSettingsWarning>({ ...warning });
+}
+
+function toFrozenApplySyncableSettingsResult(
+  result: ApplySyncableSettingsResult,
+): Readonly<ApplySyncableSettingsResult> {
+  return freezeSnapshot<ApplySyncableSettingsResult>({
+    ...result,
+    appliedPayload: freezeSnapshot<SyncableSettingsPayload>({
+      appearance: result.appliedPayload.appearance ? { ...result.appliedPayload.appearance } : undefined,
+      terminal: result.appliedPayload.terminal ? { ...result.appliedPayload.terminal } : undefined,
+      reconnect: result.appliedPayload.reconnect ? { ...result.appliedPayload.reconnect } : undefined,
+    }),
+    warnings: result.warnings.map(toFrozenSyncableSettingsWarning),
   });
 }
 
@@ -910,6 +931,11 @@ export function buildPluginContext(manifest: PluginManifest): PluginContext {
   });
 
   // ── ctx.settings ──────────────────────────────────────────────────
+  const supportedLanguages = new Set([
+    'zh-CN', 'en', 'fr-FR', 'ja', 'es-ES', 'pt-BR', 'vi', 'ko', 'de', 'it', 'zh-TW',
+  ]);
+  const supportedUiDensities = new Set(['compact', 'comfortable', 'spacious']);
+
   const getSyncableSettingsPayload = (): SyncableSettingsPayload => {
     if (!_useSettingsStore) {
       return freezeSnapshot<SyncableSettingsPayload>({});
@@ -931,6 +957,119 @@ export function buildPluginContext(manifest: PluginManifest): PluginContext {
     });
   };
 
+  const normalizeSyncableSettingsPayload = (payload: SyncableSettingsPayload): {
+    payload: SyncableSettingsPayload;
+    warnings: SyncableSettingsWarning[];
+  } => {
+    const warnings: SyncableSettingsWarning[] = [];
+    const normalized: SyncableSettingsPayload = {};
+
+    if (payload.appearance) {
+      const appearance: NonNullable<SyncableSettingsPayload['appearance']> = {};
+
+      if (payload.appearance.language) {
+        if (supportedLanguages.has(payload.appearance.language)) {
+          appearance.language = payload.appearance.language;
+        } else {
+          warnings.push({
+            path: 'appearance.language',
+            code: 'unsupported-language',
+            applied: false,
+            message: `Unsupported language: ${payload.appearance.language}`,
+          });
+        }
+      }
+
+      if (payload.appearance.uiDensity) {
+        if (supportedUiDensities.has(payload.appearance.uiDensity)) {
+          appearance.uiDensity = payload.appearance.uiDensity;
+        } else {
+          warnings.push({
+            path: 'appearance.uiDensity',
+            code: 'invalid-ui-density',
+            applied: false,
+            message: `Unsupported ui density: ${payload.appearance.uiDensity}`,
+          });
+        }
+      }
+
+      if (Object.keys(appearance).length > 0) {
+        normalized.appearance = appearance;
+      }
+    }
+
+    if (payload.terminal) {
+      const terminal: NonNullable<SyncableSettingsPayload['terminal']> = {};
+
+      if (payload.terminal.fontSize !== undefined) {
+        if (!Number.isFinite(payload.terminal.fontSize)) {
+          warnings.push({
+            path: 'terminal.fontSize',
+            code: 'invalid-font-size',
+            applied: false,
+            message: 'Font size must be a finite number',
+          });
+        } else {
+          const normalizedFontSize = Math.min(32, Math.max(8, Math.round(payload.terminal.fontSize)));
+          terminal.fontSize = normalizedFontSize;
+          if (normalizedFontSize !== payload.terminal.fontSize) {
+            warnings.push({
+              path: 'terminal.fontSize',
+              code: 'font-size-clamped',
+              applied: true,
+              message: `Font size was clamped to ${normalizedFontSize}`,
+              normalizedValue: normalizedFontSize,
+            });
+          }
+        }
+      }
+
+      if (payload.terminal.theme !== undefined) {
+        const theme = payload.terminal.theme.trim();
+        if (theme.length > 0) {
+          terminal.theme = theme;
+        } else {
+          warnings.push({
+            path: 'terminal.theme',
+            code: 'missing-theme',
+            applied: false,
+            message: 'Theme id cannot be empty',
+          });
+        }
+      }
+
+      if (Object.keys(terminal).length > 0) {
+        normalized.terminal = terminal;
+      }
+    }
+
+    if (payload.reconnect) {
+      const reconnect: NonNullable<SyncableSettingsPayload['reconnect']> = {};
+
+      if (payload.reconnect.autoReconnect !== undefined) {
+        if (typeof payload.reconnect.autoReconnect === 'boolean') {
+          reconnect.autoReconnect = payload.reconnect.autoReconnect;
+        } else {
+          warnings.push({
+            path: 'reconnect.autoReconnect',
+            code: 'invalid-auto-reconnect',
+            applied: false,
+            message: 'autoReconnect must be a boolean',
+          });
+        }
+      }
+
+      if (Object.keys(reconnect).length > 0) {
+        normalized.reconnect = reconnect;
+      }
+    }
+
+    return {
+      payload: freezeSnapshot(normalized),
+      warnings,
+    };
+  };
+
   const settings: PluginSettingsAPI = Object.freeze({
     get<T>(key: string): T {
       return settingsManager.get<T>(key);
@@ -943,32 +1082,40 @@ export function buildPluginContext(manifest: PluginManifest): PluginContext {
       return createDisposable(pluginId, unsub);
     },
     async exportSyncableSettings() {
-      const payload = getSyncableSettingsPayload();
+      const normalized = normalizeSyncableSettingsPayload(getSyncableSettingsPayload());
       return freezeSnapshot({
-        revision: simpleStableHash(payload),
+        revision: simpleStableHash(normalized.payload),
         exportedAt: new Date().toISOString(),
-        payload,
+        payload: normalized.payload,
+        warnings: normalized.warnings.map(toFrozenSyncableSettingsWarning),
       });
     },
-    async applySyncableSettings(payload: SyncableSettingsPayload): Promise<void> {
+    async applySyncableSettings(payload: SyncableSettingsPayload): Promise<Readonly<ApplySyncableSettingsResult>> {
+      const normalized = normalizeSyncableSettingsPayload(payload);
       const store = await getSettingsStore();
       const state = store.getState();
 
-      if (payload.appearance?.language) {
-        await state.setLanguage(payload.appearance.language as Parameters<typeof state.setLanguage>[0]);
+      if (normalized.payload.appearance?.language) {
+        await state.setLanguage(normalized.payload.appearance.language as Parameters<typeof state.setLanguage>[0]);
       }
-      if (payload.appearance?.uiDensity) {
-        state.updateAppearance('uiDensity', payload.appearance.uiDensity);
+      if (normalized.payload.appearance?.uiDensity) {
+        state.updateAppearance('uiDensity', normalized.payload.appearance.uiDensity);
       }
-      if (payload.terminal?.fontSize !== undefined) {
-        state.updateTerminal('fontSize', payload.terminal.fontSize);
+      if (normalized.payload.terminal?.fontSize !== undefined) {
+        state.updateTerminal('fontSize', normalized.payload.terminal.fontSize);
       }
-      if (payload.terminal?.theme) {
-        state.updateTerminal('theme', payload.terminal.theme);
+      if (normalized.payload.terminal?.theme) {
+        state.updateTerminal('theme', normalized.payload.terminal.theme);
       }
-      if (payload.reconnect?.autoReconnect !== undefined) {
-        state.updateReconnect('enabled', payload.reconnect.autoReconnect);
+      if (normalized.payload.reconnect?.autoReconnect !== undefined) {
+        state.updateReconnect('enabled', normalized.payload.reconnect.autoReconnect);
       }
+
+      return toFrozenApplySyncableSettingsResult({
+        revision: simpleStableHash(normalized.payload),
+        appliedPayload: normalized.payload,
+        warnings: normalized.warnings,
+      });
     },
   });
 

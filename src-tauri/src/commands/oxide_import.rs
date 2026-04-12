@@ -4,7 +4,7 @@
 //! Tauri commands for .oxide file import
 
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -62,6 +62,23 @@ pub struct ImportPreview {
     pub has_embedded_keys: bool,
     /// Total number of port forwarding rules across all connections
     pub total_forwards: usize,
+    /// Record-level preview details for richer plugin UIs.
+    pub records: Vec<ImportPreviewRecord>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportPreviewRecord {
+    pub resource: String,
+    pub name: String,
+    pub action: String,
+    pub reason_code: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_connection_id: Option<String>,
+    pub forward_count: usize,
+    pub has_embedded_keys: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -97,6 +114,16 @@ enum PlannedImportAction {
     Skip,
     Replace(ReplaceTarget),
     Merge(ReplaceTarget),
+}
+
+fn preview_reason_code(action: &PlannedImportAction) -> &'static str {
+    match action {
+        PlannedImportAction::Import => "new-connection",
+        PlannedImportAction::Rename(_) => "name-conflict",
+        PlannedImportAction::Skip => "name-conflict-skipped",
+        PlannedImportAction::Replace(_) => "replace-existing",
+        PlannedImportAction::Merge(_) => "merge-existing",
+    }
 }
 
 /// Resolve name conflicts by appending a suffix like macOS does
@@ -460,6 +487,7 @@ impl ForwardIdentity {
 fn encrypted_forward_to_persisted(
     forward: EncryptedForward,
     owner_connection_id: &str,
+    persisted_at: DateTime<Utc>,
 ) -> Result<PersistedForward, String> {
     let forward_type =
         crate::state::forwarding::ForwardType::try_from(forward.forward_type.as_str())?;
@@ -480,7 +508,8 @@ fn encrypted_forward_to_persisted(
         owner_connection_id: Some(owner_connection_id.to_string()),
         forward_type,
         rule,
-        created_at: Utc::now(),
+        created_at: persisted_at,
+        updated_at: Some(persisted_at),
         auto_start: forward.auto_start,
         version: 1,
     })
@@ -491,6 +520,7 @@ fn merge_owned_forwards(
     imported_forwards: Vec<EncryptedForward>,
     owner_connection_id: &str,
 ) -> Result<Vec<PersistedForward>, String> {
+    let merged_at = Utc::now();
     let mut merged_by_identity: HashMap<ForwardIdentity, PersistedForward> = existing_forwards
         .into_iter()
         .map(|forward| (ForwardIdentity::from_persisted(&forward), forward))
@@ -502,8 +532,10 @@ fn merge_owned_forwards(
             existing.auto_start = imported.auto_start;
             existing.rule.description = imported.description;
             existing.owner_connection_id = Some(owner_connection_id.to_string());
+            existing.updated_at = Some(merged_at);
         } else {
-            let persisted = encrypted_forward_to_persisted(imported, owner_connection_id)?;
+            let persisted =
+                encrypted_forward_to_persisted(imported, owner_connection_id, merged_at)?;
             merged_by_identity.insert(identity, persisted);
         }
     }
@@ -576,12 +608,15 @@ pub async fn preview_oxide_import(
     let mut will_replace: Vec<String> = Vec::new();
     let mut will_merge: Vec<String> = Vec::new();
     let mut has_embedded_keys = false;
+    let mut records: Vec<ImportPreviewRecord> = Vec::new();
 
     for conn in &payload.connections {
         // Check for embedded keys
+        let mut record_has_embedded_keys = false;
         if let crate::oxide_file::EncryptedAuth::Key { embedded_key, .. } = &conn.auth {
             if embedded_key.is_some() {
                 has_embedded_keys = true;
+                record_has_embedded_keys = true;
             }
         }
         if let crate::oxide_file::EncryptedAuth::Certificate {
@@ -592,23 +627,86 @@ pub async fn preview_oxide_import(
         {
             if embedded_key.is_some() || embedded_cert.is_some() {
                 has_embedded_keys = true;
+                record_has_embedded_keys = true;
             }
         }
 
-        match plan_import_action(
+        let action = plan_import_action(
             &conn.name,
             &existing_connections_by_name,
             &mut existing_names,
             &mut replaced_names,
             conflict_strategy,
-        ) {
-            PlannedImportAction::Import => unchanged.push(conn.name.clone()),
-            PlannedImportAction::Rename(new_name) => {
-                will_rename.push((conn.name.clone(), new_name));
+        );
+        let reason_code = preview_reason_code(&action).to_string();
+
+        match action {
+            PlannedImportAction::Import => {
+                unchanged.push(conn.name.clone());
+                records.push(ImportPreviewRecord {
+                    resource: "connection".to_string(),
+                    name: conn.name.clone(),
+                    action: "import".to_string(),
+                    reason_code,
+                    target_name: None,
+                    target_connection_id: None,
+                    forward_count: conn.forwards.len(),
+                    has_embedded_keys: record_has_embedded_keys,
+                });
             }
-            PlannedImportAction::Skip => will_skip.push(conn.name.clone()),
-            PlannedImportAction::Replace(_) => will_replace.push(conn.name.clone()),
-            PlannedImportAction::Merge(_) => will_merge.push(conn.name.clone()),
+            PlannedImportAction::Rename(new_name) => {
+                let target_name = new_name.clone();
+                will_rename.push((conn.name.clone(), new_name));
+                records.push(ImportPreviewRecord {
+                    resource: "connection".to_string(),
+                    name: conn.name.clone(),
+                    action: "rename".to_string(),
+                    reason_code,
+                    target_name: Some(target_name),
+                    target_connection_id: None,
+                    forward_count: conn.forwards.len(),
+                    has_embedded_keys: record_has_embedded_keys,
+                });
+            }
+            PlannedImportAction::Skip => {
+                will_skip.push(conn.name.clone());
+                records.push(ImportPreviewRecord {
+                    resource: "connection".to_string(),
+                    name: conn.name.clone(),
+                    action: "skip".to_string(),
+                    reason_code,
+                    target_name: None,
+                    target_connection_id: None,
+                    forward_count: conn.forwards.len(),
+                    has_embedded_keys: record_has_embedded_keys,
+                });
+            }
+            PlannedImportAction::Replace(target) => {
+                will_replace.push(conn.name.clone());
+                records.push(ImportPreviewRecord {
+                    resource: "connection".to_string(),
+                    name: conn.name.clone(),
+                    action: "replace".to_string(),
+                    reason_code,
+                    target_name: Some(target.existing.name.clone()),
+                    target_connection_id: Some(target.existing.id.clone()),
+                    forward_count: conn.forwards.len(),
+                    has_embedded_keys: record_has_embedded_keys,
+                });
+            }
+            PlannedImportAction::Merge(target) => {
+                will_merge.push(conn.name.clone());
+                records.push(ImportPreviewRecord {
+                    resource: "connection".to_string(),
+                    name: conn.name.clone(),
+                    action: "merge".to_string(),
+                    reason_code,
+                    target_name: Some(target.existing.name.clone()),
+                    target_connection_id: Some(target.existing.id.clone()),
+                    forward_count: conn.forwards.len(),
+                    has_embedded_keys: record_has_embedded_keys,
+                });
+            }
         }
     }
 
@@ -621,6 +719,7 @@ pub async fn preview_oxide_import(
         will_merge,
         has_embedded_keys,
         total_forwards: payload.connections.iter().map(|c| c.forwards.len()).sum(),
+        records,
     })
 }
 
@@ -870,15 +969,18 @@ pub async fn import_from_oxide(
         let (saved_conn, old_keychain_ids, forward_ids_to_delete, forwards_to_persist) =
             match action {
                 PlannedImportAction::Import => {
+                    let imported_at = Utc::now();
                     let saved_conn = build_saved_connection(
                         credential_base_id.clone(),
-                        Utc::now(),
+                        imported_at,
                         None,
                         imported_connection,
                     );
                     let forwards_to_persist = imported_forwards
                         .into_iter()
-                        .map(|forward| encrypted_forward_to_persisted(forward, &saved_conn.id))
+                        .map(|forward| {
+                            encrypted_forward_to_persisted(forward, &saved_conn.id, imported_at)
+                        })
                         .collect::<Result<Vec<_>, _>>()?;
                     (saved_conn, Vec::new(), Vec::new(), forwards_to_persist)
                 }
@@ -887,15 +989,18 @@ pub async fn import_from_oxide(
                     renames.push((original_name.clone(), new_name.clone()));
                     imported_connection.name = new_name;
                     {
+                        let imported_at = Utc::now();
                         let saved_conn = build_saved_connection(
                             credential_base_id.clone(),
-                            Utc::now(),
+                            imported_at,
                             None,
                             imported_connection,
                         );
                         let forwards_to_persist = imported_forwards
                             .into_iter()
-                            .map(|forward| encrypted_forward_to_persisted(forward, &saved_conn.id))
+                            .map(|forward| {
+                                encrypted_forward_to_persisted(forward, &saved_conn.id, imported_at)
+                            })
                             .collect::<Result<Vec<_>, _>>()?;
                         (saved_conn, Vec::new(), Vec::new(), forwards_to_persist)
                     }
@@ -904,6 +1009,7 @@ pub async fn import_from_oxide(
                     replaced_count += 1;
                     imported_connection.name = target.existing.name.clone();
                     {
+                        let imported_at = Utc::now();
                         let existing_forwards = forwarding_registry
                             .load_owned_forwards(&target.existing.id)
                             .await?;
@@ -919,7 +1025,9 @@ pub async fn import_from_oxide(
                         );
                         let forwards_to_persist = imported_forwards
                             .into_iter()
-                            .map(|forward| encrypted_forward_to_persisted(forward, &saved_conn.id))
+                            .map(|forward| {
+                                encrypted_forward_to_persisted(forward, &saved_conn.id, imported_at)
+                            })
                             .collect::<Result<Vec<_>, _>>()?;
                         (
                             saved_conn,
@@ -1141,10 +1249,13 @@ mod tests {
         );
 
         assert!(matches!(first, PlannedImportAction::Merge(_)));
-        match second {
+        match &second {
             PlannedImportAction::Rename(name) => assert_eq!(name, "prod (Copy)"),
             _ => panic!("expected second duplicate to be renamed"),
         }
+
+        assert_eq!(preview_reason_code(&first), "merge-existing");
+        assert_eq!(preview_reason_code(&second), "name-conflict");
     }
 
     #[test]
@@ -1279,6 +1390,7 @@ mod tests {
         );
 
         assert!(matches!(action, PlannedImportAction::Skip));
+        assert_eq!(preview_reason_code(&action), "name-conflict-skipped");
     }
 
     #[test]
@@ -1303,7 +1415,7 @@ mod tests {
             ImportConflictStrategy::Replace,
         );
 
-        match first {
+        match &first {
             PlannedImportAction::Replace(target) => {
                 assert_eq!(target.existing.id, "conn-1");
                 assert_eq!(target.old_keychain_ids.len(), 2);
@@ -1311,10 +1423,18 @@ mod tests {
             _ => panic!("expected first conflict to replace existing connection"),
         }
 
-        match second {
+        match &second {
             PlannedImportAction::Rename(name) => assert_eq!(name, "prod (Copy)"),
             _ => panic!("expected second duplicate to be renamed"),
         }
+
+        assert_eq!(preview_reason_code(&first), "replace-existing");
+        assert_eq!(preview_reason_code(&second), "name-conflict");
+    }
+
+    #[test]
+    fn preview_reason_code_marks_new_connection_imports() {
+        assert_eq!(preview_reason_code(&PlannedImportAction::Import), "new-connection");
     }
 
     #[test]
@@ -1330,6 +1450,7 @@ mod tests {
                 auto_start: true,
             },
             "conn-1",
+            Utc::now(),
         )
         .unwrap();
 
@@ -1358,6 +1479,7 @@ mod tests {
                 description: Some("old".to_string()),
             },
             created_at: Utc::now(),
+            updated_at: Some(Utc::now()),
             auto_start: false,
             version: 1,
         };

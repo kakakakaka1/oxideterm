@@ -233,8 +233,9 @@ export type PluginSettingsAPI = {
     revision: string;
     exportedAt: string;
     payload: SyncableSettingsPayload;
+    warnings: ReadonlyArray<SyncableSettingsWarning>;
   }>>;
-  applySyncableSettings(payload: SyncableSettingsPayload): Promise<void>;
+  applySyncableSettings(payload: SyncableSettingsPayload): Promise<Readonly<ApplySyncableSettingsResult>>;
 };
 
 /** ctx.i18n — plugin-scoped i18n */
@@ -343,6 +344,20 @@ export type SyncableSettingsPayload = Readonly<{
   }>;
 }>;
 
+export type SyncableSettingsWarning = Readonly<{
+  path: string;
+  code: string;
+  message: string;
+  applied: boolean;
+  normalizedValue?: unknown;
+}>;
+
+export type ApplySyncableSettingsResult = Readonly<{
+  revision: string;
+  appliedPayload: SyncableSettingsPayload;
+  warnings: ReadonlyArray<SyncableSettingsWarning>;
+}>;
+
 export type LocalSyncMetadata = Readonly<{
   savedConnectionsRevision: string;
   savedConnectionsUpdatedAt: string;
@@ -368,6 +383,17 @@ export type ImportResult = Readonly<{
   renames: readonly [string, string][];
 }>;
 
+export type ImportPreviewRecord = Readonly<{
+  resource: 'connection';
+  name: string;
+  action: 'import' | 'rename' | 'skip' | 'replace' | 'merge';
+  reasonCode: 'new-connection' | 'name-conflict' | 'name-conflict-skipped' | 'replace-existing' | 'merge-existing';
+  targetName?: string;
+  targetConnectionId?: string;
+  forwardCount: number;
+  hasEmbeddedKeys: boolean;
+}>;
+
 export type ImportPreview = Readonly<{
   totalConnections: number;
   unchanged: readonly string[];
@@ -377,6 +403,7 @@ export type ImportPreview = Readonly<{
   willMerge: readonly string[];
   hasEmbeddedKeys: boolean;
   totalForwards: number;
+  records: ReadonlyArray<ImportPreviewRecord>;
 }>;
 
 export type ExportPreflightResult = Readonly<{

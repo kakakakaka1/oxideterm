@@ -21,6 +21,8 @@ pub const STATE_VERSION: u32 = 1;
 /// Table definitions
 const SESSIONS_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("sessions");
 const FORWARDS_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("forwards");
+const FORWARD_TOMBSTONES_TABLE: TableDefinition<&str, &[u8]> =
+    TableDefinition::new("forward_tombstones");
 const METADATA_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("metadata");
 
 /// State persistence errors
@@ -149,6 +151,7 @@ impl StateStore {
             // Create tables if they don't exist
             let _ = write_txn.open_table(SESSIONS_TABLE)?;
             let _ = write_txn.open_table(FORWARDS_TABLE)?;
+            let _ = write_txn.open_table(FORWARD_TOMBSTONES_TABLE)?;
             let _ = write_txn.open_table(METADATA_TABLE)?;
         }
 
@@ -711,6 +714,281 @@ impl StateStore {
                 };
                 error!(
                     "Database load_all_forwards operation panicked: {}",
+                    panic_msg
+                );
+                Err(StateError::Io(std::io::Error::other(format!(
+                    "Database panic: {}",
+                    panic_msg
+                ))))
+            }
+        }
+    }
+
+    /// Save a forward tombstone to the database.
+    pub fn save_forward_tombstone(&self, id: &str, data: &[u8]) -> Result<(), StateError> {
+        let write_txn = self.db.begin_write()?;
+
+        {
+            let mut table = write_txn.open_table(FORWARD_TOMBSTONES_TABLE)?;
+            table.insert(id, data)?;
+        }
+
+        write_txn.commit()?;
+        Ok(())
+    }
+
+    /// Save a forward tombstone to the database asynchronously.
+    pub async fn save_forward_tombstone_async(
+        &self,
+        id: String,
+        data: Vec<u8>,
+    ) -> Result<(), StateError> {
+        let db = self.db.clone();
+
+        let result = tokio::task::spawn_blocking(move || {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let write_txn = db.begin_write()?;
+
+                {
+                    let mut table = write_txn.open_table(FORWARD_TOMBSTONES_TABLE)?;
+                    table.insert(id.as_str(), data.as_slice())?;
+                }
+
+                write_txn.commit()?;
+                Ok(())
+            }))
+        })
+        .await
+        .map_err(|e| StateError::Io(std::io::Error::other(format!("Task join error: {}", e))))?;
+
+        match result {
+            Ok(inner_result) => inner_result,
+            Err(panic_payload) => {
+                let panic_msg = if let Some(s) = panic_payload.downcast_ref::<&str>() {
+                    s.to_string()
+                } else if let Some(s) = panic_payload.downcast_ref::<String>() {
+                    s.clone()
+                } else {
+                    "Unknown panic".to_string()
+                };
+                error!(
+                    "Database save_forward_tombstone operation panicked: {}",
+                    panic_msg
+                );
+                Err(StateError::Io(std::io::Error::other(format!(
+                    "Database panic: {}",
+                    panic_msg
+                ))))
+            }
+        }
+    }
+
+    /// Delete a forward tombstone from the database.
+    pub fn delete_forward_tombstone(&self, id: &str) -> Result<(), StateError> {
+        let write_txn = self.db.begin_write()?;
+
+        {
+            let mut table = write_txn.open_table(FORWARD_TOMBSTONES_TABLE)?;
+            table.remove(id)?;
+        }
+
+        write_txn.commit()?;
+        Ok(())
+    }
+
+    /// Delete a forward tombstone from the database asynchronously.
+    pub async fn delete_forward_tombstone_async(&self, id: String) -> Result<(), StateError> {
+        let db = self.db.clone();
+
+        let result = tokio::task::spawn_blocking(move || {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let write_txn = db.begin_write()?;
+
+                {
+                    let mut table = write_txn.open_table(FORWARD_TOMBSTONES_TABLE)?;
+                    table.remove(id.as_str())?;
+                }
+
+                write_txn.commit()?;
+                Ok(())
+            }))
+        })
+        .await
+        .map_err(|e| StateError::Io(std::io::Error::other(format!("Task join error: {}", e))))?;
+
+        match result {
+            Ok(inner_result) => inner_result,
+            Err(panic_payload) => {
+                let panic_msg = if let Some(s) = panic_payload.downcast_ref::<&str>() {
+                    s.to_string()
+                } else if let Some(s) = panic_payload.downcast_ref::<String>() {
+                    s.clone()
+                } else {
+                    "Unknown panic".to_string()
+                };
+                error!(
+                    "Database delete_forward_tombstone operation panicked: {}",
+                    panic_msg
+                );
+                Err(StateError::Io(std::io::Error::other(format!(
+                    "Database panic: {}",
+                    panic_msg
+                ))))
+            }
+        }
+    }
+
+    /// Load all forward tombstones from the database.
+    pub fn load_all_forward_tombstones(&self) -> Result<Vec<(String, Vec<u8>)>, StateError> {
+        let read_txn = self.db.begin_read()?;
+        let table = read_txn.open_table(FORWARD_TOMBSTONES_TABLE)?;
+
+        let mut results = Vec::new();
+        for item in table.iter()? {
+            let (key, value) = item?;
+            results.push((key.value().to_string(), value.value().to_vec()));
+        }
+
+        Ok(results)
+    }
+
+    /// Load all forward tombstones from the database asynchronously.
+    pub async fn load_all_forward_tombstones_async(
+        &self,
+    ) -> Result<Vec<(String, Vec<u8>)>, StateError> {
+        let db = self.db.clone();
+
+        let result = tokio::task::spawn_blocking(move || {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let read_txn = db.begin_read()?;
+                let table = read_txn.open_table(FORWARD_TOMBSTONES_TABLE)?;
+
+                let mut results = Vec::new();
+                for item in table.iter()? {
+                    let (key, value) = item?;
+                    results.push((key.value().to_string(), value.value().to_vec()));
+                }
+
+                Ok(results)
+            }))
+        })
+        .await
+        .map_err(|e| StateError::Io(std::io::Error::other(format!("Task join error: {}", e))))?;
+
+        match result {
+            Ok(inner_result) => inner_result,
+            Err(panic_payload) => {
+                let panic_msg = if let Some(s) = panic_payload.downcast_ref::<&str>() {
+                    s.to_string()
+                } else if let Some(s) = panic_payload.downcast_ref::<String>() {
+                    s.clone()
+                } else {
+                    "Unknown panic".to_string()
+                };
+                error!(
+                    "Database load_all_forward_tombstones operation panicked: {}",
+                    panic_msg
+                );
+                Err(StateError::Io(std::io::Error::other(format!(
+                    "Database panic: {}",
+                    panic_msg
+                ))))
+            }
+        }
+    }
+
+    /// Load all forwards and forward tombstones from a single consistent read transaction.
+    pub async fn load_all_forward_sync_state_async(
+        &self,
+    ) -> Result<(Vec<(String, Vec<u8>)>, Vec<(String, Vec<u8>)>), StateError> {
+        let db = self.db.clone();
+
+        let result = tokio::task::spawn_blocking(move || {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let read_txn = db.begin_read()?;
+                let forwards_table = read_txn.open_table(FORWARDS_TABLE)?;
+                let tombstones_table = read_txn.open_table(FORWARD_TOMBSTONES_TABLE)?;
+
+                let mut forwards = Vec::new();
+                for item in forwards_table.iter()? {
+                    let (key, value) = item?;
+                    forwards.push((key.value().to_string(), value.value().to_vec()));
+                }
+
+                let mut tombstones = Vec::new();
+                for item in tombstones_table.iter()? {
+                    let (key, value) = item?;
+                    tombstones.push((key.value().to_string(), value.value().to_vec()));
+                }
+
+                Ok((forwards, tombstones))
+            }))
+        })
+        .await
+        .map_err(|e| StateError::Io(std::io::Error::other(format!("Task join error: {}", e))))?;
+
+        match result {
+            Ok(inner_result) => inner_result,
+            Err(panic_payload) => {
+                let panic_msg = if let Some(s) = panic_payload.downcast_ref::<&str>() {
+                    s.to_string()
+                } else if let Some(s) = panic_payload.downcast_ref::<String>() {
+                    s.clone()
+                } else {
+                    "Unknown panic".to_string()
+                };
+                error!(
+                    "Database load_all_forward_sync_state operation panicked: {}",
+                    panic_msg
+                );
+                Err(StateError::Io(std::io::Error::other(format!(
+                    "Database panic: {}",
+                    panic_msg
+                ))))
+            }
+        }
+    }
+
+    /// Atomically replace a forward record with a tombstone in one write transaction.
+    pub async fn replace_forward_with_tombstone_async(
+        &self,
+        id: String,
+        tombstone_data: Vec<u8>,
+    ) -> Result<bool, StateError> {
+        let db = self.db.clone();
+
+        let result = tokio::task::spawn_blocking(move || {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let write_txn = db.begin_write()?;
+                let existed = {
+                    let mut forwards_table = write_txn.open_table(FORWARDS_TABLE)?;
+                    forwards_table.remove(id.as_str())?.is_some()
+                };
+
+                {
+                    let mut tombstones_table = write_txn.open_table(FORWARD_TOMBSTONES_TABLE)?;
+                    tombstones_table.insert(id.as_str(), tombstone_data.as_slice())?;
+                }
+
+                write_txn.commit()?;
+                Ok(existed)
+            }))
+        })
+        .await
+        .map_err(|e| StateError::Io(std::io::Error::other(format!("Task join error: {}", e))))?;
+
+        match result {
+            Ok(inner_result) => inner_result,
+            Err(panic_payload) => {
+                let panic_msg = if let Some(s) = panic_payload.downcast_ref::<&str>() {
+                    s.to_string()
+                } else if let Some(s) = panic_payload.downcast_ref::<String>() {
+                    s.clone()
+                } else {
+                    "Unknown panic".to_string()
+                };
+                error!(
+                    "Database replace_forward_with_tombstone operation panicked: {}",
                     panic_msg
                 );
                 Err(StateError::Io(std::io::Error::other(format!(

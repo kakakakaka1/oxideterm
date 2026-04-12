@@ -375,6 +375,15 @@ describe('pluginContextFactory', () => {
       willMerge: [],
       hasEmbeddedKeys: false,
       totalForwards: 0,
+      records: [{
+        resource: 'connection',
+        name: 'Staging',
+        action: 'rename',
+        reasonCode: 'name-conflict',
+        targetName: 'Staging (Copy)',
+        forwardCount: 0,
+        hasEmbeddedKeys: false,
+      }],
     };
 
     invokeMock
@@ -498,6 +507,17 @@ describe('pluginContextFactory', () => {
 
     const preview = await context.sync.previewImport(new Uint8Array([4, 5, 6]), 'ImportPass!123');
     expect(preview.willRename).toEqual([['Staging', 'Staging (Copy)']]);
+    expect(preview.records).toEqual([{
+      resource: 'connection',
+      name: 'Staging',
+      action: 'rename',
+      reasonCode: 'name-conflict',
+      targetName: 'Staging (Copy)',
+      forwardCount: 0,
+      hasEmbeddedKeys: false,
+    }]);
+    expect(Object.isFrozen(preview.records)).toBe(true);
+    expect(Object.isFrozen(preview.records[0])).toBe(true);
 
     const result = await context.sync.importOxide(new Uint8Array([4, 5, 6]), 'ImportPass!123', {
       conflictStrategy: 'skip',
@@ -583,18 +603,90 @@ describe('pluginContextFactory', () => {
     const exportedSettings = await context.settings.exportSyncableSettings();
     expect(exportedSettings.payload.appearance?.language).toBe('en');
     expect(exportedSettings.payload.terminal?.fontSize).toBe(14);
+    expect(exportedSettings.warnings).toEqual([]);
 
-    await context.settings.applySyncableSettings({
+    const applySettingsResult = await context.settings.applySyncableSettings({
       appearance: { language: 'ja', uiDensity: 'compact' },
       terminal: { fontSize: 16, theme: 'solarized-dark' },
       reconnect: { autoReconnect: false },
     });
+
+    expect(applySettingsResult.appliedPayload).toEqual({
+      appearance: { language: 'ja', uiDensity: 'compact' },
+      terminal: { fontSize: 16, theme: 'solarized-dark' },
+      reconnect: { autoReconnect: false },
+    });
+    expect(applySettingsResult.warnings).toEqual([]);
+    expect(Object.isFrozen(applySettingsResult)).toBe(true);
+    expect(Object.isFrozen(applySettingsResult.appliedPayload)).toBe(true);
 
     expect(settingsStoreState.setLanguage).toHaveBeenCalledWith('ja');
     expect(settingsStoreState.updateAppearance).toHaveBeenCalledWith('uiDensity', 'compact');
     expect(settingsStoreState.updateTerminal).toHaveBeenCalledWith('fontSize', 16);
     expect(settingsStoreState.updateTerminal).toHaveBeenCalledWith('theme', 'solarized-dark');
     expect(settingsStoreState.updateReconnect).toHaveBeenCalledWith('enabled', false);
+  });
+
+  it('normalizes syncable settings payloads and emits warnings for invalid values', async () => {
+    const context = buildPluginContext(manifest());
+
+    const result = await context.settings.applySyncableSettings({
+      appearance: {
+        language: 'xx-XX',
+        uiDensity: 'wide' as 'compact' | 'comfortable',
+      },
+      terminal: {
+        fontSize: 100.4,
+        theme: '   ',
+      },
+      reconnect: {
+        autoReconnect: 'yes' as unknown as boolean,
+      },
+    });
+
+    expect(result.appliedPayload).toEqual({
+      terminal: { fontSize: 32 },
+    });
+    expect(result.warnings).toEqual([
+      {
+        path: 'appearance.language',
+        code: 'unsupported-language',
+        applied: false,
+        message: 'Unsupported language: xx-XX',
+      },
+      {
+        path: 'appearance.uiDensity',
+        code: 'invalid-ui-density',
+        applied: false,
+        message: 'Unsupported ui density: wide',
+      },
+      {
+        path: 'terminal.fontSize',
+        code: 'font-size-clamped',
+        applied: true,
+        message: 'Font size was clamped to 32',
+        normalizedValue: 32,
+      },
+      {
+        path: 'terminal.theme',
+        code: 'missing-theme',
+        applied: false,
+        message: 'Theme id cannot be empty',
+      },
+      {
+        path: 'reconnect.autoReconnect',
+        code: 'invalid-auto-reconnect',
+        applied: false,
+        message: 'autoReconnect must be a boolean',
+      },
+    ]);
+    expect(settingsStoreState.setLanguage).not.toHaveBeenCalled();
+    expect(settingsStoreState.updateAppearance).not.toHaveBeenCalled();
+    expect(settingsStoreState.updateTerminal).toHaveBeenCalledTimes(1);
+    expect(settingsStoreState.updateTerminal).toHaveBeenCalledWith('fontSize', 32);
+    expect(settingsStoreState.updateReconnect).not.toHaveBeenCalled();
+    expect(Object.isFrozen(result.warnings)).toBe(true);
+    expect(Object.isFrozen(result.warnings[0])).toBe(true);
   });
 
   it('passes merge conflict strategy through to preview and import', async () => {
@@ -610,6 +702,16 @@ describe('pluginContextFactory', () => {
         willMerge: ['Prod'],
         hasEmbeddedKeys: false,
         totalForwards: 0,
+        records: [{
+          resource: 'connection',
+          name: 'Prod',
+          action: 'merge',
+          reasonCode: 'merge-existing',
+          targetName: 'Prod',
+          targetConnectionId: 'saved-1',
+          forwardCount: 0,
+          hasEmbeddedKeys: false,
+        }],
       })
       .mockResolvedValueOnce({
         imported: 1,
@@ -630,6 +732,16 @@ describe('pluginContextFactory', () => {
     });
 
     expect(preview.willMerge).toEqual(['Prod']);
+    expect(preview.records).toEqual([{
+      resource: 'connection',
+      name: 'Prod',
+      action: 'merge',
+      reasonCode: 'merge-existing',
+      targetName: 'Prod',
+      targetConnectionId: 'saved-1',
+      forwardCount: 0,
+      hasEmbeddedKeys: false,
+    }]);
     expect(result.merged).toBe(1);
     expect(invokeMock).toHaveBeenNthCalledWith(1, 'preview_oxide_import', {
       fileData: [7, 8, 9],

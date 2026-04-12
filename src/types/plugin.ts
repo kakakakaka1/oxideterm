@@ -298,8 +298,9 @@ export type PluginSettingsAPI = {
     revision: string;
     exportedAt: string;
     payload: SyncableSettingsPayload;
+    warnings: ReadonlyArray<SyncableSettingsWarning>;
   }>>;
-  applySyncableSettings(payload: SyncableSettingsPayload): Promise<void>;
+  applySyncableSettings(payload: SyncableSettingsPayload): Promise<Readonly<ApplySyncableSettingsResult>>;
 };
 
 /** ctx.i18n — plugin-scoped i18n */
@@ -400,6 +401,26 @@ export type SyncableSettingsPayload = Readonly<{
   reconnect?: Readonly<{
     autoReconnect?: boolean;
   }>;
+}>;
+
+export type SyncableSettingsWarning = Readonly<{
+  path: string;
+  code:
+    | 'unsupported-language'
+    | 'invalid-ui-density'
+    | 'font-size-clamped'
+    | 'invalid-font-size'
+    | 'missing-theme'
+    | 'invalid-auto-reconnect';
+  applied: boolean;
+  message: string;
+  normalizedValue?: string | number | boolean;
+}>;
+
+export type ApplySyncableSettingsResult = Readonly<{
+  revision: string;
+  appliedPayload: SyncableSettingsPayload;
+  warnings: ReadonlyArray<SyncableSettingsWarning>;
 }>;
 
 export type LocalSyncMetadata = Readonly<{

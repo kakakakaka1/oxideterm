@@ -5,7 +5,7 @@
 //!
 //! Provides Tauri commands for managing port forwarding from the frontend.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use chrono::Utc;
@@ -192,6 +192,7 @@ impl ForwardingRegistry {
                 existing.forward_type =
                     crate::state::forwarding::ForwardType::from(&rule.forward_type);
                 existing.rule = rule;
+                existing.mark_updated();
                 existing
             }
             Err(StateError::NotFound(_)) => {
@@ -224,10 +225,27 @@ impl ForwardingRegistry {
     /// Delete a persisted forward
     pub async fn delete_persisted_forward(&self, forward_id: String) -> Result<(), String> {
         if let Some(persistence) = &self.persistence {
-            persistence
-                .delete_async(forward_id)
-                .await
-                .map_err(|e| format!("Failed to delete persisted forward: {:?}", e))?;
+            match persistence.load(&forward_id) {
+                Ok(forward) if forward.owner_connection_id.is_some() => {
+                    persistence
+                        .delete_with_tombstone_async(&forward_id, Utc::now())
+                        .await
+                        .map_err(|e| format!("Failed to tombstone persisted forward: {:?}", e))?;
+                }
+                Ok(_) => {
+                    persistence
+                        .delete_async(forward_id)
+                        .await
+                        .map_err(|e| format!("Failed to delete persisted forward: {:?}", e))?;
+                }
+                Err(StateError::NotFound(_)) => {}
+                Err(e) => {
+                    return Err(format!(
+                        "Failed to load persisted forward before delete: {:?}",
+                        e
+                    ));
+                }
+            }
             info!("Deleted persisted forward");
         }
         Ok(())
@@ -257,7 +275,8 @@ impl ForwardingRegistry {
     pub async fn delete_owned_forwards(&self, owner_connection_id: &str) -> Result<usize, String> {
         if let Some(persistence) = &self.persistence {
             persistence
-                .delete_by_owner(owner_connection_id)
+                .delete_by_owner_with_tombstones(owner_connection_id, Utc::now())
+                .await
                 .map_err(|e| format!("Failed to delete owned forwards: {:?}", e))
         } else {
             Ok(0)
@@ -312,6 +331,46 @@ impl ForwardingRegistry {
                 .into_iter()
                 .filter(|f| f.owner_connection_id.is_some())
                 .collect())
+        } else {
+            Ok(Vec::new())
+        }
+    }
+
+    pub async fn load_syncable_forward_sync_state(
+        &self,
+    ) -> Result<
+        (
+            Vec<PersistedForward>,
+            Vec<crate::state::forwarding::DeletedPersistedForwardTombstone>,
+        ),
+        String,
+    > {
+        if let Some(persistence) = &self.persistence {
+            let (all_forwards, tombstones) = persistence
+                .load_sync_state_async()
+                .await
+                .map_err(|e| format!("Failed to load persisted forward sync state: {:?}", e))?;
+
+            Ok((
+                all_forwards
+                    .into_iter()
+                    .filter(|forward| forward.owner_connection_id.is_some())
+                    .collect(),
+                tombstones,
+            ))
+        } else {
+            Ok((Vec::new(), Vec::new()))
+        }
+    }
+
+    pub async fn load_syncable_forward_tombstones(
+        &self,
+    ) -> Result<Vec<crate::state::forwarding::DeletedPersistedForwardTombstone>, String> {
+        if let Some(persistence) = &self.persistence {
+            persistence
+                .load_active_tombstones_async()
+                .await
+                .map_err(|e| format!("Failed to load persisted forward tombstones: {:?}", e))
         } else {
             Ok(Vec::new())
         }
@@ -971,8 +1030,8 @@ pub async fn list_saved_forwards(
 pub async fn export_saved_forwards_snapshot(
     registry: State<'_, Arc<ForwardingRegistry>>,
 ) -> Result<SavedForwardsSyncSnapshot, String> {
-    let forwards = registry.load_syncable_forwards().await?;
-    build_saved_forwards_sync_snapshot(forwards)
+    let (forwards, tombstones) = registry.load_syncable_forward_sync_state().await?;
+    build_saved_forwards_sync_snapshot(forwards, tombstones)
 }
 
 /// Apply a structured snapshot of owner-bound saved forwards produced by a sync plugin.
@@ -983,27 +1042,62 @@ pub async fn apply_saved_forwards_snapshot(
     config_state: State<'_, Arc<ConfigState>>,
     snapshot: SavedForwardsSyncSnapshot,
 ) -> Result<ApplySavedForwardsSyncSnapshotResult, String> {
-    let existing_forwards = registry.load_syncable_forwards().await?;
+    let (existing_forwards, existing_tombstones) =
+        registry.load_syncable_forward_sync_state().await?;
     let existing_ids: HashMap<String, PersistedForward> = existing_forwards
         .into_iter()
         .map(|forward| (forward.id.clone(), forward))
+        .collect();
+    let existing_tombstones_by_id: HashMap<
+        String,
+        crate::state::forwarding::DeletedPersistedForwardTombstone,
+    > = existing_tombstones
+        .into_iter()
+        .map(|tombstone| (tombstone.id.clone(), tombstone))
         .collect();
     let valid_owner_connection_ids = config_state
         .get_config_snapshot()
         .connections
         .into_iter()
         .map(|connection| connection.id)
-        .collect::<std::collections::HashSet<_>>();
+        .collect::<HashSet<_>>();
     let mut result = ApplySavedForwardsSyncSnapshotResult {
         applied: 0,
         skipped: 0,
     };
 
     for record in snapshot.records {
+        let record_updated_at =
+            parse_sync_timestamp(&record.updated_at, "saved forward sync updated_at")?;
+
         if record.deleted {
-            if existing_ids.contains_key(&record.id) {
-                registry.delete_persisted_forward(record.id).await?;
-                result.applied += 1;
+            if let Some(existing) = existing_ids.get(&record.id) {
+                if existing.sync_updated_at() > record_updated_at {
+                    result.skipped += 1;
+                    continue;
+                }
+            }
+
+            if let Some(persistence) = &registry.persistence {
+                if existing_ids.contains_key(&record.id) {
+                    if persistence
+                        .delete_with_tombstone_async(&record.id, record_updated_at)
+                        .await
+                        .map_err(|e| format!("Failed to tombstone persisted forward: {:?}", e))?
+                    {
+                        result.applied += 1;
+                    } else {
+                        result.skipped += 1;
+                    }
+                } else if persistence
+                    .upsert_tombstone_async(&record.id, record_updated_at)
+                    .await
+                    .map_err(|e| format!("Failed to record forward tombstone: {:?}", e))?
+                {
+                    result.applied += 1;
+                } else {
+                    result.skipped += 1;
+                }
             } else {
                 result.skipped += 1;
             }
@@ -1015,6 +1109,20 @@ pub async fn apply_saved_forwards_snapshot(
             continue;
         };
 
+        if let Some(tombstone) = existing_tombstones_by_id.get(&record.id) {
+            if tombstone.deleted_at >= record_updated_at {
+                result.skipped += 1;
+                continue;
+            }
+        }
+
+        if let Some(existing) = existing_ids.get(&record.id) {
+            if existing.sync_updated_at() > record_updated_at {
+                result.skipped += 1;
+                continue;
+            }
+        }
+
         let Some(owner_connection_id) = payload.owner_connection_id.as_ref() else {
             result.skipped += 1;
             continue;
@@ -1025,7 +1133,7 @@ pub async fn apply_saved_forwards_snapshot(
             continue;
         }
 
-        let forward = persisted_forward_from_sync_payload(payload)?;
+        let forward = persisted_forward_from_sync_payload(payload, record_updated_at)?;
         registry.persist_forward(forward).await?;
         result.applied += 1;
     }
@@ -1109,6 +1217,19 @@ pub struct ApplySavedForwardsSyncSnapshotResult {
     pub skipped: usize,
 }
 
+fn parse_sync_timestamp(
+    value: &str,
+    field_name: &str,
+) -> Result<chrono::DateTime<chrono::Utc>, String> {
+    chrono::DateTime::parse_from_rfc3339(value)
+        .map(|time| time.with_timezone(&chrono::Utc))
+        .map_err(|e| format!("Invalid {} '{}': {}", field_name, value, e))
+}
+
+fn forward_sync_updated_at(forward: &PersistedForward) -> String {
+    forward.sync_updated_at().to_rfc3339()
+}
+
 fn persisted_forward_to_dto(forward: PersistedForward) -> PersistedForwardDto {
     PersistedForwardDto {
         id: forward.id,
@@ -1134,25 +1255,51 @@ fn sha256_hex<T: Serialize>(value: &T) -> Result<String, String> {
 fn build_saved_forward_sync_record(
     forward: PersistedForward,
 ) -> Result<SavedForwardSyncRecord, String> {
+    let updated_at = forward_sync_updated_at(&forward);
     let payload = persisted_forward_to_dto(forward);
     let revision = sha256_hex(&payload)?;
 
     Ok(SavedForwardSyncRecord {
         id: payload.id.clone(),
         revision,
-        updated_at: payload.created_at.clone(),
+        updated_at,
         deleted: false,
         payload: Some(payload),
     })
 }
 
+fn build_saved_forward_tombstone_record(
+    tombstone: &crate::state::forwarding::DeletedPersistedForwardTombstone,
+) -> Result<SavedForwardSyncRecord, String> {
+    let revision = sha256_hex(&(
+        tombstone.id.as_str(),
+        tombstone.deleted_at.to_rfc3339(),
+        true,
+    ))?;
+
+    Ok(SavedForwardSyncRecord {
+        id: tombstone.id.clone(),
+        revision,
+        updated_at: tombstone.deleted_at.to_rfc3339(),
+        deleted: true,
+        payload: None,
+    })
+}
+
 fn build_saved_forwards_sync_snapshot(
     forwards: Vec<PersistedForward>,
+    tombstones: Vec<crate::state::forwarding::DeletedPersistedForwardTombstone>,
 ) -> Result<SavedForwardsSyncSnapshot, String> {
     let mut records: Vec<SavedForwardSyncRecord> = forwards
         .into_iter()
         .map(build_saved_forward_sync_record)
         .collect::<Result<_, _>>()?;
+    records.extend(
+        tombstones
+            .iter()
+            .map(build_saved_forward_tombstone_record)
+            .collect::<Result<Vec<_>, _>>()?,
+    );
     records.sort_by(|left, right| left.id.cmp(&right.id));
 
     let revision = sha256_hex(
@@ -1171,6 +1318,7 @@ fn build_saved_forwards_sync_snapshot(
 
 fn persisted_forward_from_sync_payload(
     payload: PersistedForwardDto,
+    record_updated_at: chrono::DateTime<chrono::Utc>,
 ) -> Result<PersistedForward, String> {
     let forward_type =
         crate::state::forwarding::ForwardType::try_from(payload.forward_type.as_str())?;
@@ -1194,6 +1342,7 @@ fn persisted_forward_from_sync_payload(
             description: payload.description,
         },
         created_at,
+        updated_at: Some(record_updated_at),
         auto_start: payload.auto_start,
         version: 1,
     })
@@ -1220,6 +1369,7 @@ mod tests {
                 description: Some("web".to_string()),
             },
             created_at: Utc::now(),
+            updated_at: Some(Utc::now()),
             auto_start: true,
             version: 1,
         }
@@ -1227,10 +1377,10 @@ mod tests {
 
     #[test]
     fn build_saved_forwards_sync_snapshot_preserves_description() {
-        let snapshot = build_saved_forwards_sync_snapshot(vec![sample_persisted_forward(
-            "forward-1",
-            Some("conn-1"),
-        )])
+        let snapshot = build_saved_forwards_sync_snapshot(
+            vec![sample_persisted_forward("forward-1", Some("conn-1"))],
+            vec![],
+        )
         .unwrap();
 
         assert_eq!(snapshot.records.len(), 1);
@@ -1245,24 +1395,46 @@ mod tests {
     }
 
     #[test]
+    fn build_saved_forwards_sync_snapshot_includes_tombstones() {
+        let deleted_at = Utc::now();
+        let snapshot = build_saved_forwards_sync_snapshot(
+            vec![],
+            vec![crate::state::forwarding::DeletedPersistedForwardTombstone {
+                id: "forward-deleted".to_string(),
+                deleted_at,
+            }],
+        )
+        .unwrap();
+
+        assert_eq!(snapshot.records.len(), 1);
+        assert!(snapshot.records[0].deleted);
+        assert!(snapshot.records[0].payload.is_none());
+        assert_eq!(snapshot.records[0].updated_at, deleted_at.to_rfc3339());
+    }
+
+    #[test]
     fn persisted_forward_from_sync_payload_clears_runtime_session_and_stops_rule() {
-        let persisted = persisted_forward_from_sync_payload(PersistedForwardDto {
-            id: "forward-1".to_string(),
-            session_id: "remote-session".to_string(),
-            owner_connection_id: Some("conn-1".to_string()),
-            forward_type: "local".to_string(),
-            bind_address: "127.0.0.1".to_string(),
-            bind_port: 8080,
-            target_host: "localhost".to_string(),
-            target_port: 80,
-            auto_start: true,
-            created_at: Utc::now().to_rfc3339(),
-            description: Some("web".to_string()),
-        })
+        let persisted = persisted_forward_from_sync_payload(
+            PersistedForwardDto {
+                id: "forward-1".to_string(),
+                session_id: "remote-session".to_string(),
+                owner_connection_id: Some("conn-1".to_string()),
+                forward_type: "local".to_string(),
+                bind_address: "127.0.0.1".to_string(),
+                bind_port: 8080,
+                target_host: "localhost".to_string(),
+                target_port: 80,
+                auto_start: true,
+                created_at: Utc::now().to_rfc3339(),
+                description: Some("web".to_string()),
+            },
+            Utc::now(),
+        )
         .unwrap();
 
         assert_eq!(persisted.session_id, "");
         assert!(matches!(persisted.rule.status, ForwardStatus::Stopped));
         assert_eq!(persisted.owner_connection_id.as_deref(), Some("conn-1"));
+        assert!(persisted.updated_at.is_some());
     }
 }

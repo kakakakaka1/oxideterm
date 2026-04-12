@@ -530,6 +530,24 @@ export interface ImportPreview {
   hasEmbeddedKeys: boolean;
   /** Total number of port forwarding rules across all connections */
   totalForwards: number;
+  /** Record-level preview details for richer import UIs */
+  records: ImportPreviewRecord[];
+}
+
+export interface ImportPreviewRecord {
+  resource: 'connection';
+  name: string;
+  action: 'import' | 'rename' | 'skip' | 'replace' | 'merge';
+  reasonCode:
+    | 'new-connection'
+    | 'name-conflict'
+    | 'name-conflict-skipped'
+    | 'replace-existing'
+    | 'merge-existing';
+  targetName?: string;
+  targetConnectionId?: string;
+  forwardCount: number;
+  hasEmbeddedKeys: boolean;
 }
 
 export interface ExportPreflightResult {

@@ -219,7 +219,7 @@ export async function activate(ctx) {
 
 包含：`pluginId` + 19 个子 API（`connections`、`events`、`ui`、`terminal`、`settings`、`i18n`、`storage`、`sync`、`secrets`、`api`、`assets`、`sftp`、`forward`、`sessions`、`transfers`、`profiler`、`eventLog`、`ide`、`ai`、`app`）。
 
-其中 `ctx.sync` 提供保存连接的加密 `.oxide` 导出/导入、冲突预览，以及 `rename` / `skip` / `replace` / `merge` 四种冲突策略；`ctx.secrets` 提供插件作用域的 OS keychain 安全存储，适合保存 WebDAV token、同步密码等敏感信息。当前 `merge` 是非破坏式合并：连接主字段采用导入值，`tags` 做并集，本地已保存但导入缺失的 password / passphrase 会保留；`.oxide` 里的 `forwards` 现在会作为 owner-bound saved forward 一起持久化导入导出，但不会在导入时直接变成活跃转发。
+其中 `ctx.sync` 提供保存连接的加密 `.oxide` 导出/导入、记录级冲突预览，以及 `rename` / `skip` / `replace` / `merge` 四种冲突策略；预览结果现在除了汇总字段，还会返回每条记录的 `action` 与 `reasonCode`，便于同步插件直接渲染“为什么会 rename / skip / replace / merge”。`ctx.secrets` 提供插件作用域的 OS keychain 安全存储，适合保存 WebDAV token、同步密码等敏感信息。当前 `merge` 是非破坏式合并：连接主字段采用导入值，`tags` 做并集，本地已保存但导入缺失的 password / passphrase 会保留；`.oxide` 里的 `forwards` 现在会作为 owner-bound saved forward 一起持久化导入导出，但不会在导入时直接变成活跃转发。同步插件还可以通过 `ctx.forward.listSavedForwards()` / `exportSavedForwardsSnapshot()` 独立同步保存转发，并通过 `ctx.settings.exportSyncableSettings()` / `applySyncableSettings()` 读写宿主白名单设置，拿到字段级 warnings 和归一化后的实际应用结果。
 
 > `ctx.ui.registerContextMenu()`、`ctx.ui.registerStatusBarItem()`、`ctx.ui.registerKeybinding()` 和 `ctx.ui.showProgress()` 现在都已经完成宿主接线：上下文菜单会挂到 terminal / sftp / tab / sidebar 目标，状态栏项会渲染到主布局底部，全局 keybinding 会进入统一快捷键分发链路，进度则显示为右上角 HUD。
 
@@ -309,11 +309,15 @@ interface PluginSettingsAPI {
   get<T>(key: string): T;
   set<T>(key: string, value: T): void;
   onChange(key: string, handler: (newValue: unknown) => void): Disposable;
+  exportSyncableSettings(): Promise<{ revision: string; exportedAt: string; payload: SyncableSettingsPayload; warnings: SyncableSettingsWarning[] }>;
+  applySyncableSettings(payload: SyncableSettingsPayload): Promise<{ revision: string; appliedPayload: SyncableSettingsPayload; warnings: SyncableSettingsWarning[] }>;
 }
 ```
 
 - key 必须在 manifest `contributes.settings` 中声明
 - 底层使用 `localStorage` + 前缀 `oxide-plugin-{pluginId}-setting-`
+- `get` / `set` / `onChange` 仍然是插件自身设置；`exportSyncableSettings` / `applySyncableSettings` 是宿主白名单同步原语，只暴露跨设备稳定字段
+- `applySyncableSettings()` 不会因为单个非法字段整次失败；宿主会返回 `warnings` 与 `appliedPayload`，便于插件显示“哪些值被忽略或被 clamp”
 
 ### 3.6 `ctx.i18n`
 
@@ -393,6 +397,10 @@ interface PluginAssetsAPI {
 | 方法 | 说明 |
 |------|------|
 | `list(sessionId)` | 列出会话的所有转发规则 |
+| `listSavedForwards()` | 列出可同步的保存转发快照 |
+| `onSavedForwardsChange(handler)` | 监听保存转发变化 |
+| `exportSavedForwardsSnapshot()` | 导出保存转发结构化快照 |
+| `applySavedForwardsSnapshot(snapshot)` | 应用保存转发结构化快照 |
 | `create(sessionId, rule)` | 创建新的转发规则（Local / Remote / Dynamic） |
 | `stop(sessionId, forwardId)` | 停止单条转发 |
 | `stopAll(sessionId)` | 停止会话的所有转发 |
@@ -400,6 +408,7 @@ interface PluginAssetsAPI {
 
 - `create()` 接收 camelCase 的 `PluginForwardRequest`，内部自动转换为后端 snake_case 格式
 - 返回的 `PluginForwardRule` 使用 camelCase 字段名并通过 `Object.freeze()` 冻结
+- `listSavedForwards()` / `exportSavedForwardsSnapshot()` 面向同步插件，返回的是 owner-bound saved forward 持久化视图，不是运行中的活跃转发列表
 
 ---
 
