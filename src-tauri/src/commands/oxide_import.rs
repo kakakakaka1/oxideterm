@@ -23,7 +23,8 @@ use crate::config::types::{
 };
 use crate::forwarding::{ForwardRule, ForwardStatus};
 use crate::oxide_file::{
-    EncryptedAuth, EncryptedForward, EncryptedProxyHop, OxideMetadata, decrypt_oxide_file,
+    EncryptedAuth, EncryptedForward, EncryptedPluginSetting, EncryptedProxyHop, OxideMetadata,
+    decrypt_oxide_file,
 };
 use crate::state::PersistedForward;
 use zeroize::Zeroizing;
@@ -40,6 +41,22 @@ pub struct ImportResult {
     pub errors: Vec<String>,
     /// List of name changes: [(original_name, new_name)]
     pub renames: Vec<(String, String)>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportResultEnvelope {
+    pub imported: usize,
+    pub skipped: usize,
+    pub merged: usize,
+    pub replaced: usize,
+    pub renamed: usize,
+    pub errors: Vec<String>,
+    pub renames: Vec<(String, String)>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub app_settings_json: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub plugin_settings: Vec<EncryptedPluginSetting>,
 }
 
 /// Preview information before import
@@ -62,6 +79,10 @@ pub struct ImportPreview {
     pub has_embedded_keys: bool,
     /// Total number of port forwarding rules across all connections
     pub total_forwards: usize,
+    /// Whether the payload includes a global app settings snapshot.
+    pub has_app_settings: bool,
+    /// Number of plugin setting entries bundled in the payload.
+    pub plugin_settings_count: usize,
     /// Record-level preview details for richer plugin UIs.
     pub records: Vec<ImportPreviewRecord>,
 }
@@ -719,6 +740,8 @@ pub async fn preview_oxide_import(
         will_merge,
         has_embedded_keys,
         total_forwards: payload.connections.iter().map(|c| c.forwards.len()).sum(),
+        has_app_settings: payload.app_settings_json.is_some(),
+        plugin_settings_count: payload.plugin_settings.len(),
         records,
     })
 }
@@ -733,7 +756,7 @@ pub async fn import_from_oxide(
     conflict_strategy: Option<String>,
     config_state: State<'_, Arc<ConfigState>>,
     forwarding_registry: State<'_, Arc<ForwardingRegistry>>,
-) -> Result<ImportResult, String> {
+) -> Result<ImportResultEnvelope, String> {
     info!("Importing from .oxide file ({} bytes)", file_data.len());
     let conflict_strategy = ImportConflictStrategy::parse(conflict_strategy)?;
 
@@ -1172,7 +1195,7 @@ pub async fn import_from_oxide(
 
     info!("Successfully imported {} connections", imported_count);
 
-    Ok(ImportResult {
+    Ok(ImportResultEnvelope {
         imported: imported_count,
         skipped: skipped_count,
         merged: merged_count,
@@ -1180,6 +1203,8 @@ pub async fn import_from_oxide(
         renamed: renames.len(),
         errors,
         renames,
+        app_settings_json: payload.app_settings_json,
+        plugin_settings: payload.plugin_settings,
     })
 }
 

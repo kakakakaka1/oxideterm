@@ -500,6 +500,8 @@ export interface OxideMetadata {
   description?: string;
   num_connections: number;
   connection_names: string[];
+  has_app_settings?: boolean;
+  plugin_settings_count?: number;
 }
 
 export interface ImportResult {
@@ -511,6 +513,8 @@ export interface ImportResult {
   errors: string[];
   /** List of name changes: [original_name, new_name][] */
   renames: [string, string][];
+  importedAppSettings: boolean;
+  importedPluginSettings: number;
 }
 
 export interface ImportPreview {
@@ -530,6 +534,10 @@ export interface ImportPreview {
   hasEmbeddedKeys: boolean;
   /** Total number of port forwarding rules across all connections */
   totalForwards: number;
+  /** Whether the payload includes a global settings snapshot */
+  hasAppSettings: boolean;
+  /** Number of plugin settings entries bundled in the payload */
+  pluginSettingsCount: number;
   /** Record-level preview details for richer import UIs */
   records: ImportPreviewRecord[];
 }

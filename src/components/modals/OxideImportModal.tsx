@@ -3,7 +3,6 @@
 
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { readFile } from '@tauri-apps/plugin-fs';
 import { X, AlertTriangle, CheckCircle, CheckSquare, Square } from 'lucide-react';
@@ -11,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogClose } from '.
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
+import { importOxideWithClientState, previewOxideImport, validateOxideFile } from '../../lib/oxideClientState';
 import { useAppStore } from '../../store/appStore';
 import type { OxideMetadata, ImportResult, ImportPreview } from '../../types';
 
@@ -71,9 +71,7 @@ export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
 
         // Validate file and extract metadata (no password needed)
         try {
-          const meta: OxideMetadata = await invoke('validate_oxide_file', {
-            fileData: Array.from(data),
-          });
+          const meta: OxideMetadata = await validateOxideFile(data);
           setMetadata(meta);
         } catch (err) {
           console.error('File validation failed:', err);
@@ -97,9 +95,7 @@ export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
     setPreviewing(true);
 
     try {
-      const previewResult: ImportPreview = await invoke('preview_oxide_import', {
-        fileData: Array.from(fileData),
-        password,
+      const previewResult: ImportPreview = await previewOxideImport(fileData, password, {
         conflictStrategy,
       });
       setPreview(previewResult);
@@ -129,9 +125,7 @@ export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
     setImporting(true);
 
     try {
-      const importResult: ImportResult = await invoke('import_from_oxide', {
-        fileData: Array.from(fileData),
-        password,
+      const importResult: ImportResult = await importOxideWithClientState(fileData, password, {
         selectedNames: Array.from(selectedNames),
         conflictStrategy,
       });

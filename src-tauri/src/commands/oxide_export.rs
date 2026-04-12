@@ -14,8 +14,9 @@ use crate::commands::config::ConfigState;
 use crate::commands::forwarding::ForwardingRegistry;
 use crate::config::types::SavedAuth;
 use crate::oxide_file::{
-    EncryptedAuth, EncryptedConnection, EncryptedForward, EncryptedPayload, EncryptedProxyHop,
-    OxideMetadata, compute_checksum, encrypt_oxide_file,
+    EncryptedAuth, EncryptedConnection, EncryptedForward, EncryptedPayload,
+    EncryptedPluginSetting, EncryptedProxyHop, OxideMetadata, compute_checksum,
+    encrypt_oxide_file,
 };
 use zeroize::Zeroizing;
 
@@ -248,6 +249,8 @@ pub async fn export_to_oxide(
     password: String,
     description: Option<String>,
     embed_keys: Option<bool>,
+    app_settings_json: Option<String>,
+    plugin_settings: Option<Vec<EncryptedPluginSetting>>,
     config_state: State<'_, Arc<ConfigState>>,
     forwarding_registry: State<'_, Arc<ForwardingRegistry>>,
 ) -> Result<Vec<u8>, String> {
@@ -425,14 +428,21 @@ pub async fn export_to_oxide(
     }
 
     // 3. Compute checksum and build payload
-    let checksum = compute_checksum(&connections)
-        .map_err(|e| format!("Failed to compute checksum: {:?}", e))?;
-
-    let payload = EncryptedPayload {
-        version: 1,
+    let mut payload = EncryptedPayload {
+        version: if app_settings_json.is_some()
+            || plugin_settings.as_ref().is_some_and(|entries| !entries.is_empty())
+        {
+            2
+        } else {
+            1
+        },
         connections: connections.clone(),
-        checksum,
+        app_settings_json,
+        plugin_settings: plugin_settings.unwrap_or_default(),
+        checksum: String::new(),
     };
+    payload.checksum = compute_checksum(&payload)
+        .map_err(|e| format!("Failed to compute checksum: {:?}", e))?;
 
     // 4. Build metadata
     let metadata = OxideMetadata {
@@ -441,6 +451,9 @@ pub async fn export_to_oxide(
         description,
         num_connections: connections.len(),
         connection_names: connections.iter().map(|c| c.name.clone()).collect(),
+        has_app_settings: payload.app_settings_json.as_ref().map(|_| true),
+        plugin_settings_count: (!payload.plugin_settings.is_empty())
+            .then_some(payload.plugin_settings.len()),
     };
 
     // 5. Encrypt

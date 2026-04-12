@@ -171,7 +171,11 @@ vi.mock('@/store/appStore', () => ({ useAppStore: appStoreMock }));
 vi.mock('@/store/sessionTreeStore', () => ({ useSessionTreeStore: sessionTreeStoreMock }));
 vi.mock('@/lib/plugin/pluginStorage', () => ({ createPluginStorage: vi.fn(() => storageManagerMock) }));
 vi.mock('@/lib/plugin/pluginEventBridge', () => ({ pluginEventBridge: pluginEventBridgeMock }));
-vi.mock('@/lib/plugin/pluginSettingsManager', () => ({ createPluginSettingsManager: vi.fn(() => settingsManagerMock) }));
+vi.mock('@/lib/plugin/pluginSettingsManager', () => ({
+  createPluginSettingsManager: vi.fn(() => settingsManagerMock),
+  collectPluginSettingsSnapshot: vi.fn(() => []),
+  applyImportedPluginSettingsSnapshot: vi.fn(() => 0),
+}));
 vi.mock('@/lib/plugin/pluginI18nManager', () => ({ createPluginI18nManager: vi.fn(() => i18nManagerMock) }));
 vi.mock('@/lib/plugin/pluginUtils', () => ({ toSnapshot: (value: unknown) => value }));
 vi.mock('@/lib/plugin/pluginThrottledEvents', () => ({ createThrottledEmitter: vi.fn(() => ({ push: vi.fn(), dispose: vi.fn() })) }));
@@ -188,7 +192,11 @@ vi.mock('@/store/profilerStore', () => ({ useProfilerStore: createMockStore({ co
 vi.mock('@/store/eventLogStore', () => ({ useEventLogStore: createMockStore({ entries: [] }) }));
 vi.mock('@/store/ideStore', () => ({ useIdeStore: createMockStore({ nodeId: null, project: null, tabs: [], activeTabId: null }) }));
 vi.mock('@/store/aiChatStore', () => ({ useAiChatStore: createMockStore({ conversations: [] }) }));
-vi.mock('@/store/settingsStore', () => ({ useSettingsStore: settingsStoreMock }));
+vi.mock('@/store/settingsStore', () => ({
+  useSettingsStore: settingsStoreMock,
+  exportCurrentSettingsSnapshot: vi.fn(() => JSON.stringify(settingsStoreState.settings)),
+  applyImportedSettingsSnapshot: vi.fn(async () => true),
+}));
 
 import { usePluginStore } from '@/store/pluginStore';
 import { buildPluginContext, cleanupPluginAssets } from '@/lib/plugin/pluginContextFactory';

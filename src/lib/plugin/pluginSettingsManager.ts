@@ -12,9 +12,105 @@
 import type { PluginManifest, PluginSettingDef } from '../../types/plugin';
 
 const SETTING_PREFIX = 'oxide-plugin-';
+const SETTING_SEPARATOR = '-setting-';
+
+export type PluginSettingSnapshotEntry = {
+  storageKey: string;
+  serializedValue: string;
+};
+
+type RegisteredManager = {
+  notifyImportedSetting: (key: string, value: unknown) => void;
+};
+
+const managerRegistry = new Map<string, Set<RegisteredManager>>();
 
 function settingKey(pluginId: string, key: string): string {
   return `${SETTING_PREFIX}${pluginId}-setting-${key}`;
+}
+
+function parseSettingStorageKey(storageKey: string): { pluginId: string; settingId: string } | null {
+  if (!storageKey.startsWith(SETTING_PREFIX)) {
+    return null;
+  }
+
+  const remainder = storageKey.slice(SETTING_PREFIX.length);
+  const separatorIndex = remainder.indexOf(SETTING_SEPARATOR);
+  if (separatorIndex === -1) {
+    return null;
+  }
+
+  const pluginId = remainder.slice(0, separatorIndex);
+  const settingId = remainder.slice(separatorIndex + SETTING_SEPARATOR.length);
+  if (!pluginId || !settingId) {
+    return null;
+  }
+
+  return { pluginId, settingId };
+}
+
+export function collectPluginSettingsSnapshot(): PluginSettingSnapshotEntry[] {
+  const entries: PluginSettingSnapshotEntry[] = [];
+
+  for (let index = 0; index < localStorage.length; index += 1) {
+    const storageKey = localStorage.key(index);
+    if (!storageKey || !parseSettingStorageKey(storageKey)) {
+      continue;
+    }
+
+    const serializedValue = localStorage.getItem(storageKey);
+    if (serializedValue === null) {
+      continue;
+    }
+
+    entries.push({ storageKey, serializedValue });
+  }
+
+  entries.sort((left, right) => left.storageKey.localeCompare(right.storageKey));
+  return entries;
+}
+
+export function applyImportedPluginSettingsSnapshot(
+  entries: readonly PluginSettingSnapshotEntry[],
+): number {
+  let appliedCount = 0;
+
+  for (const entry of entries) {
+    const parsed = parseSettingStorageKey(entry.storageKey);
+    if (!parsed) {
+      continue;
+    }
+
+    try {
+      localStorage.setItem(entry.storageKey, entry.serializedValue);
+    } catch {
+      continue;
+    }
+
+    appliedCount += 1;
+
+    let decodedValue: unknown;
+    try {
+      decodedValue = JSON.parse(entry.serializedValue);
+    } catch {
+      continue;
+    }
+
+    const managers = managerRegistry.get(parsed.pluginId);
+    if (!managers) {
+      continue;
+    }
+
+    for (const manager of managers) {
+      try {
+        manager.notifyImportedSetting(parsed.settingId, decodedValue);
+      } catch {
+        // ignore plugin handler failures during import replay
+      }
+    }
+  }
+
+  return appliedCount;
 }
 
 type ChangeHandler = (newValue: unknown) => void;
@@ -26,6 +122,23 @@ export function createPluginSettingsManager(pluginId: string, manifest: PluginMa
   }
 
   const changeHandlers = new Map<string, Set<ChangeHandler>>();
+  const registeredManager: RegisteredManager = {
+    notifyImportedSetting(key: string, value: unknown): void {
+      const handlers = changeHandlers.get(key);
+      if (!handlers) {
+        return;
+      }
+
+      for (const handler of handlers) {
+        try { handler(value); } catch { /* swallow */ }
+      }
+    },
+  };
+
+  if (!managerRegistry.has(pluginId)) {
+    managerRegistry.set(pluginId, new Set());
+  }
+  managerRegistry.get(pluginId)!.add(registeredManager);
 
   return {
     get<T>(key: string): T {

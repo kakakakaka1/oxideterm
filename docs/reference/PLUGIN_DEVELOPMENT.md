@@ -127,7 +127,7 @@ OxideTerm 插件系统遵循以下设计原则：
 
 当插件一次操作需要读取多个 secret 时，应优先使用 `ctx.secrets.getMany(keys)`，而不是连续多次调用 `ctx.secrets.get()`。宿主会尽量把多项读取合并为一次 keychain 解锁流程，避免在 macOS 上重复弹出 Touch ID / 系统鉴权。
 
-`ctx.sync.importOxide()` 现在支持 `rename`、`skip`、`replace`、`merge` 四种策略。其中 `merge` 适合多端同步场景：宿主会保留现有连接 ID 与本地元数据，导入侧更新主连接字段，`tags` 做并集，本地已保存但导入缺失的 password / key passphrase / certificate passphrase 会继续复用；`.oxide` 中的端口转发规则现在会以 owner-bound saved forward 的形式一并导入导出，但导入时不会直接创建活跃转发。`ctx.sync.previewImport()` 还会返回记录级 `records`，每条记录包含 `action` 和 `reasonCode`，插件可以直接渲染“为什么会重命名 / 跳过 / 替换 / 合并”，而不必自己重建冲突原因。
+`ctx.sync.importOxide()` 现在支持 `rename`、`skip`、`replace`、`merge` 四种策略。其中 `merge` 适合多端同步场景：宿主会保留现有连接 ID 与本地元数据，导入侧更新主连接字段，`tags` 做并集，本地已保存但导入缺失的 password / key passphrase / certificate passphrase 会继续复用；`.oxide` 中的端口转发规则现在会以 owner-bound saved forward 的形式一并导入导出，但导入时不会直接创建活跃转发。除了连接本身，`.oxide` 现在还可以携带全局 OxideTerm settings 快照和声明式 plugin settings 偏好快照；插件在导出时可通过 `ctx.sync.exportOxide({ includeAppSettings: true, includePluginSettings: true })` 显式带上这两类 section。对应地，`ctx.sync.previewImport()` 会返回 `hasAppSettings`、`pluginSettingsCount` 以及记录级 `records`，每条记录包含 `action` 和 `reasonCode`，插件可以直接渲染“为什么会重命名 / 跳过 / 替换 / 合并”，也可以提前提示用户这份快照是否会恢复全局设置与插件偏好。
 
 对于需要长期维护同步状态的插件，宿主侧还补齐了两条相关原语：`ctx.forward.listSavedForwards()` / `exportSavedForwardsSnapshot()` / `applySavedForwardsSnapshot()` 可独立同步保存转发；`ctx.settings.exportSyncableSettings()` / `applySyncableSettings()` 可对白名单设置做宿主校验、归一化并返回 `warnings`。
 

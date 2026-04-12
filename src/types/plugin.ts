@@ -458,6 +458,8 @@ export type PluginSyncAPI = {
     password: string;
     description?: string;
     embedKeys?: boolean;
+    includeAppSettings?: boolean;
+    includePluginSettings?: boolean;
   }): Promise<Uint8Array>;
   /** Validate a .oxide payload and read metadata without decrypting */
   validateOxide(fileData: Uint8Array): Promise<Readonly<OxideMetadata>>;

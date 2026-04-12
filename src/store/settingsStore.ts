@@ -1432,6 +1432,42 @@ export const useSettingsStore = create<SettingsStore>()(
   }))
 );
 
+export function exportCurrentSettingsSnapshot(): string | null {
+  try {
+    return JSON.stringify(useSettingsStore.getState().settings);
+  } catch (error) {
+    console.error('[SettingsStore] Failed to serialize settings snapshot:', error);
+    return null;
+  }
+}
+
+export async function applyImportedSettingsSnapshot(snapshotJson: string): Promise<boolean> {
+  try {
+    const parsed = JSON.parse(snapshotJson) as Partial<PersistedSettingsV2>;
+    const normalized = normalizeHistorySettings(
+      migrateToolUseSettings(migrateAiProviders(mergeWithDefaults(parsed))),
+    );
+
+    persistSettings(normalized);
+    useSettingsStore.setState({ settings: normalized });
+
+    localStorage.setItem('app_lang', normalized.general.language);
+
+    const { changeLanguage } = await import('../i18n');
+    await changeLanguage(normalized.general.language);
+
+    syncSftpToBackend(normalized.sftp || defaultSftpSettings);
+    syncConnectionPoolToBackend(
+      normalized.connectionPool || defaultConnectionPoolSettings,
+    );
+
+    return true;
+  } catch (error) {
+    console.error('[SettingsStore] Failed to apply imported settings snapshot:', error);
+    return false;
+  }
+}
+
 // ============================================================================
 // Event Subscriptions (Side Effects)
 // ============================================================================

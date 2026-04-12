@@ -82,6 +82,12 @@ import { createPluginStorage } from './pluginStorage';
 import { pluginEventBridge } from './pluginEventBridge';
 import { createPluginSettingsManager } from './pluginSettingsManager';
 import { createPluginI18nManager } from './pluginI18nManager';
+import {
+  exportOxideWithClientState,
+  importOxideWithClientState,
+  previewOxideImport,
+  validateOxideFile,
+} from '../oxideClientState';
 import { toSnapshot } from './pluginUtils';
 import { freezeSnapshot } from './pluginSnapshots';
 import { createThrottledEmitter } from './pluginThrottledEvents';
@@ -1270,34 +1276,30 @@ export function buildPluginContext(manifest: PluginManifest): PluginContext {
     },
     async exportOxide(request): Promise<Uint8Array> {
       const effectiveIds = await resolveExportConnectionIds(request.connectionIds);
-      const fileData = await invoke<number[]>('export_to_oxide', {
+      const fileData = await exportOxideWithClientState({
         connectionIds: effectiveIds,
         password: request.password,
         description: request.description ?? null,
         embedKeys: request.embedKeys ?? null,
+        includeAppSettings: request.includeAppSettings ?? false,
+        includePluginSettings: request.includePluginSettings ?? false,
       });
-      return new Uint8Array(fileData);
+      return fileData;
     },
     async validateOxide(fileData: Uint8Array): Promise<Readonly<OxideMetadata>> {
-      const metadata = await invoke<OxideMetadata>('validate_oxide_file', {
-        fileData: Array.from(fileData),
-      });
+      const metadata = await validateOxideFile(fileData);
       return toFrozenOxideMetadata(metadata);
     },
     async previewImport(fileData: Uint8Array, password: string, options): Promise<Readonly<ImportPreview>> {
-      const preview = await invoke<ImportPreview>('preview_oxide_import', {
-        fileData: Array.from(fileData),
-        password,
-        conflictStrategy: options?.conflictStrategy ?? null,
+      const preview = await previewOxideImport(fileData, password, {
+        conflictStrategy: options?.conflictStrategy,
       });
       return toFrozenImportPreview(preview);
     },
     async importOxide(fileData: Uint8Array, password: string, options): Promise<Readonly<ImportResult>> {
-      const result = await invoke<ImportResult>('import_from_oxide', {
-        fileData: Array.from(fileData),
-        password,
-        selectedNames: options?.selectedNames ?? null,
-        conflictStrategy: options?.conflictStrategy ?? null,
+      const result = await importOxideWithClientState(fileData, password, {
+        selectedNames: options?.selectedNames,
+        conflictStrategy: options?.conflictStrategy,
       });
 
       await useAppStore.getState().loadSavedConnections();

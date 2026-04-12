@@ -13,6 +13,7 @@ import { Input } from '../ui/input';
 import { Checkbox } from '../ui/checkbox';
 import { Label } from '../ui/label';
 import { useAppStore } from '../../store/appStore';
+import { exportOxideWithClientState } from '../../lib/oxideClientState';
 import type { ExportPreflightResult } from '../../types';
 
 interface OxideExportModalProps {
@@ -162,7 +163,7 @@ export function OxideExportModal({ isOpen, onClose }: OxideExportModalProps) {
       setExportStage('encrypting');
       
       // Call Tauri command to encrypt and export
-      const fileData: number[] = await invoke('export_to_oxide', {
+      const fileData = await exportOxideWithClientState({
         connectionIds: selectedIds,
         password,
         description: description || null,
@@ -178,7 +179,7 @@ export function OxideExportModal({ isOpen, onClose }: OxideExportModalProps) {
 
       if (savePath) {
         // Write binary file
-        await writeFile(savePath, new Uint8Array(fileData));
+        await writeFile(savePath, fileData);
         setExportStage('done');
 
         // Record export timestamp

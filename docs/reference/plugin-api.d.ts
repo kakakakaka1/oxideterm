@@ -371,6 +371,8 @@ export type OxideMetadata = Readonly<{
   description?: string;
   num_connections: number;
   connection_names: readonly string[];
+  has_app_settings?: boolean;
+  plugin_settings_count?: number;
 }>;
 
 export type ImportResult = Readonly<{
@@ -381,6 +383,8 @@ export type ImportResult = Readonly<{
   renamed: number;
   errors: readonly string[];
   renames: readonly [string, string][];
+  importedAppSettings: boolean;
+  importedPluginSettings: number;
 }>;
 
 export type ImportPreviewRecord = Readonly<{
@@ -403,6 +407,8 @@ export type ImportPreview = Readonly<{
   willMerge: readonly string[];
   hasEmbeddedKeys: boolean;
   totalForwards: number;
+  hasAppSettings: boolean;
+  pluginSettingsCount: number;
   records: ReadonlyArray<ImportPreviewRecord>;
 }>;
 
@@ -434,6 +440,8 @@ export type PluginSyncAPI = {
     password: string;
     description?: string;
     embedKeys?: boolean;
+    includeAppSettings?: boolean;
+    includePluginSettings?: boolean;
   }): Promise<Uint8Array>;
   validateOxide(fileData: Uint8Array): Promise<OxideMetadata>;
   previewImport(

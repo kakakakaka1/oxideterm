@@ -11,9 +11,19 @@ use zeroize::Zeroizing;
 
 use super::error::OxideFileError;
 use super::format::{
-    EncryptedConnection, EncryptedPayload, NONCE_LEN, OxideFile, OxideMetadata, SALT_LEN, TAG_LEN,
-    kdf_flags,
+    EncryptedPayload, NONCE_LEN, OxideFile, OxideMetadata, SALT_LEN, TAG_LEN, kdf_flags,
 };
+
+fn compute_legacy_checksum(payload: &EncryptedPayload) -> Result<String, OxideFileError> {
+    let mut hasher = Sha256::new();
+
+    for conn in &payload.connections {
+        let conn_bytes = rmp_serde::to_vec_named(conn)?;
+        hasher.update(&conn_bytes);
+    }
+
+    Ok(format!("sha256:{:x}", hasher.finalize()))
+}
 
 /// KDF parameters for different versions
 struct KdfParams {
@@ -161,13 +171,37 @@ pub fn decrypt_oxide_file(
     Ok(payload)
 }
 
-/// Compute SHA-256 checksum of connections
-pub fn compute_checksum(connections: &[EncryptedConnection]) -> Result<String, OxideFileError> {
+/// Compute SHA-256 checksum of the encrypted payload contents.
+pub fn compute_checksum(payload: &EncryptedPayload) -> Result<String, OxideFileError> {
+    if payload.version <= 1
+        && payload.app_settings_json.is_none()
+        && payload.plugin_settings.is_empty()
+    {
+        return compute_legacy_checksum(payload);
+    }
+
     let mut hasher = Sha256::new();
 
-    for conn in connections {
+    hasher.update(payload.version.to_le_bytes());
+    hasher.update((payload.connections.len() as u64).to_le_bytes());
+
+    for conn in &payload.connections {
         let conn_bytes = rmp_serde::to_vec_named(conn)?;
         hasher.update(&conn_bytes);
+    }
+
+    match &payload.app_settings_json {
+        Some(app_settings_json) => {
+            hasher.update([1]);
+            hasher.update(app_settings_json.as_bytes());
+        }
+        None => hasher.update([0]),
+    }
+
+    hasher.update((payload.plugin_settings.len() as u64).to_le_bytes());
+    for plugin_setting in &payload.plugin_settings {
+        let plugin_setting_bytes = rmp_serde::to_vec_named(plugin_setting)?;
+        hasher.update(&plugin_setting_bytes);
     }
 
     Ok(format!("sha256:{:x}", hasher.finalize()))
@@ -175,7 +209,7 @@ pub fn compute_checksum(connections: &[EncryptedConnection]) -> Result<String, O
 
 /// Verify payload checksum matches
 fn verify_checksum(payload: &EncryptedPayload) -> Result<(), OxideFileError> {
-    let computed = compute_checksum(&payload.connections)?;
+    let computed = compute_checksum(payload)?;
 
     if computed != payload.checksum {
         return Err(OxideFileError::ChecksumMismatch);
@@ -189,6 +223,7 @@ mod tests {
     use super::super::format::EncryptedAuth;
     use super::*;
     use crate::config::types::ConnectionOptions;
+    use crate::oxide_file::EncryptedConnection;
     use chrono::Utc;
 
     fn create_test_connection() -> EncryptedConnection {
@@ -211,13 +246,17 @@ mod tests {
 
     fn create_test_payload() -> EncryptedPayload {
         let connections = vec![create_test_connection()];
-        let checksum = compute_checksum(&connections).unwrap();
-
-        EncryptedPayload {
+        let mut payload = EncryptedPayload {
             version: 1,
             connections,
-            checksum,
-        }
+            app_settings_json: None,
+            plugin_settings: Vec::new(),
+            checksum: String::new(),
+        };
+        let checksum = compute_checksum(&payload).unwrap();
+        payload.checksum = checksum;
+
+        payload
     }
 
     fn create_test_metadata() -> OxideMetadata {
@@ -227,6 +266,8 @@ mod tests {
             description: Some("Test export".to_string()),
             num_connections: 1,
             connection_names: vec!["Test Server".to_string()],
+            has_app_settings: None,
+            plugin_settings_count: None,
         }
     }
 
@@ -296,8 +337,22 @@ mod tests {
     #[test]
     fn test_checksum_computation() {
         let conn = create_test_connection();
-        let checksum1 = compute_checksum(&[conn.clone()]).unwrap();
-        let checksum2 = compute_checksum(&[conn.clone()]).unwrap();
+        let payload1 = EncryptedPayload {
+            version: 1,
+            connections: vec![conn.clone()],
+            app_settings_json: None,
+            plugin_settings: Vec::new(),
+            checksum: String::new(),
+        };
+        let payload2 = EncryptedPayload {
+            version: 1,
+            connections: vec![conn.clone()],
+            app_settings_json: None,
+            plugin_settings: Vec::new(),
+            checksum: String::new(),
+        };
+        let checksum1 = compute_checksum(&payload1).unwrap();
+        let checksum2 = compute_checksum(&payload2).unwrap();
 
         // Same connection should produce same checksum
         assert_eq!(checksum1, checksum2);
@@ -306,8 +361,36 @@ mod tests {
         // Different connection should produce different checksum
         let mut conn2 = conn;
         conn2.name = "Different".to_string();
-        let checksum3 = compute_checksum(&[conn2]).unwrap();
+        let payload3 = EncryptedPayload {
+            version: 1,
+            connections: vec![conn2],
+            app_settings_json: None,
+            plugin_settings: Vec::new(),
+            checksum: String::new(),
+        };
+        let checksum3 = compute_checksum(&payload3).unwrap();
         assert_ne!(checksum1, checksum3);
+    }
+
+    #[test]
+    fn test_version1_checksum_remains_backward_compatible() {
+        let payload = create_test_payload();
+        let legacy_checksum = compute_legacy_checksum(&payload).unwrap();
+        let current_checksum = compute_checksum(&payload).unwrap();
+
+        assert_eq!(legacy_checksum, current_checksum);
+    }
+
+    #[test]
+    fn test_version2_checksum_changes_when_settings_are_present() {
+        let mut payload = create_test_payload();
+        payload.version = 2;
+        payload.app_settings_json = Some(r#"{"general":{"language":"en"}}"#.to_string());
+
+        let legacy_checksum = compute_legacy_checksum(&payload).unwrap();
+        let current_checksum = compute_checksum(&payload).unwrap();
+
+        assert_ne!(legacy_checksum, current_checksum);
     }
 
     #[test]
