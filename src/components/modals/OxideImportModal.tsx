@@ -13,7 +13,7 @@ import { Label } from '../ui/label';
 import { importOxideWithClientState, previewOxideImport, validateOxideFile } from '../../lib/oxideClientState';
 import { useAppStore } from '../../store/appStore';
 import { usePluginStore } from '../../store/pluginStore';
-import { exportCurrentSettingsSnapshot } from '../../store/settingsStore';
+import { buildOxideAppSettingsSectionValueMap, useSettingsStore } from '../../store/settingsStore';
 import type { OxideMetadata, ImportResult, ImportPreview } from '../../types';
 
 type ImportConflictStrategy = 'rename' | 'skip' | 'replace' | 'merge';
@@ -35,13 +35,14 @@ export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ImportResult | null>(null);
   const [selectedNames, setSelectedNames] = useState<Set<string>>(new Set());
-  const [importAppSettings, setImportAppSettings] = useState(true);
+  const [selectedAppSettingsSections, setSelectedAppSettingsSections] = useState<Set<string>>(new Set());
   const [importPluginSettings, setImportPluginSettings] = useState(true);
   const [selectedPluginIds, setSelectedPluginIds] = useState<Set<string>>(new Set());
   const [importForwards, setImportForwards] = useState(true);
   const [conflictStrategy, setConflictStrategy] = useState<ImportConflictStrategy>('rename');
-  const [showAppSettingsDiff, setShowAppSettingsDiff] = useState(false);
+  const [expandedAppSettingsSections, setExpandedAppSettingsSections] = useState<Set<string>>(new Set());
   const plugins = usePluginStore((state) => state.plugins);
+  const currentSettings = useSettingsStore((state) => state.settings);
 
   const getSelectableNames = (nextPreview: ImportPreview) => new Set([
     ...nextPreview.unchanged,
@@ -55,6 +56,10 @@ export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
     Object.keys(nextPreview.pluginSettingsByPlugin ?? {}),
   );
 
+  const getSelectableAppSettingsSectionIds = (nextPreview: ImportPreview) => new Set(
+    (nextPreview.appSettingsSections ?? []).map((section) => section.id),
+  );
+
   const totalSelectable = preview
     ? preview.unchanged.length
       + preview.willRename.length
@@ -66,39 +71,11 @@ export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
   const pluginEntries = preview ? Object.entries(preview.pluginSettingsByPlugin ?? {}) : [];
   const hasStructuredPluginPreview = pluginEntries.length > 0;
   const hasStructuredForwardPreview = Boolean(preview?.forwardDetails?.length);
-  const currentAppSettingsPreview = useMemo(() => {
-    try {
-      const snapshot = exportCurrentSettingsSnapshot();
-      if (!snapshot) {
-        return {} as Record<string, string>;
-      }
-
-      const parsed = JSON.parse(snapshot) as Record<string, unknown>;
-      return Object.fromEntries(
-        Object.entries(parsed).map(([key, value]) => [key, JSON.stringify(value)]),
-      );
-    } catch {
-      return {} as Record<string, string>;
-    }
-  }, []);
-  const appSettingsDiffEntries = useMemo(() => {
-    if (!preview?.appSettingsPreview) {
-      return [] as Array<{ key: string; current: string; imported: string }>;
-    }
-
-    const keys = Array.from(new Set([
-      ...Object.keys(currentAppSettingsPreview),
-      ...Object.keys(preview.appSettingsPreview),
-    ])).sort();
-
-    return keys
-      .map((key) => ({
-        key,
-        current: currentAppSettingsPreview[key] ?? '—',
-        imported: preview.appSettingsPreview?.[key] ?? '—',
-      }))
-      .filter((entry) => entry.current !== entry.imported);
-  }, [currentAppSettingsPreview, preview]);
+  const importAppSettings = selectedAppSettingsSections.size > 0;
+  const currentAppSettingsBySection = useMemo(() => buildOxideAppSettingsSectionValueMap(
+    currentSettings,
+    (preview?.appSettingsSections ?? []).map((section) => section.id),
+  ), [currentSettings, preview]);
   const hasAnySelectedContent = Boolean(
     selectedNames.size > 0
     || (preview?.hasAppSettings && importAppSettings)
@@ -112,12 +89,12 @@ export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
     setError(null);
     setResult(null);
     setSelectedNames(new Set());
-    setImportAppSettings(true);
+    setSelectedAppSettingsSections(new Set());
     setImportPluginSettings(true);
     setSelectedPluginIds(new Set());
     setImportForwards(true);
     setConflictStrategy('rename');
-    setShowAppSettingsDiff(false);
+    setExpandedAppSettingsSections(new Set());
   };
 
   const formatPluginName = (pluginId: string) => {
@@ -127,12 +104,55 @@ export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
       : pluginId;
   };
 
+  const formatAppSettingsSectionLabel = (sectionId: string) => {
+    switch (sectionId) {
+      case 'general':
+        return t('settings_view.general.title');
+      case 'terminalAppearance':
+        return t('modals.export.app_settings_section_terminal_appearance');
+      case 'terminalBehavior':
+        return t('modals.export.app_settings_section_terminal_behavior');
+      case 'appearance':
+        return t('settings_view.appearance.title');
+      case 'connections':
+        return t('settings_view.connections.title');
+      case 'fileAndEditor':
+        return t('modals.export.app_settings_section_file_editor');
+      case 'localTerminal':
+        return t('settings_view.local_terminal.title');
+      case 'legacy':
+        return t('modals.import.app_settings_legacy_title');
+      default:
+        return sectionId;
+    }
+  };
+
+  const buildAppSettingsDiffEntries = (sectionId: string, importedValues?: Record<string, string>) => {
+    if (!importedValues) {
+      return [] as Array<{ key: string; current: string; imported: string }>;
+    }
+
+    const currentValues = currentAppSettingsBySection[sectionId] ?? {};
+    const keys = Array.from(new Set([
+      ...Object.keys(currentValues),
+      ...Object.keys(importedValues),
+    ])).sort();
+
+    return keys
+      .map((key) => ({
+        key,
+        current: currentValues[key] ?? '—',
+        imported: importedValues[key] ?? '—',
+      }))
+      .filter((entry) => entry.current !== entry.imported);
+  };
+
   const handleSelectFile = async () => {
     setError(null);
     setResult(null);
     setPreview(null);
     setSelectedNames(new Set());
-    setImportAppSettings(true);
+    setSelectedAppSettingsSections(new Set());
     setImportPluginSettings(true);
     setSelectedPluginIds(new Set());
     setImportForwards(true);
@@ -178,8 +198,9 @@ export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
       });
       setPreview(previewResult);
       setSelectedNames(getSelectableNames(previewResult));
+      setSelectedAppSettingsSections(getSelectableAppSettingsSectionIds(previewResult));
       setSelectedPluginIds(getSelectablePluginIds(previewResult));
-      setShowAppSettingsDiff(false);
+      setExpandedAppSettingsSections(new Set());
     } catch (err) {
       console.error('Preview failed:', err);
       const errorMsg = String(err).toLowerCase();
@@ -209,6 +230,7 @@ export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
         selectedNames: Array.from(selectedNames),
         conflictStrategy,
         importAppSettings,
+        selectedAppSettingsSections: Array.from(selectedAppSettingsSections),
         importPluginSettings,
         selectedPluginIds: importPluginSettings
           ? (hasStructuredPluginPreview ? Array.from(selectedPluginIds) : undefined)
@@ -278,6 +300,44 @@ export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
       setSelectedPluginIds(getSelectablePluginIds(preview));
     }
     setImportPluginSettings(true);
+  };
+
+  const toggleAllAppSettingsSections = () => {
+    if (!preview) {
+      return;
+    }
+
+    const allSections = getSelectableAppSettingsSectionIds(preview);
+    if (selectedAppSettingsSections.size === allSections.size) {
+      setSelectedAppSettingsSections(new Set());
+      setExpandedAppSettingsSections(new Set());
+    } else {
+      setSelectedAppSettingsSections(allSections);
+    }
+  };
+
+  const toggleAppSettingsSection = (sectionId: string) => {
+    setSelectedAppSettingsSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(sectionId)) {
+        next.delete(sectionId);
+      } else {
+        next.add(sectionId);
+      }
+      return next;
+    });
+  };
+
+  const toggleAppSettingsDiff = (sectionId: string) => {
+    setExpandedAppSettingsSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(sectionId)) {
+        next.delete(sectionId);
+      } else {
+        next.add(sectionId);
+      }
+      return next;
+    });
   };
 
   const togglePluginId = (pluginId: string) => {
@@ -544,7 +604,7 @@ export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
                   <div className="rounded-md border border-theme-border bg-theme-bg-elevated/60 p-3">
                     <button
                       type="button"
-                      onClick={() => setImportAppSettings((prev) => !prev)}
+                      onClick={toggleAllAppSettingsSections}
                       className="flex w-full items-start gap-2 text-left"
                     >
                       {importAppSettings
@@ -553,47 +613,88 @@ export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
                       <div>
                         <p className="text-sm font-semibold text-theme-text">{t('modals.import.section_app_settings')}</p>
                         <p className="text-xs text-theme-text-muted">{t('modals.import.toggle_app_settings')}</p>
-                        {preview.appSettingsKeys && preview.appSettingsKeys.length > 0 && (
-                          <p className="mt-1 text-xs text-theme-text-muted">
-                            {t('modals.import.app_settings_keys', { keys: preview.appSettingsKeys.join(', ') })}
-                          </p>
-                        )}
                         {!importAppSettings && (
                           <p className="mt-1 text-xs text-yellow-400">{t('modals.import.skipped_app_settings')}</p>
                         )}
                       </div>
                     </button>
 
-                    {importAppSettings && preview.appSettingsPreview && Object.keys(preview.appSettingsPreview).length > 0 && (
+                    {(preview.appSettingsSections?.length ?? 0) > 0 && (
                       <div className="mt-3 border-t border-theme-border pt-3 space-y-2">
-                        <button
-                          type="button"
-                          onClick={() => setShowAppSettingsDiff((prev) => !prev)}
-                          className="text-xs text-theme-accent hover:text-theme-accent-hover transition-colors"
-                        >
-                          {showAppSettingsDiff
-                            ? t('modals.import.app_settings_hide_changes')
-                            : t('modals.import.app_settings_view_changes')}
-                        </button>
+                        <p className="text-xs font-semibold text-theme-text">
+                          {t('modals.import.app_settings_sections_title', { count: preview.appSettingsSections?.length ?? 0 })}
+                        </p>
 
-                        {showAppSettingsDiff && (
-                          appSettingsDiffEntries.length > 0 ? (
-                            <div className="space-y-2">
-                              <p className="text-xs font-semibold text-theme-text">{t('modals.import.app_settings_diff_title')}</p>
-                              <ul className="space-y-2 max-h-40 overflow-y-auto text-xs">
-                                {appSettingsDiffEntries.map((entry) => (
-                                  <li key={entry.key} className="rounded-md bg-theme-bg/60 px-2 py-2 text-theme-text-muted">
-                                    <p className="font-medium text-theme-text">{entry.key}</p>
-                                    <p>{t('modals.import.app_settings_current')}: {entry.current}</p>
-                                    <p>{t('modals.import.app_settings_imported')}: {entry.imported}</p>
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
-                          ) : (
-                            <p className="text-xs text-theme-text-muted">{t('modals.import.app_settings_diff_empty')}</p>
-                          )
-                        )}
+                        <div className="space-y-2">
+                          {(preview.appSettingsSections ?? []).map((section) => {
+                            const diffEntries = buildAppSettingsDiffEntries(section.id, section.fieldValues);
+                            const isExpanded = expandedAppSettingsSections.has(section.id);
+                            const isSelected = selectedAppSettingsSections.has(section.id);
+
+                            return (
+                              <div key={section.id} className="rounded-md border border-theme-border bg-theme-bg/60 p-3 space-y-2">
+                                <button
+                                  type="button"
+                                  onClick={() => toggleAppSettingsSection(section.id)}
+                                  className="flex w-full items-start justify-between gap-3 text-left"
+                                >
+                                  <span className="flex items-start gap-2 text-theme-text">
+                                    {isSelected
+                                      ? <CheckSquare className="mt-0.5 h-4 w-4 flex-shrink-0 text-theme-accent" />
+                                      : <Square className="mt-0.5 h-4 w-4 flex-shrink-0 text-theme-text-muted" />}
+                                    <span>
+                                      <span className="block text-sm font-semibold text-theme-text">{formatAppSettingsSectionLabel(section.id)}</span>
+                                      <span className="mt-1 block text-xs text-theme-text-muted">
+                                        {section.id === 'legacy'
+                                          ? t('modals.import.app_settings_legacy_description')
+                                          : t('modals.import.app_settings_keys', { keys: section.fieldKeys.join(', ') })}
+                                      </span>
+                                      {section.containsEnvVars && (
+                                        <span className="mt-1 block text-xs text-yellow-400">{t('modals.import.app_settings_contains_env_vars')}</span>
+                                      )}
+                                    </span>
+                                  </span>
+                                  <span className="text-xs text-theme-text-muted">
+                                    {t('modals.import.plugin_settings_items', { count: section.fieldKeys.length })}
+                                  </span>
+                                </button>
+
+                                {section.id !== 'legacy' && Object.keys(section.fieldValues ?? {}).length > 0 && (
+                                  <div className="space-y-2 border-t border-theme-border pt-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleAppSettingsDiff(section.id)}
+                                      className="text-xs text-theme-accent hover:text-theme-accent-hover transition-colors"
+                                    >
+                                      {isExpanded
+                                        ? t('modals.import.app_settings_hide_changes')
+                                        : t('modals.import.app_settings_view_changes')}
+                                    </button>
+
+                                    {isExpanded && (
+                                      diffEntries.length > 0 ? (
+                                        <div className="space-y-2">
+                                          <p className="text-xs font-semibold text-theme-text">{t('modals.import.app_settings_diff_title')}</p>
+                                          <ul className="space-y-2 max-h-40 overflow-y-auto text-xs">
+                                            {diffEntries.map((entry) => (
+                                              <li key={`${section.id}-${entry.key}`} className="rounded-md bg-theme-bg-elevated/60 px-2 py-2 text-theme-text-muted">
+                                                <p className="font-medium text-theme-text">{entry.key}</p>
+                                                <p>{t('modals.import.app_settings_current')}: {entry.current}</p>
+                                                <p>{t('modals.import.app_settings_imported')}: {entry.imported}</p>
+                                              </li>
+                                            ))}
+                                          </ul>
+                                        </div>
+                                      ) : (
+                                        <p className="text-xs text-theme-text-muted">{t('modals.import.app_settings_diff_empty')}</p>
+                                      )
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
                     )}
                   </div>

@@ -1,5 +1,5 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createMutableSelectorStore } from '@/test/helpers/mockStore';
 
 const translationMap: Record<string, string> = {
@@ -14,6 +14,14 @@ const translationMap: Record<string, string> = {
   'modals.export.no_forwards': 'No saved port forwards',
   'modals.export.include_app_settings': 'Include Global Settings',
   'modals.export.include_app_settings_description': 'Include app settings',
+  'modals.export.app_settings_sections_title': 'Application Settings Sections',
+  'modals.export.app_settings_sections_hint': 'Choose sections',
+  'modals.export.app_settings_include_env_vars': 'Include local terminal environment variables',
+  'modals.export.app_settings_include_env_vars_description': 'May contain machine-specific or sensitive values.',
+  'modals.export.app_settings_section_terminal_appearance': 'Terminal Appearance',
+  'modals.export.app_settings_section_terminal_behavior': 'Terminal Behavior',
+  'modals.export.app_settings_section_file_editor': 'File & Editor',
+  'modals.export.app_settings_no_sections': 'No application settings sections selected',
   'modals.export.include_plugin_settings': 'Include Plugin Preferences',
   'modals.export.include_plugin_settings_description': 'Include plugin settings',
   'modals.export.no_plugin_settings': 'No plugin preferences to export',
@@ -48,6 +56,10 @@ const translationMap: Record<string, string> = {
   'modals.export.stage_writing': 'Writing file',
   'modals.export.stage_done': 'Done',
   'modals.export.section_plugin_by_id': 'Plugin row',
+  'settings_view.general.title': 'General',
+  'settings_view.appearance.title': 'Appearance',
+  'settings_view.connections.title': 'Connection Defaults',
+  'settings_view.local_terminal.title': 'Local Terminal',
   'common.yes': 'Yes',
   'common.no': 'No',
 };
@@ -73,6 +85,17 @@ vi.mock('react-i18next', () => ({
 
 vi.mock('@/store/appStore', () => ({
   useAppStore: createMutableSelectorStore(appStoreState),
+}));
+
+vi.mock('@/store/settingsStore', () => ({
+  getDefaultOxideAppSettingsExportSections: () => [
+    'general',
+    'terminalAppearance',
+    'terminalBehavior',
+    'appearance',
+    'connections',
+    'fileAndEditor',
+  ],
 }));
 
 vi.mock('@/lib/oxideClientState', () => ({
@@ -148,6 +171,10 @@ vi.mock('@/components/ui/checkbox', () => ({
 import { OxideExportModal } from '@/components/modals/OxideExportModal';
 
 describe('OxideExportModal', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     appStoreState.savedConnections = [];
@@ -240,6 +267,50 @@ describe('OxideExportModal', () => {
     });
   });
 
+
+  it('runs preflight once per selection change instead of looping on re-render', async () => {
+    vi.useFakeTimers();
+
+    appStoreState.savedConnections = [{
+      id: 'saved-1',
+      name: 'Prod',
+      host: 'prod.example.com',
+      port: 22,
+      username: 'root',
+      group: null,
+      created_at: '2026-04-10T00:00:00Z',
+    }];
+
+    render(<OxideExportModal isOpen onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByText('Prod'));
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(350);
+    });
+
+    const initialPreflightCalls = invokeMock.mock.calls.length;
+
+    expect(initialPreflightCalls).toBeGreaterThan(0);
+    expect(invokeMock).toHaveBeenCalledWith('preflight_export', {
+      connectionIds: ['saved-1'],
+      embedKeys: null,
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500);
+    });
+
+    const settledPreflightCalls = invokeMock.mock.calls.length;
+
+    expect(settledPreflightCalls).toBeGreaterThanOrEqual(initialPreflightCalls);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500);
+    });
+
+    expect(invokeMock).toHaveBeenCalledTimes(settledPreflightCalls);
+  });
   it('blocks passwords shorter than 6 characters and shows strength hints', async () => {
     render(<OxideExportModal isOpen onClose={vi.fn()} />);
 

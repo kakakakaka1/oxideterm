@@ -341,4 +341,86 @@ describe('settingsStore', () => {
     const persisted = JSON.parse(localStorage.getItem('oxide-settings-v2') || '{}');
     expect(persisted.ai.userContextWindows?.[providerId]).toBeUndefined();
   });
+
+  it('exports only selected .oxide app settings sections and excludes local env vars by default', async () => {
+    const mod = await import('@/store/settingsStore');
+    const useSettingsStore = mod.useSettingsStore;
+
+    useSettingsStore.setState((state) => ({
+      settings: {
+        ...state.settings,
+        general: { ...state.settings.general, language: 'fr-FR', updateChannel: 'beta' },
+        terminal: { ...state.settings.terminal, theme: 'oxide', scrollback: 4096 },
+        localTerminal: {
+          ...state.settings.localTerminal!,
+          defaultShellId: 'zsh',
+          customEnvVars: { NODE_AUTH_TOKEN: 'secret', PATH: '/tmp/bin' },
+        },
+      },
+    }));
+
+    const snapshotJson = mod.exportOxideAppSettingsSnapshot({
+      selectedSections: ['general', 'localTerminal'],
+    });
+
+    expect(snapshotJson).toBeTruthy();
+
+    const snapshot = JSON.parse(snapshotJson || '{}');
+    expect(snapshot).toMatchObject({
+      format: 'oxide-settings-sections-v1',
+      version: 1,
+      sectionIds: ['general', 'localTerminal'],
+    });
+    expect(snapshot.settings.general).toEqual({ language: 'fr-FR', updateChannel: 'beta' });
+    expect(snapshot.settings.localTerminal.defaultShellId).toBe('zsh');
+    expect(snapshot.settings.localTerminal.customEnvVars).toBeUndefined();
+    expect(snapshot.settings.terminal).toBeUndefined();
+    expect(snapshot.settings.ai).toBeUndefined();
+  });
+
+  it('merges only selected sectioned .oxide app settings on import', async () => {
+    const mod = await import('@/store/settingsStore');
+    const useSettingsStore = mod.useSettingsStore;
+
+    useSettingsStore.setState((state) => ({
+      settings: {
+        ...state.settings,
+        general: { ...state.settings.general, language: 'en', updateChannel: 'stable' },
+        terminal: { ...state.settings.terminal, theme: 'oxide', scrollback: 3000 },
+        connectionPool: { idleTimeoutSecs: 1800 },
+      },
+    }));
+
+    apiMocks.sshSetPoolConfig.mockClear();
+    i18nMocks.changeLanguage.mockClear();
+
+    const imported = JSON.stringify({
+      format: 'oxide-settings-sections-v1',
+      version: 1,
+      sectionIds: ['general', 'terminalAppearance', 'connections'],
+      settings: {
+        general: { language: 'ja', updateChannel: 'beta' },
+        terminal: { theme: 'paper-oxide' },
+        connectionPool: { idleTimeoutSecs: 900 },
+      },
+    });
+
+    const applied = await mod.applyImportedSettingsSnapshot(imported, {
+      selectedSections: ['general', 'connections'],
+    });
+
+    expect(applied).toBe(true);
+    expect(useSettingsStore.getState().settings.general.language).toBe('ja');
+    expect(useSettingsStore.getState().settings.connectionPool?.idleTimeoutSecs).toBe(900);
+    expect(useSettingsStore.getState().settings.terminal.theme).toBe('oxide');
+    expect(i18nMocks.changeLanguage).toHaveBeenCalledWith('ja');
+
+    await waitFor(() => {
+      expect(apiMocks.sshSetPoolConfig).toHaveBeenCalledWith({
+        idleTimeoutSecs: 900,
+        maxConnections: 0,
+        protectOnExit: true,
+      });
+    });
+  });
 });

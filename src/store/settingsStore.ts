@@ -593,7 +593,7 @@ function normalizeHistorySettings(settings: PersistedSettingsV2): PersistedSetti
 // ============================================================================
 
 /** Merge saved settings with defaults (handles version upgrades with new fields) */
-function mergeWithDefaults(saved: Partial<PersistedSettingsV2>): PersistedSettingsV2 {
+function mergeWithDefaults(saved: OxidePartialSettingsSnapshot | Partial<PersistedSettingsV2>): PersistedSettingsV2 {
   const defaults = createDefaultSettings();
   return normalizeHistorySettings({
     version: 2,
@@ -1441,25 +1441,465 @@ export function exportCurrentSettingsSnapshot(): string | null {
   }
 }
 
-export async function applyImportedSettingsSnapshot(snapshotJson: string): Promise<boolean> {
+export const OXIDE_APP_SETTINGS_SECTION_IDS = [
+  'general',
+  'terminalAppearance',
+  'terminalBehavior',
+  'appearance',
+  'connections',
+  'fileAndEditor',
+  'localTerminal',
+] as const;
+
+export type OxideAppSettingsSectionId = typeof OXIDE_APP_SETTINGS_SECTION_IDS[number];
+export type OxideImportedAppSettingsSectionId = OxideAppSettingsSectionId | 'legacy';
+
+type ExportOxideAppSettingsOptions = {
+  selectedSections?: OxideAppSettingsSectionId[];
+  includeLocalTerminalEnvVars?: boolean;
+};
+
+type ApplyImportedSettingsOptions = {
+  selectedSections?: string[];
+};
+
+type OxidePartialSettingsSnapshot = Omit<
+  Partial<PersistedSettingsV2>,
+  'general' | 'terminal' | 'appearance' | 'connectionDefaults' | 'localTerminal' | 'sftp' | 'ide' | 'reconnect' | 'connectionPool'
+> & {
+  general?: Partial<GeneralSettings>;
+  terminal?: Partial<TerminalSettings>;
+  appearance?: Partial<AppearanceSettings>;
+  connectionDefaults?: Partial<ConnectionDefaults>;
+  localTerminal?: Partial<LocalTerminalSettings>;
+  sftp?: Partial<SftpSettings>;
+  ide?: Partial<IdeSettings>;
+  reconnect?: Partial<ReconnectSettings>;
+  connectionPool?: Partial<ConnectionPoolSettings>;
+};
+
+type OxideSectionedSettingsEnvelope = {
+  format: 'oxide-settings-sections-v1';
+  version: 1;
+  sectionIds: OxideAppSettingsSectionId[];
+  settings: OxidePartialSettingsSnapshot;
+};
+
+type ParsedImportedSettingsSnapshot = {
+  format: 'legacy' | 'sectioned';
+  sectionIds: OxideImportedAppSettingsSectionId[];
+  settings: OxidePartialSettingsSnapshot;
+};
+
+const OXIDE_APP_SETTINGS_ENVELOPE_FORMAT = 'oxide-settings-sections-v1';
+const DEFAULT_OXIDE_APP_SETTINGS_EXPORT_SECTIONS: OxideAppSettingsSectionId[] = [
+  'general',
+  'terminalAppearance',
+  'terminalBehavior',
+  'appearance',
+  'connections',
+  'fileAndEditor',
+];
+
+const TERMINAL_APPEARANCE_KEYS: Array<keyof TerminalSettings> = [
+  'theme',
+  'fontFamily',
+  'customFontFamily',
+  'fontSize',
+  'lineHeight',
+  'cursorStyle',
+  'cursorBlink',
+  'backgroundEnabled',
+  'backgroundImage',
+  'backgroundOpacity',
+  'backgroundBlur',
+  'backgroundFit',
+  'backgroundEnabledTabs',
+];
+
+const TERMINAL_BEHAVIOR_KEYS: Array<keyof TerminalSettings> = [
+  'scrollback',
+  'renderer',
+  'adaptiveRenderer',
+  'showFpsOverlay',
+  'pasteProtection',
+  'smartCopy',
+  'osc52Clipboard',
+];
+
+const GENERAL_KEYS: Array<keyof GeneralSettings> = ['language', 'updateChannel'];
+const APPEARANCE_KEYS: Array<keyof AppearanceSettings> = ['sidebarCollapsedDefault', 'uiDensity', 'borderRadius', 'uiFontFamily', 'animationSpeed', 'frostedGlass'];
+const CONNECTION_DEFAULT_KEYS: Array<keyof ConnectionDefaults> = ['username', 'port'];
+const RECONNECT_KEYS: Array<keyof ReconnectSettings> = ['enabled', 'maxAttempts', 'baseDelayMs', 'maxDelayMs'];
+const CONNECTION_POOL_KEYS: Array<keyof ConnectionPoolSettings> = ['idleTimeoutSecs'];
+const SFTP_KEYS: Array<keyof SftpSettings> = ['maxConcurrentTransfers', 'speedLimitEnabled', 'speedLimitKBps', 'conflictAction'];
+const IDE_KEYS: Array<keyof IdeSettings> = ['autoSave', 'fontSize', 'lineHeight', 'agentMode', 'wordWrap'];
+const LOCAL_TERMINAL_KEYS: Array<keyof LocalTerminalSettings> = [
+  'defaultShellId',
+  'recentShellIds',
+  'defaultCwd',
+  'loadShellProfile',
+  'ohMyPoshEnabled',
+  'ohMyPoshTheme',
+];
+
+function isOxideAppSettingsSectionId(value: string): value is OxideAppSettingsSectionId {
+  return (OXIDE_APP_SETTINGS_SECTION_IDS as readonly string[]).includes(value);
+}
+
+function uniqueOxideSectionIds(sectionIds: readonly string[]): OxideAppSettingsSectionId[] {
+  return Array.from(new Set(sectionIds.filter(isOxideAppSettingsSectionId)));
+}
+
+function pickDefinedFields<T extends object, K extends keyof T>(
+  source: Partial<T> | undefined,
+  keys: readonly K[],
+): Partial<Pick<T, K>> {
+  if (!source) {
+    return {};
+  }
+
+  const entries = keys
+    .filter((key) => source[key] !== undefined)
+    .map((key) => [key, source[key]] as const);
+
+  return Object.fromEntries(entries) as Partial<Pick<T, K>>;
+}
+
+function serializePreviewValue(value: unknown, options?: { envVarNamesOnly?: boolean }): string {
+  if (options?.envVarNamesOnly && value && typeof value === 'object' && !Array.isArray(value)) {
+    const envVarNames = Object.keys(value as Record<string, string>).sort();
+    return envVarNames.length > 0 ? envVarNames.join(', ') : '0';
+  }
+
+  return JSON.stringify(value);
+}
+
+function buildPreviewValues<T extends object, K extends keyof T>(
+  source: Partial<T> | undefined,
+  keys: readonly K[],
+  prefix?: string,
+): Record<string, string> {
+  if (!source) {
+    return {};
+  }
+
+  const preview: Record<string, string> = {};
+  for (const key of keys) {
+    const value = source[key];
+    if (value === undefined) {
+      continue;
+    }
+
+    const previewKey = prefix ? `${prefix}.${String(key)}` : String(key);
+    preview[previewKey] = serializePreviewValue(value);
+  }
+
+  return preview;
+}
+
+function buildLocalTerminalPreview(source: Partial<LocalTerminalSettings> | undefined): Record<string, string> {
+  const preview = buildPreviewValues(source, LOCAL_TERMINAL_KEYS);
+  if (source?.customEnvVars !== undefined) {
+    preview.customEnvVars = serializePreviewValue(source.customEnvVars, { envVarNamesOnly: true });
+  }
+  return preview;
+}
+
+function buildSectionPreviewValues(
+  settings: OxidePartialSettingsSnapshot | Partial<PersistedSettingsV2>,
+  sectionId: OxideImportedAppSettingsSectionId,
+): Record<string, string> {
+  switch (sectionId) {
+    case 'general':
+      return buildPreviewValues(settings.general, GENERAL_KEYS);
+    case 'terminalAppearance':
+      return buildPreviewValues(settings.terminal, TERMINAL_APPEARANCE_KEYS);
+    case 'terminalBehavior':
+      return buildPreviewValues(settings.terminal, TERMINAL_BEHAVIOR_KEYS);
+    case 'appearance':
+      return buildPreviewValues(settings.appearance, APPEARANCE_KEYS);
+    case 'connections':
+      return {
+        ...buildPreviewValues(settings.connectionDefaults, CONNECTION_DEFAULT_KEYS, 'connectionDefaults'),
+        ...buildPreviewValues(settings.reconnect, RECONNECT_KEYS, 'reconnect'),
+        ...buildPreviewValues(settings.connectionPool, CONNECTION_POOL_KEYS, 'connectionPool'),
+      };
+    case 'fileAndEditor':
+      return {
+        ...buildPreviewValues(settings.sftp, SFTP_KEYS, 'sftp'),
+        ...buildPreviewValues(settings.ide, IDE_KEYS, 'ide'),
+      };
+    case 'localTerminal':
+      return buildLocalTerminalPreview(settings.localTerminal);
+    case 'legacy':
+      return {};
+    default:
+      return {};
+  }
+}
+
+export function buildOxideAppSettingsSectionValueMap(
+  settings: OxidePartialSettingsSnapshot | Partial<PersistedSettingsV2>,
+  sectionIds: readonly string[],
+): Record<string, Record<string, string>> {
+  return Object.fromEntries(
+    sectionIds.map((sectionId) => [sectionId, buildSectionPreviewValues(settings, sectionId as OxideImportedAppSettingsSectionId)]),
+  );
+}
+
+export function getDefaultOxideAppSettingsExportSections(): OxideAppSettingsSectionId[] {
+  return [...DEFAULT_OXIDE_APP_SETTINGS_EXPORT_SECTIONS];
+}
+
+function buildOxideSectionedSettingsSnapshot(
+  settings: PersistedSettingsV2,
+  options?: ExportOxideAppSettingsOptions,
+): OxideSectionedSettingsEnvelope | null {
+  const sectionIds = options?.selectedSections?.length
+    ? uniqueOxideSectionIds(options.selectedSections)
+    : getDefaultOxideAppSettingsExportSections();
+
+  if (sectionIds.length === 0) {
+    return null;
+  }
+
+  const partialSettings: OxidePartialSettingsSnapshot = {};
+
+  for (const sectionId of sectionIds) {
+    switch (sectionId) {
+      case 'general':
+        partialSettings.general = { ...pickDefinedFields(settings.general, GENERAL_KEYS) };
+        break;
+      case 'terminalAppearance':
+        partialSettings.terminal = {
+          ...partialSettings.terminal,
+          ...pickDefinedFields(settings.terminal, TERMINAL_APPEARANCE_KEYS),
+        };
+        break;
+      case 'terminalBehavior':
+        partialSettings.terminal = {
+          ...partialSettings.terminal,
+          ...pickDefinedFields(settings.terminal, TERMINAL_BEHAVIOR_KEYS),
+        };
+        break;
+      case 'appearance':
+        partialSettings.appearance = { ...pickDefinedFields(settings.appearance, APPEARANCE_KEYS) };
+        break;
+      case 'connections':
+        partialSettings.connectionDefaults = { ...pickDefinedFields(settings.connectionDefaults, CONNECTION_DEFAULT_KEYS) };
+        if (settings.reconnect) {
+          partialSettings.reconnect = { ...pickDefinedFields(settings.reconnect, RECONNECT_KEYS) };
+        }
+        if (settings.connectionPool) {
+          partialSettings.connectionPool = { ...pickDefinedFields(settings.connectionPool, CONNECTION_POOL_KEYS) };
+        }
+        break;
+      case 'fileAndEditor':
+        if (settings.sftp) {
+          partialSettings.sftp = { ...pickDefinedFields(settings.sftp, SFTP_KEYS) };
+        }
+        if (settings.ide) {
+          partialSettings.ide = { ...pickDefinedFields(settings.ide, IDE_KEYS) };
+        }
+        break;
+      case 'localTerminal': {
+        if (!settings.localTerminal) {
+          break;
+        }
+
+        const localTerminalSettings = {
+          ...pickDefinedFields(settings.localTerminal, LOCAL_TERMINAL_KEYS),
+          ...(options?.includeLocalTerminalEnvVars
+            ? { customEnvVars: settings.localTerminal.customEnvVars }
+            : {}),
+        };
+
+        if (Object.keys(localTerminalSettings).length > 0) {
+          partialSettings.localTerminal = localTerminalSettings;
+        }
+        break;
+      }
+    }
+  }
+
+  return {
+    format: OXIDE_APP_SETTINGS_ENVELOPE_FORMAT,
+    version: 1,
+    sectionIds,
+    settings: partialSettings,
+  };
+}
+
+export function exportOxideAppSettingsSnapshot(options?: ExportOxideAppSettingsOptions): string | null {
   try {
-    const parsed = JSON.parse(snapshotJson) as Partial<PersistedSettingsV2>;
-    const normalized = normalizeHistorySettings(
-      migrateToolUseSettings(migrateAiProviders(mergeWithDefaults(parsed))),
-    );
+    const envelope = buildOxideSectionedSettingsSnapshot(useSettingsStore.getState().settings, options);
+    return envelope ? JSON.stringify(envelope) : null;
+  } catch (error) {
+    console.error('[SettingsStore] Failed to serialize .oxide settings snapshot:', error);
+    return null;
+  }
+}
+
+function parseImportedSettingsSnapshot(snapshotJson: string): ParsedImportedSettingsSnapshot {
+  const parsed = JSON.parse(snapshotJson) as unknown;
+
+  if (
+    parsed
+    && typeof parsed === 'object'
+    && 'format' in parsed
+    && (parsed as { format?: unknown }).format === OXIDE_APP_SETTINGS_ENVELOPE_FORMAT
+    && 'settings' in parsed
+    && (parsed as { settings?: unknown }).settings
+    && typeof (parsed as { settings?: unknown }).settings === 'object'
+  ) {
+    const envelope = parsed as OxideSectionedSettingsEnvelope;
+    return {
+      format: 'sectioned',
+      sectionIds: uniqueOxideSectionIds(envelope.sectionIds),
+      settings: envelope.settings,
+    };
+  }
+
+  return {
+    format: 'legacy',
+    sectionIds: ['legacy'],
+    settings: parsed as OxidePartialSettingsSnapshot,
+  };
+}
+
+function mergeSelectedOxideSettingsSections(
+  currentSettings: PersistedSettingsV2,
+  importedSettings: OxidePartialSettingsSnapshot,
+  selectedSections: readonly OxideAppSettingsSectionId[],
+): PersistedSettingsV2 {
+  const nextSettings = mergeWithDefaults(currentSettings);
+
+  for (const sectionId of selectedSections) {
+    switch (sectionId) {
+      case 'general':
+        if (importedSettings.general) {
+          nextSettings.general = { ...nextSettings.general, ...importedSettings.general };
+        }
+        break;
+      case 'terminalAppearance':
+        nextSettings.terminal = {
+          ...nextSettings.terminal,
+          ...pickDefinedFields(importedSettings.terminal, TERMINAL_APPEARANCE_KEYS),
+        };
+        break;
+      case 'terminalBehavior':
+        nextSettings.terminal = {
+          ...nextSettings.terminal,
+          ...pickDefinedFields(importedSettings.terminal, TERMINAL_BEHAVIOR_KEYS),
+        };
+        break;
+      case 'appearance':
+        if (importedSettings.appearance) {
+          nextSettings.appearance = { ...nextSettings.appearance, ...importedSettings.appearance };
+        }
+        break;
+      case 'connections':
+        if (importedSettings.connectionDefaults) {
+          nextSettings.connectionDefaults = {
+            ...nextSettings.connectionDefaults,
+            ...importedSettings.connectionDefaults,
+          };
+        }
+        if (importedSettings.reconnect) {
+          nextSettings.reconnect = {
+            ...(nextSettings.reconnect || defaultReconnectSettings),
+            ...importedSettings.reconnect,
+          };
+        }
+        if (importedSettings.connectionPool) {
+          nextSettings.connectionPool = {
+            ...(nextSettings.connectionPool || defaultConnectionPoolSettings),
+            ...importedSettings.connectionPool,
+          };
+        }
+        break;
+      case 'fileAndEditor':
+        if (importedSettings.sftp) {
+          nextSettings.sftp = {
+            ...(nextSettings.sftp || defaultSftpSettings),
+            ...importedSettings.sftp,
+          };
+        }
+        if (importedSettings.ide) {
+          nextSettings.ide = {
+            ...(nextSettings.ide || defaultIdeSettings),
+            ...importedSettings.ide,
+          };
+        }
+        break;
+      case 'localTerminal':
+        if (importedSettings.localTerminal) {
+          nextSettings.localTerminal = {
+            ...(nextSettings.localTerminal || defaultLocalTerminalSettings),
+            ...importedSettings.localTerminal,
+          };
+        }
+        break;
+    }
+  }
+
+  return normalizeHistorySettings(nextSettings);
+}
+
+export async function applyImportedSettingsSnapshot(
+  snapshotJson: string,
+  options?: ApplyImportedSettingsOptions,
+): Promise<boolean> {
+  try {
+    const parsedSnapshot = parseImportedSettingsSnapshot(snapshotJson);
+    const selectedSections = options?.selectedSections?.length
+      ? parsedSnapshot.sectionIds.filter((sectionId) => options.selectedSections!.includes(sectionId))
+      : parsedSnapshot.sectionIds;
+
+    if (selectedSections.length === 0) {
+      return false;
+    }
+
+    const normalized = parsedSnapshot.format === 'legacy' || selectedSections.includes('legacy')
+      ? normalizeHistorySettings(
+          migrateToolUseSettings(migrateAiProviders(mergeWithDefaults(parsedSnapshot.settings))),
+        )
+      : normalizeHistorySettings(
+          migrateToolUseSettings(
+            migrateAiProviders(
+              mergeSelectedOxideSettingsSections(
+                useSettingsStore.getState().settings,
+                parsedSnapshot.settings,
+                selectedSections as OxideAppSettingsSectionId[],
+              ),
+            ),
+          ),
+        );
 
     persistSettings(normalized);
     useSettingsStore.setState({ settings: normalized });
 
-    localStorage.setItem('app_lang', normalized.general.language);
+    const shouldApplyGeneral = parsedSnapshot.format === 'legacy' || selectedSections.includes('general');
+    const shouldApplyFileAndEditor = parsedSnapshot.format === 'legacy' || selectedSections.includes('fileAndEditor');
+    const shouldApplyConnections = parsedSnapshot.format === 'legacy' || selectedSections.includes('connections');
 
-    const { changeLanguage } = await import('../i18n');
-    await changeLanguage(normalized.general.language);
+    if (shouldApplyGeneral) {
+      localStorage.setItem('app_lang', normalized.general.language);
 
-    syncSftpToBackend(normalized.sftp || defaultSftpSettings);
-    syncConnectionPoolToBackend(
-      normalized.connectionPool || defaultConnectionPoolSettings,
-    );
+      const { changeLanguage } = await import('../i18n');
+      await changeLanguage(normalized.general.language);
+    }
+
+    if (shouldApplyFileAndEditor) {
+      syncSftpToBackend(normalized.sftp || defaultSftpSettings);
+    }
+
+    if (shouldApplyConnections) {
+      syncConnectionPoolToBackend(
+        normalized.connectionPool || defaultConnectionPoolSettings,
+      );
+    }
 
     return true;
   } catch (error) {

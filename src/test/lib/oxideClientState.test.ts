@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const invokeMock = vi.hoisted(() => vi.fn());
 const applyImportedSettingsSnapshotMock = vi.hoisted(() => vi.fn());
-const exportCurrentSettingsSnapshotMock = vi.hoisted(() => vi.fn());
+const exportOxideAppSettingsSnapshotMock = vi.hoisted(() => vi.fn());
 const collectPluginSettingsSnapshotMock = vi.hoisted(() => vi.fn());
 const applyImportedPluginSettingsSnapshotMock = vi.hoisted(() => vi.fn());
 
@@ -12,7 +12,7 @@ vi.mock('@tauri-apps/api/core', () => ({
 
 vi.mock('@/store/settingsStore', () => ({
   applyImportedSettingsSnapshot: applyImportedSettingsSnapshotMock,
-  exportCurrentSettingsSnapshot: exportCurrentSettingsSnapshotMock,
+  exportOxideAppSettingsSnapshot: exportOxideAppSettingsSnapshotMock,
 }));
 
 vi.mock('@/lib/plugin/pluginSettingsManager', () => ({
@@ -36,7 +36,7 @@ import { exportOxideWithClientState, importOxideWithClientState } from '@/lib/ox
 describe('oxideClientState', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    exportCurrentSettingsSnapshotMock.mockReturnValue('{"theme":"oxide"}');
+    exportOxideAppSettingsSnapshotMock.mockReturnValue('{"format":"oxide-settings-sections-v1"}');
     collectPluginSettingsSnapshotMock.mockReturnValue([
       { storageKey: 'oxide-plugin-plugin-a-setting-theme', serializedValue: '"night"' },
       { storageKey: 'oxide-plugin-plugin-b-setting-layout', serializedValue: '"compact"' },
@@ -65,7 +65,7 @@ describe('oxideClientState', () => {
       description: null,
       embedKeys: null,
       selectedForwardIds: ['forward-1'],
-      appSettingsJson: '{"theme":"oxide"}',
+      appSettingsJson: '{"format":"oxide-settings-sections-v1"}',
       pluginSettings: [{
         storageKey: 'oxide-plugin-plugin-b-setting-layout',
         serializedValue: '"compact"',

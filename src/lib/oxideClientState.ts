@@ -11,7 +11,8 @@ import {
 } from './plugin/pluginSettingsManager';
 import {
   applyImportedSettingsSnapshot,
-  exportCurrentSettingsSnapshot,
+  exportOxideAppSettingsSnapshot,
+  type OxideAppSettingsSectionId,
 } from '../store/settingsStore';
 
 type ExportOxideRequest = {
@@ -20,6 +21,8 @@ type ExportOxideRequest = {
   description?: string | null;
   embedKeys?: boolean | null;
   includeAppSettings?: boolean;
+  selectedAppSettingsSections?: OxideAppSettingsSectionId[];
+  includeLocalTerminalEnvVars?: boolean;
   includePluginSettings?: boolean;
   selectedPluginIds?: string[];
   selectedForwardIds?: string[];
@@ -32,6 +35,7 @@ type PreviewImportOptions = {
 type ImportOxideOptions = PreviewImportOptions & {
   selectedNames?: string[];
   importAppSettings?: boolean;
+  selectedAppSettingsSections?: string[];
   importPluginSettings?: boolean;
   selectedPluginIds?: string[];
   importForwards?: boolean;
@@ -42,12 +46,18 @@ type ImportFromOxideEnvelope = Omit<ImportResult, 'importedAppSettings' | 'impor
   pluginSettings?: PluginSettingSnapshotEntry[] | null;
 };
 
-function buildClientStatePayload(): {
+function buildClientStatePayload(options?: {
+  selectedAppSettingsSections?: OxideAppSettingsSectionId[];
+  includeLocalTerminalEnvVars?: boolean;
+}): {
   appSettingsJson: string | null;
   pluginSettings: PluginSettingSnapshotEntry[];
 } {
   return {
-    appSettingsJson: exportCurrentSettingsSnapshot(),
+    appSettingsJson: exportOxideAppSettingsSnapshot({
+      selectedSections: options?.selectedAppSettingsSections,
+      includeLocalTerminalEnvVars: options?.includeLocalTerminalEnvVars,
+    }),
     pluginSettings: collectPluginSettingsSnapshot(),
   };
 }
@@ -65,10 +75,14 @@ export async function preflightOxideExport(
 export async function exportOxideWithClientState(
   request: ExportOxideRequest,
 ): Promise<Uint8Array> {
-  const includeAppSettings = request.includeAppSettings ?? true;
+  const includeAppSettings = (request.includeAppSettings ?? true)
+    && (request.selectedAppSettingsSections ? request.selectedAppSettingsSections.length > 0 : true);
   const includePluginSettings = request.includePluginSettings ?? true;
   const clientState = (includeAppSettings || includePluginSettings)
-    ? buildClientStatePayload()
+    ? buildClientStatePayload({
+        selectedAppSettingsSections: request.selectedAppSettingsSections,
+        includeLocalTerminalEnvVars: request.includeLocalTerminalEnvVars,
+      })
     : { appSettingsJson: null, pluginSettings: [] };
   const filteredPluginSettings = includePluginSettings && clientState.pluginSettings.length > 0
     ? (request.selectedPluginIds?.length
@@ -115,6 +129,9 @@ export async function importOxideWithClientState(
   password: string,
   options?: ImportOxideOptions,
 ): Promise<ImportResult> {
+  const selectedAppSettingsSections = options?.importAppSettings === false
+    ? []
+    : options?.selectedAppSettingsSections;
   const shouldImportApp = options?.importAppSettings !== false;
   const shouldImportPlugin = options?.importPluginSettings !== false;
   const envelope = await invoke<ImportFromOxideEnvelope>('import_from_oxide', {
@@ -127,7 +144,9 @@ export async function importOxideWithClientState(
 
   let importedAppSettings = false;
   if (shouldImportApp && envelope.appSettingsJson) {
-    importedAppSettings = await applyImportedSettingsSnapshot(envelope.appSettingsJson);
+    importedAppSettings = await applyImportedSettingsSnapshot(envelope.appSettingsJson, {
+      selectedSections: selectedAppSettingsSections,
+    });
   }
 
   const filteredPluginSettings = shouldImportPlugin && envelope.pluginSettings?.length

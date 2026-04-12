@@ -1,7 +1,7 @@
 // Copyright (C) 2026 AnalyseDeCircuit
 // SPDX-License-Identifier: GPL-3.0-only
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/core';
 import { save } from '@tauri-apps/plugin-dialog';
@@ -16,6 +16,10 @@ import { useAppStore } from '../../store/appStore';
 import { exportOxideWithClientState } from '../../lib/oxideClientState';
 import { api } from '../../lib/api';
 import { collectPluginSettingsSnapshot, parseSettingStorageKey } from '../../lib/plugin/pluginSettingsManager';
+import {
+  getDefaultOxideAppSettingsExportSections,
+  type OxideAppSettingsSectionId,
+} from '../../store/settingsStore';
 import type { ExportPreflightResult, PersistedForwardInfo } from '../../types';
 
 type OxideExportModalProps = {
@@ -29,8 +33,16 @@ type PasswordStrength = 'weak' | 'fair' | 'strong';
 export function OxideExportModal({ isOpen, onClose }: OxideExportModalProps) {
   const { t } = useTranslation();
   const { savedConnections, loadSavedConnections } = useAppStore();
+  const defaultAppSettingsSections = useMemo(
+    () => getDefaultOxideAppSettingsExportSections(),
+    [],
+  );
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [includeAppSettings, setIncludeAppSettings] = useState(true);
+  const [selectedAppSettingsSections, setSelectedAppSettingsSections] = useState<Set<OxideAppSettingsSectionId>>(
+    () => new Set(defaultAppSettingsSections),
+  );
+  const [includeLocalTerminalEnvVars, setIncludeLocalTerminalEnvVars] = useState(false);
   const [includePluginSettings, setIncludePluginSettings] = useState(true);
   const [pluginGroups, setPluginGroups] = useState<Record<string, number>>({});
   const [selectedPluginIds, setSelectedPluginIds] = useState<Set<string>>(new Set());
@@ -51,20 +63,51 @@ export function OxideExportModal({ isOpen, onClose }: OxideExportModalProps) {
     : 0;
 
   const pluginGroupEntries = Object.entries(pluginGroups).sort(([left], [right]) => left.localeCompare(right));
-  const selectedForwardOwnerIds = allSavedForwards
-    .filter((forward) => selectedForwardIds.has(forward.id) && forward.owner_connection_id)
-    .map((forward) => forward.owner_connection_id as string);
-  const effectiveConnectionIds = Array.from(new Set([...selectedIds, ...selectedForwardOwnerIds]));
+  const selectedForwardOwnerIds = useMemo(
+    () => allSavedForwards
+      .filter((forward) => selectedForwardIds.has(forward.id) && forward.owner_connection_id)
+      .map((forward) => forward.owner_connection_id as string),
+    [allSavedForwards, selectedForwardIds],
+  );
+  const effectiveConnectionIds = useMemo(
+    () => Array.from(new Set([...selectedIds, ...selectedForwardOwnerIds])),
+    [selectedIds, selectedForwardOwnerIds],
+  );
+  const hasSelectedAppSettings = includeAppSettings && selectedAppSettingsSections.size > 0;
   const hasSelectedPluginSettings = includePluginSettings && selectedPluginIds.size > 0;
   const hasAnyContent = Boolean(
     selectedIds.length > 0
-    || includeAppSettings
+    || hasSelectedAppSettings
     || hasSelectedPluginSettings
     || selectedForwardIds.size > 0,
   );
   const selectedPluginSettingCount = pluginGroupEntries.reduce((total, [pluginId, count]) => (
     selectedPluginIds.has(pluginId) ? total + count : total
   ), 0);
+  const appSettingsSectionIds = defaultAppSettingsSections;
+
+  const formatAppSettingsSectionLabel = (sectionId: OxideAppSettingsSectionId) => {
+    switch (sectionId) {
+      case 'general':
+        return t('settings_view.general.title');
+      case 'terminalAppearance':
+        return t('modals.export.app_settings_section_terminal_appearance');
+      case 'terminalBehavior':
+        return t('modals.export.app_settings_section_terminal_behavior');
+      case 'appearance':
+        return t('settings_view.appearance.title');
+      case 'connections':
+        return t('settings_view.connections.title');
+      case 'fileAndEditor':
+        return t('modals.export.app_settings_section_file_editor');
+      case 'localTerminal':
+        return t('settings_view.local_terminal.title');
+    }
+  };
+
+  const selectedAppSettingsLabels = appSettingsSectionIds
+    .filter((sectionId) => selectedAppSettingsSections.has(sectionId))
+    .map(formatAppSettingsSectionLabel);
 
   const forwardGroups = allSavedForwards.reduce<Record<string, PersistedForwardInfo[]>>((groups, forward) => {
     const ownerLabel = forward.owner_connection_name || forward.owner_connection_id || '-';
@@ -111,6 +154,8 @@ export function OxideExportModal({ isOpen, onClose }: OxideExportModalProps) {
 
     setSelectedIds([]);
     setIncludeAppSettings(true);
+    setSelectedAppSettingsSections(new Set(defaultAppSettingsSections));
+    setIncludeLocalTerminalEnvVars(false);
     setIncludePluginSettings(true);
     setPassword('');
     setConfirmPassword('');
@@ -185,6 +230,18 @@ export function OxideExportModal({ isOpen, onClose }: OxideExportModalProps) {
         next.delete(pluginId);
       } else {
         next.add(pluginId);
+      }
+      return next;
+    });
+  };
+
+  const handleToggleAppSettingsSection = (sectionId: OxideAppSettingsSectionId) => {
+    setSelectedAppSettingsSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(sectionId)) {
+        next.delete(sectionId);
+      } else {
+        next.add(sectionId);
       }
       return next;
     });
@@ -297,6 +354,8 @@ export function OxideExportModal({ isOpen, onClose }: OxideExportModalProps) {
         description: description || null,
         embedKeys: embedKeys || null,
         includeAppSettings,
+        selectedAppSettingsSections: Array.from(selectedAppSettingsSections),
+        includeLocalTerminalEnvVars,
         includePluginSettings: hasSelectedPluginSettings,
         selectedPluginIds: hasSelectedPluginSettings ? Array.from(selectedPluginIds) : [],
         selectedForwardIds: Array.from(selectedForwardIds),
@@ -455,6 +514,57 @@ export function OxideExportModal({ isOpen, onClose }: OxideExportModalProps) {
               </div>
             </div>
 
+            {includeAppSettings && (
+              <div className="border border-theme-border rounded-md p-3 bg-theme-bg space-y-3">
+                <div>
+                  <p className="text-sm font-semibold text-theme-text">{t('modals.export.app_settings_sections_title')}</p>
+                  <p className="text-xs text-theme-text-muted mt-1">{t('modals.export.app_settings_sections_hint')}</p>
+                </div>
+
+                <div className="space-y-2">
+                  {appSettingsSectionIds.map((sectionId) => (
+                    <div key={sectionId} className="flex items-start space-x-2">
+                      <Checkbox
+                        checked={selectedAppSettingsSections.has(sectionId)}
+                        onCheckedChange={() => handleToggleAppSettingsSection(sectionId)}
+                        className="mt-0.5 border-theme-text-muted data-[state=checked]:bg-theme-accent data-[state=checked]:border-theme-accent"
+                      />
+                      <div className="flex flex-col">
+                        <Label className="cursor-pointer text-theme-text">
+                          {formatAppSettingsSectionLabel(sectionId)}
+                        </Label>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {selectedAppSettingsSections.has('localTerminal') && (
+                  <div className="rounded-md border border-theme-border bg-theme-bg-elevated/60 p-3">
+                    <div className="flex items-start space-x-2">
+                      <Checkbox
+                        id="includeLocalTerminalEnvVars"
+                        checked={includeLocalTerminalEnvVars}
+                        onCheckedChange={(checked) => setIncludeLocalTerminalEnvVars(checked === true)}
+                        className="mt-0.5 border-theme-text-muted data-[state=checked]:bg-theme-accent data-[state=checked]:border-theme-accent"
+                      />
+                      <div className="flex flex-col">
+                        <Label htmlFor="includeLocalTerminalEnvVars" className="cursor-pointer text-theme-text">
+                          {t('modals.export.app_settings_include_env_vars')}
+                        </Label>
+                        <p className="text-xs text-theme-text-muted mt-0.5">
+                          {t('modals.export.app_settings_include_env_vars_description')}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {selectedAppSettingsSections.size === 0 && (
+                  <p className="text-xs text-yellow-400">{t('modals.export.app_settings_no_sections')}</p>
+                )}
+              </div>
+            )}
+
             <div className="flex items-start space-x-2">
               <Checkbox
                 id="includePluginSettings"
@@ -585,8 +695,8 @@ export function OxideExportModal({ isOpen, onClose }: OxideExportModalProps) {
               {selectedForwardIds.size > 0 && (
                 <li>{t('modals.export.content_summary_forwards', { count: selectedForwardIds.size })}</li>
               )}
-              {includeAppSettings && (
-                <li>{t('modals.export.content_summary_app_settings')}</li>
+              {hasSelectedAppSettings && (
+                <li>{t('modals.export.content_summary_app_settings')}: {selectedAppSettingsLabels.join(', ')}</li>
               )}
               {hasSelectedPluginSettings && (
                 <li>{t('modals.export.content_summary_plugin_settings', {

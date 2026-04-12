@@ -540,10 +540,14 @@ export interface ImportPreview {
   totalForwards: number;
   /** Whether the payload includes a global settings snapshot */
   hasAppSettings: boolean;
+  /** Whether the imported app settings payload uses the new sectioned format */
+  appSettingsFormat?: 'legacy' | 'sectioned';
   /** Top-level keys present in the imported app settings snapshot */
   appSettingsKeys?: string[];
   /** Stringified top-level app settings values for shallow diff preview */
   appSettingsPreview?: Record<string, string>;
+  /** Application settings grouped for selective import */
+  appSettingsSections?: ImportPreviewAppSettingsSection[];
   /** Number of plugin settings entries bundled in the payload */
   pluginSettingsCount: number;
   /** Plugin settings grouped by plugin id */
@@ -558,6 +562,13 @@ export interface ImportPreviewForward {
   ownerConnectionName: string;
   direction: 'local' | 'remote' | 'dynamic';
   description: string;
+}
+
+export interface ImportPreviewAppSettingsSection {
+  id: string;
+  fieldKeys: string[];
+  fieldValues?: Record<string, string>;
+  containsEnvVars?: boolean;
 }
 
 export interface ImportPreviewRecord {

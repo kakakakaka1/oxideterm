@@ -86,12 +86,18 @@ pub struct ImportPreview {
     pub total_forwards: usize,
     /// Whether the payload includes a global app settings snapshot.
     pub has_app_settings: bool,
+    /// App settings preview format: legacy or sectioned.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub app_settings_format: Option<String>,
     /// Top-level app settings keys present in the imported snapshot.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub app_settings_keys: Vec<String>,
     /// Stringified top-level app settings values for shallow diff preview.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub app_settings_preview: HashMap<String, String>,
+    /// App settings grouped by importable section.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub app_settings_sections: Vec<AppSettingsSectionPreview>,
     /// Number of plugin setting entries bundled in the payload.
     pub plugin_settings_count: usize,
     /// Plugin settings grouped by plugin id.
@@ -108,6 +114,17 @@ pub struct ForwardDetail {
     pub owner_connection_name: String,
     pub direction: String,
     pub description: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppSettingsSectionPreview {
+    pub id: String,
+    pub field_keys: Vec<String>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub field_values: HashMap<String, String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub contains_env_vars: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -209,14 +226,256 @@ fn format_forward_preview_description(forward: &EncryptedForward) -> String {
     }
 }
 
-fn build_app_settings_preview(app_settings_json: Option<&str>) -> (Vec<String>, HashMap<String, String>) {
+const OXIDE_APP_SETTINGS_ENVELOPE_FORMAT: &str = "oxide-settings-sections-v1";
+
+fn add_preview_fields(
+    object: Option<&serde_json::Map<String, Value>>,
+    keys: &[&str],
+    prefix: Option<&str>,
+    target: &mut HashMap<String, String>,
+) {
+    let Some(object) = object else {
+        return;
+    };
+
+    for key in keys {
+        let Some(value) = object.get(*key) else {
+            continue;
+        };
+
+        let preview_key = prefix
+            .map(|prefix| format!("{}.{}", prefix, key))
+            .unwrap_or_else(|| key.to_string());
+
+        if let Ok(serialized) = serde_json::to_string(value) {
+            target.insert(preview_key, serialized);
+        }
+    }
+}
+
+fn add_env_var_preview(value: Option<&Value>, target: &mut HashMap<String, String>) -> bool {
+    let Some(Value::Object(map)) = value else {
+        return false;
+    };
+
+    let mut env_var_names: Vec<String> = map.keys().cloned().collect();
+    env_var_names.sort();
+    target.insert(
+        "customEnvVars".to_string(),
+        if env_var_names.is_empty() {
+            "0".to_string()
+        } else {
+            env_var_names.join(", ")
+        },
+    );
+    true
+}
+
+fn build_section_preview(
+    id: &str,
+    field_values: HashMap<String, String>,
+    contains_env_vars: bool,
+) -> Option<AppSettingsSectionPreview> {
+    if field_values.is_empty() && !contains_env_vars {
+        return None;
+    }
+
+    let mut field_keys: Vec<String> = field_values.keys().cloned().collect();
+    field_keys.sort();
+
+    Some(AppSettingsSectionPreview {
+        id: id.to_string(),
+        field_keys,
+        field_values,
+        contains_env_vars,
+    })
+}
+
+fn build_sectioned_app_settings_sections(
+    settings: &serde_json::Map<String, Value>,
+    section_ids: &[String],
+) -> Vec<AppSettingsSectionPreview> {
+    let mut sections = Vec::new();
+
+    for section_id in section_ids {
+        let mut field_values = HashMap::new();
+        let mut contains_env_vars = false;
+
+        match section_id.as_str() {
+            "general" => {
+                add_preview_fields(
+                    settings.get("general").and_then(Value::as_object),
+                    &["language", "updateChannel"],
+                    None,
+                    &mut field_values,
+                );
+            }
+            "terminalAppearance" => {
+                add_preview_fields(
+                    settings.get("terminal").and_then(Value::as_object),
+                    &[
+                        "theme",
+                        "fontFamily",
+                        "customFontFamily",
+                        "fontSize",
+                        "lineHeight",
+                        "cursorStyle",
+                        "cursorBlink",
+                        "backgroundEnabled",
+                        "backgroundImage",
+                        "backgroundOpacity",
+                        "backgroundBlur",
+                        "backgroundFit",
+                        "backgroundEnabledTabs",
+                    ],
+                    None,
+                    &mut field_values,
+                );
+            }
+            "terminalBehavior" => {
+                add_preview_fields(
+                    settings.get("terminal").and_then(Value::as_object),
+                    &[
+                        "scrollback",
+                        "renderer",
+                        "adaptiveRenderer",
+                        "showFpsOverlay",
+                        "pasteProtection",
+                        "smartCopy",
+                        "osc52Clipboard",
+                    ],
+                    None,
+                    &mut field_values,
+                );
+            }
+            "appearance" => {
+                add_preview_fields(
+                    settings.get("appearance").and_then(Value::as_object),
+                    &[
+                        "sidebarCollapsedDefault",
+                        "uiDensity",
+                        "borderRadius",
+                        "uiFontFamily",
+                        "animationSpeed",
+                        "frostedGlass",
+                    ],
+                    None,
+                    &mut field_values,
+                );
+            }
+            "connections" => {
+                add_preview_fields(
+                    settings.get("connectionDefaults").and_then(Value::as_object),
+                    &["username", "port"],
+                    Some("connectionDefaults"),
+                    &mut field_values,
+                );
+                add_preview_fields(
+                    settings.get("reconnect").and_then(Value::as_object),
+                    &["enabled", "maxAttempts", "baseDelayMs", "maxDelayMs"],
+                    Some("reconnect"),
+                    &mut field_values,
+                );
+                add_preview_fields(
+                    settings.get("connectionPool").and_then(Value::as_object),
+                    &["idleTimeoutSecs"],
+                    Some("connectionPool"),
+                    &mut field_values,
+                );
+            }
+            "fileAndEditor" => {
+                add_preview_fields(
+                    settings.get("sftp").and_then(Value::as_object),
+                    &[
+                        "maxConcurrentTransfers",
+                        "speedLimitEnabled",
+                        "speedLimitKBps",
+                        "conflictAction",
+                    ],
+                    Some("sftp"),
+                    &mut field_values,
+                );
+                add_preview_fields(
+                    settings.get("ide").and_then(Value::as_object),
+                    &["autoSave", "fontSize", "lineHeight", "agentMode", "wordWrap"],
+                    Some("ide"),
+                    &mut field_values,
+                );
+            }
+            "localTerminal" => {
+                let local_terminal = settings.get("localTerminal").and_then(Value::as_object);
+                add_preview_fields(
+                    local_terminal,
+                    &[
+                        "defaultShellId",
+                        "recentShellIds",
+                        "defaultCwd",
+                        "loadShellProfile",
+                        "ohMyPoshEnabled",
+                        "ohMyPoshTheme",
+                    ],
+                    None,
+                    &mut field_values,
+                );
+                contains_env_vars = add_env_var_preview(
+                    local_terminal.and_then(|object| object.get("customEnvVars")),
+                    &mut field_values,
+                );
+            }
+            _ => {}
+        }
+
+        if let Some(section) = build_section_preview(section_id, field_values, contains_env_vars) {
+            sections.push(section);
+        }
+    }
+
+    sections
+}
+
+fn build_app_settings_preview(
+    app_settings_json: Option<&str>,
+) -> (
+    Option<String>,
+    Vec<String>,
+    HashMap<String, String>,
+    Vec<AppSettingsSectionPreview>,
+) {
     let Some(app_settings_json) = app_settings_json else {
-        return (Vec::new(), HashMap::new());
+        return (None, Vec::new(), HashMap::new(), Vec::new());
     };
 
     let Ok(Value::Object(map)) = serde_json::from_str::<Value>(app_settings_json) else {
-        return (Vec::new(), HashMap::new());
+        return (None, Vec::new(), HashMap::new(), Vec::new());
     };
+
+    if map.get("format").and_then(Value::as_str) == Some(OXIDE_APP_SETTINGS_ENVELOPE_FORMAT) {
+        let Some(settings) = map.get("settings").and_then(Value::as_object) else {
+            return (Some("sectioned".to_string()), Vec::new(), HashMap::new(), Vec::new());
+        };
+
+        let section_ids: Vec<String> = map
+            .get("sectionIds")
+            .and_then(Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let mut keys: Vec<String> = settings.keys().cloned().collect();
+        keys.sort();
+
+        return (
+            Some("sectioned".to_string()),
+            keys,
+            HashMap::new(),
+            build_sectioned_app_settings_sections(settings, &section_ids),
+        );
+    }
 
     let mut keys: Vec<String> = map.keys().cloned().collect();
     keys.sort();
@@ -230,7 +489,17 @@ fn build_app_settings_preview(app_settings_json: Option<&str>) -> (Vec<String>, 
         }
     }
 
-    (keys, preview)
+    (
+        Some("legacy".to_string()),
+        keys.clone(),
+        preview,
+        vec![AppSettingsSectionPreview {
+            id: "legacy".to_string(),
+            field_keys: keys,
+            field_values: HashMap::new(),
+            contains_env_vars: false,
+        }],
+    )
 }
 
 /// Resolve name conflicts by appending a suffix like macOS does
@@ -721,7 +990,7 @@ pub async fn preview_oxide_import(
     let mut records: Vec<ImportPreviewRecord> = Vec::new();
     let mut plugin_settings_by_plugin: HashMap<String, usize> = HashMap::new();
     let mut forward_details: Vec<ForwardDetail> = Vec::new();
-    let (app_settings_keys, app_settings_preview) =
+    let (app_settings_format, app_settings_keys, app_settings_preview, app_settings_sections) =
         build_app_settings_preview(payload.app_settings_json.as_deref());
 
     for setting in &payload.plugin_settings {
@@ -850,8 +1119,10 @@ pub async fn preview_oxide_import(
         has_embedded_keys,
         total_forwards: payload.connections.iter().map(|c| c.forwards.len()).sum(),
         has_app_settings: payload.app_settings_json.is_some(),
+        app_settings_format,
         app_settings_keys,
         app_settings_preview,
+        app_settings_sections,
         plugin_settings_count: payload.plugin_settings.len(),
         plugin_settings_by_plugin,
         forward_details,

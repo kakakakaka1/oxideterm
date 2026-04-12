@@ -408,6 +408,13 @@ export type ImportPreviewForward = Readonly<{
   description: string;
 }>;
 
+export type ImportPreviewAppSettingsSection = Readonly<{
+  id: string;
+  fieldKeys: readonly string[];
+  fieldValues?: Readonly<Record<string, string>>;
+  containsEnvVars?: boolean;
+}>;
+
 export type ImportPreview = Readonly<{
   totalConnections: number;
   unchanged: readonly string[];
@@ -418,8 +425,10 @@ export type ImportPreview = Readonly<{
   hasEmbeddedKeys: boolean;
   totalForwards: number;
   hasAppSettings: boolean;
+  appSettingsFormat?: 'legacy' | 'sectioned';
   appSettingsKeys?: readonly string[];
   appSettingsPreview?: Readonly<Record<string, string>>;
+  appSettingsSections?: ReadonlyArray<ImportPreviewAppSettingsSection>;
   pluginSettingsCount: number;
   pluginSettingsByPlugin: Readonly<Record<string, number>>;
   forwardDetails: ReadonlyArray<ImportPreviewForward>;
