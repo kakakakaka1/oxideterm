@@ -670,6 +670,7 @@ pub async fn node_list_saved_forwards(
             id: f.id,
             session_id: f.session_id,
             owner_connection_id: f.owner_connection_id,
+            owner_connection_name: None,
             forward_type: format!("{:?}", f.forward_type).to_lowercase(),
             bind_address: f.rule.bind_address,
             bind_port: f.rule.bind_port,

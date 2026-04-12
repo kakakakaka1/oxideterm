@@ -383,6 +383,10 @@ describe('pluginContextFactory', () => {
       willMerge: [],
       hasEmbeddedKeys: false,
       totalForwards: 0,
+      hasAppSettings: false,
+      pluginSettingsCount: 0,
+      pluginSettingsByPlugin: {},
+      forwardDetails: [],
       records: [{
         resource: 'connection',
         name: 'Staging',
@@ -541,6 +545,7 @@ describe('pluginContextFactory', () => {
       password: 'ImportPass!123',
       selectedNames: null,
       conflictStrategy: 'skip',
+      importForwards: null,
     });
     expect(appStoreState.loadSavedConnections).toHaveBeenCalledTimes(3);
   });
@@ -710,6 +715,10 @@ describe('pluginContextFactory', () => {
         willMerge: ['Prod'],
         hasEmbeddedKeys: false,
         totalForwards: 0,
+        hasAppSettings: false,
+        pluginSettingsCount: 0,
+        pluginSettingsByPlugin: {},
+        forwardDetails: [],
         records: [{
           resource: 'connection',
           name: 'Prod',
@@ -761,6 +770,7 @@ describe('pluginContextFactory', () => {
       password: 'ImportPass!123',
       selectedNames: null,
       conflictStrategy: 'merge',
+      importForwards: null,
     });
   });
 

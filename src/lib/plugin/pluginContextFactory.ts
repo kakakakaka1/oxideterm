@@ -448,6 +448,8 @@ function toFrozenImportPreview(preview: ImportPreview): Readonly<ImportPreview> 
     willSkip: [...preview.willSkip],
     willReplace: [...preview.willReplace],
     willMerge: [...preview.willMerge],
+    pluginSettingsByPlugin: freezeSnapshot<Record<string, number>>({ ...preview.pluginSettingsByPlugin }),
+    forwardDetails: preview.forwardDetails.map((detail) => ({ ...detail })),
     records: preview.records.map((record) => ({ ...record })),
   });
 }
@@ -941,6 +943,19 @@ export function buildPluginContext(manifest: PluginManifest): PluginContext {
     'zh-CN', 'en', 'fr-FR', 'ja', 'es-ES', 'pt-BR', 'vi', 'ko', 'de', 'it', 'zh-TW',
   ]);
   const supportedUiDensities = new Set(['compact', 'comfortable', 'spacious']);
+  type MutableSyncableSettingsPayload = {
+    appearance?: {
+      language?: string;
+      uiDensity?: 'compact' | 'comfortable' | 'spacious';
+    };
+    terminal?: {
+      fontSize?: number;
+      theme?: string;
+    };
+    reconnect?: {
+      autoReconnect?: boolean;
+    };
+  };
 
   const getSyncableSettingsPayload = (): SyncableSettingsPayload => {
     if (!_useSettingsStore) {
@@ -968,10 +983,10 @@ export function buildPluginContext(manifest: PluginManifest): PluginContext {
     warnings: SyncableSettingsWarning[];
   } => {
     const warnings: SyncableSettingsWarning[] = [];
-    const normalized: SyncableSettingsPayload = {};
+    const normalized: MutableSyncableSettingsPayload = {};
 
     if (payload.appearance) {
-      const appearance: NonNullable<SyncableSettingsPayload['appearance']> = {};
+      const appearance: NonNullable<MutableSyncableSettingsPayload['appearance']> = {};
 
       if (payload.appearance.language) {
         if (supportedLanguages.has(payload.appearance.language)) {
@@ -1005,7 +1020,7 @@ export function buildPluginContext(manifest: PluginManifest): PluginContext {
     }
 
     if (payload.terminal) {
-      const terminal: NonNullable<SyncableSettingsPayload['terminal']> = {};
+      const terminal: NonNullable<MutableSyncableSettingsPayload['terminal']> = {};
 
       if (payload.terminal.fontSize !== undefined) {
         if (!Number.isFinite(payload.terminal.fontSize)) {
@@ -1050,7 +1065,7 @@ export function buildPluginContext(manifest: PluginManifest): PluginContext {
     }
 
     if (payload.reconnect) {
-      const reconnect: NonNullable<SyncableSettingsPayload['reconnect']> = {};
+      const reconnect: NonNullable<MutableSyncableSettingsPayload['reconnect']> = {};
 
       if (payload.reconnect.autoReconnect !== undefined) {
         if (typeof payload.reconnect.autoReconnect === 'boolean') {
@@ -1071,7 +1086,7 @@ export function buildPluginContext(manifest: PluginManifest): PluginContext {
     }
 
     return {
-      payload: freezeSnapshot(normalized),
+      payload: freezeSnapshot<SyncableSettingsPayload>(normalized),
       warnings,
     };
   };
@@ -1283,6 +1298,8 @@ export function buildPluginContext(manifest: PluginManifest): PluginContext {
         embedKeys: request.embedKeys ?? null,
         includeAppSettings: request.includeAppSettings ?? false,
         includePluginSettings: request.includePluginSettings ?? false,
+        selectedPluginIds: request.selectedPluginIds,
+        selectedForwardIds: request.selectedForwardIds,
       });
       return fileData;
     },
@@ -1300,6 +1317,10 @@ export function buildPluginContext(manifest: PluginManifest): PluginContext {
       const result = await importOxideWithClientState(fileData, password, {
         selectedNames: options?.selectedNames,
         conflictStrategy: options?.conflictStrategy,
+        importAppSettings: options?.importAppSettings,
+        importPluginSettings: options?.importPluginSettings,
+        selectedPluginIds: options?.selectedPluginIds,
+        importForwards: options?.importForwards,
       });
 
       await useAppStore.getState().loadSavedConnections();

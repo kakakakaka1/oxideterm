@@ -460,6 +460,8 @@ export type PluginSyncAPI = {
     embedKeys?: boolean;
     includeAppSettings?: boolean;
     includePluginSettings?: boolean;
+    selectedPluginIds?: string[];
+    selectedForwardIds?: string[];
   }): Promise<Uint8Array>;
   /** Validate a .oxide payload and read metadata without decrypting */
   validateOxide(fileData: Uint8Array): Promise<Readonly<OxideMetadata>>;
@@ -476,6 +478,10 @@ export type PluginSyncAPI = {
     options?: {
       selectedNames?: string[];
       conflictStrategy?: PluginSyncConflictStrategy;
+      importAppSettings?: boolean;
+      importPluginSettings?: boolean;
+      selectedPluginIds?: string[];
+      importForwards?: boolean;
     },
   ): Promise<Readonly<ImportResult>>;
 };

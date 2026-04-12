@@ -33,6 +33,10 @@ export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ImportResult | null>(null);
   const [selectedNames, setSelectedNames] = useState<Set<string>>(new Set());
+  const [importAppSettings, setImportAppSettings] = useState(true);
+  const [importPluginSettings, setImportPluginSettings] = useState(true);
+  const [selectedPluginIds, setSelectedPluginIds] = useState<Set<string>>(new Set());
+  const [importForwards, setImportForwards] = useState(true);
   const [conflictStrategy, setConflictStrategy] = useState<ImportConflictStrategy>('rename');
 
   const getSelectableNames = (nextPreview: ImportPreview) => new Set([
@@ -43,6 +47,10 @@ export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
     ...nextPreview.willMerge,
   ]);
 
+  const getSelectablePluginIds = (nextPreview: ImportPreview) => new Set(
+    Object.keys(nextPreview.pluginSettingsByPlugin ?? {}),
+  );
+
   const totalSelectable = preview
     ? preview.unchanged.length
       + preview.willRename.length
@@ -51,12 +59,38 @@ export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
       + preview.willMerge.length
     : 0;
 
-  // ... (handlers unchanged)
+  const pluginEntries = preview ? Object.entries(preview.pluginSettingsByPlugin ?? {}) : [];
+  const hasStructuredPluginPreview = pluginEntries.length > 0;
+  const hasStructuredForwardPreview = Boolean(preview?.forwardDetails?.length);
+  const hasAnySelectedContent = Boolean(
+    selectedNames.size > 0
+    || (preview?.hasAppSettings && importAppSettings)
+    || ((preview?.pluginSettingsCount ?? 0) > 0 && importPluginSettings)
+    || ((preview?.totalForwards ?? 0) > 0 && importForwards),
+  );
+
+  const resetImportState = () => {
+    setPassword('');
+    setPreview(null);
+    setError(null);
+    setResult(null);
+    setSelectedNames(new Set());
+    setImportAppSettings(true);
+    setImportPluginSettings(true);
+    setSelectedPluginIds(new Set());
+    setImportForwards(true);
+    setConflictStrategy('rename');
+  };
 
   const handleSelectFile = async () => {
     setError(null);
     setResult(null);
     setPreview(null);
+    setSelectedNames(new Set());
+    setImportAppSettings(true);
+    setImportPluginSettings(true);
+    setSelectedPluginIds(new Set());
+    setImportForwards(true);
 
     try {
       const selected = await open({
@@ -65,11 +99,9 @@ export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
       });
 
       if (selected && typeof selected === 'string') {
-        const filePath = selected;
-        const data = await readFile(filePath);
+        const data = await readFile(selected);
         setFileData(data);
 
-        // Validate file and extract metadata (no password needed)
         try {
           const meta: OxideMetadata = await validateOxideFile(data);
           setMetadata(meta);
@@ -77,6 +109,7 @@ export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
           console.error('File validation failed:', err);
           setError(`Invalid .oxide file: ${err}`);
           setFileData(null);
+          setMetadata(null);
         }
       }
     } catch (err) {
@@ -100,6 +133,7 @@ export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
       });
       setPreview(previewResult);
       setSelectedNames(getSelectableNames(previewResult));
+      setSelectedPluginIds(getSelectablePluginIds(previewResult));
     } catch (err) {
       console.error('Preview failed:', err);
       const errorMsg = String(err).toLowerCase();
@@ -128,11 +162,15 @@ export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
       const importResult: ImportResult = await importOxideWithClientState(fileData, password, {
         selectedNames: Array.from(selectedNames),
         conflictStrategy,
+        importAppSettings,
+        importPluginSettings,
+        selectedPluginIds: importPluginSettings
+          ? (hasStructuredPluginPreview ? Array.from(selectedPluginIds) : undefined)
+          : [],
+        importForwards,
       });
 
       setResult(importResult);
-
-      // Refresh connections list
       await loadSavedConnections();
 
       if (importResult.errors.length === 0) {
@@ -156,16 +194,22 @@ export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
   };
 
   const toggleName = (name: string) => {
-    setSelectedNames(prev => {
+    setSelectedNames((prev) => {
       const next = new Set(prev);
-      if (next.has(name)) next.delete(name);
-      else next.add(name);
+      if (next.has(name)) {
+        next.delete(name);
+      } else {
+        next.add(name);
+      }
       return next;
     });
   };
 
   const toggleAll = () => {
-    if (!preview) return;
+    if (!preview) {
+      return;
+    }
+
     const allNames = getSelectableNames(preview);
     if (selectedNames.size === allNames.size) {
       setSelectedNames(new Set());
@@ -174,15 +218,40 @@ export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
     }
   };
 
+  const toggleImportPluginSettings = () => {
+    if (!preview) {
+      return;
+    }
+
+    if (importPluginSettings) {
+      setImportPluginSettings(false);
+      return;
+    }
+
+    if (selectedPluginIds.size === 0) {
+      setSelectedPluginIds(getSelectablePluginIds(preview));
+    }
+    setImportPluginSettings(true);
+  };
+
+  const togglePluginId = (pluginId: string) => {
+    setSelectedPluginIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(pluginId)) {
+        next.delete(pluginId);
+      } else {
+        next.add(pluginId);
+      }
+
+      setImportPluginSettings(next.size > 0);
+      return next;
+    });
+  };
+
   const handleClose = () => {
     setFileData(null);
     setMetadata(null);
-    setPassword('');
-    setPreview(null);
-    setError(null);
-    setResult(null);
-    setSelectedNames(new Set());
-    setConflictStrategy('rename');
+    resetImportState();
     onClose();
   };
 
@@ -199,12 +268,11 @@ export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
 
         <div className="p-6 space-y-4">
           {!fileData ? (
-            /* File Selection */
             <div className="text-center py-8">
               <Button onClick={handleSelectFile} className="bg-theme-accent text-white hover:bg-theme-accent-hover">
                 {t('modals.import.select_file')}
               </Button>
-              
+
               <div className="mt-6 bg-blue-500/10 border border-blue-500/20 text-blue-500 px-4 py-3 rounded text-sm text-left">
                 <p className="font-semibold">{t('modals.import.instructions_title')}</p>
                 <ul className="mt-1 space-y-1 text-xs opacity-90 list-disc list-inside">
@@ -216,10 +284,9 @@ export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
               </div>
             </div>
           ) : result ? (
-            /* Import Result */
             <div className="py-4">
               <div className={`p-4 rounded border ${
-                result.errors.length === 0 
+                result.errors.length === 0
                   ? 'bg-green-500/10 border-green-500/20 text-green-500'
                   : 'bg-yellow-500/10 border-yellow-500/20 text-yellow-500'
               }`}>
@@ -235,8 +302,17 @@ export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
                 {result.importedAppSettings && (
                   <p className="text-sm mt-1">{t('modals.import.imported_app_settings')}</p>
                 )}
+                {preview?.hasAppSettings && !importAppSettings && (
+                  <p className="text-sm mt-1">{t('modals.import.skipped_app_settings')}</p>
+                )}
                 {result.importedPluginSettings > 0 && (
                   <p className="text-sm mt-1">{t('modals.import.imported_plugin_settings', { count: result.importedPluginSettings })}</p>
+                )}
+                {(preview?.pluginSettingsCount ?? 0) > 0 && !importPluginSettings && (
+                  <p className="text-sm mt-1">{t('modals.import.skipped_plugin_settings')}</p>
+                )}
+                {(preview?.totalForwards ?? 0) > 0 && !importForwards && (
+                  <p className="text-sm mt-1">{t('modals.import.skipped_forwards')}</p>
                 )}
                 {result.replaced > 0 && (
                   <p className="text-sm mt-1">{t('modals.import.replaced', { count: result.replaced })}</p>
@@ -245,8 +321,8 @@ export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
                   <div className="mt-2">
                     <p className="text-sm font-semibold text-yellow-400">{t('modals.import.renamed', { count: result.renamed })}</p>
                     <ul className="text-xs mt-1 space-y-1 opacity-90 max-h-24 overflow-y-auto">
-                      {result.renames.map(([original, renamed], i) => (
-                        <li key={i}>• "{original}" → "{renamed}"</li>
+                      {result.renames.map(([original, renamed], index) => (
+                        <li key={index}>• "{original}" → "{renamed}"</li>
                       ))}
                     </ul>
                   </div>
@@ -255,8 +331,8 @@ export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
                   <div className="mt-2">
                     <p className="text-sm font-semibold">{t('modals.import.errors')}</p>
                     <ul className="text-xs mt-1 space-y-1 opacity-90">
-                      {result.errors.map((err, i) => (
-                        <li key={i}>• {err}</li>
+                      {result.errors.map((item, index) => (
+                        <li key={index}>• {item}</li>
                       ))}
                     </ul>
                   </div>
@@ -270,7 +346,6 @@ export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
               )}
             </div>
           ) : preview ? (
-            /* Preview - Show what will happen before confirming */
             <>
               <div className="border border-theme-border rounded-md p-4 space-y-3 bg-theme-bg">
                 <div className="flex items-center justify-between">
@@ -288,7 +363,7 @@ export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
                       : t('modals.import.select_all')}
                   </button>
                 </div>
-                
+
                 <p className="text-sm text-theme-text">
                   {t('modals.import.preview_total', { count: preview.totalConnections })}
                   {' — '}
@@ -297,16 +372,15 @@ export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
                   </span>
                 </p>
 
-                {/* Connections without conflicts */}
                 {preview.unchanged.length > 0 && (
                   <div>
                     <p className="text-sm font-semibold text-green-500">
                       {t('modals.import.preview_unchanged', { count: preview.unchanged.length })}
                     </p>
                     <ul className="text-xs text-theme-text-muted mt-1 space-y-1 max-h-20 overflow-y-auto">
-                      {preview.unchanged.map((name, i) => (
+                      {preview.unchanged.map((name, index) => (
                         <li
-                          key={i}
+                          key={index}
                           className="flex items-center gap-1.5 cursor-pointer hover:text-theme-text transition-colors"
                           onClick={() => toggleName(name)}
                         >
@@ -320,7 +394,6 @@ export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
                   </div>
                 )}
 
-                {/* Connections with name conflicts that will be renamed */}
                 {preview.willRename.length > 0 && (
                   <div>
                     <div className="flex items-center gap-2">
@@ -330,9 +403,9 @@ export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
                       </p>
                     </div>
                     <ul className="text-xs text-yellow-400 mt-1 space-y-1 max-h-24 overflow-y-auto">
-                      {preview.willRename.map(([original, renamed], i) => (
+                      {preview.willRename.map(([original, renamed], index) => (
                         <li
-                          key={i}
+                          key={index}
                           className="flex items-center gap-1.5 cursor-pointer hover:text-yellow-300 transition-colors"
                           onClick={() => toggleName(original)}
                         >
@@ -355,9 +428,9 @@ export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
                       </p>
                     </div>
                     <ul className="text-xs text-blue-400 mt-1 space-y-1 max-h-24 overflow-y-auto">
-                      {preview.willMerge.map((name, i) => (
+                      {preview.willMerge.map((name, index) => (
                         <li
-                          key={i}
+                          key={index}
                           className="flex items-center gap-1.5 cursor-pointer hover:text-blue-300 transition-colors"
                           onClick={() => toggleName(name)}
                         >
@@ -380,9 +453,9 @@ export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
                       </p>
                     </div>
                     <ul className="text-xs text-orange-400 mt-1 space-y-1 max-h-24 overflow-y-auto">
-                      {preview.willReplace.map((name, i) => (
+                      {preview.willReplace.map((name, index) => (
                         <li
-                          key={i}
+                          key={index}
                           className="flex items-center gap-1.5 cursor-pointer hover:text-orange-300 transition-colors"
                           onClick={() => toggleName(name)}
                         >
@@ -405,9 +478,9 @@ export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
                       </p>
                     </div>
                     <ul className="text-xs text-slate-400 mt-1 space-y-1 max-h-24 overflow-y-auto">
-                      {preview.willSkip.map((name, i) => (
+                      {preview.willSkip.map((name, index) => (
                         <li
-                          key={i}
+                          key={index}
                           className="flex items-center gap-1.5 cursor-pointer hover:text-slate-200 transition-colors"
                           onClick={() => toggleName(name)}
                         >
@@ -421,46 +494,136 @@ export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
                   </div>
                 )}
 
-                {/* Embedded keys notice */}
+                {preview.hasAppSettings && (
+                  <div className="rounded-md border border-theme-border bg-theme-bg-elevated/60 p-3">
+                    <button
+                      type="button"
+                      onClick={() => setImportAppSettings((prev) => !prev)}
+                      className="flex w-full items-start gap-2 text-left"
+                    >
+                      {importAppSettings
+                        ? <CheckSquare className="mt-0.5 h-4 w-4 flex-shrink-0 text-theme-accent" />
+                        : <Square className="mt-0.5 h-4 w-4 flex-shrink-0 text-theme-text-muted" />}
+                      <div>
+                        <p className="text-sm font-semibold text-theme-text">{t('modals.import.section_app_settings')}</p>
+                        <p className="text-xs text-theme-text-muted">{t('modals.import.toggle_app_settings')}</p>
+                        {!importAppSettings && (
+                          <p className="mt-1 text-xs text-yellow-400">{t('modals.import.skipped_app_settings')}</p>
+                        )}
+                      </div>
+                    </button>
+                  </div>
+                )}
+
+                {preview.pluginSettingsCount > 0 && (
+                  hasStructuredPluginPreview ? (
+                    <div className="rounded-md border border-theme-border bg-theme-bg-elevated/60 p-3 space-y-3">
+                      <button
+                        type="button"
+                        onClick={toggleImportPluginSettings}
+                        className="flex w-full items-start gap-2 text-left"
+                      >
+                        {importPluginSettings
+                          ? <CheckSquare className="mt-0.5 h-4 w-4 flex-shrink-0 text-theme-accent" />
+                          : <Square className="mt-0.5 h-4 w-4 flex-shrink-0 text-theme-text-muted" />}
+                        <div>
+                          <p className="text-sm font-semibold text-theme-text">
+                            {t('modals.import.section_plugin_settings', { count: pluginEntries.length })}
+                          </p>
+                          <p className="text-xs text-theme-text-muted">{t('modals.import.toggle_plugin_settings')}</p>
+                          {!importPluginSettings && (
+                            <p className="mt-1 text-xs text-yellow-400">{t('modals.import.skipped_plugin_settings')}</p>
+                          )}
+                        </div>
+                      </button>
+
+                      <div className="space-y-1">
+                        {pluginEntries.map(([pluginId, count]) => (
+                          <button
+                            key={pluginId}
+                            type="button"
+                            onClick={() => togglePluginId(pluginId)}
+                            disabled={!importPluginSettings && !selectedPluginIds.has(pluginId)}
+                            className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-theme-bg disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            <span className="flex items-center gap-2 text-theme-text">
+                              {selectedPluginIds.has(pluginId)
+                                ? <CheckSquare className="h-3.5 w-3.5 flex-shrink-0 text-theme-accent" />
+                                : <Square className="h-3.5 w-3.5 flex-shrink-0 text-theme-text-muted" />}
+                              <span>{pluginId}</span>
+                            </span>
+                            <span className="text-theme-text-muted">
+                              {t('modals.import.plugin_settings_items', { count })}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-blue-500/10 border border-blue-500/20 text-blue-500 px-3 py-2 rounded text-xs">
+                      {t('modals.import.preview_plugin_settings', { count: preview.pluginSettingsCount })}
+                    </div>
+                  )
+                )}
+
+                {preview.totalForwards > 0 && (
+                  hasStructuredForwardPreview ? (
+                    <div className="rounded-md border border-theme-border bg-theme-bg-elevated/60 p-3 space-y-3">
+                      <button
+                        type="button"
+                        onClick={() => setImportForwards((prev) => !prev)}
+                        className="flex w-full items-start gap-2 text-left"
+                      >
+                        {importForwards
+                          ? <CheckSquare className="mt-0.5 h-4 w-4 flex-shrink-0 text-theme-accent" />
+                          : <Square className="mt-0.5 h-4 w-4 flex-shrink-0 text-theme-text-muted" />}
+                        <div>
+                          <p className="text-sm font-semibold text-theme-text">
+                            {t('modals.import.section_forwards', { count: preview.totalForwards })}
+                          </p>
+                          <p className="text-xs text-theme-text-muted">{t('modals.import.toggle_forwards')}</p>
+                          {!importForwards && (
+                            <p className="mt-1 text-xs text-yellow-400">{t('modals.import.skipped_forwards')}</p>
+                          )}
+                        </div>
+                      </button>
+
+                      <ul className="space-y-1 max-h-28 overflow-y-auto text-xs text-theme-text-muted">
+                        {preview.forwardDetails.map((detail, index) => (
+                          <li key={`${detail.ownerConnectionName}-${detail.direction}-${index}`} className="rounded-md px-2 py-1.5 bg-theme-bg/60">
+                            <span className="font-medium text-theme-text">{detail.ownerConnectionName}</span>
+                            {' · '}
+                            <span>{detail.description}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : (
+                    <div className="bg-blue-500/10 border border-blue-500/20 text-blue-500 px-3 py-2 rounded text-xs">
+                      {t('modals.import.preview_forwards', { count: preview.totalForwards })}
+                    </div>
+                  )
+                )}
+
                 {preview.hasEmbeddedKeys && (
                   <div className="bg-blue-500/10 border border-blue-500/20 text-blue-500 px-3 py-2 rounded text-xs">
                     {t('modals.import.preview_embedded_keys')}
                   </div>
                 )}
-
-                {/* Port forwarding rules notice */}
-                {preview.totalForwards > 0 && (
-                  <div className="bg-blue-500/10 border border-blue-500/20 text-blue-500 px-3 py-2 rounded text-xs">
-                    {t('modals.import.preview_forwards', { count: preview.totalForwards })}
-                  </div>
-                )}
-
-                {preview.hasAppSettings && (
-                  <div className="bg-blue-500/10 border border-blue-500/20 text-blue-500 px-3 py-2 rounded text-xs">
-                    {t('modals.import.preview_app_settings')}
-                  </div>
-                )}
-
-                {preview.pluginSettingsCount > 0 && (
-                  <div className="bg-blue-500/10 border border-blue-500/20 text-blue-500 px-3 py-2 rounded text-xs">
-                    {t('modals.import.preview_plugin_settings', { count: preview.pluginSettingsCount })}
-                  </div>
-                )}
               </div>
 
-              {/* Actions */}
               <div className="flex justify-end space-x-2 pt-2">
-                <Button 
-                  variant="outline" 
-                  onClick={() => setPreview(null)} 
-                  disabled={importing} 
+                <Button
+                  variant="outline"
+                  onClick={() => setPreview(null)}
+                  disabled={importing}
                   className="border-theme-border text-theme-text hover:bg-theme-bg-hover"
                 >
                   {t('modals.import.back')}
                 </Button>
-                <Button 
-                  onClick={handleImport} 
-                  disabled={importing || selectedNames.size === 0}
+                <Button
+                  onClick={handleImport}
+                  disabled={importing || !hasAnySelectedContent}
                   className="bg-theme-accent text-white hover:bg-theme-accent-hover disabled:opacity-50"
                 >
                   {importing ? t('modals.import.importing') : t('modals.import.confirm_import')}
@@ -468,7 +631,6 @@ export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
               </div>
             </>
           ) : (
-            /* File Info & Password Input */
             <>
               {metadata && (
                 <div className="border border-theme-border rounded-md p-4 space-y-2 bg-theme-bg">
@@ -491,24 +653,23 @@ export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
                   <div className="mt-3">
                     <p className="text-sm font-semibold text-theme-text">{t('modals.import.connection_list')}</p>
                     <ul className="text-xs text-theme-text-muted mt-1 space-y-1 max-h-32 overflow-y-auto">
-                      {metadata.connection_names.map((name, i) => (
-                        <li key={i}>• {name}</li>
+                      {metadata.connection_names.map((name, index) => (
+                        <li key={index}>• {name}</li>
                       ))}
                     </ul>
                   </div>
                 </div>
               )}
 
-              {/* Password Input */}
               <div>
                 <Label className="text-theme-text">{t('modals.import.password')}</Label>
                 <Input
                   type="password"
                   placeholder={t('modals.import.password_placeholder')}
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && password) {
+                  onChange={(event) => setPassword(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && password) {
                       handlePreview();
                     }
                   }}
@@ -537,14 +698,12 @@ export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
                 </div>
               </div>
 
-              {/* Error Message */}
               {error && (
                 <div className="bg-red-500/10 border border-red-500/20 text-red-500 px-3 py-2 rounded text-sm">
                   {error}
                 </div>
               )}
 
-              {/* Warning */}
               <div className="bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 px-3 py-2 rounded text-sm">
                 <p className="font-semibold">{t('modals.import.warning_title')}</p>
                 <p className="text-xs mt-1 opacity-90">
@@ -555,7 +714,6 @@ export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
                 </p>
               </div>
 
-              {/* Actions */}
               <div className="flex justify-end space-x-2 pt-2">
                 <Button variant="outline" onClick={handleSelectFile} disabled={previewing} className="border-theme-border text-theme-text hover:bg-theme-bg-hover">
                   {t('modals.import.reselect_file')}
@@ -563,8 +721,8 @@ export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
                 <Button variant="outline" onClick={handleClose} disabled={previewing} className="border-theme-border text-theme-text hover:bg-theme-bg-hover">
                   {t('modals.import.cancel')}
                 </Button>
-                <Button 
-                  onClick={handlePreview} 
+                <Button
+                  onClick={handlePreview}
                   disabled={previewing || !password}
                   className="bg-theme-accent text-white hover:bg-theme-accent-hover disabled:opacity-50"
                 >
@@ -574,7 +732,6 @@ export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
             </>
           )}
 
-          {/* Result Actions */}
           {result && (
             <div className="flex justify-end space-x-2 pt-2">
               <Button onClick={handleClose} className="bg-theme-accent text-white hover:bg-theme-accent-hover">

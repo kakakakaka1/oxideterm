@@ -14,14 +14,16 @@ import { Checkbox } from '../ui/checkbox';
 import { Label } from '../ui/label';
 import { useAppStore } from '../../store/appStore';
 import { exportOxideWithClientState } from '../../lib/oxideClientState';
-import type { ExportPreflightResult } from '../../types';
+import { api } from '../../lib/api';
+import { collectPluginSettingsSnapshot, parseSettingStorageKey } from '../../lib/plugin/pluginSettingsManager';
+import type { ExportPreflightResult, PersistedForwardInfo } from '../../types';
 
-interface OxideExportModalProps {
+type OxideExportModalProps = {
   isOpen: boolean;
   onClose: () => void;
-}
+};
 
-type ExportStage = 'idle' | 'preflight' | 'reading_keys' | 'encrypting' | 'writing' | 'done';
+type ExportStage = 'idle' | 'reading_keys' | 'encrypting' | 'writing' | 'done';
 
 export function OxideExportModal({ isOpen, onClose }: OxideExportModalProps) {
   const { t } = useTranslation();
@@ -29,6 +31,10 @@ export function OxideExportModal({ isOpen, onClose }: OxideExportModalProps) {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [includeAppSettings, setIncludeAppSettings] = useState(true);
   const [includePluginSettings, setIncludePluginSettings] = useState(true);
+  const [pluginGroups, setPluginGroups] = useState<Record<string, number>>({});
+  const [selectedPluginIds, setSelectedPluginIds] = useState<Set<string>>(new Set());
+  const [allSavedForwards, setAllSavedForwards] = useState<PersistedForwardInfo[]>([]);
+  const [selectedForwardIds, setSelectedForwardIds] = useState<Set<string>>(new Set());
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [description, setDescription] = useState('');
@@ -43,37 +49,82 @@ export function OxideExportModal({ isOpen, onClose }: OxideExportModalProps) {
     ? Number(localStorage.getItem('oxideterm:lastExportTimestamp') || '0')
     : 0;
 
+  const pluginGroupEntries = Object.entries(pluginGroups).sort(([left], [right]) => left.localeCompare(right));
+  const selectedForwardOwnerIds = allSavedForwards
+    .filter((forward) => selectedForwardIds.has(forward.id) && forward.owner_connection_id)
+    .map((forward) => forward.owner_connection_id as string);
+  const effectiveConnectionIds = Array.from(new Set([...selectedIds, ...selectedForwardOwnerIds]));
+  const hasSelectedPluginSettings = includePluginSettings && selectedPluginIds.size > 0;
+  const hasAnyContent = Boolean(
+    selectedIds.length > 0
+    || includeAppSettings
+    || hasSelectedPluginSettings
+    || selectedForwardIds.size > 0,
+  );
+
+  const forwardGroups = allSavedForwards.reduce<Record<string, PersistedForwardInfo[]>>((groups, forward) => {
+    const ownerLabel = forward.owner_connection_name || forward.owner_connection_id || '-';
+    if (!groups[ownerLabel]) {
+      groups[ownerLabel] = [];
+    }
+    groups[ownerLabel].push(forward);
+    return groups;
+  }, {});
+
   const isNewSinceLastExport = (createdAt: string): boolean => {
-    if (!lastExportTimestamp) return false;
+    if (!lastExportTimestamp) {
+      return false;
+    }
     return new Date(createdAt).getTime() > lastExportTimestamp;
   };
 
-  const newConnectionCount = savedConnections.filter(c => isNewSinceLastExport(c.created_at)).length;
+  const newConnectionCount = savedConnections.filter((connection) => isNewSinceLastExport(connection.created_at)).length;
 
-  // Load connections when modal opens
+  const loadExportSources = useCallback(async () => {
+    await loadSavedConnections();
+
+    const groupedPluginSettings = collectPluginSettingsSnapshot().reduce<Record<string, number>>((groups, entry) => {
+      const parsed = parseSettingStorageKey(entry.storageKey);
+      if (!parsed) {
+        return groups;
+      }
+      groups[parsed.pluginId] = (groups[parsed.pluginId] || 0) + 1;
+      return groups;
+    }, {});
+
+    setPluginGroups(groupedPluginSettings);
+    setSelectedPluginIds(new Set(Object.keys(groupedPluginSettings)));
+
+    const forwards = await api.listAllSavedForwards();
+    setAllSavedForwards(forwards);
+    setSelectedForwardIds(new Set(forwards.map((forward) => forward.id)));
+  }, [loadSavedConnections]);
+
   useEffect(() => {
-    if (isOpen) {
-      loadSavedConnections();
-      setSelectedIds([]);
-      setIncludeAppSettings(true);
-      setIncludePluginSettings(true);
-      setPassword('');
-      setConfirmPassword('');
-      setDescription('');
-      setEmbedKeys(false);
-      setError(null);
-      setPreflight(null);
-      setExportStage('idle');
+    if (!isOpen) {
+      return;
     }
-  }, [isOpen, loadSavedConnections]);
 
-  // Run preflight check when selection or embedKeys changes
+    setSelectedIds([]);
+    setIncludeAppSettings(true);
+    setIncludePluginSettings(true);
+    setPassword('');
+    setConfirmPassword('');
+    setDescription('');
+    setEmbedKeys(false);
+    setError(null);
+    setPreflight(null);
+    setExportStage('idle');
+
+    void loadExportSources();
+  }, [isOpen, loadExportSources]);
+
   const runPreflight = useCallback(async (ids: string[], embed: boolean) => {
     if (ids.length === 0) {
       setPreflight(null);
       return;
     }
-    
+
     setPreflightLoading(true);
     try {
       const result: ExportPreflightResult = await invoke('preflight_export', {
@@ -88,28 +139,51 @@ export function OxideExportModal({ isOpen, onClose }: OxideExportModalProps) {
     }
   }, []);
 
-  // Debounced preflight check
   useEffect(() => {
     const timer = setTimeout(() => {
-      runPreflight(selectedIds, embedKeys);
+      void runPreflight(effectiveConnectionIds, embedKeys);
     }, 300);
     return () => clearTimeout(timer);
-  }, [selectedIds, embedKeys, runPreflight]);
+  }, [effectiveConnectionIds, embedKeys, runPreflight]);
 
   const handleSelectAll = () => {
     if (selectedIds.length === savedConnections.length) {
       setSelectedIds([]);
     } else {
-      setSelectedIds(savedConnections.map(c => c.id));
+      setSelectedIds(savedConnections.map((connection) => connection.id));
     }
   };
 
   const handleToggleConnection = (id: string) => {
-    if (selectedIds.includes(id)) {
-      setSelectedIds(selectedIds.filter(cid => cid !== id));
-    } else {
-      setSelectedIds([...selectedIds, id]);
-    }
+    setSelectedIds((prev) => (
+      prev.includes(id)
+        ? prev.filter((connectionId) => connectionId !== id)
+        : [...prev, id]
+    ));
+  };
+
+  const handleToggleForward = (id: string) => {
+    setSelectedForwardIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const handleTogglePlugin = (pluginId: string) => {
+    setSelectedPluginIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(pluginId)) {
+        next.delete(pluginId);
+      } else {
+        next.add(pluginId);
+      }
+      return next;
+    });
   };
 
   const validatePassword = (): boolean => {
@@ -137,16 +211,29 @@ export function OxideExportModal({ isOpen, onClose }: OxideExportModalProps) {
   };
 
   const formatBytes = (bytes: number): string => {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    if (bytes < 1024) {
+      return `${bytes} B`;
+    }
+    if (bytes < 1024 * 1024) {
+      return `${(bytes / 1024).toFixed(1)} KB`;
+    }
     return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+  };
+
+  const formatForwardSummary = (forward: PersistedForwardInfo): string => {
+    const direction = forward.forward_type === 'local'
+      ? 'L'
+      : forward.forward_type === 'remote'
+        ? 'R'
+        : 'D';
+    return `${direction} ${forward.bind_address}:${forward.bind_port} -> ${forward.target_host}:${forward.target_port}`;
   };
 
   const handleExport = async () => {
     setError(null);
 
-    if (selectedIds.length === 0) {
-      setError(t('modals.export.error_select_one'));
+    if (!hasAnyContent) {
+      setError(t('modals.export.error_select_something'));
       return;
     }
 
@@ -157,26 +244,24 @@ export function OxideExportModal({ isOpen, onClose }: OxideExportModalProps) {
     setExporting(true);
 
     try {
-      // Stage 1: Reading keys (if embed_keys is enabled)
       if (embedKeys && preflight && preflight.connectionsWithKeys > 0) {
         setExportStage('reading_keys');
-        await new Promise(resolve => setTimeout(resolve, 300)); // Brief visual pause
+        await new Promise((resolve) => setTimeout(resolve, 300));
       }
 
-      // Stage 2: Encrypting
       setExportStage('encrypting');
-      
-      // Call Tauri command to encrypt and export
+
       const fileData = await exportOxideWithClientState({
-        connectionIds: selectedIds,
+        connectionIds: effectiveConnectionIds,
         password,
         description: description || null,
         embedKeys: embedKeys || null,
         includeAppSettings,
-        includePluginSettings,
+        includePluginSettings: hasSelectedPluginSettings,
+        selectedPluginIds: hasSelectedPluginSettings ? Array.from(selectedPluginIds) : [],
+        selectedForwardIds: Array.from(selectedForwardIds),
       });
 
-      // Stage 3: Save file dialog
       setExportStage('writing');
       const savePath = await save({
         defaultPath: `oxide-export-${Date.now()}.oxide`,
@@ -184,15 +269,10 @@ export function OxideExportModal({ isOpen, onClose }: OxideExportModalProps) {
       });
 
       if (savePath) {
-        // Write binary file
         await writeFile(savePath, fileData);
         setExportStage('done');
-
-        // Record export timestamp
         localStorage.setItem('oxideterm:lastExportTimestamp', String(Date.now()));
-        
-        // Brief success pause before closing
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await new Promise((resolve) => setTimeout(resolve, 500));
         onClose();
       } else {
         setExportStage('idle');
@@ -208,11 +288,16 @@ export function OxideExportModal({ isOpen, onClose }: OxideExportModalProps) {
 
   const getStageText = (): string => {
     switch (exportStage) {
-      case 'reading_keys': return t('modals.export.stage_reading_keys');
-      case 'encrypting': return t('modals.export.stage_encrypting');
-      case 'writing': return t('modals.export.stage_writing');
-      case 'done': return t('modals.export.stage_done');
-      default: return t('modals.export.exporting');
+      case 'reading_keys':
+        return t('modals.export.stage_reading_keys');
+      case 'encrypting':
+        return t('modals.export.stage_encrypting');
+      case 'writing':
+        return t('modals.export.stage_writing');
+      case 'done':
+        return t('modals.export.stage_done');
+      default:
+        return t('modals.export.exporting');
     }
   };
 
@@ -228,7 +313,6 @@ export function OxideExportModal({ isOpen, onClose }: OxideExportModalProps) {
         </DialogHeader>
 
         <div className="p-6 space-y-4 overflow-y-auto flex-1">
-          {/* Connection Selection */}
           <div>
             <div className="flex items-center justify-between mb-2">
               <Label className="text-theme-text">{t('modals.export.select_connections', { selected: selectedIds.length, total: savedConnections.length })}</Label>
@@ -250,17 +334,17 @@ export function OxideExportModal({ isOpen, onClose }: OxideExportModalProps) {
                   {t('modals.export.no_connections')}
                 </p>
               ) : (
-                savedConnections.map(conn => (
-                  <div key={conn.id} className="flex items-center space-x-2 p-2 hover:bg-theme-bg-hover rounded cursor-pointer" onClick={() => handleToggleConnection(conn.id)}>
+                savedConnections.map((connection) => (
+                  <div key={connection.id} className="flex items-center space-x-2 p-2 hover:bg-theme-bg-hover rounded cursor-pointer" onClick={() => handleToggleConnection(connection.id)}>
                     <Checkbox
-                      checked={selectedIds.includes(conn.id)}
-                      onCheckedChange={() => handleToggleConnection(conn.id)}
+                      checked={selectedIds.includes(connection.id)}
+                      onCheckedChange={() => handleToggleConnection(connection.id)}
                       className="border-theme-text-muted data-[state=checked]:bg-theme-accent data-[state=checked]:border-theme-accent"
                     />
                     <Label className="flex-1 cursor-pointer text-theme-text">
                       <div className="font-medium flex items-center gap-1.5">
-                        {conn.name}
-                        {isNewSinceLastExport(conn.created_at) && (
+                        {connection.name}
+                        {isNewSinceLastExport(connection.created_at) && (
                           <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-green-500/15 text-green-500 leading-none">
                             <Sparkles className="h-2.5 w-2.5" />
                             {t('modals.export.badge_new')}
@@ -268,8 +352,8 @@ export function OxideExportModal({ isOpen, onClose }: OxideExportModalProps) {
                         )}
                       </div>
                       <div className="text-xs text-theme-text-muted">
-                        {conn.username}@{conn.host}:{conn.port}
-                        {conn.group && ` [${conn.group}]`}
+                        {connection.username}@{connection.host}:{connection.port}
+                        {connection.group && ` [${connection.group}]`}
                       </div>
                     </Label>
                   </div>
@@ -278,71 +362,39 @@ export function OxideExportModal({ isOpen, onClose }: OxideExportModalProps) {
             </div>
           </div>
 
-          {/* Export Summary / Preflight */}
-          {selectedIds.length > 0 && (
-            <div className="border border-theme-border rounded-md p-3 bg-theme-bg space-y-2">
-              <div className="flex items-center gap-2 text-sm font-semibold text-theme-text">
-                <Shield className="h-4 w-4" />
-                {t('modals.export.summary_title')}
-                {preflightLoading && <Loader2 className="h-3 w-3 animate-spin" />}
-              </div>
-              
-              {preflight && (
-                <div className="grid grid-cols-3 gap-2 text-xs">
-                  <div className="flex items-center gap-1.5 text-theme-text-muted">
-                    <Lock className="h-3 w-3" />
-                    <span>{t('modals.export.summary_passwords', { count: preflight.connectionsWithPasswords })}</span>
-                  </div>
-                  <div className="flex items-center gap-1.5 text-theme-text-muted">
-                    <Key className="h-3 w-3" />
-                    <span>{t('modals.export.summary_keys', { count: preflight.connectionsWithKeys })}</span>
-                  </div>
-                  <div className="flex items-center gap-1.5 text-theme-text-muted">
-                    <FileKey className="h-3 w-3" />
-                    <span>{t('modals.export.summary_agent', { count: preflight.connectionsWithAgent })}</span>
-                  </div>
-                </div>
-              )}
-
-              {preflight && preflight.connectionsWithPasswords > 0 && (
-                <div className="bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 px-2 py-1.5 rounded text-xs">
-                  {t('modals.export.warning_passwords_excluded', { count: preflight.connectionsWithPasswords })}
-                </div>
-              )}
-
-              {/* Missing keys warning */}
-              {preflight && embedKeys && preflight.missingKeys.length > 0 && (
-                <div className="bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 px-2 py-1.5 rounded text-xs">
-                  <div className="flex items-center gap-1.5 font-semibold">
-                    <AlertTriangle className="h-3 w-3" />
-                    {t('modals.export.warning_missing_keys', { count: preflight.missingKeys.length })}
-                  </div>
-                  <ul className="mt-1 space-y-0.5 max-h-16 overflow-y-auto">
-                    {preflight.missingKeys.map(([name, path], i) => (
-                      <li key={i} className="opacity-80">• {name}: {path}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {/* Key size info when embedding */}
-              {preflight && embedKeys && preflight.totalKeyBytes > 0 && (
-                <div className="text-xs text-theme-text-muted">
-                  {t('modals.export.key_size', { size: formatBytes(preflight.totalKeyBytes) })}
-                </div>
-              )}
+          <div className="border border-theme-border rounded-md p-3 bg-theme-bg space-y-2">
+            <div className="flex items-center gap-2 text-sm font-semibold text-theme-text">
+              <Shield className="h-4 w-4" />
+              {t('modals.export.section_forwards', { count: allSavedForwards.length })}
             </div>
-          )}
+            <p className="text-xs text-theme-text-muted">
+              {t('modals.export.forwards_owner_notice')}
+            </p>
 
-          {/* Description */}
-          <div>
-            <Label className="text-theme-text">{t('modals.export.description')}</Label>
-            <Input
-              placeholder={t('modals.export.description_placeholder')}
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              className="mt-1 bg-theme-bg border-theme-border text-theme-text placeholder:text-theme-text-muted focus-visible:ring-theme-accent"
-            />
+            {allSavedForwards.length === 0 ? (
+              <p className="text-xs text-theme-text-muted">{t('modals.export.no_forwards')}</p>
+            ) : (
+              <div className="max-h-52 overflow-y-auto space-y-3">
+                {Object.entries(forwardGroups).sort(([left], [right]) => left.localeCompare(right)).map(([ownerLabel, forwards]) => (
+                  <div key={ownerLabel} className="space-y-1">
+                    <p className="text-xs font-semibold text-theme-text">{ownerLabel}</p>
+                    {forwards.map((forward) => (
+                      <div key={forward.id} className="flex items-start space-x-2 px-1 py-1 rounded hover:bg-theme-bg-hover">
+                        <Checkbox
+                          checked={selectedForwardIds.has(forward.id)}
+                          onCheckedChange={() => handleToggleForward(forward.id)}
+                          className="mt-0.5 border-theme-text-muted data-[state=checked]:bg-theme-accent data-[state=checked]:border-theme-accent"
+                        />
+                        <div className="text-xs text-theme-text">
+                          <div>{forward.description || formatForwardSummary(forward)}</div>
+                          <div className="text-theme-text-muted">{formatForwardSummary(forward)}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="space-y-2">
@@ -379,9 +431,91 @@ export function OxideExportModal({ isOpen, onClose }: OxideExportModalProps) {
                 </p>
               </div>
             </div>
+
+            <div className="border border-theme-border rounded-md p-3 bg-theme-bg space-y-2">
+              {pluginGroupEntries.length === 0 ? (
+                <p className="text-xs text-theme-text-muted">{t('modals.export.no_plugin_settings')}</p>
+              ) : (
+                pluginGroupEntries.map(([pluginId, count]) => (
+                  <div key={pluginId} className="flex items-center space-x-2">
+                    <Checkbox
+                      checked={selectedPluginIds.has(pluginId)}
+                      disabled={!includePluginSettings}
+                      onCheckedChange={() => handleTogglePlugin(pluginId)}
+                      className="border-theme-text-muted data-[state=checked]:bg-theme-accent data-[state=checked]:border-theme-accent"
+                    />
+                    <Label className="cursor-pointer text-sm text-theme-text">
+                      {t('modals.export.section_plugin_by_id', { pluginId, count })}
+                    </Label>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
 
-          {/* Embed Keys Option */}
+          <div>
+            <div className="flex items-center gap-2 text-sm font-semibold text-theme-text mb-2">
+              <Shield className="h-4 w-4" />
+              {t('modals.export.summary_title')}
+              {preflightLoading && <Loader2 className="h-3 w-3 animate-spin" />}
+            </div>
+
+            {effectiveConnectionIds.length > 0 && preflight && (
+              <div className="border border-theme-border rounded-md p-3 bg-theme-bg space-y-2">
+                <div className="grid grid-cols-3 gap-2 text-xs">
+                  <div className="flex items-center gap-1.5 text-theme-text-muted">
+                    <Lock className="h-3 w-3" />
+                    <span>{t('modals.export.summary_passwords', { count: preflight.connectionsWithPasswords })}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-theme-text-muted">
+                    <Key className="h-3 w-3" />
+                    <span>{t('modals.export.summary_keys', { count: preflight.connectionsWithKeys })}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-theme-text-muted">
+                    <FileKey className="h-3 w-3" />
+                    <span>{t('modals.export.summary_agent', { count: preflight.connectionsWithAgent })}</span>
+                  </div>
+                </div>
+
+                {preflight.connectionsWithPasswords > 0 && (
+                  <div className="bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 px-2 py-1.5 rounded text-xs">
+                    {t('modals.export.warning_passwords_excluded', { count: preflight.connectionsWithPasswords })}
+                  </div>
+                )}
+
+                {embedKeys && preflight.missingKeys.length > 0 && (
+                  <div className="bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 px-2 py-1.5 rounded text-xs">
+                    <div className="flex items-center gap-1.5 font-semibold">
+                      <AlertTriangle className="h-3 w-3" />
+                      {t('modals.export.warning_missing_keys', { count: preflight.missingKeys.length })}
+                    </div>
+                    <ul className="mt-1 space-y-0.5 max-h-16 overflow-y-auto">
+                      {preflight.missingKeys.map(([name, path], index) => (
+                        <li key={`${name}-${path}-${index}`} className="opacity-80">• {name}: {path}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {embedKeys && preflight.totalKeyBytes > 0 && (
+                  <div className="text-xs text-theme-text-muted">
+                    {t('modals.export.key_size', { size: formatBytes(preflight.totalKeyBytes) })}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div>
+            <Label className="text-theme-text">{t('modals.export.description')}</Label>
+            <Input
+              placeholder={t('modals.export.description_placeholder')}
+              value={description}
+              onChange={(event) => setDescription(event.target.value)}
+              className="mt-1 bg-theme-bg border-theme-border text-theme-text placeholder:text-theme-text-muted focus-visible:ring-theme-accent"
+            />
+          </div>
+
           <div className="flex items-start space-x-2">
             <Checkbox
               id="embedKeys"
@@ -399,14 +533,13 @@ export function OxideExportModal({ isOpen, onClose }: OxideExportModalProps) {
             </div>
           </div>
 
-          {/* Password */}
           <div>
             <Label className="text-theme-text">{t('modals.export.password')}</Label>
             <Input
               type="password"
               placeholder={t('modals.export.password_placeholder')}
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(event) => setPassword(event.target.value)}
               className="mt-1 bg-theme-bg border-theme-border text-theme-text placeholder:text-theme-text-muted focus-visible:ring-theme-accent"
             />
           </div>
@@ -417,19 +550,17 @@ export function OxideExportModal({ isOpen, onClose }: OxideExportModalProps) {
               type="password"
               placeholder={t('modals.export.confirm_password_placeholder')}
               value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
+              onChange={(event) => setConfirmPassword(event.target.value)}
               className="mt-1 bg-theme-bg border-theme-border text-theme-text placeholder:text-theme-text-muted focus-visible:ring-theme-accent"
             />
           </div>
 
-          {/* Error Message */}
           {error && (
             <div className="bg-red-500/10 border border-red-500/20 text-red-500 px-3 py-2 rounded text-sm">
               {error}
             </div>
           )}
 
-          {/* Info Message */}
           <div className="bg-blue-500/10 border border-blue-500/20 text-blue-500 px-3 py-2 rounded text-sm">
             <p className="font-semibold">{t('modals.export.security_notice')}</p>
             <ul className="mt-1 space-y-1 text-xs opacity-90">
@@ -438,7 +569,7 @@ export function OxideExportModal({ isOpen, onClose }: OxideExportModalProps) {
               <li>• {t('modals.export.security_contains')}</li>
               <li>• {t('modals.export.security_settings', {
                 app: includeAppSettings ? t('common.yes') : t('common.no'),
-                plugin: includePluginSettings ? t('common.yes') : t('common.no'),
+                plugin: hasSelectedPluginSettings ? t('common.yes') : t('common.no'),
               })}</li>
               <li>• {t('modals.export.security_passwords_excluded')}</li>
               <li>• <strong>{t('modals.export.security_no_session')}</strong></li>
@@ -446,14 +577,13 @@ export function OxideExportModal({ isOpen, onClose }: OxideExportModalProps) {
             </ul>
           </div>
 
-          {/* Actions */}
           <div className="flex justify-end space-x-2 pt-2">
             <Button variant="outline" onClick={onClose} disabled={exporting} className="border-theme-border text-theme-text hover:bg-theme-bg-hover">
               {t('modals.export.cancel')}
             </Button>
-            <Button 
-              onClick={handleExport} 
-              disabled={exporting || selectedIds.length === 0}
+            <Button
+              onClick={handleExport}
+              disabled={exporting || !hasAnyContent}
               className="bg-theme-accent text-white hover:bg-theme-accent-hover disabled:opacity-50 min-w-[140px]"
             >
               {exporting ? (

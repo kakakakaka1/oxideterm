@@ -436,7 +436,11 @@ export type ImportResult = Readonly<{
   errors: readonly string[];
   renames: readonly [string, string][];
   importedAppSettings: boolean;
+  skippedAppSettings: boolean;
   importedPluginSettings: number;
+  skippedPluginSettings: boolean;
+  importedForwards: number;
+  skippedForwards: number;
 }>;
 
 export type ImportPreviewRecord = Readonly<{
@@ -450,6 +454,12 @@ export type ImportPreviewRecord = Readonly<{
   hasEmbeddedKeys: boolean;
 }>;
 
+export type ImportPreviewForward = Readonly<{
+  ownerConnectionName: string;
+  direction: 'local' | 'remote' | 'dynamic';
+  description: string;
+}>;
+
 export type ImportPreview = Readonly<{
   totalConnections: number;
   unchanged: readonly string[];
@@ -461,6 +471,8 @@ export type ImportPreview = Readonly<{
   totalForwards: number;
   hasAppSettings: boolean;
   pluginSettingsCount: number;
+  pluginSettingsByPlugin: Readonly<Record<string, number>>;
+  forwardDetails: ReadonlyArray<ImportPreviewForward>;
   records: ReadonlyArray<ImportPreviewRecord>;
 }>;
 
@@ -584,6 +596,8 @@ export type PluginContext = Readonly<{
       embedKeys?: boolean;
       includeAppSettings?: boolean;
       includePluginSettings?: boolean;
+      selectedPluginIds?: string[];
+      selectedForwardIds?: string[];
     }): Promise<Uint8Array>;
     validateOxide(fileData: Uint8Array): Promise<OxideMetadata>;
     previewImport(
@@ -594,7 +608,14 @@ export type PluginContext = Readonly<{
     importOxide(
       fileData: Uint8Array,
       password: string,
-      options?: { selectedNames?: string[]; conflictStrategy?: PluginSyncConflictStrategy },
+      options?: {
+        selectedNames?: string[];
+        conflictStrategy?: PluginSyncConflictStrategy;
+        importAppSettings?: boolean;
+        importPluginSettings?: boolean;
+        selectedPluginIds?: string[];
+        importForwards?: boolean;
+      },
     ): Promise<ImportResult>;
   };
 

@@ -514,7 +514,11 @@ export interface ImportResult {
   /** List of name changes: [original_name, new_name][] */
   renames: [string, string][];
   importedAppSettings: boolean;
+  skippedAppSettings: boolean;
   importedPluginSettings: number;
+  skippedPluginSettings: boolean;
+  importedForwards: number;
+  skippedForwards: number;
 }
 
 export interface ImportPreview {
@@ -538,8 +542,18 @@ export interface ImportPreview {
   hasAppSettings: boolean;
   /** Number of plugin settings entries bundled in the payload */
   pluginSettingsCount: number;
+  /** Plugin settings grouped by plugin id */
+  pluginSettingsByPlugin: Record<string, number>;
+  /** Flattened saved forward details for preview */
+  forwardDetails: ImportPreviewForward[];
   /** Record-level preview details for richer import UIs */
   records: ImportPreviewRecord[];
+}
+
+export interface ImportPreviewForward {
+  ownerConnectionName: string;
+  direction: 'local' | 'remote' | 'dynamic';
+  description: string;
 }
 
 export interface ImportPreviewRecord {
@@ -698,6 +712,7 @@ export interface PersistedForwardInfo {
   id: string;
   session_id: string;
   owner_connection_id?: string;
+  owner_connection_name?: string;
   forward_type: string;
   bind_address: string;
   bind_port: number;

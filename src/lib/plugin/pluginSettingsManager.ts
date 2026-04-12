@@ -29,7 +29,7 @@ function settingKey(pluginId: string, key: string): string {
   return `${SETTING_PREFIX}${pluginId}-setting-${key}`;
 }
 
-function parseSettingStorageKey(storageKey: string): { pluginId: string; settingId: string } | null {
+export function parseSettingStorageKey(storageKey: string): { pluginId: string; settingId: string } | null {
   if (!storageKey.startsWith(SETTING_PREFIX)) {
     return null;
   }

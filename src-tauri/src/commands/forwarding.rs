@@ -1022,7 +1022,37 @@ pub async fn list_saved_forwards(
 
     let forwards = registry.load_persisted_forwards(&session_id).await?;
 
-    Ok(forwards.into_iter().map(persisted_forward_to_dto).collect())
+    Ok(forwards
+        .into_iter()
+        .map(|forward| persisted_forward_to_dto(forward, None))
+        .collect())
+}
+
+/// List all owner-bound saved forwards across saved connections.
+#[tauri::command]
+pub async fn list_all_saved_forwards(
+    registry: State<'_, Arc<ForwardingRegistry>>,
+    config_state: State<'_, Arc<ConfigState>>,
+) -> Result<Vec<PersistedForwardDto>, String> {
+    let connection_names: HashMap<String, String> = config_state
+        .get_config_snapshot()
+        .connections
+        .into_iter()
+        .map(|connection| (connection.id, connection.name))
+        .collect();
+
+    let forwards = registry.load_syncable_forwards().await?;
+
+    Ok(forwards
+        .into_iter()
+        .map(|forward| {
+            let owner_name = forward
+                .owner_connection_id
+                .as_ref()
+                .and_then(|owner_id| connection_names.get(owner_id).cloned());
+            persisted_forward_to_dto(forward, owner_name)
+        })
+        .collect())
 }
 
 /// Export a structured snapshot of owner-bound saved forwards for plugin-driven sync.
@@ -1181,6 +1211,7 @@ pub struct PersistedForwardDto {
     pub id: String,
     pub session_id: String,
     pub owner_connection_id: Option<String>,
+    pub owner_connection_name: Option<String>,
     pub forward_type: String,
     pub bind_address: String,
     pub bind_port: u16,
@@ -1230,11 +1261,15 @@ fn forward_sync_updated_at(forward: &PersistedForward) -> String {
     forward.sync_updated_at().to_rfc3339()
 }
 
-fn persisted_forward_to_dto(forward: PersistedForward) -> PersistedForwardDto {
+fn persisted_forward_to_dto(
+    forward: PersistedForward,
+    owner_connection_name: Option<String>,
+) -> PersistedForwardDto {
     PersistedForwardDto {
         id: forward.id,
         session_id: forward.session_id,
         owner_connection_id: forward.owner_connection_id,
+        owner_connection_name,
         forward_type: format!("{:?}", forward.forward_type).to_lowercase(),
         bind_address: forward.rule.bind_address,
         bind_port: forward.rule.bind_port,
@@ -1256,7 +1291,7 @@ fn build_saved_forward_sync_record(
     forward: PersistedForward,
 ) -> Result<SavedForwardSyncRecord, String> {
     let updated_at = forward_sync_updated_at(&forward);
-    let payload = persisted_forward_to_dto(forward);
+    let payload = persisted_forward_to_dto(forward, None);
     let revision = sha256_hex(&payload)?;
 
     Ok(SavedForwardSyncRecord {

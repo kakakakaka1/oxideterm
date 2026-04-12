@@ -743,6 +743,11 @@ export const api = {
     return invoke('list_saved_forwards', { sessionId });
   },
 
+  listAllSavedForwards: async (): Promise<PersistedForwardInfo[]> => {
+    if (USE_MOCK) return [];
+    return invoke('list_all_saved_forwards');
+  },
+
   setForwardAutoStart: async (forwardId: string, autoStart: boolean): Promise<void> => {
     if (USE_MOCK) return;
     return invoke('set_forward_auto_start', { forwardId, autoStart });

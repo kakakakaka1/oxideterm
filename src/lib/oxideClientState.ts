@@ -6,6 +6,7 @@ import type { ExportPreflightResult, ImportPreview, ImportResult, OxideMetadata 
 import {
   applyImportedPluginSettingsSnapshot,
   collectPluginSettingsSnapshot,
+  parseSettingStorageKey,
   type PluginSettingSnapshotEntry,
 } from './plugin/pluginSettingsManager';
 import {
@@ -20,6 +21,8 @@ type ExportOxideRequest = {
   embedKeys?: boolean | null;
   includeAppSettings?: boolean;
   includePluginSettings?: boolean;
+  selectedPluginIds?: string[];
+  selectedForwardIds?: string[];
 };
 
 type PreviewImportOptions = {
@@ -28,6 +31,10 @@ type PreviewImportOptions = {
 
 type ImportOxideOptions = PreviewImportOptions & {
   selectedNames?: string[];
+  importAppSettings?: boolean;
+  importPluginSettings?: boolean;
+  selectedPluginIds?: string[];
+  importForwards?: boolean;
 };
 
 type ImportFromOxideEnvelope = Omit<ImportResult, 'importedAppSettings' | 'importedPluginSettings'> & {
@@ -63,14 +70,23 @@ export async function exportOxideWithClientState(
   const clientState = (includeAppSettings || includePluginSettings)
     ? buildClientStatePayload()
     : { appSettingsJson: null, pluginSettings: [] };
+  const filteredPluginSettings = includePluginSettings && clientState.pluginSettings.length > 0
+    ? (request.selectedPluginIds?.length
+      ? clientState.pluginSettings.filter((entry) => {
+          const parsed = parseSettingStorageKey(entry.storageKey);
+          return parsed ? request.selectedPluginIds!.includes(parsed.pluginId) : false;
+        })
+      : clientState.pluginSettings)
+    : [];
   const fileData = await invoke<number[]>('export_to_oxide', {
     connectionIds: request.connectionIds,
     password: request.password,
     description: request.description ?? null,
     embedKeys: request.embedKeys ?? null,
+    selectedForwardIds: request.selectedForwardIds ?? null,
     appSettingsJson: includeAppSettings ? clientState.appSettingsJson : null,
-    pluginSettings: includePluginSettings && clientState.pluginSettings.length > 0
-      ? clientState.pluginSettings
+    pluginSettings: filteredPluginSettings.length > 0
+      ? filteredPluginSettings
       : null,
   });
   return new Uint8Array(fileData);
@@ -99,26 +115,42 @@ export async function importOxideWithClientState(
   password: string,
   options?: ImportOxideOptions,
 ): Promise<ImportResult> {
+  const shouldImportApp = options?.importAppSettings !== false;
+  const shouldImportPlugin = options?.importPluginSettings !== false;
   const envelope = await invoke<ImportFromOxideEnvelope>('import_from_oxide', {
     fileData: Array.from(fileData),
     password,
     selectedNames: options?.selectedNames ?? null,
     conflictStrategy: options?.conflictStrategy ?? null,
+    importForwards: options?.importForwards ?? null,
   });
 
   let importedAppSettings = false;
-  if (envelope.appSettingsJson) {
+  if (shouldImportApp && envelope.appSettingsJson) {
     importedAppSettings = await applyImportedSettingsSnapshot(envelope.appSettingsJson);
   }
 
-  const importedPluginSettings = envelope.pluginSettings?.length
-    ? applyImportedPluginSettingsSnapshot(envelope.pluginSettings)
+  const filteredPluginSettings = shouldImportPlugin && envelope.pluginSettings?.length
+    ? (options?.selectedPluginIds
+      ? (options.selectedPluginIds.length > 0
+        ? envelope.pluginSettings.filter((entry) => {
+            const parsed = parseSettingStorageKey(entry.storageKey);
+            return parsed ? options.selectedPluginIds!.includes(parsed.pluginId) : false;
+          })
+        : [])
+      : envelope.pluginSettings)
+    : [];
+
+  const importedPluginSettings = filteredPluginSettings.length
+    ? applyImportedPluginSettingsSnapshot(filteredPluginSettings)
     : 0;
 
   const { appSettingsJson: _appSettingsJson, pluginSettings: _pluginSettings, ...result } = envelope;
   return {
     ...result,
     importedAppSettings,
+    skippedAppSettings: !shouldImportApp && Boolean(envelope.appSettingsJson),
     importedPluginSettings,
+    skippedPluginSettings: !shouldImportPlugin && Boolean(envelope.pluginSettings?.length),
   };
 }

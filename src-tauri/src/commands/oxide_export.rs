@@ -249,6 +249,7 @@ pub async fn export_to_oxide(
     password: String,
     description: Option<String>,
     embed_keys: Option<bool>,
+    selected_forward_ids: Option<Vec<String>>,
     app_settings_json: Option<String>,
     plugin_settings: Option<Vec<EncryptedPluginSetting>>,
     config_state: State<'_, Arc<ConfigState>>,
@@ -266,6 +267,8 @@ pub async fn export_to_oxide(
 
     // 2. Load selected connections from config
     let config = config_state.get_config_snapshot();
+    let selected_forward_ids = selected_forward_ids
+        .map(|ids| ids.into_iter().collect::<std::collections::HashSet<_>>());
     let mut connections = Vec::new();
 
     for id in &connection_ids {
@@ -404,7 +407,14 @@ pub async fn export_to_oxide(
         let owned_forwards = forwarding_registry
             .load_owned_forwards(&saved_conn.id)
             .await?;
-        let forwards = owned_forwards.iter().map(export_forward).collect();
+        let forwards = owned_forwards
+            .iter()
+            .filter(|forward| match &selected_forward_ids {
+                Some(selected) => selected.contains(&forward.id),
+                None => true,
+            })
+            .map(export_forward)
+            .collect();
 
         connections.push(EncryptedConnection {
             name: saved_conn.name.clone(),

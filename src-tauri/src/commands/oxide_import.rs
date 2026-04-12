@@ -41,6 +41,8 @@ pub struct ImportResult {
     pub errors: Vec<String>,
     /// List of name changes: [(original_name, new_name)]
     pub renames: Vec<(String, String)>,
+    pub imported_forwards: usize,
+    pub skipped_forwards: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -53,6 +55,8 @@ pub struct ImportResultEnvelope {
     pub renamed: usize,
     pub errors: Vec<String>,
     pub renames: Vec<(String, String)>,
+    pub imported_forwards: usize,
+    pub skipped_forwards: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub app_settings_json: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -83,8 +87,20 @@ pub struct ImportPreview {
     pub has_app_settings: bool,
     /// Number of plugin setting entries bundled in the payload.
     pub plugin_settings_count: usize,
+    /// Plugin settings grouped by plugin id.
+    pub plugin_settings_by_plugin: HashMap<String, usize>,
+    /// Flattened saved forward details for the preview UI.
+    pub forward_details: Vec<ForwardDetail>,
     /// Record-level preview details for richer plugin UIs.
     pub records: Vec<ImportPreviewRecord>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ForwardDetail {
+    pub owner_connection_name: String,
+    pub direction: String,
+    pub description: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -144,6 +160,45 @@ fn preview_reason_code(action: &PlannedImportAction) -> &'static str {
         PlannedImportAction::Skip => "name-conflict-skipped",
         PlannedImportAction::Replace(_) => "replace-existing",
         PlannedImportAction::Merge(_) => "merge-existing",
+    }
+}
+
+fn parse_plugin_id_from_setting_storage_key(storage_key: &str) -> Option<String> {
+    const PREFIX: &str = "oxide-plugin-";
+    const SEPARATOR: &str = "-setting-";
+
+    let remainder = storage_key.strip_prefix(PREFIX)?;
+    let separator_index = remainder.find(SEPARATOR)?;
+    let plugin_id = &remainder[..separator_index];
+    let setting_id = &remainder[separator_index + SEPARATOR.len()..];
+
+    if plugin_id.is_empty() || setting_id.is_empty() {
+        return None;
+    }
+
+    Some(plugin_id.to_string())
+}
+
+fn format_forward_preview_description(forward: &EncryptedForward) -> String {
+    let summary = match forward.forward_type.as_str() {
+        "local" => format!(
+            "L:{} -> {}:{}",
+            forward.bind_port, forward.target_host, forward.target_port
+        ),
+        "remote" => format!(
+            "R:{} -> {}:{}",
+            forward.bind_port, forward.target_host, forward.target_port
+        ),
+        "dynamic" => format!("D:{} -> SOCKS", forward.bind_port),
+        other => format!(
+            "{}:{} -> {}:{}",
+            other, forward.bind_port, forward.target_host, forward.target_port
+        ),
+    };
+
+    match forward.description.as_deref().map(str::trim) {
+        Some("") | None => summary,
+        Some(description) => format!("{} ({})", description, summary),
     }
 }
 
@@ -251,6 +306,7 @@ struct PendingConnection {
     old_keychain_ids: Vec<String>,
     forward_ids_to_delete: Vec<String>,
     forwards_to_persist: Vec<PersistedForward>,
+    imported_forward_count: usize,
 }
 
 struct PreparedImportConnection {
@@ -599,11 +655,13 @@ pub async fn preview_oxide_import(
 
     // 2. Decrypt (password validation happens here)
     let payload = decrypt_oxide_file(&oxide_file, &password).map_err(|e| match e {
-        crate::oxide_file::OxideFileError::DecryptionFailed => "密码错误或文件已损坏".to_string(),
-        crate::oxide_file::OxideFileError::ChecksumMismatch => {
-            "文件校验失败，数据可能被篡改".to_string()
+        crate::oxide_file::OxideFileError::DecryptionFailed => {
+            "Decryption failed: incorrect password or corrupted file".to_string()
         }
-        _ => format!("解密失败: {:?}", e),
+        crate::oxide_file::OxideFileError::ChecksumMismatch => {
+            "Verification failed: file contents may have been tampered with".to_string()
+        }
+        _ => "Failed to decrypt .oxide file".to_string(),
     })?;
     let conflict_strategy = ImportConflictStrategy::parse(conflict_strategy)?;
 
@@ -630,6 +688,24 @@ pub async fn preview_oxide_import(
     let mut will_merge: Vec<String> = Vec::new();
     let mut has_embedded_keys = false;
     let mut records: Vec<ImportPreviewRecord> = Vec::new();
+    let mut plugin_settings_by_plugin: HashMap<String, usize> = HashMap::new();
+    let mut forward_details: Vec<ForwardDetail> = Vec::new();
+
+    for setting in &payload.plugin_settings {
+        if let Some(plugin_id) = parse_plugin_id_from_setting_storage_key(&setting.storage_key) {
+            *plugin_settings_by_plugin.entry(plugin_id).or_insert(0) += 1;
+        }
+    }
+
+    for conn in &payload.connections {
+        for forward in &conn.forwards {
+            forward_details.push(ForwardDetail {
+                owner_connection_name: conn.name.clone(),
+                direction: forward.forward_type.clone(),
+                description: format_forward_preview_description(forward),
+            });
+        }
+    }
 
     for conn in &payload.connections {
         // Check for embedded keys
@@ -742,6 +818,8 @@ pub async fn preview_oxide_import(
         total_forwards: payload.connections.iter().map(|c| c.forwards.len()).sum(),
         has_app_settings: payload.app_settings_json.is_some(),
         plugin_settings_count: payload.plugin_settings.len(),
+        plugin_settings_by_plugin,
+        forward_details,
         records,
     })
 }
@@ -754,11 +832,13 @@ pub async fn import_from_oxide(
     password: String,
     selected_names: Option<Vec<String>>,
     conflict_strategy: Option<String>,
+    import_forwards: Option<bool>,
     config_state: State<'_, Arc<ConfigState>>,
     forwarding_registry: State<'_, Arc<ForwardingRegistry>>,
 ) -> Result<ImportResultEnvelope, String> {
     info!("Importing from .oxide file ({} bytes)", file_data.len());
     let conflict_strategy = ImportConflictStrategy::parse(conflict_strategy)?;
+    let should_import_forwards = import_forwards.unwrap_or(true);
 
     // 1. Parse file
     let oxide_file = crate::oxide_file::OxideFile::from_bytes(&file_data)
@@ -766,11 +846,13 @@ pub async fn import_from_oxide(
 
     // 2. Decrypt (password validation happens here)
     let payload = decrypt_oxide_file(&oxide_file, &password).map_err(|e| match e {
-        crate::oxide_file::OxideFileError::DecryptionFailed => "密码错误或文件已损坏".to_string(),
-        crate::oxide_file::OxideFileError::ChecksumMismatch => {
-            "文件校验失败，数据可能被篡改".to_string()
+        crate::oxide_file::OxideFileError::DecryptionFailed => {
+            "Decryption failed: incorrect password or corrupted file".to_string()
         }
-        _ => format!("解密失败: {:?}", e),
+        crate::oxide_file::OxideFileError::ChecksumMismatch => {
+            "Verification failed: file contents may have been tampered with".to_string()
+        }
+        _ => "Failed to decrypt .oxide file".to_string(),
     })?;
 
     info!(
@@ -789,6 +871,10 @@ pub async fn import_from_oxide(
     } else {
         payload.connections
     };
+    let total_selected_forwards: usize = connections_to_import
+        .iter()
+        .map(|connection| connection.forwards.len())
+        .sum();
 
     // 3. Phase 1: Build all connections in memory first (no keychain writes yet)
     //    This ensures we don't leave orphan keychain entries if something fails
@@ -944,6 +1030,11 @@ pub async fn import_from_oxide(
     for enc_conn in connections_to_import {
         let original_name = enc_conn.name.clone();
         let imported_forwards = enc_conn.forwards.clone();
+        let imported_forward_count = if should_import_forwards {
+            imported_forwards.len()
+        } else {
+            0
+        };
 
         let action = plan_import_action(
             &original_name,
@@ -989,7 +1080,13 @@ pub async fn import_from_oxide(
             proxy_chain,
         };
 
-        let (saved_conn, old_keychain_ids, forward_ids_to_delete, forwards_to_persist) =
+        let (
+            saved_conn,
+            old_keychain_ids,
+            forward_ids_to_delete,
+            forwards_to_persist,
+            imported_forward_count,
+        ) =
             match action {
                 PlannedImportAction::Import => {
                     let imported_at = Utc::now();
@@ -999,13 +1096,23 @@ pub async fn import_from_oxide(
                         None,
                         imported_connection,
                     );
-                    let forwards_to_persist = imported_forwards
-                        .into_iter()
-                        .map(|forward| {
-                            encrypted_forward_to_persisted(forward, &saved_conn.id, imported_at)
-                        })
-                        .collect::<Result<Vec<_>, _>>()?;
-                    (saved_conn, Vec::new(), Vec::new(), forwards_to_persist)
+                    let forwards_to_persist = if should_import_forwards {
+                        imported_forwards
+                            .into_iter()
+                            .map(|forward| {
+                                encrypted_forward_to_persisted(forward, &saved_conn.id, imported_at)
+                            })
+                            .collect::<Result<Vec<_>, _>>()?
+                    } else {
+                        Vec::new()
+                    };
+                    (
+                        saved_conn,
+                        Vec::new(),
+                        Vec::new(),
+                        forwards_to_persist,
+                        imported_forward_count,
+                    )
                 }
                 PlannedImportAction::Rename(new_name) => {
                     info!("Name conflict: '{}' -> '{}'", original_name, new_name);
@@ -1019,13 +1126,27 @@ pub async fn import_from_oxide(
                             None,
                             imported_connection,
                         );
-                        let forwards_to_persist = imported_forwards
-                            .into_iter()
-                            .map(|forward| {
-                                encrypted_forward_to_persisted(forward, &saved_conn.id, imported_at)
-                            })
-                            .collect::<Result<Vec<_>, _>>()?;
-                        (saved_conn, Vec::new(), Vec::new(), forwards_to_persist)
+                        let forwards_to_persist = if should_import_forwards {
+                            imported_forwards
+                                .into_iter()
+                                .map(|forward| {
+                                    encrypted_forward_to_persisted(
+                                        forward,
+                                        &saved_conn.id,
+                                        imported_at,
+                                    )
+                                })
+                                .collect::<Result<Vec<_>, _>>()?
+                        } else {
+                            Vec::new()
+                        };
+                        (
+                            saved_conn,
+                            Vec::new(),
+                            Vec::new(),
+                            forwards_to_persist,
+                            imported_forward_count,
+                        )
                     }
                 }
                 PlannedImportAction::Replace(target) => {
@@ -1033,55 +1154,71 @@ pub async fn import_from_oxide(
                     imported_connection.name = target.existing.name.clone();
                     {
                         let imported_at = Utc::now();
-                        let existing_forwards = forwarding_registry
-                            .load_owned_forwards(&target.existing.id)
-                            .await?;
-                        let forward_ids_to_delete = existing_forwards
-                            .iter()
-                            .map(|forward| forward.id.clone())
-                            .collect();
                         let saved_conn = build_saved_connection(
                             target.existing.id.clone(),
                             target.existing.created_at,
                             target.existing.last_used_at,
                             imported_connection,
                         );
-                        let forwards_to_persist = imported_forwards
-                            .into_iter()
-                            .map(|forward| {
-                                encrypted_forward_to_persisted(forward, &saved_conn.id, imported_at)
-                            })
-                            .collect::<Result<Vec<_>, _>>()?;
+                        let (forward_ids_to_delete, forwards_to_persist) = if should_import_forwards {
+                            let existing_forwards = forwarding_registry
+                                .load_owned_forwards(&target.existing.id)
+                                .await?;
+                            let forward_ids_to_delete = existing_forwards
+                                .iter()
+                                .map(|forward| forward.id.clone())
+                                .collect();
+                            let forwards_to_persist = imported_forwards
+                                .into_iter()
+                                .map(|forward| {
+                                    encrypted_forward_to_persisted(
+                                        forward,
+                                        &saved_conn.id,
+                                        imported_at,
+                                    )
+                                })
+                                .collect::<Result<Vec<_>, _>>()?;
+                            (forward_ids_to_delete, forwards_to_persist)
+                        } else {
+                            (Vec::new(), Vec::new())
+                        };
                         (
                             saved_conn,
                             target.old_keychain_ids,
                             forward_ids_to_delete,
                             forwards_to_persist,
+                            imported_forward_count,
                         )
                     }
                 }
                 PlannedImportAction::Merge(target) => {
                     merged_count += 1;
                     {
-                        let existing_forwards = forwarding_registry
-                            .load_owned_forwards(&target.existing.id)
-                            .await?;
-                        let forward_ids_to_delete = existing_forwards
-                            .iter()
-                            .map(|forward| forward.id.clone())
-                            .collect();
                         let saved_conn =
                             merge_saved_connection(&target.existing, imported_connection);
-                        let forwards_to_persist = merge_owned_forwards(
-                            existing_forwards,
-                            imported_forwards,
-                            &saved_conn.id,
-                        )?;
+                        let (forward_ids_to_delete, forwards_to_persist) = if should_import_forwards {
+                            let existing_forwards = forwarding_registry
+                                .load_owned_forwards(&target.existing.id)
+                                .await?;
+                            let forward_ids_to_delete = existing_forwards
+                                .iter()
+                                .map(|forward| forward.id.clone())
+                                .collect();
+                            let forwards_to_persist = merge_owned_forwards(
+                                existing_forwards,
+                                imported_forwards,
+                                &saved_conn.id,
+                            )?;
+                            (forward_ids_to_delete, forwards_to_persist)
+                        } else {
+                            (Vec::new(), Vec::new())
+                        };
                         (
                             saved_conn,
                             target.old_keychain_ids,
                             forward_ids_to_delete,
                             forwards_to_persist,
+                            imported_forward_count,
                         )
                     }
                 }
@@ -1094,11 +1231,13 @@ pub async fn import_from_oxide(
             old_keychain_ids,
             forward_ids_to_delete,
             forwards_to_persist,
+            imported_forward_count,
         });
     }
 
     // 4. Phase 2: All connections validated - now write keychain entries and config atomically
     let mut imported_count = 0;
+    let mut imported_forward_count = 0;
 
     for pending in pending_connections {
         let PendingConnection {
@@ -1107,6 +1246,7 @@ pub async fn import_from_oxide(
             old_keychain_ids,
             forward_ids_to_delete,
             forwards_to_persist,
+            imported_forward_count: intended_forward_count,
         } = pending;
         let stale_old_keychain_ids = stale_keychain_ids(&old_keychain_ids, &connection);
         let connection_name = connection.name.clone();
@@ -1171,14 +1311,18 @@ pub async fn import_from_oxide(
             continue;
         }
 
+        let mut persisted_forward_successes = 0;
         for forward in forwards_to_persist {
             if let Err(e) = forwarding_registry.persist_forward(forward).await {
                 errors.push(format!(
                     "Failed to save imported forward for {}: {}",
                     &connection_name, e
                 ));
+            } else {
+                persisted_forward_successes += 1;
             }
         }
+        imported_forward_count += persisted_forward_successes.min(intended_forward_count);
 
         for old_keychain_id in &stale_old_keychain_ids {
             let _ = config_state.delete_keychain_value(old_keychain_id);
@@ -1203,6 +1347,12 @@ pub async fn import_from_oxide(
         renamed: renames.len(),
         errors,
         renames,
+        imported_forwards: imported_forward_count,
+        skipped_forwards: if should_import_forwards {
+            0
+        } else {
+            total_selected_forwards
+        },
         app_settings_json: payload.app_settings_json,
         plugin_settings: payload.plugin_settings,
     })
@@ -1212,6 +1362,36 @@ pub async fn import_from_oxide(
 mod tests {
     use super::*;
     use crate::config::{ConnectionOptions, ProxyHopConfig};
+
+    #[test]
+    fn parse_plugin_id_from_storage_key_extracts_plugin_id() {
+        assert_eq!(
+            parse_plugin_id_from_setting_storage_key("oxide-plugin-com.example.demo-setting-theme"),
+            Some("com.example.demo".to_string())
+        );
+        assert_eq!(
+            parse_plugin_id_from_setting_storage_key("oxide-plugin--setting-theme"),
+            None
+        );
+    }
+
+    #[test]
+    fn format_forward_preview_description_prefers_summary_with_label() {
+        let forward = EncryptedForward {
+            forward_type: "local".to_string(),
+            bind_address: "127.0.0.1".to_string(),
+            bind_port: 8080,
+            target_host: "remote".to_string(),
+            target_port: 80,
+            description: Some("web".to_string()),
+            auto_start: true,
+        };
+
+        assert_eq!(
+            format_forward_preview_description(&forward),
+            "web (L:8080 -> remote:80)"
+        );
+    }
 
     fn build_existing_connection(name: &str, id: &str) -> SavedConnection {
         SavedConnection {
