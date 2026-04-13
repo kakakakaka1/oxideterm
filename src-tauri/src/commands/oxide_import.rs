@@ -1655,28 +1655,33 @@ async fn import_from_oxide_inner(
                         imported_connection,
                     );
                     saved_conn.updated_at = Some(imported_at);
-                    let (forward_ids_to_delete, forwards_to_persist, existing_forwards_backup) = if should_import_forwards {
-                        let existing_forwards = forwarding_registry
-                            .load_owned_forwards(&target.existing.id)
-                            .await?;
-                        let forward_ids_to_delete = existing_forwards
-                            .iter()
-                            .map(|forward| forward.id.clone())
-                            .collect();
-                        let forwards_to_persist = imported_forwards
-                            .into_iter()
-                            .map(|forward| {
-                                encrypted_forward_to_persisted(forward, &saved_conn.id, imported_at)
-                            })
-                            .collect::<Result<Vec<_>, _>>()?;
-                        (
-                            forward_ids_to_delete,
-                            forwards_to_persist,
-                            existing_forwards,
-                        )
-                    } else {
-                        (Vec::new(), Vec::new(), Vec::new())
-                    };
+                    let (forward_ids_to_delete, forwards_to_persist, existing_forwards_backup) =
+                        if should_import_forwards {
+                            let existing_forwards = forwarding_registry
+                                .load_owned_forwards(&target.existing.id)
+                                .await?;
+                            let forward_ids_to_delete = existing_forwards
+                                .iter()
+                                .map(|forward| forward.id.clone())
+                                .collect();
+                            let forwards_to_persist = imported_forwards
+                                .into_iter()
+                                .map(|forward| {
+                                    encrypted_forward_to_persisted(
+                                        forward,
+                                        &saved_conn.id,
+                                        imported_at,
+                                    )
+                                })
+                                .collect::<Result<Vec<_>, _>>()?;
+                            (
+                                forward_ids_to_delete,
+                                forwards_to_persist,
+                                existing_forwards,
+                            )
+                        } else {
+                            (Vec::new(), Vec::new(), Vec::new())
+                        };
                     (
                         saved_conn,
                         target.old_keychain_ids,
