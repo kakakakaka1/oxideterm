@@ -149,6 +149,7 @@ impl SshClient {
                     &mut handle,
                     &self.config.username,
                     password,
+                    app_handle,
                 )
                 .await?
                 {

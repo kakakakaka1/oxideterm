@@ -175,9 +175,151 @@ pub(crate) fn ensure_auth_success(
 /// Timeout for waiting on user KBI input during auth chaining (60s)
 const KBI_CHAIN_USER_TIMEOUT: Duration = Duration::from_secs(60);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PasswordKbiPromptAction {
+    RespondEmpty,
+    SendPassword,
+    HandOffToInteractive,
+}
+
+fn should_try_password_as_kbi_fallback(result: &client::AuthResult) -> bool {
+    match result {
+        client::AuthResult::Failure {
+            partial_success: false,
+            remaining_methods,
+        } => {
+            remaining_methods.contains(&MethodKind::KeyboardInteractive)
+                && !remaining_methods.contains(&MethodKind::Password)
+        }
+        _ => false,
+    }
+}
+
+fn prompt_looks_like_password(prompt: &str) -> bool {
+    let normalized = prompt.trim().to_ascii_lowercase();
+    normalized.contains("password") || prompt.contains("密码")
+}
+
+fn classify_password_kbi_prompts(
+    prompts: &[client::Prompt],
+    password_prompt_consumed: bool,
+) -> PasswordKbiPromptAction {
+    if prompts.is_empty() {
+        PasswordKbiPromptAction::RespondEmpty
+    } else if !password_prompt_consumed
+        && prompts.len() == 1
+        && !prompts[0].echo
+        && prompt_looks_like_password(&prompts[0].prompt)
+    {
+        PasswordKbiPromptAction::SendPassword
+    } else {
+        PasswordKbiPromptAction::HandOffToInteractive
+    }
+}
+
+async fn continue_interactive_kbi_chain(
+    mut kbi_result: client::KeyboardInteractiveAuthResponse,
+    handle: &mut client::Handle<ClientHandler>,
+    app: &AppHandle,
+    auth_flow_id: &str,
+) -> Result<bool, SshError> {
+    use tauri::Emitter;
+
+    loop {
+        match kbi_result {
+            client::KeyboardInteractiveAuthResponse::Success => {
+                info!("KBI chain: authentication successful");
+                emit_kbi_chain_result(app, auth_flow_id, true, None);
+                return Ok(true);
+            }
+            client::KeyboardInteractiveAuthResponse::Failure { .. } => {
+                let err_msg =
+                    "KBI chain: server rejected keyboard-interactive responses".to_string();
+                emit_kbi_chain_result(app, auth_flow_id, false, Some(err_msg.clone()));
+                return Err(SshError::AuthenticationFailed(err_msg));
+            }
+            client::KeyboardInteractiveAuthResponse::InfoRequest {
+                name,
+                instructions,
+                prompts,
+            } => {
+                debug!(
+                    "KBI chain {}: InfoRequest with {} prompts",
+                    auth_flow_id,
+                    prompts.len()
+                );
+
+                let prompts_for_frontend: Vec<KbiPrompt> = prompts
+                    .iter()
+                    .map(|prompt| KbiPrompt {
+                        prompt: prompt.prompt.clone(),
+                        echo: prompt.echo,
+                    })
+                    .collect();
+
+                let rx = register_pending(auth_flow_id.to_string());
+
+                app.emit(
+                    EVENT_KBI_PROMPT,
+                    KbiPromptEvent {
+                        auth_flow_id: auth_flow_id.to_string(),
+                        name,
+                        instructions,
+                        prompts: prompts_for_frontend,
+                        chained: true,
+                    },
+                )
+                .map_err(|e| {
+                    cleanup_pending(auth_flow_id);
+                    let err = format!("KBI chain: failed to emit prompt event: {}", e);
+                    emit_kbi_chain_result(app, auth_flow_id, false, Some(err.clone()));
+                    SshError::AuthenticationFailed(err)
+                })?;
+
+                let responses = tokio::time::timeout(KBI_CHAIN_USER_TIMEOUT, rx)
+                    .await
+                    .map_err(|_| {
+                        cleanup_pending(auth_flow_id);
+                        let err = "KBI chain: no response within 60 seconds".to_string();
+                        emit_kbi_chain_result(app, auth_flow_id, false, Some(err.clone()));
+                        SshError::Timeout(err)
+                    })?
+                    .map_err(|_| {
+                        cleanup_pending(auth_flow_id);
+                        let err = "KBI chain: response channel closed".to_string();
+                        emit_kbi_chain_result(app, auth_flow_id, false, Some(err.clone()));
+                        SshError::AuthenticationFailed(err)
+                    })?
+                    .map_err(|e| {
+                        cleanup_pending(auth_flow_id);
+                        let err = format!("KBI chain: {}", e);
+                        emit_kbi_chain_result(app, auth_flow_id, false, Some(err.clone()));
+                        SshError::AuthenticationFailed(err)
+                    })?;
+
+                debug!(
+                    "KBI chain {}: got {} responses from frontend",
+                    auth_flow_id,
+                    responses.len()
+                );
+
+                let raw_responses: Vec<String> = responses.iter().map(|r| (**r).clone()).collect();
+                kbi_result = handle
+                    .authenticate_keyboard_interactive_respond(raw_responses)
+                    .await
+                    .map_err(|e| {
+                        let err = format!("KBI chain respond failed: {}", e);
+                        emit_kbi_chain_result(app, auth_flow_id, false, Some(err.clone()));
+                        SshError::AuthenticationFailed(err)
+                    })?;
+            }
+        }
+    }
+}
+
 /// When password auth fails with `partial_success: false` and the server
 /// advertises `KeyboardInteractive` in remaining_methods, automatically
-/// attempt KBI using the same password as the response to all prompts.
+/// attempt KBI using the same password as the response to a single password prompt.
 ///
 /// This handles servers (e.g. FreeBSD-based serv00) that only support
 /// keyboard-interactive and not the `password` auth method.
@@ -188,16 +330,9 @@ pub(crate) async fn try_password_as_kbi_fallback(
     handle: &mut client::Handle<ClientHandler>,
     username: &str,
     password: &str,
+    app: Option<&AppHandle>,
 ) -> Result<bool, SshError> {
-    let remaining = match result {
-        client::AuthResult::Failure {
-            partial_success: false,
-            remaining_methods,
-        } => remaining_methods,
-        _ => return Ok(false),
-    };
-
-    if !remaining.contains(&MethodKind::KeyboardInteractive) {
+    if !should_try_password_as_kbi_fallback(result) {
         return Ok(false);
     }
 
@@ -210,10 +345,10 @@ pub(crate) async fn try_password_as_kbi_fallback(
     use russh::client::KeyboardInteractiveAuthResponse;
     use zeroize::Zeroizing;
 
-    /// Maximum KBI round-trips to prevent malicious servers from looping.
     const MAX_KBI_FALLBACK_ROUNDS: usize = 5;
 
     let kbi_timeout = Duration::from_secs(DEFAULT_AUTH_TIMEOUT_SECS);
+    let mut password_prompt_consumed = false;
 
     let mut kbi_result = tokio::time::timeout(
         kbi_timeout,
@@ -233,35 +368,73 @@ pub(crate) async fn try_password_as_kbi_fallback(
                 debug!("KBI fallback: server rejected responses");
                 return Ok(false);
             }
-            KeyboardInteractiveAuthResponse::InfoRequest { prompts, .. } => {
+            KeyboardInteractiveAuthResponse::InfoRequest {
+                name,
+                instructions,
+                prompts,
+            } => {
                 debug!("KBI fallback round {}: {} prompts", round, prompts.len());
-                // Only auto-fill password for a single non-echo prompt.
-                // Multi-prompt or echo:true prompts likely require user interaction.
-                let responses: Vec<String> = if prompts.is_empty() {
-                    // Informational request with no prompts — send empty response
-                    Vec::new()
-                } else if prompts.len() == 1 && !prompts[0].echo {
-                    // Single non-echo prompt (typical "Password:" case)
-                    let pwd = Zeroizing::new(password.to_string());
-                    vec![(*pwd).clone()]
-                } else {
-                    // Multi-prompt or echo:true — cannot safely auto-fill
-                    debug!(
-                        "KBI fallback: {} prompts or echo=true, aborting auto-fill",
-                        prompts.len()
-                    );
-                    return Ok(false);
+                let next_kbi_result = match classify_password_kbi_prompts(
+                    &prompts,
+                    password_prompt_consumed,
+                ) {
+                    PasswordKbiPromptAction::RespondEmpty => tokio::time::timeout(
+                        kbi_timeout,
+                        handle.authenticate_keyboard_interactive_respond(Vec::new()),
+                    )
+                    .await
+                    .map_err(|_| SshError::Timeout("KBI fallback respond timed out".to_string()))?
+                    .map_err(|e| {
+                        SshError::AuthenticationFailed(format!(
+                            "KBI fallback respond failed: {}",
+                            e
+                        ))
+                    })?,
+                    PasswordKbiPromptAction::SendPassword => {
+                        password_prompt_consumed = true;
+                        let pwd = Zeroizing::new(password.to_string());
+                        tokio::time::timeout(
+                            kbi_timeout,
+                            handle.authenticate_keyboard_interactive_respond(vec![(*pwd).clone()]),
+                        )
+                        .await
+                        .map_err(|_| {
+                            SshError::Timeout("KBI fallback respond timed out".to_string())
+                        })?
+                        .map_err(|e| {
+                            SshError::AuthenticationFailed(format!(
+                                "KBI fallback respond failed: {}",
+                                e
+                            ))
+                        })?
+                    }
+                    PasswordKbiPromptAction::HandOffToInteractive => {
+                        let Some(app) = app else {
+                            debug!(
+                                "KBI fallback: prompt cannot be auto-filled and no app handle is available"
+                            );
+                            return Ok(false);
+                        };
+                        let auth_flow_id = uuid::Uuid::new_v4().to_string();
+                        info!(
+                            "KBI fallback: handing off prompt flow to interactive UI for {}",
+                            username
+                        );
+                        return continue_interactive_kbi_chain(
+                            KeyboardInteractiveAuthResponse::InfoRequest {
+                                name,
+                                instructions,
+                                prompts,
+                            },
+                            handle,
+                            app,
+                            &auth_flow_id,
+                        )
+                        .await;
+                    }
                 };
 
-                kbi_result = tokio::time::timeout(
-                    kbi_timeout,
-                    handle.authenticate_keyboard_interactive_respond(responses),
-                )
-                .await
-                .map_err(|_| SshError::Timeout("KBI fallback respond timed out".to_string()))?
-                .map_err(|e| {
-                    SshError::AuthenticationFailed(format!("KBI fallback respond failed: {}", e))
-                })?;
+                kbi_result = next_kbi_result;
             }
         }
     }
@@ -306,8 +479,6 @@ pub(crate) async fn try_kbi_auth_chain(
     username: &str,
     app: &AppHandle,
 ) -> Result<bool, SshError> {
-    use tauri::Emitter;
-
     let remaining = match result {
         client::AuthResult::Failure {
             partial_success: true,
@@ -329,7 +500,7 @@ pub(crate) async fn try_kbi_auth_chain(
     let auth_flow_id = uuid::Uuid::new_v4().to_string();
 
     // Start keyboard-interactive on the same handle
-    let mut kbi_result = handle
+    let kbi_result = handle
         .authenticate_keyboard_interactive_start(username, None::<String>)
         .await
         .map_err(|e| {
@@ -338,103 +509,7 @@ pub(crate) async fn try_kbi_auth_chain(
             SshError::AuthenticationFailed(err)
         })?;
 
-    // KBI prompt/response loop (same logic as kbi.rs but reused inline)
-    use russh::client::KeyboardInteractiveAuthResponse;
-
-    loop {
-        match kbi_result {
-            KeyboardInteractiveAuthResponse::Success => {
-                info!("KBI chain: authentication successful");
-                emit_kbi_chain_result(app, &auth_flow_id, true, None);
-                return Ok(true);
-            }
-            KeyboardInteractiveAuthResponse::Failure { .. } => {
-                let err_msg =
-                    "KBI chain: server rejected keyboard-interactive responses".to_string();
-                emit_kbi_chain_result(app, &auth_flow_id, false, Some(err_msg.clone()));
-                return Err(SshError::AuthenticationFailed(err_msg));
-            }
-            KeyboardInteractiveAuthResponse::InfoRequest {
-                name,
-                instructions,
-                prompts,
-            } => {
-                debug!(
-                    "KBI chain {}: InfoRequest with {} prompts",
-                    auth_flow_id,
-                    prompts.len()
-                );
-
-                let prompts_for_frontend: Vec<KbiPrompt> = prompts
-                    .iter()
-                    .map(|p| KbiPrompt {
-                        prompt: p.prompt.clone(),
-                        echo: p.echo,
-                    })
-                    .collect();
-
-                // Register pending request BEFORE emitting event
-                let rx = register_pending(auth_flow_id.clone());
-
-                // Emit prompt event to frontend
-                app.emit(
-                    EVENT_KBI_PROMPT,
-                    KbiPromptEvent {
-                        auth_flow_id: auth_flow_id.clone(),
-                        name,
-                        instructions,
-                        prompts: prompts_for_frontend,
-                        chained: true,
-                    },
-                )
-                .map_err(|e| {
-                    // Clean up the pending request since frontend will never respond
-                    cleanup_pending(&auth_flow_id);
-                    let err = format!("KBI chain: failed to emit prompt event: {}", e);
-                    emit_kbi_chain_result(app, &auth_flow_id, false, Some(err.clone()));
-                    SshError::AuthenticationFailed(err)
-                })?;
-
-                // Wait for frontend response with 60s timeout
-                let responses = tokio::time::timeout(KBI_CHAIN_USER_TIMEOUT, rx)
-                    .await
-                    .map_err(|_| {
-                        cleanup_pending(&auth_flow_id);
-                        let err = "KBI chain: no response within 60 seconds".to_string();
-                        emit_kbi_chain_result(app, &auth_flow_id, false, Some(err.clone()));
-                        SshError::Timeout(err)
-                    })?
-                    .map_err(|_| {
-                        cleanup_pending(&auth_flow_id);
-                        let err = "KBI chain: response channel closed".to_string();
-                        emit_kbi_chain_result(app, &auth_flow_id, false, Some(err.clone()));
-                        SshError::AuthenticationFailed(err)
-                    })?
-                    .map_err(|e| {
-                        cleanup_pending(&auth_flow_id);
-                        let err = format!("KBI chain: {}", e);
-                        emit_kbi_chain_result(app, &auth_flow_id, false, Some(err.clone()));
-                        SshError::AuthenticationFailed(err)
-                    })?;
-
-                debug!(
-                    "KBI chain {}: got {} responses from frontend",
-                    auth_flow_id,
-                    responses.len()
-                );
-
-                let raw_responses: Vec<String> = responses.iter().map(|r| (**r).clone()).collect();
-                kbi_result = handle
-                    .authenticate_keyboard_interactive_respond(raw_responses)
-                    .await
-                    .map_err(|e| {
-                        let err = format!("KBI chain respond failed: {}", e);
-                        emit_kbi_chain_result(app, &auth_flow_id, false, Some(err.clone()));
-                        SshError::AuthenticationFailed(err)
-                    })?;
-            }
-        }
-    }
+    continue_interactive_kbi_chain(kbi_result, handle, app, &auth_flow_id).await
 }
 
 pub(crate) fn load_private_key_material(
@@ -731,6 +806,65 @@ mod tests {
             partial_success: true,
         }));
         assert!(!should_retry_password_auth(&client::AuthResult::Success));
+    }
+
+    #[test]
+    fn test_should_try_password_as_kbi_fallback_only_for_kbi_only_servers() {
+        let kbi_only = client::AuthResult::Failure {
+            remaining_methods: MethodSet::from(
+                &[MethodKind::PublicKey, MethodKind::KeyboardInteractive][..],
+            ),
+            partial_success: false,
+        };
+        let password_and_kbi = client::AuthResult::Failure {
+            remaining_methods: MethodSet::from(
+                &[MethodKind::Password, MethodKind::KeyboardInteractive][..],
+            ),
+            partial_success: false,
+        };
+
+        assert!(should_try_password_as_kbi_fallback(&kbi_only));
+        assert!(!should_try_password_as_kbi_fallback(&password_and_kbi));
+        assert!(!should_try_password_as_kbi_fallback(
+            &client::AuthResult::Success
+        ));
+    }
+
+    #[test]
+    fn test_classify_password_kbi_prompts_only_autofills_first_password_prompt() {
+        let password_prompt = [client::Prompt {
+            prompt: "Password:".to_string(),
+            echo: false,
+        }];
+        let otp_prompt = [client::Prompt {
+            prompt: "Verification code:".to_string(),
+            echo: false,
+        }];
+        let visible_prompt = [client::Prompt {
+            prompt: "Password:".to_string(),
+            echo: true,
+        }];
+
+        assert_eq!(
+            classify_password_kbi_prompts(&[], false),
+            PasswordKbiPromptAction::RespondEmpty
+        );
+        assert_eq!(
+            classify_password_kbi_prompts(&password_prompt, false),
+            PasswordKbiPromptAction::SendPassword
+        );
+        assert_eq!(
+            classify_password_kbi_prompts(&password_prompt, true),
+            PasswordKbiPromptAction::HandOffToInteractive
+        );
+        assert_eq!(
+            classify_password_kbi_prompts(&otp_prompt, false),
+            PasswordKbiPromptAction::HandOffToInteractive
+        );
+        assert_eq!(
+            classify_password_kbi_prompts(&visible_prompt, false),
+            PasswordKbiPromptAction::HandOffToInteractive
+        );
     }
 
     #[test]

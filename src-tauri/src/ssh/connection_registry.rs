@@ -38,6 +38,17 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::time::Duration;
 
+use super::auth::{
+    DEFAULT_AUTH_TIMEOUT_SECS, authenticate_certificate_best_algo, authenticate_password,
+    authenticate_publickey_best_algo, build_client_config, ensure_auth_success,
+    load_certificate_auth_material, load_private_key_material, try_kbi_auth_chain,
+    try_password_as_kbi_fallback,
+};
+use super::handle_owner::HandleController;
+use super::{AuthMethod as SshAuthMethod, SshClient, SshConfig};
+use crate::session::{AuthMethod, RemoteEnvInfo, SessionConfig};
+use crate::sftp::error::SftpError;
+use crate::sftp::session::SftpSession;
 use chrono::Utc;
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
@@ -45,18 +56,6 @@ use tauri::AppHandle;
 use tokio::sync::{Mutex, RwLock};
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
-use zeroize::Zeroizing;
-
-use super::auth::{
-    DEFAULT_AUTH_TIMEOUT_SECS, authenticate_certificate_best_algo, authenticate_password,
-    authenticate_publickey_best_algo, build_client_config, ensure_auth_success,
-    load_certificate_auth_material, load_private_key_material, try_kbi_auth_chain,
-};
-use super::handle_owner::HandleController;
-use super::{AuthMethod as SshAuthMethod, SshClient, SshConfig};
-use crate::session::{AuthMethod, RemoteEnvInfo, SessionConfig};
-use crate::sftp::error::SftpError;
-use crate::sftp::session::SftpSession;
 
 /// 默认空闲超时时间（30 分钟）
 const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(30 * 60);
@@ -1174,11 +1173,70 @@ impl SshConnectionRegistry {
             }
         };
 
+        let app_clone = self.app_handle.read().await.clone();
+
+        if !authenticated.success() {
+            if let AuthMethod::Password { password } = &target_config.auth {
+                if try_password_as_kbi_fallback(
+                    &authenticated,
+                    &mut handle,
+                    &target_config.username,
+                    password,
+                    app_clone.as_ref(),
+                )
+                .await
+                .map_err(|e| ConnectionRegistryError::ConnectionFailed(e.to_string()))?
+                {
+                    info!(
+                        "Tunneled SSH connection {} established via {} (password→KBI fallback)",
+                        connection_id, parent_connection_id
+                    );
+
+                    let session = super::session::SshSession::new(
+                        handle,
+                        target_config.cols,
+                        target_config.rows,
+                        target_config.agent_forwarding,
+                    );
+                    let handle_controller = session.start(connection_id.clone());
+
+                    let entry = Arc::new(ConnectionEntry {
+                        id: connection_id.clone(),
+                        config: target_config.clone(),
+                        handle_controller,
+                        state: RwLock::new(ConnectionState::Active),
+                        ref_count: AtomicU32::new(0),
+                        last_active: AtomicU64::new(Utc::now().timestamp() as u64),
+                        keep_alive: AtomicBool::new(false),
+                        created_at: Utc::now(),
+                        idle_timer: Mutex::new(None),
+                        terminal_ids: RwLock::new(Vec::new()),
+                        sftp_session_id: RwLock::new(None),
+                        sftp: tokio::sync::Mutex::new(None),
+                        forward_ids: RwLock::new(Vec::new()),
+                        heartbeat_task: Mutex::new(None),
+                        heartbeat_failures: AtomicU32::new(0),
+                        reconnect_task: Mutex::new(None),
+                        is_reconnecting: AtomicBool::new(false),
+                        reconnect_attempts: AtomicU32::new(0),
+                        current_attempt_id: AtomicU64::new(0),
+                        last_emitted_status: parking_lot::Mutex::new(None),
+                        parent_connection_id: Some(parent_connection_id.to_string()),
+                        remote_env: std::sync::OnceLock::new(),
+                    });
+
+                    self.connections.insert(connection_id.clone(), entry);
+                    parent_conn.add_ref();
+
+                    self.start_heartbeat(&connection_id);
+                    self.spawn_env_detection(&connection_id);
+                    return Ok(connection_id);
+                }
+            }
+        }
+
         // Multi-step auth chaining for tunneled connections
         if !authenticated.success() {
-            // Clone AppHandle and drop immediately to avoid holding read lock
-            // during KBI chain (which waits for user input up to 60s).
-            let app_clone = self.app_handle.read().await.clone();
             if let Some(app_ref) = app_clone.as_ref() {
                 if try_kbi_auth_chain(
                     &authenticated,
@@ -2812,6 +2870,7 @@ impl SshConnectionRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use zeroize::Zeroizing;
 
     #[test]
     fn test_connection_pool_config_default() {
