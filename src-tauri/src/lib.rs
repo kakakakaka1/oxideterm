@@ -447,6 +447,7 @@ pub fn run() {
     let builder = builder.manage(wsl_graphics_state);
 
     let builder = builder.setup(move |app| {
+
         // Initialize config state synchronously (blocking)
         tracing::info!("Initializing config state...");
         write_startup_log("Initializing config state...");

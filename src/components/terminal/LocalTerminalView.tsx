@@ -1122,34 +1122,6 @@ export const LocalTerminalView: React.FC<LocalTerminalViewProps> = ({
     terminalRef.current?.focus();
   }, []);
 
-  // Use unified terminal keyboard shortcuts
-  // Only handles shortcuts when this terminal is active
-  useTerminalViewShortcuts(
-    isActive,
-    searchOpen || aiPanelOpen,
-    {
-      onOpenSearch: () => setSearchOpen(true),
-      onCloseSearch: handleSearchClose,
-      onOpenAiPanel: () => {
-        const position = getCursorPosition();
-        setAiCursorPosition(position);
-        setAiPanelOpen(true);
-      },
-      onCloseAiPanel: handleCloseAiPanel,
-      onToggleRecording: () => {
-        if (!isSessionRecording) {
-          const term = terminalRef.current;
-          if (term) {
-            startRecording(term.cols, term.rows);
-          }
-        }
-      },
-      onFocusTerminal: () => terminalRef.current?.focus(),
-      searchOpen,
-      aiPanelOpen,
-    }
-  );
-
   // Search handlers
   const handleSearch = useCallback((query: string, options: { caseSensitive?: boolean; regex?: boolean; wholeWord?: boolean }) => {
     if (!query) {
@@ -1324,6 +1296,34 @@ export const LocalTerminalView: React.FC<LocalTerminalViewProps> = ({
     container.addEventListener('paste', handlePaste, { capture: true });
     return () => container.removeEventListener('paste', handlePaste, { capture: true });
   }, [processTerminalPaste, terminalSettings.pasteProtection]);
+
+  // Use unified terminal keyboard shortcuts
+  // Only handles shortcuts when this terminal is active
+  useTerminalViewShortcuts(
+    isActive,
+    searchOpen || aiPanelOpen,
+    {
+      onOpenSearch: () => setSearchOpen(true),
+      onCloseSearch: handleSearchClose,
+      onOpenAiPanel: () => {
+        const position = getCursorPosition();
+        setAiCursorPosition(position);
+        setAiPanelOpen(true);
+      },
+      onCloseAiPanel: handleCloseAiPanel,
+      onToggleRecording: () => {
+        if (!isSessionRecording) {
+          const term = terminalRef.current;
+          if (term) {
+            startRecording(term.cols, term.rows);
+          }
+        }
+      },
+      onFocusTerminal: () => terminalRef.current?.focus(),
+      searchOpen,
+      aiPanelOpen,
+    }
+  );
 
   /**
    * Handle container click - focus terminal and update active pane

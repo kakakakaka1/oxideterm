@@ -159,7 +159,9 @@
         { "path": "[A-Z]:/*" },
         { "path": "[A-Z]:/**/*" }
       ]
-    }
+    },
+    "clipboard-manager:allow-read-text",
+    "clipboard-manager:allow-write-text"
   ],
   "remote": {
     "urls": ["ws://localhost:*", "ws://127.0.0.1:*"]
