@@ -844,7 +844,7 @@ You have tools to interact with the user's terminal sessions and workspace. **Us
     // tab/terminal is active when the user switches mid-conversation.
     // Only needed when there's enough history that the original system prompt
     // environment info may be stale or far away in the context window.
-    const contextReminder = buildContextReminder(sidebarContext);
+    const contextReminder = sidebarContext ? buildContextReminder(sidebarContext) : null;
     const hasSubstantialHistory = trimResult.messages.length > 2;
     if (contextReminder && hasSubstantialHistory) {
       apiMessages.push({ role: 'system', content: contextReminder });
@@ -905,12 +905,22 @@ You have tools to interact with the user's terminal sessions and workspace. **Us
       const resolveToolContext = async (): Promise<ToolExecutionContext | null> => {
         if (!toolUseEnabled) return null;
 
-        const currentSidebarContext = gatherSidebarContext();
+        let currentSidebarContext: SidebarContext | null = sidebarContext;
+        try {
+          currentSidebarContext = gatherSidebarContext({
+            maxBufferLines: aiSettings.contextVisibleLines || 50,
+            maxBufferChars: aiSettings.contextMaxChars || 8000,
+            maxSelectionChars: 2000,
+          }) ?? sidebarContext;
+        } catch {
+          currentSidebarContext = sidebarContext;
+        }
+
         let activeNodeId: string | null = null;
         let activeAgentAvailable = false;
 
         // Try terminal session first (for terminal/local_terminal tabs)
-        if (currentSidebarContext.env.sessionId) {
+        if (currentSidebarContext?.env.sessionId) {
           const node = useSessionTreeStore.getState().getNodeByTerminalId(currentSidebarContext.env.sessionId);
           if (node) {
             try {
@@ -927,7 +937,7 @@ You have tools to interact with the user's terminal sessions and workspace. **Us
         }
 
         // Fallback: use activeNodeId from tab (for SFTP/IDE tabs that have nodeId but no terminal)
-        if (!activeNodeId && currentSidebarContext.env.activeNodeId) {
+        if (!activeNodeId && currentSidebarContext?.env.activeNodeId) {
           try {
             const nodeSnapshot = await nodeGetState(currentSidebarContext.env.activeNodeId);
             if (nodeSnapshot.state.readiness === 'ready') {
@@ -943,8 +953,8 @@ You have tools to interact with the user's terminal sessions and workspace. **Us
         return {
           activeNodeId,
           activeAgentAvailable,
-          activeSessionId: currentSidebarContext.env.sessionId ?? null,
-          activeTerminalType: currentSidebarContext.env.terminalType ?? null,
+          activeSessionId: currentSidebarContext?.env.sessionId ?? null,
+          activeTerminalType: currentSidebarContext?.env.terminalType ?? null,
         };
       };
 

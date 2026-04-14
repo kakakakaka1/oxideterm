@@ -219,6 +219,9 @@ describe('aiChatStore workflows', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     settingsStoreMock.state.settings.ai.enabled = true;
+    settingsStoreMock.state.settings.ai.toolUse.enabled = false;
+    settingsStoreMock.state.settings.ai.toolUse.disabledTools = [];
+    settingsStoreMock.state.settings.ai.toolUse.autoApproveTools = {};
     parseUserInputMock.mockReturnValue({ slashCommand: null, participants: [], references: [], cleanText: '' });
     resolveSlashCommandMock.mockReturnValue(undefined);
     getProviderMock.mockReturnValue({ streamCompletion: providerStreamMock });
