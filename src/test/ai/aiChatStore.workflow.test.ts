@@ -702,8 +702,27 @@ describe('aiChatStore workflows', () => {
     expect(useAiChatStore.getState().conversations[0].messages).toHaveLength(1);
     expect(useAiChatStore.getState().conversations[0].messages[0]).toMatchObject({
       content: expect.stringContaining('Conversation summary'),
-      summaryRef: expect.objectContaining({ kind: 'conversation' }),
+      summaryRef: expect.objectContaining({
+        kind: 'conversation',
+        transcriptRef: expect.objectContaining({
+          startEntryId: 'u-1',
+          endEntryId: 'a-2',
+        }),
+      }),
     });
+    expect(invokeMock).toHaveBeenCalledWith('ai_chat_replace_conversation_messages_with_transcript', expect.objectContaining({
+      request: expect.objectContaining({
+        message: expect.objectContaining({
+          summaryRef: expect.objectContaining({
+            kind: 'conversation',
+            transcriptRef: expect.objectContaining({
+              startEntryId: 'u-1',
+              endEntryId: 'a-2',
+            }),
+          }),
+        }),
+      }),
+    }));
   });
 
   it('compactConversation creates a compaction anchor and preserves recent messages', async () => {
@@ -724,7 +743,13 @@ describe('aiChatStore workflows', () => {
     expect(compacted[0]).toMatchObject({
       role: 'system',
       content: 'Merged summary',
-      summaryRef: expect.objectContaining({ kind: 'compaction' }),
+      summaryRef: expect.objectContaining({
+        kind: 'compaction',
+        transcriptRef: expect.objectContaining({
+          startEntryId: 'u-1',
+          endEntryId: 'u-2',
+        }),
+      }),
       metadata: expect.objectContaining({ type: 'compaction-anchor', originalCount: 3 }),
     });
     expect(compacted.slice(1).map((message) => message.id)).toEqual(['a-2', 'u-3', 'a-3']);
@@ -752,6 +777,18 @@ describe('aiChatStore workflows', () => {
         conversationId: 'conv-1',
         transcriptEntries: expect.arrayContaining([
           expect.objectContaining({ kind: 'summary_created' }),
+        ]),
+        messages: expect.arrayContaining([
+          expect.objectContaining({
+            id: compacted[0].id,
+            summaryRef: expect.objectContaining({
+              kind: 'compaction',
+              transcriptRef: expect.objectContaining({
+                startEntryId: 'u-1',
+                endEntryId: 'u-2',
+              }),
+            }),
+          }),
         ]),
       }),
     }));

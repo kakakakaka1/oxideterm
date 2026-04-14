@@ -178,12 +178,17 @@ function getSummaryReference(
     return fallback;
   }
 
+  const sourceStartEntryId = getStringField(payload, 'sourceStartEntryId');
+  const sourceEndEntryId = getStringField(payload, 'sourceEndEntryId');
+  const fallbackTranscriptRef = fallback?.transcriptRef;
+
   return {
     kind,
     roundId,
     transcriptRef: {
       conversationId,
-      endEntryId: entryId,
+      startEntryId: sourceStartEntryId ?? fallbackTranscriptRef?.startEntryId,
+      endEntryId: sourceEndEntryId ?? fallbackTranscriptRef?.endEntryId ?? entryId,
     },
   };
 }

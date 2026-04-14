@@ -232,6 +232,8 @@ describe('hydrateStructuredConversation', () => {
           messageId: 'anchor-1',
           summaryText: 'Condensed history',
           compactedMessageCount: 2,
+          sourceStartEntryId: 'entry-user-old',
+          sourceEndEntryId: 'assistant-old',
           compactedUntilMessageId: 'assistant-old',
         },
       },
@@ -255,6 +257,14 @@ describe('hydrateStructuredConversation', () => {
       transcriptRef: {
         conversationId: 'conv-1',
         endEntryId: 'entry-summary',
+      },
+      summaryRef: {
+        kind: 'compaction',
+        transcriptRef: {
+          conversationId: 'conv-1',
+          startEntryId: 'entry-user-old',
+          endEntryId: 'assistant-old',
+        },
       },
       metadata: {
         type: 'compaction-anchor',
@@ -311,6 +321,8 @@ describe('hydrateStructuredConversation', () => {
           messageId: 'anchor-1',
           summaryText: 'Condensed history',
           compactedMessageCount: 2,
+          sourceStartEntryId: 'entry-user-old',
+          sourceEndEntryId: 'assistant-old',
           compactedUntilMessageId: 'assistant-old',
         },
       },
@@ -368,6 +380,8 @@ describe('hydrateStructuredConversation', () => {
           messageId: 'anchor-1',
           summaryText: 'Condensed history',
           compactedMessageCount: 2,
+          sourceStartEntryId: 'entry-user-old',
+          sourceEndEntryId: 'assistant-old',
           compactedUntilMessageId: 'assistant-old',
         },
       },
@@ -387,6 +401,14 @@ describe('hydrateStructuredConversation', () => {
     expect(rebuilt.messages[0]).toMatchObject({
       role: 'system',
       content: 'Condensed history',
+      summaryRef: {
+        kind: 'compaction',
+        transcriptRef: {
+          conversationId: 'conv-1',
+          startEntryId: 'entry-user-old',
+          endEntryId: 'assistant-old',
+        },
+      },
     });
   });
 

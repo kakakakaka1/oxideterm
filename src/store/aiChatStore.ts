@@ -219,6 +219,37 @@ function buildPersistedMessageRequest(
   };
 }
 
+function getTranscriptBoundaryId(
+  message: AiChatMessage | undefined,
+  edge: 'start' | 'end',
+): string | undefined {
+  if (!message) return undefined;
+
+  const transcriptRef = message.transcriptRef;
+  if (edge === 'start') {
+    return transcriptRef?.startEntryId ?? transcriptRef?.endEntryId ?? message.id;
+  }
+
+  return transcriptRef?.endEntryId ?? transcriptRef?.startEntryId ?? message.id;
+}
+
+function getSummarySourceTranscriptRef(messages: readonly AiChatMessage[], conversationId: string) {
+  const firstMessage = messages[0];
+  const lastMessage = messages.at(-1);
+  const startEntryId = getTranscriptBoundaryId(firstMessage, 'start');
+  const endEntryId = getTranscriptBoundaryId(lastMessage, 'end');
+
+  if (!startEntryId && !endEntryId) {
+    return undefined;
+  }
+
+  return {
+    conversationId,
+    startEntryId,
+    endEntryId,
+  };
+}
+
 function buildConversationPersistenceRequest(conversation: Pick<AiConversation, 'id' | 'title' | 'origin' | 'sessionId' | 'sessionMetadata'>) {
   return {
     id: conversation.id,
@@ -2794,6 +2825,7 @@ You have tools to interact with the user's terminal sessions and workspace. **Us
         updatedAt: Date.now(),
       });
       const [normalizedSummaryMessage] = normalizedSummaryConversation.messages;
+      const summarySourceTranscriptRef = getSummarySourceTranscriptRef(conversation.messages, activeConversationId);
 
       // Atomically replace all messages in a single backend transaction.
       // If the command fails, local state is untouched and the error bubbles
@@ -2802,6 +2834,8 @@ You have tools to interact with the user's terminal sessions and workspace. **Us
         messageId: normalizedSummaryMessage.id,
         summaryText: summaryContent,
         summaryKind: 'conversation',
+        sourceStartEntryId: summarySourceTranscriptRef?.startEntryId,
+        sourceEndEntryId: summarySourceTranscriptRef?.endEntryId,
         source: 'foreground',
         summarizationMode: 'manual',
         replacedMessageCount: originalCount,
@@ -2817,10 +2851,7 @@ You have tools to interact with the user's terminal sessions and workspace. **Us
         },
         summaryRef: {
           kind: 'conversation',
-          transcriptRef: {
-            conversationId: activeConversationId,
-            endEntryId: summaryTranscriptEntry.id,
-          },
+          transcriptRef: summarySourceTranscriptRef,
         },
       };
 
@@ -3055,11 +3086,14 @@ You have tools to interact with the user's terminal sessions and workspace. **Us
       const anchorMessageId = generateId();
       const anchorTimestamp = Date.now();
       const compactedUntilEntryId = toCompact.at(-1)?.transcriptRef?.endEntryId ?? toCompact.at(-1)?.id;
+      const compactionSourceTranscriptRef = getSummarySourceTranscriptRef(toCompact, convId);
 
       const compactionTranscriptEntry = buildTranscriptEntry(convId, 'summary_created', {
         messageId: anchorMessageId,
         summaryText: summaryContent,
         summaryKind: 'compaction',
+        sourceStartEntryId: compactionSourceTranscriptRef?.startEntryId,
+        sourceEndEntryId: compactionSourceTranscriptRef?.endEntryId,
         source: silent ? 'background' : 'foreground',
         summarizationMode: silent ? 'background' : 'manual',
         compactedMessageCount: totalCompacted,
@@ -3080,10 +3114,7 @@ You have tools to interact with the user's terminal sessions and workspace. **Us
         },
         summaryRef: {
           kind: 'compaction',
-          transcriptRef: {
-            conversationId: convId,
-            endEntryId: compactionTranscriptEntry.id,
-          },
+          transcriptRef: compactionSourceTranscriptRef,
         },
         metadata: {
           type: 'compaction-anchor',
