@@ -180,7 +180,10 @@ function getFallbackContent(turn: AiAssistantTurn): string {
 
 export function projectTurnToLegacyMessageFields(turn: AiAssistantTurn): LegacyProjectedMessageFields {
   const textContent = getTurnTextContent(turn);
-  const content = textContent || getFallbackContent(turn);
+  const fallbackContent = getFallbackContent(turn);
+  const content = textContent && fallbackContent
+    ? `${textContent}\n\n${fallbackContent}`
+    : textContent || fallbackContent;
   const thinkingContent = getTurnThinkingContent(turn);
   const toolCalls = flattenToolCalls(turn, collectToolResults(turn));
 

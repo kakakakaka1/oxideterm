@@ -17,6 +17,7 @@ import type { AiChatMessage, AiConversation, AiToolCall } from '../types';
 import type {
   AiAssistantTurn,
   AiConversationSessionMetadata,
+  AiTranscriptEntry,
   AiConversationTurn,
   AiTurnPart,
 } from '../lib/ai/turnModel/types';
@@ -24,6 +25,7 @@ import { DEFAULT_SYSTEM_PROMPT, SUGGESTIONS_INSTRUCTION, COMPACTION_TRIGGER_THRE
 import { computePromptBudget, determineCompressionLevel } from '../lib/ai/promptBudget/policy';
 import { projectTurnToLegacyMessageFields } from '../lib/ai/turnModel/turnProjection';
 import { createTurnAccumulator } from '../lib/ai/turnModel/turnAccumulator';
+import { createSyntheticToolDenyPayload } from '../lib/ai/turnModel/toolFeedback';
 import { getToolUseNegativeConstraint } from '../lib/ai/turnModel/toolUsePolicy';
 import { CONTEXT_FREE_TOOLS, SESSION_ID_TOOLS, getToolsForContext, hasDeniedCommands, executeTool, type ToolExecutionContext } from '../lib/ai/tools';
 import { parseUserInput } from '../lib/ai/inputParser';
@@ -202,6 +204,63 @@ function buildConversationPersistenceRequest(conversation: Pick<AiConversation, 
     origin: conversation.origin ?? 'sidebar',
     sessionMetadata: conversation.sessionMetadata ?? null,
   };
+}
+
+function buildTranscriptEntry(
+  conversationId: string,
+  kind: AiTranscriptEntry['kind'],
+  payload: AiTranscriptEntry['payload'],
+  options?: { turnId?: string; parentId?: string | null; timestamp?: number },
+): AiTranscriptEntry {
+  return {
+    id: generateId(),
+    conversationId,
+    turnId: options?.turnId,
+    parentId: options?.parentId ?? null,
+    timestamp: options?.timestamp ?? Date.now(),
+    kind,
+    payload,
+  };
+}
+
+async function persistTranscriptEntries(
+  conversationId: string,
+  entries: AiTranscriptEntry[],
+) {
+  if (entries.length === 0) return;
+
+  await invoke('ai_chat_append_transcript_entries', {
+    request: {
+      conversationId,
+      entries: entries.map((entry) => ({
+        id: entry.id,
+        turnId: entry.turnId ?? null,
+        parentId: entry.parentId ?? null,
+        timestamp: entry.timestamp,
+        kind: entry.kind,
+        payload: entry.payload,
+      })),
+    },
+  });
+}
+
+async function persistMessageWithTranscript(
+  messageRequest: ReturnType<typeof buildPersistedMessageRequest>,
+  transcriptEntries: AiTranscriptEntry[],
+) {
+  await invoke('ai_chat_save_message_with_transcript', {
+    request: {
+      message: messageRequest,
+      transcriptEntries: transcriptEntries.map((entry) => ({
+        id: entry.id,
+        turnId: entry.turnId ?? null,
+        parentId: entry.parentId ?? null,
+        timestamp: entry.timestamp,
+        kind: entry.kind,
+        payload: entry.payload,
+      })),
+    },
+  });
 }
 
 async function persistConversationMetadata(
@@ -726,6 +785,85 @@ export const useAiChatStore = create<AiChatStore>()((set, get) => ({
       pendingSummaries: [],
     });
     const initialAssistantTurn = accumulator.snapshot();
+    const transcriptEntries: AiTranscriptEntry[] = [];
+    let flushedTranscriptCount = 0;
+    let assistantTurnClosed = false;
+
+    const queueTranscriptEntry = (
+      kind: AiTranscriptEntry['kind'],
+      payload: AiTranscriptEntry['payload'],
+      options?: { turnId?: string; parentId?: string | null; timestamp?: number },
+    ) => {
+      transcriptEntries.push(buildTranscriptEntry(convId, kind, payload, options));
+    };
+
+    const flushTranscriptEntries = async () => {
+      if (transcriptEntries.length === 0 || flushedTranscriptCount >= transcriptEntries.length) return;
+
+      const pendingEntries = transcriptEntries.slice(flushedTranscriptCount);
+      await persistTranscriptEntries(convId, pendingEntries);
+      flushedTranscriptCount += pendingEntries.length;
+    };
+
+    const persistAssistantProjectionWithTranscript = async (message: AiChatMessage) => {
+      const pendingEntries = transcriptEntries.slice(flushedTranscriptCount);
+      await persistMessageWithTranscript(
+        buildPersistedMessageRequest(convId, message, null),
+        pendingEntries,
+      );
+      flushedTranscriptCount = transcriptEntries.length;
+    };
+
+    const queueAssistantTurnCompletion = (turn: AiAssistantTurn, turnStatus: 'complete' | 'error') => {
+      if (assistantTurnClosed) return;
+      assistantTurnClosed = true;
+
+      const transcriptParts = turn.parts.filter((part) => (
+        part.type === 'text'
+        || part.type === 'thinking'
+        || part.type === 'warning'
+        || part.type === 'error'
+      ));
+
+      if (transcriptParts.length > 0) {
+        queueTranscriptEntry('assistant_part', {
+          parts: transcriptParts,
+        }, {
+          turnId: assistantMessage.id,
+          parentId: assistantMessage.id,
+        });
+      }
+
+      queueTranscriptEntry('assistant_turn_end', {
+        status: turnStatus,
+        messageId: assistantMessage.id,
+        plainTextSummary: turn.plainTextSummary,
+        toolRoundCount: turn.toolRounds.length,
+      }, {
+        turnId: assistantMessage.id,
+        parentId: assistantMessage.id,
+      });
+    };
+
+    if (!skipUserMessage) {
+      queueTranscriptEntry('user_message', {
+        messageId: userMessage.id,
+        role: 'user',
+        content: cleanContent,
+        hasContext: Boolean(effectiveContext),
+      }, { timestamp: userMessage.timestamp });
+    }
+    queueTranscriptEntry('assistant_turn_start', {
+      messageId: assistantMessage.id,
+      requestMessageId,
+      conversationTurnId,
+    }, { turnId: assistantMessage.id, parentId: requestMessageId, timestamp: assistantMessage.timestamp });
+    try {
+      await flushTranscriptEntries();
+    } catch (e) {
+      console.warn('[AiChatStore] Failed to persist initial transcript entries:', e);
+    }
+
     // Add to frontend state only — do NOT persist empty placeholder to backend.
     // Backend persistence happens after streaming completes (success or abort-with-content).
     set((state) => ({
@@ -1170,13 +1308,44 @@ You have tools to interact with the user's terminal sessions and workspace. **Us
       const persistedToolCalls: AiToolCall[] = [];
       let accumulatedContent = ''; // Preserves text from intermediate rounds for UI display
 
+      const appendGuardrail = (
+        code: 'tool-use-disabled' | 'tool-context-missing' | 'tool-budget-limit',
+        message: string,
+        rawText?: string,
+      ) => {
+        accumulator.onGuardrail({ code, message, rawText });
+        queueTranscriptEntry('guardrail', {
+          code,
+          message,
+          rawText,
+        }, {
+          turnId: assistantMessage.id,
+          parentId: assistantMessage.id,
+        });
+      };
+
       const appendSyntheticRejectedToolCalls = (
         toolCalls: Array<{ id: string; name: string; arguments: string }>,
         error: string,
+        options?: {
+          roundNumber?: number;
+          guardrailCode?: 'tool-use-disabled' | 'tool-context-missing' | 'tool-budget-limit';
+          guardrailMessage?: string;
+        },
       ) => {
         if (toolCalls.length === 0) return;
 
-        accumulator.startRound(Math.max(round, 1));
+        const rejectedRound = accumulator.startRound(options?.roundNumber ?? Math.max(round, 1));
+        queueTranscriptEntry('assistant_round', {
+          round: rejectedRound.round,
+          roundId: rejectedRound.id,
+          synthetic: true,
+          toolCallIds: toolCalls.map((toolCall) => toolCall.id),
+        }, {
+          turnId: assistantMessage.id,
+          parentId: assistantMessage.id,
+          timestamp: rejectedRound.timestamp,
+        });
 
         const rejectedToolCalls: AiToolCall[] = toolCalls.map((toolCall) => ({
           id: toolCall.id,
@@ -1195,9 +1364,35 @@ You have tools to interact with the user's terminal sessions and workspace. **Us
         persistedToolCalls.push(...rejectedToolCalls);
         accumulator.syncToolCalls(persistedToolCalls);
         for (const rejectedToolCall of rejectedToolCalls) {
+          queueTranscriptEntry('tool_call', {
+            id: rejectedToolCall.id,
+            name: rejectedToolCall.name,
+            argumentsText: rejectedToolCall.arguments,
+            roundId: rejectedRound.id,
+            syntheticDenied: true,
+          }, {
+            turnId: assistantMessage.id,
+            parentId: rejectedRound.id,
+          });
+
           if (rejectedToolCall.result) {
             accumulator.onToolResult(rejectedToolCall.result, rejectedToolCall.name);
+            queueTranscriptEntry('tool_result', {
+              toolCallId: rejectedToolCall.result.toolCallId,
+              toolName: rejectedToolCall.result.toolName,
+              success: rejectedToolCall.result.success,
+              output: rejectedToolCall.result.output,
+              error: rejectedToolCall.result.error,
+              roundId: rejectedRound.id,
+            }, {
+              turnId: assistantMessage.id,
+              parentId: rejectedToolCall.id,
+            });
           }
+        }
+
+        if (options?.guardrailCode && options.guardrailMessage) {
+          appendGuardrail(options.guardrailCode, options.guardrailMessage, error);
         }
       };
 
@@ -1307,18 +1502,22 @@ You have tools to interact with the user's terminal sessions and workspace. **Us
 
         if (!toolContext) {
           // Tool use not enabled but model generated tool calls — append error and stop
-          appendSyntheticRejectedToolCalls(completedToolCalls, 'Tool execution unavailable: tool use is not enabled.');
-          fullContent += '\n\n[Tool execution unavailable: tool use is not enabled]';
-          accumulator.onContent('\n\n[Tool execution unavailable: tool use is not enabled]');
+          appendSyntheticRejectedToolCalls(completedToolCalls, 'Tool execution unavailable: tool use is not enabled.', {
+            roundNumber: round + 1,
+            guardrailCode: 'tool-use-disabled',
+            guardrailMessage: 'Tool execution is disabled for this conversation, so the requested tool calls were rejected.',
+          });
           updateAssistantSnapshot(true, false);
           break;
         }
 
         toolContext = await resolveToolContext();
         if (!toolContext) {
-          appendSyntheticRejectedToolCalls(completedToolCalls, 'Tool execution unavailable: tool use is not enabled.');
-          fullContent += '\n\n[Tool execution unavailable: tool use is not enabled]';
-          accumulator.onContent('\n\n[Tool execution unavailable: tool use is not enabled]');
+          appendSyntheticRejectedToolCalls(completedToolCalls, 'Tool execution unavailable: tool use is not enabled.', {
+            roundNumber: round + 1,
+            guardrailCode: 'tool-use-disabled',
+            guardrailMessage: 'Tool execution is disabled for this conversation, so the requested tool calls were rejected.',
+          });
           updateAssistantSnapshot(true, false);
           break;
         }
@@ -1329,18 +1528,18 @@ You have tools to interact with the user's terminal sessions and workspace. **Us
         if (currentToolContext.activeNodeId === null) {
           const needsNode = completedToolCalls.some(tc => !canRunWithoutActiveNode(tc));
           if (needsNode) {
+            const unavailableText = currentToolContext.activeTerminalType === 'local_terminal' && currentToolContext.activeSessionId
+              ? 'The active tab is a local terminal. Remote node tools such as read_file, list_directory, grep_search, and write_file require an SSH node_id. For local machine tasks, use local_exec or terminal_exec against the current local session. To inspect an SSH host, switch to an SSH terminal tab or use list_sessions and pass node_id explicitly.'
+              : 'Some tools require an active terminal session. Please open a terminal tab first, or use list_sessions to discover available sessions and pass node_id or session_id explicitly.';
             appendSyntheticRejectedToolCalls(
               completedToolCalls,
               'The requested tools require an active terminal session or explicit node_id/session_id.',
+              {
+                roundNumber: round + 1,
+                guardrailCode: 'tool-context-missing',
+                guardrailMessage: unavailableText,
+              },
             );
-            let unavailableText = '';
-            if (currentToolContext.activeTerminalType === 'local_terminal' && currentToolContext.activeSessionId) {
-              unavailableText = '\n\n[The active tab is a local terminal. Remote node tools such as read_file, list_directory, grep_search, and write_file require an SSH node_id. For local machine tasks, use local_exec or terminal_exec against the current local session. To inspect an SSH host, switch to an SSH terminal tab or use list_sessions and pass node_id explicitly.]';
-            } else {
-              unavailableText = '\n\n[Some tools require an active terminal session. Please open a terminal tab first, or use list_sessions to discover available sessions and pass node_id or session_id explicitly.]';
-            }
-            fullContent += unavailableText;
-            accumulator.onContent(unavailableText);
             updateAssistantSnapshot(true, false);
             break;
           }
@@ -1349,9 +1548,11 @@ You have tools to interact with the user's terminal sessions and workspace. **Us
         // Guard against infinite loops
         round++;
         if (round > MAX_TOOL_ROUNDS) {
-          appendSyntheticRejectedToolCalls(completedToolCalls, 'Tool use limit reached.');
-          fullContent += '\n\n[Tool use limit reached]';
-          accumulator.onContent('\n\n[Tool use limit reached]');
+          appendSyntheticRejectedToolCalls(completedToolCalls, 'Tool use limit reached.', {
+            roundNumber: round,
+            guardrailCode: 'tool-budget-limit',
+            guardrailMessage: 'Tool use stopped because the conversation reached the configured tool-round limit.',
+          });
           updateAssistantSnapshot(true, false);
           break;
         }
@@ -1367,9 +1568,29 @@ You have tools to interact with the user's terminal sessions and workspace. **Us
           arguments: tc.arguments,
           status: 'pending' as const,
         }));
-        accumulator.startRound(round);
+        const currentRound = accumulator.startRound(round);
         persistedToolCalls.push(...toolCallEntries);
         accumulator.syncToolCalls(persistedToolCalls);
+        queueTranscriptEntry('assistant_round', {
+          round: currentRound.round,
+          roundId: currentRound.id,
+          toolCallIds: toolCallEntries.map((toolCall) => toolCall.id),
+        }, {
+          turnId: assistantMessage.id,
+          parentId: assistantMessage.id,
+          timestamp: currentRound.timestamp,
+        });
+        for (const toolCallEntry of toolCallEntries) {
+          queueTranscriptEntry('tool_call', {
+            id: toolCallEntry.id,
+            name: toolCallEntry.name,
+            argumentsText: toolCallEntry.arguments,
+            roundId: currentRound.id,
+          }, {
+            turnId: assistantMessage.id,
+            parentId: currentRound.id,
+          });
+        }
 
         // Show tool calls in UI immediately
         updateAssistantSnapshot(true, false);
@@ -1391,6 +1612,17 @@ You have tools to interact with the user's terminal sessions and workspace. **Us
               error: 'Tool not available in current context.',
             };
             accumulator.onToolResult(tc.result, tc.name);
+            queueTranscriptEntry('tool_result', {
+              toolCallId: tc.result.toolCallId,
+              toolName: tc.result.toolName,
+              success: tc.result.success,
+              output: tc.result.output,
+              error: tc.result.error,
+              roundId: currentRound.id,
+            }, {
+              turnId: assistantMessage.id,
+              parentId: tc.id,
+            });
             continue;
           }
 
@@ -1454,6 +1686,17 @@ You have tools to interact with the user's terminal sessions and workspace. **Us
                   success: false, output: '',
                   error: 'Generation was stopped.',
                 };
+                queueTranscriptEntry('tool_result', {
+                  toolCallId: tc.result.toolCallId,
+                  toolName: tc.result.toolName,
+                  success: tc.result.success,
+                  output: tc.result.output,
+                  error: tc.result.error,
+                  roundId: currentRound.id,
+                }, {
+                  turnId: assistantMessage.id,
+                  parentId: tc.id,
+                });
               }
               pendingApprovalResolvers.delete(id);
             }
@@ -1472,6 +1715,17 @@ You have tools to interact with the user's terminal sessions and workspace. **Us
                     success: false, output: '',
                     error: 'Tool call rejected by user.',
                   };
+                  queueTranscriptEntry('tool_result', {
+                    toolCallId: tc.result.toolCallId,
+                    toolName: tc.result.toolName,
+                    success: tc.result.success,
+                    output: tc.result.output,
+                    error: tc.result.error,
+                    roundId: currentRound.id,
+                  }, {
+                    turnId: assistantMessage.id,
+                    parentId: tc.id,
+                  });
                 }
               }
             }
@@ -1492,7 +1746,7 @@ You have tools to interact with the user's terminal sessions and workspace. **Us
             updateAssistantSnapshot(true, false);
             toolResultMessages.push({
               role: 'tool',
-              content: JSON.stringify({ error: tc.result?.error || 'Tool call was rejected by the user.' }),
+              content: JSON.stringify(createSyntheticToolDenyPayload(tc.result?.error || 'Tool call was rejected by the user.')),
               tool_call_id: tc.id,
               tool_name: tc.name,
             });
@@ -1510,7 +1764,18 @@ You have tools to interact with the user's terminal sessions and workspace. **Us
             accumulator.onToolResult(tc.result, tc.name);
             accumulator.syncToolCalls(persistedToolCalls);
             updateAssistantSnapshot(true, false);
-            toolResultMessages.push({ role: 'tool', content: JSON.stringify({ error: 'Generation was stopped.' }), tool_call_id: tc.id, tool_name: tc.name });
+            queueTranscriptEntry('tool_result', {
+              toolCallId: tc.result.toolCallId,
+              toolName: tc.result.toolName,
+              success: tc.result.success,
+              output: tc.result.output,
+              error: tc.result.error,
+              roundId: currentRound.id,
+            }, {
+              turnId: assistantMessage.id,
+              parentId: tc.id,
+            });
+            toolResultMessages.push({ role: 'tool', content: JSON.stringify(createSyntheticToolDenyPayload('Generation was stopped.')), tool_call_id: tc.id, tool_name: tc.name });
             continue;
           }
 
@@ -1530,6 +1795,17 @@ You have tools to interact with the user's terminal sessions and workspace. **Us
             });
             accumulator.onToolResult(tc.result, tc.name);
             accumulator.syncToolCalls(persistedToolCalls);
+            queueTranscriptEntry('tool_result', {
+              toolCallId: tc.result.toolCallId,
+              toolName: tc.result.toolName,
+              success: tc.result.success,
+              output: tc.result.output,
+              error: tc.result.error,
+              roundId: currentRound.id,
+            }, {
+              turnId: assistantMessage.id,
+              parentId: tc.id,
+            });
             updateAssistantSnapshot(true, false);
             continue;
           }
@@ -1544,6 +1820,19 @@ You have tools to interact with the user's terminal sessions and workspace. **Us
           tc.status = result.success ? 'completed' : 'error';
           accumulator.onToolResult(result, tc.name);
           accumulator.syncToolCalls(persistedToolCalls);
+          queueTranscriptEntry('tool_result', {
+            toolCallId: result.toolCallId,
+            toolName: result.toolName,
+            success: result.success,
+            output: result.output,
+            error: result.error,
+            durationMs: result.durationMs,
+            truncated: result.truncated,
+            roundId: currentRound.id,
+          }, {
+            turnId: assistantMessage.id,
+            parentId: tc.id,
+          });
           updateAssistantSnapshot(true, false);
 
           toolResultMessages.push({
@@ -1611,10 +1900,19 @@ You have tools to interact with the user's terminal sessions and workspace. **Us
         });
 
         if (toolLoopBudget.level === 4) {
-          fullContent = '[Tool use stopped: approaching context window limit]';
-          accumulator.onContent(fullContent);
+          appendGuardrail(
+            'tool-budget-limit',
+            'Tool use stopped because the conversation is approaching the current context window limit.',
+            'Tool use stopped: approaching context window limit',
+          );
           updateAssistantSnapshot(true, false);
           break;
+        }
+
+        try {
+          await flushTranscriptEntries();
+        } catch (e) {
+          console.warn('[AiChatStore] Failed to persist tool-loop transcript entries:', e);
         }
       }
 
@@ -1657,6 +1955,7 @@ You have tools to interact with the user's terminal sessions and workspace. **Us
       }
 
       const projectedAssistantMessage = projectTurnToLegacyMessageFields(assistantTurn);
+      queueAssistantTurnCompletion(assistantTurn, 'complete');
 
       // Final update with parsed content
       set((state) => ({
@@ -1685,14 +1984,12 @@ You have tools to interact with the user's terminal sessions and workspace. **Us
 
       // Persist final content to backend (first persist — placeholder was local-only)
       try {
-        await invoke('ai_chat_save_message', {
-          request: buildPersistedMessageRequest(convId, {
-            ...assistantMessage,
-            ...projectedAssistantMessage,
-            turn: assistantTurn,
-            transcriptRef,
-            toolCalls: persistedToolCalls,
-          }, null),
+        await persistAssistantProjectionWithTranscript({
+          ...assistantMessage,
+          ...projectedAssistantMessage,
+          turn: assistantTurn,
+          transcriptRef,
+          toolCalls: persistedToolCalls,
         });
         await persistConversationMetadata(get().conversations.find((c) => c.id === convId));
       } catch (e) {
@@ -1706,6 +2003,13 @@ You have tools to interact with the user's terminal sessions and workspace. **Us
           .find((c) => c.id === convId)
           ?.messages.find((m) => m.id === assistantMessage.id);
         if (!currentMsg?.content) {
+          const abortedTurn = accumulator.snapshot();
+          queueAssistantTurnCompletion({ ...abortedTurn, status: 'error' }, 'error');
+          try {
+            await flushTranscriptEntries();
+          } catch (persistErr) {
+            console.warn('[AiChatStore] Failed to persist aborted transcript:', persistErr);
+          }
           // No content generated — remove placeholder from frontend (never persisted to backend)
           set((state) => ({
             conversations: state.conversations.map((c) =>
@@ -1735,10 +2039,12 @@ You have tools to interact with the user's terminal sessions and workspace. **Us
               });
             }),
           }));
+          const completedTurn = currentMsg.turn
+            ? { ...currentMsg.turn, status: 'complete' as const }
+            : { ...accumulator.snapshot(), status: 'complete' as const };
+          queueAssistantTurnCompletion(completedTurn, 'complete');
           try {
-            await invoke('ai_chat_save_message', {
-              request: buildPersistedMessageRequest(convId, currentMsg, null),
-            });
+            await persistAssistantProjectionWithTranscript(currentMsg);
             await persistConversationMetadata(get().conversations.find((c) => c.id === convId));
           } catch (persistErr) {
             console.warn('[AiChatStore] Failed to persist aborted message:', persistErr);
@@ -1746,6 +2052,12 @@ You have tools to interact with the user's terminal sessions and workspace. **Us
         }
       } else {
         const errorMessage = e instanceof Error ? e.message : String(e);
+        queueAssistantTurnCompletion({ ...accumulator.snapshot(), status: 'error' }, 'error');
+        try {
+          await flushTranscriptEntries();
+        } catch (persistErr) {
+          console.warn('[AiChatStore] Failed to persist error transcript:', persistErr);
+        }
         set({ error: errorMessage });
         // Remove failed placeholder from frontend (never persisted to backend)
         set((state) => ({

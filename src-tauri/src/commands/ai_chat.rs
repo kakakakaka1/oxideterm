@@ -11,7 +11,7 @@
 
 use crate::state::{
     AiChatError, AiChatStore, ContextSnapshot, ConversationMeta, LazyManagedStore,
-    PersistedMessage, PersistedToolCall,
+    PersistedMessage, PersistedToolCall, PersistedTranscriptEntry,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -75,6 +75,35 @@ pub struct ReplaceConversationMessageListRequest {
     pub title: String,
     pub expected_message_ids: Vec<String>,
     pub messages: Vec<SaveMessageRequest>,
+}
+
+/// Request to append transcript entries for a conversation.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppendTranscriptEntriesRequest {
+    pub conversation_id: String,
+    pub entries: Vec<TranscriptEntryRequest>,
+}
+
+/// Request to atomically save a projection message and append transcript entries.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveMessageWithTranscriptRequest {
+    pub message: SaveMessageRequest,
+    #[serde(default)]
+    pub transcript_entries: Vec<TranscriptEntryRequest>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TranscriptEntryRequest {
+    pub id: String,
+    pub turn_id: Option<String>,
+    pub parent_id: Option<String>,
+    pub timestamp: i64,
+    pub kind: String,
+    #[serde(default)]
+    pub payload: Value,
 }
 
 /// Context snapshot from frontend
@@ -145,6 +174,24 @@ pub struct MessageResponse {
 pub struct AiChatStatsResponse {
     pub conversation_count: usize,
     pub message_count: usize,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TranscriptResponse {
+    pub entries: Vec<TranscriptEntryResponse>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TranscriptEntryResponse {
+    pub id: String,
+    pub conversation_id: String,
+    pub turn_id: Option<String>,
+    pub parent_id: Option<String>,
+    pub timestamp: i64,
+    pub kind: String,
+    pub payload: Value,
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -232,6 +279,33 @@ pub async fn ai_chat_get_conversation(
     };
 
     Ok(response)
+}
+
+/// Get transcript entries for a conversation.
+#[tauri::command]
+pub async fn ai_chat_get_transcript(
+    store: State<'_, LazyManagedStore<AiChatStore>>,
+    conversation_id: String,
+) -> Result<TranscriptResponse, String> {
+    let store = require_ai_chat_store(&store)?;
+    let entries = store
+        .get_transcript_entries(&conversation_id)
+        .map_err(|e| e.to_string())?;
+
+    Ok(TranscriptResponse {
+        entries: entries
+            .into_iter()
+            .map(|entry| TranscriptEntryResponse {
+                id: entry.id,
+                conversation_id: entry.conversation_id,
+                turn_id: entry.turn_id,
+                parent_id: entry.parent_id,
+                timestamp: entry.timestamp,
+                kind: entry.kind,
+                payload: entry.payload,
+            })
+            .collect(),
+    })
 }
 
 /// Create a new conversation
@@ -327,6 +401,79 @@ pub async fn ai_chat_save_message(
     };
 
     store.save_message(message).map_err(|e| e.to_string())
+}
+
+/// Append transcript entries for a conversation.
+#[tauri::command]
+pub async fn ai_chat_append_transcript_entries(
+    store: State<'_, LazyManagedStore<AiChatStore>>,
+    request: AppendTranscriptEntriesRequest,
+) -> Result<(), String> {
+    let store = require_ai_chat_store(&store)?;
+    let entries = request
+        .entries
+        .into_iter()
+        .map(|entry| PersistedTranscriptEntry {
+            id: entry.id,
+            conversation_id: request.conversation_id.clone(),
+            turn_id: entry.turn_id,
+            parent_id: entry.parent_id,
+            timestamp: entry.timestamp,
+            kind: entry.kind,
+            payload: entry.payload,
+        })
+        .collect::<Vec<_>>();
+
+    store
+        .append_transcript_entries(&request.conversation_id, entries)
+        .map_err(|e| e.to_string())
+}
+
+/// Atomically save a message projection and append transcript entries.
+#[tauri::command]
+pub async fn ai_chat_save_message_with_transcript(
+    store: State<'_, LazyManagedStore<AiChatStore>>,
+    request: SaveMessageWithTranscriptRequest,
+) -> Result<(), String> {
+    let store = require_ai_chat_store(&store)?;
+
+    let message = PersistedMessage {
+        id: request.message.id,
+        conversation_id: request.message.conversation_id.clone(),
+        role: request.message.role,
+        content: request.message.content,
+        timestamp: request.message.timestamp,
+        tool_calls: request.message.tool_calls,
+        context_snapshot: request.message.context_snapshot.map(|c| ContextSnapshot {
+            cwd: c.cwd,
+            selection: c.selection,
+            buffer_tail: c.buffer_tail,
+            buffer_compressed: false,
+            local_os: c.local_os,
+            connection_info: c.connection_info,
+            terminal_type: c.terminal_type,
+        }),
+        turn: request.message.turn,
+        transcript_ref: request.message.transcript_ref,
+    };
+
+    let entries = request
+        .transcript_entries
+        .into_iter()
+        .map(|entry| PersistedTranscriptEntry {
+            id: entry.id,
+            conversation_id: message.conversation_id.clone(),
+            turn_id: entry.turn_id,
+            parent_id: entry.parent_id,
+            timestamp: entry.timestamp,
+            kind: entry.kind,
+            payload: entry.payload,
+        })
+        .collect::<Vec<_>>();
+
+    store
+        .save_message_with_transcript_entries(message, entries)
+        .map_err(|e| e.to_string())
 }
 
 /// Update a message content (for streaming updates)

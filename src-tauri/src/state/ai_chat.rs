@@ -31,7 +31,7 @@ use tracing::{debug, error, info, warn};
 // ═══════════════════════════════════════════════════════════════════════════
 
 /// Database version for migrations
-pub const AI_CHAT_DB_VERSION: u32 = 1;
+pub const AI_CHAT_DB_VERSION: u32 = 2;
 
 /// Maximum conversations to keep (LRU eviction)
 pub const MAX_CONVERSATIONS: usize = 100;
@@ -60,6 +60,13 @@ const MESSAGES_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("messa
 /// Table: conversation_messages (key: conv_id, value: Vec<message_id> as MessagePack)
 const CONV_MESSAGES_TABLE: TableDefinition<&str, &[u8]> =
     TableDefinition::new("conversation_messages");
+
+/// Table: transcript entries (key: entry_id, value: MessagePack bytes)
+const TRANSCRIPT_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("ai_chat_transcript");
+
+/// Table: conversation transcript index (key: conv_id, value: Vec<entry_id> as MessagePack)
+const CONV_TRANSCRIPT_TABLE: TableDefinition<&str, &[u8]> =
+    TableDefinition::new("conversation_transcript");
 
 /// Table: metadata (key: string, value: MessagePack bytes)
 const METADATA_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("ai_chat_metadata");
@@ -182,6 +189,21 @@ fn default_origin() -> String {
 pub struct FullConversation {
     pub meta: ConversationMeta,
     pub messages: Vec<PersistedMessage>,
+}
+
+/// Transcript entry persisted for append-only assistant/user/tool facts.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PersistedTranscriptEntry {
+    pub id: String,
+    pub conversation_id: String,
+    #[serde(default)]
+    pub turn_id: Option<String>,
+    #[serde(default)]
+    pub parent_id: Option<String>,
+    pub timestamp: i64,
+    pub kind: String,
+    #[serde(default)]
+    pub payload: Value,
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -358,6 +380,8 @@ impl AiChatStore {
             let _ = write_txn.open_table(CONVERSATIONS_TABLE)?;
             let _ = write_txn.open_table(MESSAGES_TABLE)?;
             let _ = write_txn.open_table(CONV_MESSAGES_TABLE)?;
+            let _ = write_txn.open_table(TRANSCRIPT_TABLE)?;
+            let _ = write_txn.open_table(CONV_TRANSCRIPT_TABLE)?;
             let _ = write_txn.open_table(METADATA_TABLE)?;
         }
 
@@ -425,6 +449,9 @@ impl AiChatStore {
             let empty_list: Vec<String> = vec![];
             let list_bytes = rmp_serde::to_vec(&empty_list)?;
             msg_index_table.insert(meta.id.as_str(), list_bytes.as_slice())?;
+
+            let mut transcript_index_table = write_txn.open_table(CONV_TRANSCRIPT_TABLE)?;
+            transcript_index_table.insert(meta.id.as_str(), list_bytes.as_slice())?;
         }
 
         write_txn.commit()?;
@@ -459,6 +486,8 @@ impl AiChatStore {
             let mut conv_table = write_txn.open_table(CONVERSATIONS_TABLE)?;
             let mut msg_table = write_txn.open_table(MESSAGES_TABLE)?;
             let mut msg_index_table = write_txn.open_table(CONV_MESSAGES_TABLE)?;
+            let mut transcript_table = write_txn.open_table(TRANSCRIPT_TABLE)?;
+            let mut transcript_index_table = write_txn.open_table(CONV_TRANSCRIPT_TABLE)?;
 
             // Get message IDs for this conversation
             if let Some(list_bytes) = msg_index_table.get(conversation_id)? {
@@ -472,6 +501,15 @@ impl AiChatStore {
 
             // Delete message index
             let _ = msg_index_table.remove(conversation_id);
+
+            if let Some(list_bytes) = transcript_index_table.get(conversation_id)? {
+                let transcript_ids: Vec<String> = rmp_serde::from_slice(list_bytes.value())?;
+                for entry_id in transcript_ids {
+                    let _ = transcript_table.remove(entry_id.as_str());
+                }
+            }
+
+            let _ = transcript_index_table.remove(conversation_id);
 
             // Delete conversation meta
             let _ = conv_table.remove(conversation_id);
@@ -614,6 +652,175 @@ impl AiChatStore {
             message.id, message.conversation_id
         );
         Ok(())
+    }
+
+    /// Atomically save a projection message and append transcript entries in a single transaction.
+    pub fn save_message_with_transcript_entries(
+        &self,
+        mut message: PersistedMessage,
+        entries: Vec<PersistedTranscriptEntry>,
+    ) -> Result<(), AiChatError> {
+        if let Some(ref mut ctx) = message.context_snapshot {
+            if let Some(ref buffer) = ctx.buffer_tail {
+                let (compressed, is_compressed) = compress_buffer(buffer);
+                ctx.buffer_tail = Some(compressed);
+                ctx.buffer_compressed = is_compressed;
+            }
+        }
+
+        let write_txn = self.db.begin_write()?;
+
+        {
+            let mut msg_table = write_txn.open_table(MESSAGES_TABLE)?;
+            let mut msg_index_table = write_txn.open_table(CONV_MESSAGES_TABLE)?;
+            let mut conv_table = write_txn.open_table(CONVERSATIONS_TABLE)?;
+            let mut transcript_table = write_txn.open_table(TRANSCRIPT_TABLE)?;
+            let mut transcript_index_table = write_txn.open_table(CONV_TRANSCRIPT_TABLE)?;
+
+            let mut meta: ConversationMeta = conv_table
+                .get(message.conversation_id.as_str())?
+                .map(|meta_bytes| rmp_serde::from_slice(meta_bytes.value()).ok())
+                .flatten()
+                .ok_or_else(|| AiChatError::NotFound(message.conversation_id.clone()))?;
+
+            let msg_bytes = rmp_serde::to_vec(&message)?;
+            msg_table.insert(message.id.as_str(), msg_bytes.as_slice())?;
+
+            let existing_ids: Option<Vec<String>> = msg_index_table
+                .get(message.conversation_id.as_str())?
+                .map(|list_bytes| rmp_serde::from_slice(list_bytes.value()).ok())
+                .flatten();
+
+            let mut message_ids = existing_ids.unwrap_or_default();
+
+            if !message_ids.contains(&message.id) {
+                message_ids.push(message.id.clone());
+
+                while message_ids.len() > MAX_MESSAGES_PER_CONVERSATION {
+                    if let Some(old_id) = message_ids.first().cloned() {
+                        let _ = msg_table.remove(old_id.as_str());
+                        message_ids.remove(0);
+                    }
+                }
+
+                let list_bytes = rmp_serde::to_vec(&message_ids)?;
+                msg_index_table.insert(message.conversation_id.as_str(), list_bytes.as_slice())?;
+            }
+
+            if !entries.is_empty() {
+                let existing_transcript_ids: Option<Vec<String>> = transcript_index_table
+                    .get(message.conversation_id.as_str())?
+                    .map(|list_bytes| rmp_serde::from_slice(list_bytes.value()).ok())
+                    .flatten();
+
+                let mut transcript_ids = existing_transcript_ids.unwrap_or_default();
+
+                for entry in entries {
+                    let entry_bytes = rmp_serde::to_vec(&entry)?;
+                    transcript_table.insert(entry.id.as_str(), entry_bytes.as_slice())?;
+                    if !transcript_ids.contains(&entry.id) {
+                        transcript_ids.push(entry.id);
+                    }
+                }
+
+                let list_bytes = rmp_serde::to_vec(&transcript_ids)?;
+                transcript_index_table.insert(message.conversation_id.as_str(), list_bytes.as_slice())?;
+            }
+
+            meta.updated_at = message.timestamp;
+            meta.message_count = message_ids.len();
+            let updated_bytes = rmp_serde::to_vec(&meta)?;
+            conv_table.insert(message.conversation_id.as_str(), updated_bytes.as_slice())?;
+        }
+
+        write_txn.commit()?;
+        debug!(
+            "Saved message {} with transcript entries to conversation {}",
+            message.id, message.conversation_id
+        );
+        Ok(())
+    }
+
+    /// Append transcript entries to a conversation without mutating projection rows.
+    pub fn append_transcript_entries(
+        &self,
+        conversation_id: &str,
+        entries: Vec<PersistedTranscriptEntry>,
+    ) -> Result<(), AiChatError> {
+        if entries.is_empty() {
+            return Ok(());
+        }
+
+        let entry_count = entries.len();
+
+        let write_txn = self.db.begin_write()?;
+
+        {
+            let conv_table = write_txn.open_table(CONVERSATIONS_TABLE)?;
+            if conv_table.get(conversation_id)?.is_none() {
+                return Err(AiChatError::NotFound(conversation_id.to_string()));
+            }
+
+            let mut transcript_table = write_txn.open_table(TRANSCRIPT_TABLE)?;
+            let mut transcript_index_table = write_txn.open_table(CONV_TRANSCRIPT_TABLE)?;
+
+            let existing_ids: Option<Vec<String>> = transcript_index_table
+                .get(conversation_id)?
+                .map(|list_bytes| rmp_serde::from_slice(list_bytes.value()).ok())
+                .flatten();
+
+            let mut transcript_ids = existing_ids.unwrap_or_default();
+
+            for entry in entries {
+                let entry_bytes = rmp_serde::to_vec(&entry)?;
+                transcript_table.insert(entry.id.as_str(), entry_bytes.as_slice())?;
+                if !transcript_ids.contains(&entry.id) {
+                    transcript_ids.push(entry.id);
+                }
+            }
+
+            let list_bytes = rmp_serde::to_vec(&transcript_ids)?;
+            transcript_index_table.insert(conversation_id, list_bytes.as_slice())?;
+        }
+
+        write_txn.commit()?;
+        debug!(
+            "Appended {} transcript entries to conversation {}",
+            entry_count,
+            conversation_id
+        );
+        Ok(())
+    }
+
+    /// Load transcript entries for a conversation in append order.
+    pub fn get_transcript_entries(
+        &self,
+        conversation_id: &str,
+    ) -> Result<Vec<PersistedTranscriptEntry>, AiChatError> {
+        let read_txn = self.db.begin_read()?;
+        let conv_table = read_txn.open_table(CONVERSATIONS_TABLE)?;
+        if conv_table.get(conversation_id)?.is_none() {
+            return Err(AiChatError::NotFound(conversation_id.to_string()));
+        }
+
+        let transcript_index_table = read_txn.open_table(CONV_TRANSCRIPT_TABLE)?;
+        let entry_ids: Vec<String> = transcript_index_table
+            .get(conversation_id)?
+            .map(|list_bytes| rmp_serde::from_slice(list_bytes.value()).ok())
+            .flatten()
+            .unwrap_or_default();
+
+        let transcript_table = read_txn.open_table(TRANSCRIPT_TABLE)?;
+        let mut entries = Vec::new();
+
+        for entry_id in entry_ids {
+            if let Some(entry_bytes) = transcript_table.get(entry_id.as_str())? {
+                let entry: PersistedTranscriptEntry = rmp_serde::from_slice(entry_bytes.value())?;
+                entries.push(entry);
+            }
+        }
+
+        Ok(entries)
     }
 
     /// Update a message (for streaming content updates)
@@ -900,6 +1107,8 @@ impl AiChatStore {
             let mut conv_table = write_txn.open_table(CONVERSATIONS_TABLE)?;
             let mut msg_table = write_txn.open_table(MESSAGES_TABLE)?;
             let mut msg_index_table = write_txn.open_table(CONV_MESSAGES_TABLE)?;
+            let mut transcript_table = write_txn.open_table(TRANSCRIPT_TABLE)?;
+            let mut transcript_index_table = write_txn.open_table(CONV_TRANSCRIPT_TABLE)?;
 
             // Collect all keys first (can't delete while iterating)
             let conv_keys: Vec<String> = conv_table
@@ -917,6 +1126,16 @@ impl AiChatStore {
                 .filter_map(|r| r.ok().map(|(k, _)| k.value().to_string()))
                 .collect();
 
+            let transcript_keys: Vec<String> = transcript_table
+                .iter()?
+                .filter_map(|r| r.ok().map(|(k, _)| k.value().to_string()))
+                .collect();
+
+            let transcript_idx_keys: Vec<String> = transcript_index_table
+                .iter()?
+                .filter_map(|r| r.ok().map(|(k, _)| k.value().to_string()))
+                .collect();
+
             // Delete all entries
             for key in conv_keys {
                 let _ = conv_table.remove(key.as_str());
@@ -926,6 +1145,12 @@ impl AiChatStore {
             }
             for key in idx_keys {
                 let _ = msg_index_table.remove(key.as_str());
+            }
+            for key in transcript_keys {
+                let _ = transcript_table.remove(key.as_str());
+            }
+            for key in transcript_idx_keys {
+                let _ = transcript_index_table.remove(key.as_str());
             }
         }
 
@@ -1575,5 +1800,67 @@ mod tests {
         assert_eq!(full.meta.message_count, 1);
         assert_eq!(full.messages.len(), 1);
         assert_eq!(full.messages[0].id, "summary-1");
+    }
+
+    #[test]
+    fn test_append_and_load_transcript_entries() {
+        let (store, _dir) = create_test_store();
+        store.create_conversation(&create_test_meta("conv-transcript")).unwrap();
+
+        store
+            .append_transcript_entries(
+                "conv-transcript",
+                vec![
+                    PersistedTranscriptEntry {
+                        id: "entry-1".to_string(),
+                        conversation_id: "conv-transcript".to_string(),
+                        turn_id: None,
+                        parent_id: None,
+                        timestamp: 1,
+                        kind: "user_message".to_string(),
+                        payload: serde_json::json!({ "messageId": "user-1" }),
+                    },
+                    PersistedTranscriptEntry {
+                        id: "entry-2".to_string(),
+                        conversation_id: "conv-transcript".to_string(),
+                        turn_id: Some("turn-1".to_string()),
+                        parent_id: Some("entry-1".to_string()),
+                        timestamp: 2,
+                        kind: "assistant_turn_start".to_string(),
+                        payload: serde_json::json!({ "requestMessageId": "user-1" }),
+                    },
+                ],
+            )
+            .unwrap();
+
+        let entries = store.get_transcript_entries("conv-transcript").unwrap();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].id, "entry-1");
+        assert_eq!(entries[1].turn_id.as_deref(), Some("turn-1"));
+    }
+
+    #[test]
+    fn test_delete_conversation_clears_transcript_entries() {
+        let (store, _dir) = create_test_store();
+        store.create_conversation(&create_test_meta("conv-cleanup")).unwrap();
+        store
+            .append_transcript_entries(
+                "conv-cleanup",
+                vec![PersistedTranscriptEntry {
+                    id: "entry-cleanup".to_string(),
+                    conversation_id: "conv-cleanup".to_string(),
+                    turn_id: None,
+                    parent_id: None,
+                    timestamp: 1,
+                    kind: "user_message".to_string(),
+                    payload: serde_json::json!({}),
+                }],
+            )
+            .unwrap();
+
+        store.delete_conversation("conv-cleanup").unwrap();
+
+        let error = store.get_transcript_entries("conv-cleanup").unwrap_err();
+        assert!(matches!(error, AiChatError::NotFound(id) if id == "conv-cleanup"));
     }
 }

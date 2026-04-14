@@ -111,6 +111,27 @@ export interface AiConversationSessionMetadata {
   lastBudgetLevel?: 0 | 1 | 2 | 3 | 4;
 }
 
+export type AiTranscriptEntryKind =
+  | 'user_message'
+  | 'assistant_turn_start'
+  | 'assistant_part'
+  | 'assistant_round'
+  | 'tool_call'
+  | 'tool_result'
+  | 'guardrail'
+  | 'assistant_turn_end'
+  | 'summary_created';
+
+export interface AiTranscriptEntry {
+  id: string;
+  conversationId: string;
+  turnId?: string;
+  parentId?: string | null;
+  timestamp: number;
+  kind: AiTranscriptEntryKind;
+  payload: Record<string, unknown>;
+}
+
 export type AiDiagnosticEventType =
   | 'user_message'
   | 'llm_request'

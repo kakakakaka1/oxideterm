@@ -10,6 +10,8 @@ export type {
   AiTurnToolCall,
   AiPendingSummary,
   AiSummaryReference,
+  AiTranscriptEntry,
+  AiTranscriptEntryKind,
   AiToolRound,
   AiTranscriptReference,
   AiTurnPart,

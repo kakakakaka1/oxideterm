@@ -15,7 +15,7 @@ pub mod store;
 pub use agent_history::{AgentHistoryError, AgentHistoryStore};
 pub use ai_chat::{
     AiChatError, AiChatStats, AiChatStore, ContextSnapshot, ConversationMeta, FullConversation,
-    PersistedMessage, PersistedToolCall,
+    PersistedMessage, PersistedToolCall, PersistedTranscriptEntry,
 };
 pub use forwarding::PersistedForward;
 pub use lazy_store::LazyManagedStore;

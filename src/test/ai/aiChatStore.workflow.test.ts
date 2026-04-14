@@ -418,6 +418,24 @@ describe('aiChatStore workflows', () => {
       providerModel: 'mock-model',
       lastBudgetLevel: 0,
     });
+
+    expect(invokeMock).toHaveBeenCalledWith('ai_chat_append_transcript_entries', {
+      request: expect.objectContaining({
+        conversationId: 'conv-1',
+        entries: expect.arrayContaining([
+          expect.objectContaining({ kind: 'user_message' }),
+          expect.objectContaining({ kind: 'assistant_turn_start' }),
+        ]),
+      }),
+    });
+    expect(invokeMock).toHaveBeenCalledWith('ai_chat_save_message_with_transcript', {
+      request: expect.objectContaining({
+        transcriptEntries: expect.arrayContaining([
+          expect.objectContaining({ kind: 'assistant_turn_end' }),
+          expect.objectContaining({ kind: 'assistant_part' }),
+        ]),
+      }),
+    });
   });
 
   it('records synthetic rejected tool calls with preserved arguments when tools are disabled', async () => {
@@ -435,6 +453,23 @@ describe('aiChatStore workflows', () => {
       arguments: '{"command":"pwd"}',
       status: 'rejected',
       result: expect.objectContaining({ error: 'Tool execution unavailable: tool use is not enabled.' }),
+    });
+    expect(assistantMessage?.turn?.parts).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'guardrail',
+        code: 'tool-use-disabled',
+      }),
+    ]));
+
+    expect(invokeMock).toHaveBeenCalledWith('ai_chat_save_message_with_transcript', {
+      request: expect.objectContaining({
+        message: expect.objectContaining({ conversationId: 'conv-1' }),
+        transcriptEntries: expect.arrayContaining([
+          expect.objectContaining({ kind: 'tool_call' }),
+          expect.objectContaining({ kind: 'tool_result' }),
+          expect.objectContaining({ kind: 'guardrail' }),
+        ]),
+      }),
     });
   });
 
