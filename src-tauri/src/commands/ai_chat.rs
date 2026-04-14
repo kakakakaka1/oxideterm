@@ -55,6 +55,8 @@ pub struct SaveMessageRequest {
     pub turn: Option<Value>,
     #[serde(default)]
     pub transcript_ref: Option<Value>,
+    #[serde(default)]
+    pub summary_ref: Option<Value>,
 }
 
 /// Request to atomically replace all messages in a conversation
@@ -166,6 +168,7 @@ pub struct MessageResponse {
     pub context: Option<String>, // Simplified: just the buffer_tail for display
     pub turn: Option<Value>,
     pub transcript_ref: Option<Value>,
+    pub summary_ref: Option<Value>,
 }
 
 /// Stats response
@@ -274,6 +277,7 @@ pub async fn ai_chat_get_conversation(
                 context: m.context_snapshot.and_then(|c| c.buffer_tail),
                 turn: m.turn,
                 transcript_ref: m.transcript_ref,
+                summary_ref: m.summary_ref,
             })
             .collect(),
     };
@@ -398,6 +402,7 @@ pub async fn ai_chat_save_message(
         }),
         turn: request.turn,
         transcript_ref: request.transcript_ref,
+        summary_ref: request.summary_ref,
     };
 
     store.save_message(message).map_err(|e| e.to_string())
@@ -455,6 +460,7 @@ pub async fn ai_chat_save_message_with_transcript(
         }),
         turn: request.message.turn,
         transcript_ref: request.message.transcript_ref,
+        summary_ref: request.message.summary_ref,
     };
 
     let entries = request
@@ -541,6 +547,7 @@ pub async fn ai_chat_replace_conversation_messages(
         }),
         turn: request.message.turn,
         transcript_ref: request.message.transcript_ref,
+        summary_ref: request.message.summary_ref,
     };
 
     store
@@ -578,6 +585,7 @@ pub async fn ai_chat_replace_conversation_message_list(
             }),
             turn: message.turn,
             transcript_ref: message.transcript_ref,
+            summary_ref: message.summary_ref,
         })
         .collect::<Vec<_>>();
 

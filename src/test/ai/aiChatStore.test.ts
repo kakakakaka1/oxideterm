@@ -268,6 +268,9 @@ describe('aiChatStore helpers', () => {
             context: null,
           },
         ],
+      })
+      .mockResolvedValueOnce({
+        entries: [],
       });
 
     useAiChatStore.setState({
@@ -284,6 +287,110 @@ describe('aiChatStore helpers', () => {
       id: 'conv-1',
       title: 'Loaded conversation',
       messages: [{ id: 'msg-1', content: 'Hello from backend' }],
+    });
+  });
+
+  it('prefers transcript-rebuilt assistant content during initialization', async () => {
+    vi.mocked(invoke)
+      .mockResolvedValueOnce({
+        conversations: [
+          {
+            id: 'conv-1',
+            title: 'Loaded conversation',
+            createdAt: 1,
+            updatedAt: 2,
+            messageCount: 2,
+            origin: 'sidebar',
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        id: 'conv-1',
+        title: 'Loaded conversation',
+        createdAt: 1,
+        updatedAt: 2,
+        sessionId: null,
+        origin: 'sidebar',
+        messages: [
+          {
+            id: 'user-1',
+            role: 'user',
+            content: 'Question',
+            timestamp: 3,
+            context: null,
+          },
+          {
+            id: 'assistant-1',
+            role: 'assistant',
+            content: 'stale projection',
+            timestamp: 4,
+            context: null,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        entries: [
+          {
+            id: 'entry-user',
+            conversationId: 'conv-1',
+            timestamp: 3,
+            kind: 'user_message',
+            payload: {
+              messageId: 'user-1',
+              content: 'Question',
+            },
+          },
+          {
+            id: 'entry-start',
+            conversationId: 'conv-1',
+            turnId: 'assistant-1',
+            timestamp: 4,
+            kind: 'assistant_turn_start',
+            payload: {
+              messageId: 'assistant-1',
+            },
+          },
+          {
+            id: 'entry-part',
+            conversationId: 'conv-1',
+            turnId: 'assistant-1',
+            timestamp: 5,
+            kind: 'assistant_part',
+            payload: {
+              parts: [{ type: 'text', text: 'Fresh from transcript' }],
+            },
+          },
+          {
+            id: 'entry-end',
+            conversationId: 'conv-1',
+            turnId: 'assistant-1',
+            timestamp: 6,
+            kind: 'assistant_turn_end',
+            payload: {
+              messageId: 'assistant-1',
+              status: 'complete',
+              plainTextSummary: 'Fresh from transcript',
+            },
+          },
+        ],
+      });
+
+    useAiChatStore.setState({
+      conversations: [],
+      activeConversationId: null,
+      isInitialized: false,
+    });
+
+    await useAiChatStore.getState().init();
+
+    expect(useAiChatStore.getState().conversations[0].messages[1]).toMatchObject({
+      id: 'assistant-1',
+      content: 'Fresh from transcript',
+      transcriptRef: {
+        conversationId: 'conv-1',
+        startEntryId: 'entry-start',
+        endEntryId: 'entry-end',
+      },
     });
   });
 });

@@ -1262,6 +1262,7 @@ async fn ask<W: AsyncWriteExt + Unpin>(
             context_snapshot: None,
             turn: None,
             transcript_ref: None,
+            summary_ref: None,
         };
         let _ = store.save_message(user_msg);
     }
@@ -1325,6 +1326,7 @@ async fn ask<W: AsyncWriteExt + Unpin>(
                 context_snapshot: None,
                 turn: None,
                 transcript_ref: None,
+                summary_ref: None,
             };
             let _ = store.save_message(assistant_msg);
         }

@@ -4,9 +4,12 @@ import type { AiConversation, AiChatMessage, AiToolCall } from '../types';
 import type {
   AiAssistantTurn,
   AiConversationSessionMetadata,
+  AiSummaryReference,
   AiTranscriptReference,
+  AiTurnPart,
+  AiToolRound,
 } from '../lib/ai/turnModel/types';
-import { projectLegacyMessageToTurn } from '../lib/ai/turnModel/turnProjection';
+import { projectLegacyMessageToTurn, projectTurnToLegacyMessageFields } from '../lib/ai/turnModel/turnProjection';
 import { normalizePendingSummaries } from '../lib/ai/turnModel/summaryMetadata';
 
 export interface FullConversationDto {
@@ -26,7 +29,22 @@ export interface FullConversationDto {
     context: string | null;
     turn?: AiAssistantTurn | null;
     transcriptRef?: AiTranscriptReference | null;
+    summaryRef?: AiSummaryReference | null;
   }>;
+}
+
+export interface TranscriptEntryDto {
+  id: string;
+  conversationId: string;
+  turnId?: string | null;
+  parentId?: string | null;
+  timestamp: number;
+  kind: string;
+  payload: Record<string, unknown>;
+}
+
+export interface TranscriptResponseDto {
+  entries: TranscriptEntryDto[];
 }
 
 interface ParsedResponse {
@@ -37,6 +55,218 @@ interface ParsedResponse {
 const ANCHOR_META_HEADER = '$$ANCHOR_B64$$';
 const CONDENSE_KEEP_RECENT = 5;
 const CONDENSE_SUMMARY_MAX = 300;
+
+type TranscriptAssistantState = {
+  messageId: string;
+  timestamp: number;
+  startEntryId?: string;
+  endEntryId?: string;
+  status: AiAssistantTurn['status'];
+  plainTextSummary?: string;
+  parts: AiTurnPart[];
+  roundsById: Map<string, AiToolRound>;
+  roundOrder: string[];
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function getStringField(payload: Record<string, unknown>, key: string): string | undefined {
+  const value = payload[key];
+  return typeof value === 'string' ? value : undefined;
+}
+
+function getNumberField(payload: Record<string, unknown>, key: string): number | undefined {
+  const value = payload[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function getBooleanField(payload: Record<string, unknown>, key: string): boolean | undefined {
+  const value = payload[key];
+  return typeof value === 'boolean' ? value : undefined;
+}
+
+function getSummaryReference(
+  conversationId: string,
+  entryId: string,
+  payload: Record<string, unknown>,
+  fallback?: AiSummaryReference,
+): AiSummaryReference | undefined {
+  const roundId = getStringField(payload, 'roundId');
+  if (!roundId) {
+    return fallback;
+  }
+
+  return {
+    roundId,
+    transcriptRef: {
+      conversationId,
+      endEntryId: entryId,
+    },
+  };
+}
+
+function ensureTranscriptAssistantState(
+  states: Map<string, TranscriptAssistantState>,
+  messageId: string,
+  timestamp: number,
+): TranscriptAssistantState {
+  const existing = states.get(messageId);
+  if (existing) {
+    if (timestamp < existing.timestamp) {
+      existing.timestamp = timestamp;
+    }
+    return existing;
+  }
+
+  const created: TranscriptAssistantState = {
+    messageId,
+    timestamp,
+    status: 'streaming',
+    parts: [],
+    roundsById: new Map<string, AiToolRound>(),
+    roundOrder: [],
+  };
+  states.set(messageId, created);
+  return created;
+}
+
+function ensureTranscriptRound(
+  assistantState: TranscriptAssistantState,
+  roundId: string,
+  roundNumber?: number,
+  timestamp?: number,
+): AiToolRound {
+  const existing = assistantState.roundsById.get(roundId);
+  if (existing) {
+    if (roundNumber !== undefined) {
+      existing.round = roundNumber;
+    }
+    if (timestamp !== undefined) {
+      existing.timestamp = timestamp;
+    }
+    return existing;
+  }
+
+  const round: AiToolRound = {
+    id: roundId,
+    round: roundNumber ?? assistantState.roundOrder.length + 1,
+    timestamp,
+    retryCount: undefined,
+    toolCalls: [],
+  };
+  assistantState.roundsById.set(roundId, round);
+  assistantState.roundOrder.push(roundId);
+  return round;
+}
+
+function buildAssistantMessageFromTranscript(
+  conversationId: string,
+  assistantState: TranscriptAssistantState,
+  fallback?: AiChatMessage,
+): AiChatMessage {
+  const rounds = assistantState.roundOrder
+    .map((roundId) => assistantState.roundsById.get(roundId))
+    .filter((round): round is AiToolRound => Boolean(round))
+    .sort((left, right) => left.round - right.round);
+
+  const turn: AiAssistantTurn = {
+    id: fallback?.turn?.id ?? assistantState.messageId,
+    status: assistantState.endEntryId
+      ? assistantState.status
+      : fallback?.turn?.status ?? 'error',
+    parts: assistantState.parts.slice(),
+    toolRounds: rounds,
+    plainTextSummary: assistantState.plainTextSummary ?? '',
+  };
+  const projected = projectTurnToLegacyMessageFields(turn);
+  const suggestions = parseSuggestions(projected.content);
+
+  const nextMessage: AiChatMessage = {
+    id: assistantState.messageId,
+    role: 'assistant',
+    content: suggestions.cleanContent,
+    timestamp: fallback?.timestamp ?? assistantState.timestamp,
+    context: fallback?.context,
+    turn,
+    transcriptRef: {
+      conversationId,
+      startEntryId: assistantState.startEntryId,
+      endEntryId: assistantState.endEntryId,
+    },
+    summaryRef: fallback?.summaryRef,
+  };
+
+  if (projected.thinkingContent) {
+    nextMessage.thinkingContent = projected.thinkingContent;
+  }
+  if (projected.toolCalls) {
+    nextMessage.toolCalls = projected.toolCalls;
+  }
+  if (suggestions.suggestions.length > 0) {
+    nextMessage.suggestions = suggestions.suggestions;
+  }
+
+  return nextMessage;
+}
+
+function buildSummaryMessageFromTranscript(
+  conversationId: string,
+  entry: TranscriptEntryDto,
+  payload: Record<string, unknown>,
+  fallback?: AiChatMessage,
+): AiChatMessage | null {
+  const messageId = getStringField(payload, 'messageId');
+  const summaryText = getStringField(payload, 'summaryText');
+  if (!messageId || !summaryText) {
+    return null;
+  }
+
+  const transcriptRef = {
+    conversationId,
+    endEntryId: entry.id,
+  };
+  const summaryRef = getSummaryReference(conversationId, entry.id, payload, fallback?.summaryRef);
+  const compactedMessageCount = getNumberField(payload, 'compactedMessageCount');
+  const compactedUntilMessageId = getStringField(payload, 'compactedUntilMessageId');
+  const isCompactionSummary = compactedMessageCount !== undefined || compactedUntilMessageId !== undefined;
+
+  if (isCompactionSummary) {
+    return {
+      id: messageId,
+      role: 'system',
+      content: summaryText,
+      timestamp: fallback?.timestamp ?? entry.timestamp,
+      context: fallback?.context,
+      transcriptRef,
+      summaryRef,
+      metadata: {
+        type: 'compaction-anchor',
+        originalCount: compactedMessageCount ?? fallback?.metadata?.originalCount ?? 0,
+        compactedAt: fallback?.metadata?.compactedAt ?? entry.timestamp,
+        originalMessages: fallback?.metadata?.originalMessages,
+      },
+    };
+  }
+
+  const suggestions = parseSuggestions(summaryText);
+  const nextMessage: AiChatMessage = {
+    id: messageId,
+    role: 'assistant',
+    content: suggestions.cleanContent,
+    timestamp: fallback?.timestamp ?? entry.timestamp,
+    context: fallback?.context,
+    transcriptRef,
+    summaryRef,
+  };
+
+  if (suggestions.suggestions.length > 0) {
+    nextMessage.suggestions = suggestions.suggestions;
+  }
+
+  return nextMessage;
+}
 
 export function generateTitle(firstMessage: string): string {
   const cleaned = firstMessage.replace(/\n/g, ' ').trim();
@@ -75,6 +305,7 @@ export function dtoToConversation(dto: FullConversationDto): AiConversation {
           context: m.context || undefined,
           turn: m.turn ?? undefined,
           transcriptRef: m.transcriptRef ?? undefined,
+          summaryRef: m.summaryRef ?? undefined,
           ...(sugResult.suggestions.length > 0 ? { suggestions: sugResult.suggestions } : {}),
         };
       }
@@ -102,11 +333,279 @@ export function dtoToConversation(dto: FullConversationDto): AiConversation {
         context: m.context || undefined,
         turn: m.turn ?? undefined,
         transcriptRef: m.transcriptRef ?? undefined,
+        summaryRef: m.summaryRef ?? undefined,
       };
     }),
   });
 }
 
+export function rebuildConversationFromTranscript(
+  conversation: AiConversation,
+  transcriptEntries: TranscriptEntryDto[],
+): AiConversation {
+  if (transcriptEntries.length === 0) {
+    return hydrateStructuredConversation(conversation);
+  }
+
+  const sortedEntries = transcriptEntries
+    .slice()
+    .sort((left, right) => left.timestamp - right.timestamp || left.id.localeCompare(right.id));
+  const existingMessages = new Map(conversation.messages.map((message) => [message.id, message]));
+  const transcriptUsers = new Map<string, AiChatMessage>();
+  const transcriptAssistants = new Map<string, TranscriptAssistantState>();
+  const transcriptSummaries = new Map<string, AiChatMessage>();
+  const orderedMessageIds: string[] = [];
+  const orderedMessageIdSet = new Set<string>();
+  const messageTimestamps = new Map<string, number>();
+  let latestSummaryMessageId: string | undefined;
+  let latestSummaryTimestamp = -Infinity;
+
+  const rememberMessageOrder = (messageId: string, timestamp: number) => {
+    if (!orderedMessageIdSet.has(messageId)) {
+      orderedMessageIdSet.add(messageId);
+      orderedMessageIds.push(messageId);
+    }
+    const existingTimestamp = messageTimestamps.get(messageId);
+    if (existingTimestamp === undefined || timestamp < existingTimestamp) {
+      messageTimestamps.set(messageId, timestamp);
+    }
+  };
+
+  for (const entry of sortedEntries) {
+    const payload = isRecord(entry.payload) ? entry.payload : {};
+    switch (entry.kind) {
+      case 'user_message': {
+        const messageId = getStringField(payload, 'messageId');
+        const content = getStringField(payload, 'content');
+        if (!messageId || content === undefined) {
+          break;
+        }
+        transcriptUsers.set(messageId, {
+          id: messageId,
+          role: 'user',
+          content,
+          timestamp: existingMessages.get(messageId)?.timestamp ?? entry.timestamp,
+          context: existingMessages.get(messageId)?.context,
+          transcriptRef: {
+            conversationId: entry.conversationId,
+            startEntryId: entry.id,
+            endEntryId: entry.id,
+          },
+        });
+        rememberMessageOrder(messageId, entry.timestamp);
+        break;
+      }
+      case 'assistant_turn_start': {
+        const messageId = getStringField(payload, 'messageId') ?? entry.turnId ?? undefined;
+        if (!messageId) {
+          break;
+        }
+        const assistantState = ensureTranscriptAssistantState(transcriptAssistants, messageId, entry.timestamp);
+        assistantState.startEntryId = entry.id;
+        rememberMessageOrder(messageId, entry.timestamp);
+        break;
+      }
+      case 'assistant_part': {
+        const messageId = entry.turnId ?? getStringField(payload, 'messageId');
+        if (!messageId) {
+          break;
+        }
+        const assistantState = ensureTranscriptAssistantState(transcriptAssistants, messageId, entry.timestamp);
+        const parts = Array.isArray(payload.parts) ? payload.parts as AiTurnPart[] : [];
+        assistantState.parts.push(...parts);
+        break;
+      }
+      case 'guardrail': {
+        const messageId = entry.turnId ?? getStringField(payload, 'messageId');
+        const code = getStringField(payload, 'code');
+        const message = getStringField(payload, 'message');
+        if (!messageId || !code || !message) {
+          break;
+        }
+        const assistantState = ensureTranscriptAssistantState(transcriptAssistants, messageId, entry.timestamp);
+        assistantState.parts.push({
+          type: 'guardrail',
+          code: code as Extract<AiTurnPart, { type: 'guardrail' }>['code'],
+          message,
+          rawText: getStringField(payload, 'rawText'),
+        });
+        break;
+      }
+      case 'assistant_round': {
+        const messageId = entry.turnId ?? getStringField(payload, 'messageId');
+        const roundId = getStringField(payload, 'roundId');
+        if (!messageId || !roundId) {
+          break;
+        }
+        const assistantState = ensureTranscriptAssistantState(transcriptAssistants, messageId, entry.timestamp);
+        const round = ensureTranscriptRound(assistantState, roundId, getNumberField(payload, 'round'), entry.timestamp);
+        const retryAttempt = getNumberField(payload, 'retryAttempt');
+        if (retryAttempt !== undefined) {
+          round.retryCount = retryAttempt;
+        }
+        break;
+      }
+      case 'tool_call': {
+        const messageId = entry.turnId ?? getStringField(payload, 'messageId');
+        const toolCallId = getStringField(payload, 'id');
+        const toolName = getStringField(payload, 'name');
+        const argumentsText = getStringField(payload, 'argumentsText');
+        if (!messageId || !toolCallId || !toolName || argumentsText === undefined) {
+          break;
+        }
+        const assistantState = ensureTranscriptAssistantState(transcriptAssistants, messageId, entry.timestamp);
+        const roundId = getStringField(payload, 'roundId') ?? `${messageId}-round-transcript`;
+        const round = ensureTranscriptRound(assistantState, roundId, undefined, entry.timestamp);
+        const existingToolCall = round.toolCalls.find((toolCall) => toolCall.id === toolCallId);
+        if (!existingToolCall) {
+          round.toolCalls.push({
+            id: toolCallId,
+            name: toolName,
+            argumentsText,
+            approvalState: getBooleanField(payload, 'syntheticDenied') ? 'rejected' : undefined,
+            executionState: 'pending',
+          });
+        }
+        assistantState.parts.push({
+          type: 'tool_call',
+          id: toolCallId,
+          name: toolName,
+          argumentsText,
+          status: 'complete',
+        });
+        break;
+      }
+      case 'tool_result': {
+        const messageId = entry.turnId ?? getStringField(payload, 'messageId');
+        const toolCallId = getStringField(payload, 'toolCallId');
+        const toolName = getStringField(payload, 'toolName');
+        const output = getStringField(payload, 'output') ?? '';
+        const success = getBooleanField(payload, 'success');
+        if (!messageId || !toolCallId || !toolName || success === undefined) {
+          break;
+        }
+        const assistantState = ensureTranscriptAssistantState(transcriptAssistants, messageId, entry.timestamp);
+        const roundId = getStringField(payload, 'roundId') ?? `${messageId}-round-transcript`;
+        const round = ensureTranscriptRound(assistantState, roundId, undefined, entry.timestamp);
+        const toolCall = round.toolCalls.find((candidate) => candidate.id === toolCallId);
+        if (toolCall) {
+          toolCall.executionState = success ? 'completed' : 'error';
+          if (!success && getBooleanField(payload, 'syntheticDenied')) {
+            toolCall.approvalState = 'rejected';
+          }
+        }
+        assistantState.parts.push({
+          type: 'tool_result',
+          toolCallId,
+          toolName,
+          success,
+          output,
+          error: getStringField(payload, 'error'),
+          durationMs: getNumberField(payload, 'durationMs'),
+          truncated: getBooleanField(payload, 'truncated'),
+        });
+        break;
+      }
+      case 'assistant_turn_end': {
+        const messageId = getStringField(payload, 'messageId') ?? entry.turnId ?? undefined;
+        if (!messageId) {
+          break;
+        }
+        const assistantState = ensureTranscriptAssistantState(transcriptAssistants, messageId, entry.timestamp);
+        assistantState.endEntryId = entry.id;
+        const status = getStringField(payload, 'status');
+        if (status === 'complete' || status === 'error') {
+          assistantState.status = status;
+        }
+        assistantState.plainTextSummary = getStringField(payload, 'plainTextSummary') ?? assistantState.plainTextSummary;
+        break;
+      }
+      case 'summary_created': {
+        const summaryMessage = buildSummaryMessageFromTranscript(
+          entry.conversationId,
+          entry,
+          payload,
+          (() => {
+            const messageId = getStringField(payload, 'messageId');
+            return messageId ? existingMessages.get(messageId) : undefined;
+          })(),
+        );
+        if (!summaryMessage) {
+          break;
+        }
+        transcriptSummaries.set(summaryMessage.id, summaryMessage);
+        rememberMessageOrder(summaryMessage.id, summaryMessage.timestamp);
+        if (entry.timestamp >= latestSummaryTimestamp) {
+          latestSummaryTimestamp = entry.timestamp;
+          latestSummaryMessageId = summaryMessage.id;
+        }
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
+  const transcriptAssistantMessages = new Map<string, AiChatMessage>();
+  for (const [messageId, assistantState] of transcriptAssistants.entries()) {
+    transcriptAssistantMessages.set(
+      messageId,
+      buildAssistantMessageFromTranscript(conversation.id, assistantState, existingMessages.get(messageId)),
+    );
+  }
+
+  const resolveTranscriptMessage = (messageId: string): AiChatMessage | undefined => {
+    return transcriptSummaries.get(messageId)
+      ?? transcriptAssistantMessages.get(messageId)
+      ?? transcriptUsers.get(messageId)
+      ?? existingMessages.get(messageId);
+  };
+
+  const mergedMessages = conversation.messages.map((message) => {
+    if (message.role === 'assistant' && transcriptAssistantMessages.has(message.id)) {
+      return transcriptAssistantMessages.get(message.id) ?? message;
+    }
+    if (transcriptSummaries.has(message.id)) {
+      return transcriptSummaries.get(message.id) ?? message;
+    }
+    if (message.role === 'user' && transcriptUsers.has(message.id)) {
+      return transcriptUsers.get(message.id) ?? message;
+    }
+    return message;
+  });
+
+  const activeSummaryTimestamp = latestSummaryMessageId
+    ? latestSummaryTimestamp
+    : -Infinity;
+  const transcriptProjectionIds = latestSummaryMessageId
+    ? orderedMessageIds.filter((messageId) => (
+        messageId === latestSummaryMessageId
+        || (messageTimestamps.get(messageId) ?? -Infinity) > activeSummaryTimestamp
+      ))
+    : orderedMessageIds.slice();
+  const transcriptProjectionMessages = transcriptProjectionIds
+    .map((messageId) => resolveTranscriptMessage(messageId))
+    .filter((message): message is AiChatMessage => Boolean(message));
+
+  const rebuiltMessages = (() => {
+    if (transcriptProjectionMessages.length > 0) {
+      const projectionMessageIdSet = new Set(transcriptProjectionMessages.map((message) => message.id));
+      const existingOnlyMessages = mergedMessages.filter((message) => (
+        !projectionMessageIdSet.has(message.id)
+        && (activeSummaryTimestamp < 0 || message.timestamp > activeSummaryTimestamp)
+      ));
+
+      return [...transcriptProjectionMessages, ...existingOnlyMessages];
+    }
+
+    return mergedMessages;
+  })();
+
+  return hydrateStructuredConversation({
+    ...conversation,
+    messages: rebuiltMessages,
+  });
+}
 export function hydrateStructuredConversation(conversation: AiConversation): AiConversation {
   const existingTurns = conversation.turns ?? [];
   const usedTurnIds = new Set<string>();
@@ -131,8 +630,6 @@ export function hydrateStructuredConversation(conversation: AiConversation): AiC
     };
     const transcriptRef = message.transcriptRef
       && message.transcriptRef.conversationId === expectedTranscriptRef.conversationId
-      && message.transcriptRef.startEntryId === expectedTranscriptRef.startEntryId
-      && message.transcriptRef.endEntryId === expectedTranscriptRef.endEntryId
       ? message.transcriptRef
       : expectedTranscriptRef;
     const matchingExistingTurn = existingTurns.find((existingTurn) => {

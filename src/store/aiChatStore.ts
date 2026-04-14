@@ -45,6 +45,8 @@ import {
   hydrateStructuredConversation,
   parseThinkingContent,
   type FullConversationDto,
+  rebuildConversationFromTranscript,
+  type TranscriptResponseDto,
 } from './aiChatStore.helpers';
 import i18n from '../i18n';
 
@@ -213,6 +215,7 @@ function buildPersistedMessageRequest(
     contextSnapshot,
     turn: message.turn ?? null,
     transcriptRef: message.transcriptRef ?? null,
+    summaryRef: message.summaryRef ?? null,
   };
 }
 
@@ -445,8 +448,18 @@ export const useAiChatStore = create<AiChatStore>()((set, get) => ({
   // Load full conversation with messages
   _loadConversation: async (id) => {
     try {
-      const fullConv = await invoke<FullConversationDto>('ai_chat_get_conversation', { conversationId: id });
-      const conversation = dtoToConversation(fullConv);
+      const [fullConv, transcriptResponse] = await Promise.all([
+        invoke<FullConversationDto>('ai_chat_get_conversation', { conversationId: id }),
+        invoke<TranscriptResponseDto>('ai_chat_get_transcript', { conversationId: id })
+          .catch((error) => {
+            console.warn(`[AiChatStore] Failed to load transcript for conversation ${id}:`, error);
+            return { entries: [] };
+          }),
+      ]);
+      const conversation = rebuildConversationFromTranscript(
+        dtoToConversation(fullConv),
+        transcriptResponse.entries,
+      );
 
       set((state) => ({
         conversations: state.conversations.map((c) =>
@@ -2785,15 +2798,34 @@ You have tools to interact with the user's terminal sessions and workspace. **Us
       // Atomically replace all messages in a single backend transaction.
       // If the command fails, local state is untouched and the error bubbles
       // to the outer catch which sets the user-visible error state.
+      const summaryTranscriptEntry = buildTranscriptEntry(activeConversationId, 'summary_created', {
+        messageId: normalizedSummaryMessage.id,
+        summaryText: summaryContent,
+        source: 'foreground',
+        summarizationMode: 'manual',
+        replacedMessageCount: originalCount,
+      }, {
+        parentId: normalizedSummaryMessage.id,
+        timestamp: normalizedSummaryMessage.timestamp,
+      });
+      const summaryMessageWithTranscriptRef: AiChatMessage = {
+        ...normalizedSummaryMessage,
+        transcriptRef: {
+          conversationId: activeConversationId,
+          endEntryId: summaryTranscriptEntry.id,
+        },
+      };
+
       await invoke('ai_chat_replace_conversation_messages', {
         request: {
           conversationId: activeConversationId,
           title: conversation.title,
-          message: buildPersistedMessageRequest(activeConversationId, normalizedSummaryMessage, null),
+          message: buildPersistedMessageRequest(activeConversationId, summaryMessageWithTranscriptRef, null),
         },
       });
       const nextSummaryConversation = hydrateStructuredConversation({
         ...normalizedSummaryConversation,
+        messages: [summaryMessageWithTranscriptRef],
         sessionMetadata: mergeConversationSessionMetadata(normalizedSummaryConversation.sessionMetadata, {
           conversationId: activeConversationId,
           lastSummaryAt: normalizedSummaryMessage.timestamp,
@@ -2809,16 +2841,7 @@ You have tools to interact with the user's terminal sessions and workspace. **Us
       }));
 
       try {
-        await persistTranscriptEntries(activeConversationId, [buildTranscriptEntry(activeConversationId, 'summary_created', {
-          messageId: normalizedSummaryMessage.id,
-          summaryText: summaryContent,
-          source: 'foreground',
-          summarizationMode: 'manual',
-          replacedMessageCount: originalCount,
-        }, {
-          parentId: normalizedSummaryMessage.id,
-          timestamp: normalizedSummaryMessage.timestamp,
-        })]);
+        await persistTranscriptEntries(activeConversationId, [summaryTranscriptEntry]);
       } catch (persistErr) {
         console.warn('[AiChatStore] Failed to persist summary transcript entry:', persistErr);
       }
@@ -3019,15 +3042,35 @@ You have tools to interact with the user's terminal sessions and workspace. **Us
         .slice(-MAX_ANCHOR_SNAPSHOT)
         .map(m => ({ id: m.id, role: m.role, content: m.content, timestamp: m.timestamp }));
 
+      const anchorMessageId = generateId();
+      const anchorTimestamp = Date.now();
+      const compactedUntilEntryId = toCompact.at(-1)?.transcriptRef?.endEntryId ?? toCompact.at(-1)?.id;
+
+      const compactionTranscriptEntry = buildTranscriptEntry(convId, 'summary_created', {
+        messageId: anchorMessageId,
+        summaryText: summaryContent,
+        source: silent ? 'background' : 'foreground',
+        summarizationMode: silent ? 'background' : 'manual',
+        compactedMessageCount: totalCompacted,
+        compactedUntilMessageId: toCompact.at(-1)?.id,
+      }, {
+        parentId: anchorMessageId,
+        timestamp: anchorTimestamp,
+      });
+
       const anchorMessage: AiChatMessage = {
-        id: generateId(),
+        id: anchorMessageId,
         role: 'system',
         content: summaryContent,
-        timestamp: Date.now(),
+        timestamp: anchorTimestamp,
+        transcriptRef: {
+          conversationId: convId,
+          endEntryId: compactionTranscriptEntry.id,
+        },
         metadata: {
           type: 'compaction-anchor',
           originalCount: totalCompacted,
-          compactedAt: Date.now(),
+          compactedAt: anchorTimestamp,
           originalMessages: snapshotMessages,
         },
       };
@@ -3041,7 +3084,7 @@ You have tools to interact with the user's terminal sessions and workspace. **Us
         updatedAt: Date.now(),
         sessionMetadata: mergeConversationSessionMetadata(latestConversation.sessionMetadata, {
           conversationId: convId,
-          lastCompactedUntilEntryId: toCompact.at(-1)?.id,
+          lastCompactedUntilEntryId: compactedUntilEntryId,
           lastSummaryAt: anchorMessage.timestamp,
         }),
       });
@@ -3058,17 +3101,7 @@ You have tools to interact with the user's terminal sessions and workspace. **Us
         },
       });
       try {
-        await persistTranscriptEntries(convId, [buildTranscriptEntry(convId, 'summary_created', {
-          messageId: anchorMessage.id,
-          summaryText: summaryContent,
-          source: silent ? 'background' : 'foreground',
-          summarizationMode: silent ? 'background' : 'manual',
-          compactedMessageCount: totalCompacted,
-          compactedUntilMessageId: toCompact.at(-1)?.id,
-        }, {
-          parentId: anchorMessage.id,
-          timestamp: anchorMessage.timestamp,
-        })]);
+        await persistTranscriptEntries(convId, [compactionTranscriptEntry]);
       } catch (persistErr) {
         console.warn('[AiChatStore] Failed to persist compaction transcript entry:', persistErr);
       }

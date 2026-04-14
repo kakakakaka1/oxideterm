@@ -155,6 +155,9 @@ pub struct PersistedMessage {
     /// Transcript reference for the assistant output (optional during migration)
     #[serde(default)]
     pub transcript_ref: Option<Value>,
+    /// Summary reference metadata for reload/rebuild (optional during migration)
+    #[serde(default)]
+    pub summary_ref: Option<Value>,
 }
 
 /// Conversation metadata (lightweight, for list display)
@@ -1234,6 +1237,7 @@ mod tests {
             context_snapshot: None,
             turn: None,
             transcript_ref: None,
+            summary_ref: None,
         }
     }
 
@@ -1301,6 +1305,7 @@ mod tests {
             }),
             turn: None,
             transcript_ref: None,
+            summary_ref: None,
         };
         store.save_message(message).unwrap();
 
@@ -1363,6 +1368,7 @@ mod tests {
                 context_snapshot: None,
                 turn: None,
                 transcript_ref: None,
+                summary_ref: None,
             };
             store.save_message(msg).unwrap();
         }
@@ -1420,6 +1426,7 @@ mod tests {
                     context_snapshot: None,
                     turn: None,
                     transcript_ref: None,
+                    summary_ref: None,
                 };
                 store.save_message(msg).unwrap();
             }
@@ -1529,6 +1536,7 @@ mod tests {
                 context_snapshot: None,
                 turn: None,
                 transcript_ref: None,
+                summary_ref: None,
             };
             store.save_message(msg).unwrap();
         }
@@ -1567,6 +1575,7 @@ mod tests {
             context_snapshot: None,
             turn: None,
             transcript_ref: None,
+            summary_ref: None,
         };
         store.save_message(msg).unwrap();
 
@@ -1681,6 +1690,7 @@ mod tests {
             }),
             turn: None,
             transcript_ref: None,
+            summary_ref: None,
         };
 
         store.save_message(message).unwrap();
@@ -1726,6 +1736,7 @@ mod tests {
             }),
             turn: None,
             transcript_ref: None,
+            summary_ref: None,
         });
         set_test_force_compression_failure(false);
 
@@ -1789,6 +1800,7 @@ mod tests {
             context_snapshot: None,
             turn: None,
             transcript_ref: None,
+            summary_ref: None,
         };
 
         store
