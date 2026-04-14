@@ -892,13 +892,12 @@ export const POOL_TOOL_DEFS: AiToolDefinition[] = [
   },
   {
     name: 'set_pool_config',
-    description: 'Update SSH connection pool configuration (idle timeout, max connections, keep-alive interval).',
+    description: 'Update SSH connection pool configuration (idle timeout and max connections).',
     parameters: {
       type: 'object',
       properties: {
         idle_timeout_secs: { type: 'number', minimum: 0, description: 'Idle timeout in seconds before recycling a connection. 0 = no timeout.' },
         max_connections: { type: 'number', minimum: 1, maximum: 100, description: 'Maximum number of pooled connections.' },
-        keepalive_interval_secs: { type: 'number', minimum: 0, description: 'Keep-alive interval in seconds. 0 = disabled.' },
       },
     },
   },

@@ -15,6 +15,11 @@ export type ConnectToSavedOptions = {
   onError?: (connectionId: string, reason?: 'missing-password' | 'connect-failed') => void;
 };
 
+export type ConnectToSavedResult = {
+  nodeId: string;
+  sessionId: string;
+};
+
 /**
  * Connect to a saved connection configuration.
  *
@@ -27,7 +32,7 @@ export type ConnectToSavedOptions = {
 export async function connectToSaved(
   connectionId: string,
   options: ConnectToSavedOptions,
-): Promise<void> {
+): Promise<ConnectToSavedResult | null> {
   const { createTab, toast, t, onError } = options;
 
   const mapAuthType = (authType: string): 'password' | 'key' | 'agent' | undefined => {
@@ -64,7 +69,7 @@ export async function connectToSaved(
           variant: 'error',
         });
         onError?.(connectionId, 'connect-failed');
-        return;
+        return null;
       }
 
       const { expandManualPreset, connectNodeWithAncestors, createTerminalForNode } = useSessionTreeStore.getState();
@@ -114,7 +119,10 @@ export async function connectToSaved(
       });
 
       await api.markConnectionUsed(connectionId);
-      return;
+      return {
+        nodeId: expandResult.targetNodeId,
+        sessionId: terminalId,
+      };
     }
 
     // ========== Direct connection (no proxy_chain) ==========
@@ -130,10 +138,12 @@ export async function connectToSaved(
     const canReuseActiveNode = !!existingNode && existingNode.runtime.status === 'active';
     if (!canReuseActiveNode && requiresPasswordPrompt(savedConn.auth_type, savedConn.password)) {
       onError?.(connectionId, 'missing-password');
-      return;
+      return null;
     }
 
     let nodeId: string;
+
+    let sessionId: string;
 
     if (existingNode) {
       nodeId = existingNode.id;
@@ -166,6 +176,7 @@ export async function connectToSaved(
 
     if (terminalIds.length > 0) {
       // Reuse existing terminal
+      sessionId = terminalIds[0];
       const existingTab = useAppStore.getState().tabs.find(tab => tab.sessionId === terminalIds[0] && tab.type === 'terminal');
       if (existingTab) {
         useAppStore.setState({ activeTabId: existingTab.id });
@@ -177,9 +188,11 @@ export async function connectToSaved(
       const { createTerminalForNode } = useSessionTreeStore.getState();
       const terminalId = await createTerminalForNode(nodeId);
       createTab('terminal', terminalId);
+      sessionId = terminalId;
     }
 
     await api.markConnectionUsed(connectionId);
+    return { nodeId, sessionId };
   } catch (error) {
     console.error('Failed to connect to saved connection:', error);
     const errorMsg = String(error);
@@ -189,5 +202,6 @@ export async function connectToSaved(
       !errorMsg.includes('NODE_LOCK_BUSY')) {
       onError?.(connectionId, 'connect-failed');
     }
+    return null;
   }
 }

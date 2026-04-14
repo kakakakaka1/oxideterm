@@ -1199,6 +1199,7 @@ You have tools to interact with the user's terminal sessions and workspace. **Us
 
           const result = await executeTool(tc.name, parsedArgs, toolContext, {
             dangerousCommandApproved: explicitlyApprovedDangerousToolIds.has(tc.id),
+            abortSignal: abortController.signal,
           });
           result.toolCallId = tc.id;
           tc.result = result;

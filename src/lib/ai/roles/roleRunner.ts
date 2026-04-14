@@ -331,7 +331,10 @@ export async function processToolCalls(
 
     let result: AiToolResult;
     try {
-      result = await executeTool(tc.name, parsedArgs, toolContext, { dangerousCommandApproved });
+      result = await executeTool(tc.name, parsedArgs, toolContext, {
+        dangerousCommandApproved,
+        abortSignal: signal,
+      });
     } catch (err) {
       result = {
         toolCallId: tc.id,

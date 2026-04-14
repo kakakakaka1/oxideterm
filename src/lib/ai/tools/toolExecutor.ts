@@ -76,6 +76,7 @@ export type ToolExecutionContext = {
 
 export type ToolExecutionOptions = {
   dangerousCommandApproved?: boolean;
+  abortSignal?: AbortSignal;
 };
 
 /** Resolved target for a tool that requires a specific node */
@@ -83,6 +84,40 @@ type ResolvedNode = {
   nodeId: string;
   agentAvailable: boolean;
 };
+
+function makeAbortError(): DOMException {
+  return new DOMException('Generation was stopped.', 'AbortError');
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw makeAbortError();
+  }
+}
+
+async function waitWithAbort(ms: number, signal?: AbortSignal): Promise<void> {
+  if (!signal) {
+    await new Promise((resolve) => setTimeout(resolve, ms));
+    return;
+  }
+
+  if (signal.aborted) throw makeAbortError();
+
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+
+    const onAbort = () => {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', onAbort);
+      reject(makeAbortError());
+    };
+
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+}
 
 /**
  * Resolve the target node for a tool call.
@@ -132,6 +167,8 @@ export async function executeTool(
   const explicitNodeId = typeof args.node_id === 'string' ? args.node_id.trim() : '';
 
   try {
+    throwIfAborted(options.abortSignal);
+
     // Context-free tools — no node required
     if (CONTEXT_FREE_TOOLS.has(toolName)) {
       switch (toolName) {
@@ -232,17 +269,17 @@ export async function executeTool(
         case 'search_terminal':
           return await execSearchTerminal(args, startTime, toolCallId);
         case 'await_terminal_output':
-          return await execAwaitTerminalOutput(args, startTime, toolCallId);
+          return await execAwaitTerminalOutput(args, startTime, toolCallId, options.abortSignal);
         case 'send_control_sequence':
-          return await execSendControlSequence(args, startTime, toolCallId);
+          return await execSendControlSequence(args, startTime, toolCallId, options.abortSignal);
         case 'batch_exec':
-          return await execBatchExec(args, startTime, toolCallId);
+          return await execBatchExec(args, startTime, toolCallId, options.abortSignal);
         case 'read_screen':
           return execReadScreen(args, startTime, toolCallId);
         case 'send_keys':
-          return await execSendKeys(args, startTime, toolCallId);
+          return await execSendKeys(args, startTime, toolCallId, options.abortSignal);
         case 'send_mouse':
-          return await execSendMouse(args, startTime, toolCallId);
+          return await execSendMouse(args, startTime, toolCallId, options.abortSignal);
         default:
           return { toolCallId, toolName, success: false, output: '', error: `Unknown session tool: ${toolName}`, durationMs: Date.now() - startTime };
       }
@@ -253,7 +290,7 @@ export async function executeTool(
     if (toolName === 'terminal_exec' && explicitNodeId.length === 0) {
       const sessionId = typeof args.session_id === 'string' ? args.session_id.trim() : '';
       if (sessionId) {
-        return await execTerminalCommandToSession(args, sessionId, startTime, toolCallId);
+        return await execTerminalCommandToSession(args, sessionId, startTime, toolCallId, options.abortSignal);
       }
     }
 
@@ -385,6 +422,7 @@ async function execTerminalCommandToSession(
   sessionId: string,
   startTime: number,
   toolCallId: string,
+  abortSignal?: AbortSignal,
 ): Promise<AiToolResult> {
   const command = typeof args.command === 'string' ? args.command.trim() : '';
   if (!command) {
@@ -442,7 +480,20 @@ async function execTerminalCommandToSession(
     null,
     startTime,
     preSnapshotLineCount,
+    abortSignal,
   );
+
+  if (waitResult.error === 'Generation was stopped.') {
+    return {
+      toolCallId,
+      toolName: 'terminal_exec',
+      success: false,
+      output: `Command was sent to terminal session ${sessionId} before generation stopped: ${command}`,
+      error: waitResult.error,
+      durationMs: Date.now() - startTime,
+    };
+  }
+
   return {
     toolCallId,
     toolName: 'terminal_exec',
@@ -604,7 +655,18 @@ async function execGrepSearch(
     undefined,
     15,
   );
-  const { text, truncated } = truncateOutput(result.stdout || 'No matches found.');
+  if (result.exitCode !== 0 && result.exitCode !== 1) {
+    return {
+      toolCallId,
+      toolName: 'grep_search',
+      success: false,
+      output: '',
+      error: result.stderr || `grep failed with exit code ${result.exitCode}`,
+      durationMs: Date.now() - startTime,
+    };
+  }
+
+  const { text, truncated } = truncateOutput(result.exitCode === 1 ? 'No matches found.' : (result.stdout || 'No matches found.'));
   return {
     toolCallId,
     toolName: 'grep_search',
@@ -956,6 +1018,7 @@ async function waitForTerminalOutput(
   patternRe: RegExp | null,
   startTime: number,
   preSnapshotLineCount?: number | null,
+  abortSignal?: AbortSignal,
 ): Promise<WaitResult> {
   // Use pre-command snapshot if provided (avoids race condition),
   // otherwise take a fresh snapshot now.
@@ -977,22 +1040,25 @@ async function waitForTerminalOutput(
 
   console.debug(`[AI:ToolExec] waitForTerminalOutput: initial=${initialLineCount}, timeout=${timeoutSecs}s, stable=${stableSecs}s`);
 
-  const result = await new Promise<'pattern' | 'prompt' | 'stable' | 'timeout' | 'lost'>((resolve) => {
+  const result = await new Promise<'pattern' | 'prompt' | 'stable' | 'timeout' | 'lost' | 'aborted'>((resolve) => {
     let stableTimer: ReturnType<typeof setTimeout> | null = null;
     let promptGraceTimer: ReturnType<typeof setTimeout> | null = null;
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
+    let unsubscribe = () => {};
     let settled = false;
     let outputCounter = 0;       // Bumped synchronously by notification listener
     let lastCheckedCounter = 0;  // Tracks which notifications have been processed
     let checking = false;        // Prevents overlapping async checks
     let outputBursts = 0;        // Count of new-output detections for adaptive stability
 
-    const done = (reason: 'pattern' | 'prompt' | 'stable' | 'timeout' | 'lost') => {
+    const done = (reason: 'pattern' | 'prompt' | 'stable' | 'timeout' | 'lost' | 'aborted') => {
       if (settled) return;
       settled = true;
       clearTimeout(timeoutTimer);
       if (stableTimer) clearTimeout(stableTimer);
       if (promptGraceTimer) clearTimeout(promptGraceTimer);
-      clearInterval(pollTimer);
+      if (pollTimer) clearInterval(pollTimer);
+      if (abortSignal && abortHandler) abortSignal.removeEventListener('abort', abortHandler);
       unsubscribe();
       console.debug(`[AI:ToolExec] done: reason=${reason}`);
       resolve(reason);
@@ -1006,10 +1072,19 @@ async function waitForTerminalOutput(
       outputCounter++;
     };
 
-    const unsubscribe = subscribeTerminalOutput(sessionId, onOutput);
+    const abortHandler = abortSignal ? () => done('aborted') : null;
+    if (abortSignal) {
+      if (abortSignal.aborted) {
+        done('aborted');
+        return;
+      }
+      abortSignal.addEventListener('abort', abortHandler!, { once: true });
+    }
+
+    unsubscribe = subscribeTerminalOutput(sessionId, onOutput);
 
     // Periodic poller — checks counter and performs async buffer reads safely
-    const pollTimer = setInterval(async () => {
+    pollTimer = setInterval(async () => {
       if (settled || checking) return;
       if (outputCounter === lastCheckedCounter) return; // No new notifications
 
@@ -1072,6 +1147,10 @@ async function waitForTerminalOutput(
     }, POLL_INTERVAL_MS);
   });
 
+  if (result === 'aborted') {
+    return { success: false, output: '', error: 'Generation was stopped.' };
+  }
+
   // Read final buffer and extract delta
   const finalLines = await readBufferLines(sessionId);
   if (finalLines === null || result === 'lost') {
@@ -1123,6 +1202,7 @@ async function execAwaitTerminalOutput(
   args: Record<string, unknown>,
   startTime: number,
   toolCallId: string,
+  abortSignal?: AbortSignal,
 ): Promise<AiToolResult> {
   const toolName = 'await_terminal_output';
   const sessionId = args.session_id as string;
@@ -1149,7 +1229,7 @@ async function execAwaitTerminalOutput(
     }
   }
 
-  const waitResult = await waitForTerminalOutput(sessionId, timeoutSecs, stableSecs, patternRe, startTime);
+  const waitResult = await waitForTerminalOutput(sessionId, timeoutSecs, stableSecs, patternRe, startTime, undefined, abortSignal);
   return {
     toolCallId,
     toolName,
@@ -1204,6 +1284,7 @@ async function execSendControlSequence(
   args: Record<string, unknown>,
   startTime: number,
   toolCallId: string,
+  abortSignal?: AbortSignal,
 ): Promise<AiToolResult> {
   const toolName = 'send_control_sequence';
   const sessionId = args.session_id as string;
@@ -1227,9 +1308,20 @@ async function execSendControlSequence(
   }
 
   // Wait briefly for terminal response
-  const waitResult = await waitForTerminalOutput(sessionId, 3, 1, null, startTime);
+  const waitResult = await waitForTerminalOutput(sessionId, 3, 1, null, startTime, undefined, abortSignal);
 
   const label = CONTROL_LABELS[rawSequence] || rawSequence;
+  if (waitResult.error === 'Generation was stopped.') {
+    return {
+      toolCallId,
+      toolName,
+      success: false,
+      output: `Sent ${label} to session ${sessionId} before generation stopped.`,
+      error: waitResult.error,
+      durationMs: Date.now() - startTime,
+    };
+  }
+
   const output = waitResult.output
     ? `Sent ${label} to session ${sessionId}.\n\nTerminal response:\n${waitResult.output}`
     : `Sent ${label} to session ${sessionId}. No immediate terminal response.`;
@@ -1250,6 +1342,7 @@ async function execBatchExec(
   args: Record<string, unknown>,
   startTime: number,
   toolCallId: string,
+  abortSignal?: AbortSignal,
 ): Promise<AiToolResult> {
   const toolName = 'batch_exec';
   const sessionId = args.session_id as string;
@@ -1272,36 +1365,48 @@ async function execBatchExec(
 
   const results: string[] = [];
 
-  for (let i = 0; i < commands.length; i++) {
-    const cmd = typeof commands[i] === 'string' ? commands[i].trim() : '';
-    if (!cmd) {
-      results.push(`[${i + 1}] (empty command — skipped)`);
-      continue;
+  try {
+    for (let i = 0; i < commands.length; i++) {
+      throwIfAborted(abortSignal);
+
+      const cmd = typeof commands[i] === 'string' ? commands[i].trim() : '';
+      if (!cmd) {
+        results.push(`[${i + 1}] (empty command — skipped)`);
+        continue;
+      }
+
+      // Pre-command snapshot: capture buffer line count BEFORE sending the command
+      const preSnapshot = await readBufferLines(sessionId);
+      const preSnapshotLineCount = preSnapshot?.length ?? null;
+
+      const sent = writeToTerminal(paneId, `${cmd}\r`);
+      if (!sent) {
+        results.push(`[${i + 1}] $ ${cmd}\n❌ Terminal is not writable.`);
+        break;
+      }
+
+      const waitResult = await waitForTerminalOutput(
+        sessionId,
+        AUTO_AWAIT_TIMEOUT_SECS,
+        AUTO_AWAIT_STABLE_SECS,
+        null,
+        Date.now(),
+        preSnapshotLineCount,
+        abortSignal,
+      );
+
+      if (!waitResult.success) {
+        results.push(`[${i + 1}] $ ${cmd}\n❌ ${waitResult.error || 'Failed to read output.'}`);
+        if (waitResult.error === 'Generation was stopped.') {
+          break;
+        }
+      } else {
+        results.push(`[${i + 1}] $ ${cmd}\n${waitResult.output}`);
+      }
     }
-
-    // Pre-command snapshot: capture buffer line count BEFORE sending the command
-    const preSnapshot = await readBufferLines(sessionId);
-    const preSnapshotLineCount = preSnapshot?.length ?? null;
-
-    const sent = writeToTerminal(paneId, `${cmd}\r`);
-    if (!sent) {
-      results.push(`[${i + 1}] $ ${cmd}\n❌ Terminal is not writable.`);
-      break;
-    }
-
-    const waitResult = await waitForTerminalOutput(
-      sessionId,
-      AUTO_AWAIT_TIMEOUT_SECS,
-      AUTO_AWAIT_STABLE_SECS,
-      null,
-      Date.now(),
-      preSnapshotLineCount,
-    );
-
-    if (!waitResult.success) {
-      results.push(`[${i + 1}] $ ${cmd}\n❌ ${waitResult.error || 'Failed to read output.'}`);
-    } else {
-      results.push(`[${i + 1}] $ ${cmd}\n${waitResult.output}`);
+  } catch (e) {
+    if (!(e instanceof Error && e.name === 'AbortError')) {
+      throw e;
     }
   }
 
@@ -1311,8 +1416,9 @@ async function execBatchExec(
   return {
     toolCallId,
     toolName,
-    success: true,
+    success: !abortSignal?.aborted,
     output: text,
+    error: abortSignal?.aborted ? 'Generation was stopped.' : undefined,
     truncated,
     durationMs: Date.now() - startTime,
   };
@@ -1420,6 +1526,7 @@ async function execSendKeys(
   args: Record<string, unknown>,
   startTime: number,
   toolCallId: string,
+  abortSignal?: AbortSignal,
 ): Promise<AiToolResult> {
   const toolName = 'send_keys';
   const sessionId = args.session_id as string;
@@ -1456,38 +1563,65 @@ async function execSendKeys(
   /** Printable-only regex: ASCII 0x20-0x7E plus extended Unicode (no control chars) */
   const PRINTABLE_RE = /^[\x20-\x7E\u0080-\uFFFF]+$/;
 
-  for (let i = 0; i < keys.length; i++) {
-    const raw = keys[i];
-    const lower = raw.toLowerCase();
-    const sequence = KEY_SEQUENCES[lower];
+  try {
+    for (let i = 0; i < keys.length; i++) {
+      throwIfAborted(abortSignal);
 
-    if (sequence !== undefined) {
-      // Special key — send its escape sequence
-      const sent = writeToTerminal(paneId, sequence);
-      if (!sent) {
-        return { toolCallId, toolName, success: false, output: sentSummary.join(', '), error: `Terminal not writable at key ${i + 1}.`, durationMs: Date.now() - startTime };
+      const raw = keys[i];
+      const lower = raw.toLowerCase();
+      const sequence = KEY_SEQUENCES[lower];
+
+      if (sequence !== undefined) {
+        const sent = writeToTerminal(paneId, sequence);
+        if (!sent) {
+          return { toolCallId, toolName, success: false, output: sentSummary.join(', '), error: `Terminal not writable at key ${i + 1}.`, durationMs: Date.now() - startTime };
+        }
+        sentSummary.push(`[${raw}]`);
+      } else {
+        if (!PRINTABLE_RE.test(raw)) {
+          return { toolCallId, toolName, success: false, output: sentSummary.join(', '), error: `keys[${i}] contains control characters. Use named keys (e.g. "Escape", "Enter") instead.`, durationMs: Date.now() - startTime };
+        }
+        const sent = writeToTerminal(paneId, raw);
+        if (!sent) {
+          return { toolCallId, toolName, success: false, output: sentSummary.join(', '), error: `Terminal not writable at key ${i + 1}.`, durationMs: Date.now() - startTime };
+        }
+        sentSummary.push(raw.length <= 10 ? `"${raw}"` : `"${raw.slice(0, 10)}…"`);
       }
-      sentSummary.push(`[${raw}]`);
-    } else {
-      // Plain text — must be printable characters only (no raw escape sequences)
-      if (!PRINTABLE_RE.test(raw)) {
-        return { toolCallId, toolName, success: false, output: sentSummary.join(', '), error: `keys[${i}] contains control characters. Use named keys (e.g. "Escape", "Enter") instead.`, durationMs: Date.now() - startTime };
+
+      if (i < keys.length - 1) {
+        await waitWithAbort(delayMs, abortSignal);
       }
-      const sent = writeToTerminal(paneId, raw);
-      if (!sent) {
-        return { toolCallId, toolName, success: false, output: sentSummary.join(', '), error: `Terminal not writable at key ${i + 1}.`, durationMs: Date.now() - startTime };
-      }
-      sentSummary.push(raw.length <= 10 ? `"${raw}"` : `"${raw.slice(0, 10)}…"`);
     }
-
-    // Delay between keys (skip after last key)
-    if (i < keys.length - 1) {
-      await new Promise(resolve => setTimeout(resolve, delayMs));
+  } catch (e) {
+    if (!(e instanceof Error && e.name === 'AbortError')) {
+      throw e;
     }
   }
 
   // Wait briefly for terminal to process keystrokes
-  const waitResult = await waitForTerminalOutput(sessionId, SEND_KEYS_TIMEOUT_SECS, SEND_KEYS_STABLE_SECS, null, startTime);
+  if (abortSignal?.aborted) {
+    return {
+      toolCallId,
+      toolName,
+      success: false,
+      output: `Sent ${sentSummary.length} key(s) before generation stopped: ${sentSummary.join(', ')}`,
+      error: 'Generation was stopped.',
+      durationMs: Date.now() - startTime,
+    };
+  }
+
+  const waitResult = await waitForTerminalOutput(sessionId, SEND_KEYS_TIMEOUT_SECS, SEND_KEYS_STABLE_SECS, null, startTime, undefined, abortSignal);
+
+  if (waitResult.error === 'Generation was stopped.') {
+    return {
+      toolCallId,
+      toolName,
+      success: false,
+      output: `Sent ${keys.length} key(s) before generation stopped: ${sentSummary.join(', ')}`,
+      error: waitResult.error,
+      durationMs: Date.now() - startTime,
+    };
+  }
 
   const summary = `Sent ${keys.length} key(s): ${sentSummary.join(', ')}`;
   const output = waitResult.output
@@ -1510,6 +1644,7 @@ async function execSendMouse(
   args: Record<string, unknown>,
   startTime: number,
   toolCallId: string,
+  abortSignal?: AbortSignal,
 ): Promise<AiToolResult> {
   const toolName = 'send_mouse';
   const sessionId = args.session_id as string;
@@ -1578,7 +1713,18 @@ async function execSendMouse(
   }
 
   // Brief wait for TUI to react
-  const waitResult = await waitForTerminalOutput(sessionId, 2, 0.5, null, startTime);
+  const waitResult = await waitForTerminalOutput(sessionId, 2, 0.5, null, startTime, undefined, abortSignal);
+
+  if (waitResult.error === 'Generation was stopped.') {
+    return {
+      toolCallId,
+      toolName,
+      success: false,
+      output: `${summary} before generation stopped.`,
+      error: waitResult.error,
+      durationMs: Date.now() - startTime,
+    };
+  }
 
   const output = waitResult.output
     ? `${summary}\n\nTerminal response:\n${waitResult.output}`
@@ -2051,25 +2197,38 @@ async function execIdeCreateFile(
     if (!name) return { toolCallId, toolName, success: false, output: '', error: 'Invalid path: no filename', durationMs: Date.now() - startTime };
 
     await ideStore.createFile(parentPath, name);
+    let warning: string | null = null;
 
     // If content was provided, write it into the new tab
     if (content) {
-      await ideStore.openFile(fullPath);
-      const tab = useIdeStore.getState().tabs.find(t => t.path === fullPath);
-      if (tab) {
-        useIdeStore.setState(state => ({
-          tabs: state.tabs.map(t =>
-            t.id === tab.id
-              ? { ...t, content, isDirty: true, contentVersion: t.contentVersion + 1 }
-              : t
-          ),
-        }));
-        await useIdeStore.getState().saveFile(tab.id);
+      try {
+        await ideStore.openFile(fullPath);
+        const tab = useIdeStore.getState().tabs.find(t => t.path === fullPath);
+        if (!tab) {
+          warning = 'File was created, but the IDE tab could not be opened automatically.';
+        } else {
+          useIdeStore.setState(state => ({
+            tabs: state.tabs.map(t =>
+              t.id === tab.id
+                ? { ...t, content, isDirty: true, contentVersion: t.contentVersion + 1 }
+                : t
+            ),
+          }));
+          await useIdeStore.getState().saveFile(tab.id);
+        }
+      } catch (e) {
+        warning = `File was created, but initial content setup failed: ${e instanceof Error ? e.message : String(e)}`;
       }
     }
 
     const tab = useIdeStore.getState().tabs.find(t => t.path === fullPath);
-    return { toolCallId, toolName, success: true, output: JSON.stringify({ tab_id: tab?.id ?? null, path: fullPath, name }, null, 2), durationMs: Date.now() - startTime };
+    return {
+      toolCallId,
+      toolName,
+      success: true,
+      output: JSON.stringify({ tab_id: tab?.id ?? null, path: fullPath, name, ...(warning ? { warning } : {}) }, null, 2),
+      durationMs: Date.now() - startTime,
+    };
   } catch (e) {
     return { toolCallId, toolName, success: false, output: '', error: e instanceof Error ? e.message : String(e), durationMs: Date.now() - startTime };
   }
@@ -2405,6 +2564,17 @@ async function execGetPoolStats(startTime: number, toolCallId: string): Promise<
 
 async function execSetPoolConfig(args: Record<string, unknown>, startTime: number, toolCallId: string): Promise<AiToolResult> {
   try {
+    if (args.keepalive_interval_secs !== undefined) {
+      return {
+        toolCallId,
+        toolName: 'set_pool_config',
+        success: false,
+        output: '',
+        error: 'keepalive_interval_secs is not supported by the current connection pool backend.',
+        durationMs: Date.now() - startTime,
+      };
+    }
+
     // Build a full config object, using defaults for missing fields
     const idleTimeout = typeof args.idle_timeout_secs === 'number' ? args.idle_timeout_secs : 300;
     const maxConns = typeof args.max_connections === 'number' ? Math.max(1, Math.min(100, args.max_connections as number)) : 10;
@@ -2416,7 +2586,7 @@ async function execSetPoolConfig(args: Record<string, unknown>, startTime: numbe
     };
 
     await api.sshSetPoolConfig(config);
-    const changed = Object.entries(args).filter(([k]) => ['idle_timeout_secs', 'max_connections', 'keepalive_interval_secs'].includes(k)).map(([k]) => k);
+    const changed = Object.entries(args).filter(([k]) => ['idle_timeout_secs', 'max_connections'].includes(k)).map(([k]) => k);
     return { toolCallId, toolName: 'set_pool_config', success: true, output: `Pool config updated: ${changed.join(', ') || 'no changes'}`, durationMs: Date.now() - startTime };
   } catch (e) {
     return { toolCallId, toolName: 'set_pool_config', success: false, output: '', error: e instanceof Error ? e.message : String(e), durationMs: Date.now() - startTime };
@@ -2515,10 +2685,8 @@ async function execConnectSavedSession(args: Record<string, unknown>, startTime:
     const { connectToSaved } = await import('@/lib/connectToSaved');
 
     // Track what was opened and any errors
-    let openedSessionId: string | null = null;
     let connectError: string | null = null;
     const createTab = (_type: 'terminal', sessionId: string) => {
-      openedSessionId = sessionId;
       useAppStore.getState().createTab('terminal', sessionId, skipFocus ? { skipFocus } : undefined);
     };
 
@@ -2526,42 +2694,35 @@ async function execConnectSavedSession(args: Record<string, unknown>, startTime:
       createTab,
       toast: () => {}, // No-op: AI context doesn't need toasts
       t: (key: string) => key, // Pass-through: not displayed to user
-      onError: (connId) => { connectError = `Connection failed for ${connId}`; },
+      onError: (connId, reason) => {
+        if (reason === 'missing-password') {
+          connectError = `Connection ${connId} requires a password prompt and cannot be completed non-interactively.`;
+          return;
+        }
+        connectError = `Connection failed for ${connId}`;
+      },
     });
     const timeout = new Promise<never>((_, reject) =>
       setTimeout(() => reject(new Error('Connection timed out after 90 seconds')), 90_000)
     );
-    await Promise.race([connectPromise, timeout]);
+    const connectResult = await Promise.race([connectPromise, timeout]);
 
     if (connectError) {
       return { toolCallId, toolName, success: false, output: '', error: connectError, durationMs: Date.now() - startTime };
     }
 
-    // Gather result info — find the node via the terminal we just opened,
-    // or fall back to searching by connection state (reused existing tab path)
-    let connectedNode = openedSessionId
-      ? useSessionTreeStore.getState().getNodeByTerminalId(openedSessionId)
-      : undefined;
-
-    if (!connectedNode && !openedSessionId) {
-      // connectToSaved may have reused an existing tab without calling createTab
-      const nodes = useSessionTreeStore.getState().nodes;
-      connectedNode = nodes.find(n =>
-        n.depth === 0 &&
-        (n.runtime?.status === 'active' || n.runtime?.status === 'connected') &&
-        (n.runtime?.terminalIds?.length ?? 0) > 0
-      );
-      if (connectedNode) {
-        openedSessionId = connectedNode.runtime.terminalIds[0] ?? null;
-      }
+    if (!connectResult) {
+      return { toolCallId, toolName, success: false, output: '', error: 'Connection did not produce a terminal session.', durationMs: Date.now() - startTime };
     }
+
+    const connectedNode = useSessionTreeStore.getState().getNode(connectResult.nodeId);
 
     const info: Record<string, unknown> = {
       connection_id: connectionId,
+      session_id: connectResult.sessionId,
+      node_id: connectResult.nodeId,
     };
-    if (openedSessionId) info.session_id = openedSessionId;
     if (connectedNode) {
-      info.node_id = connectedNode.id;
       info.host = connectedNode.host;
       info.port = connectedNode.port;
       info.username = connectedNode.username;

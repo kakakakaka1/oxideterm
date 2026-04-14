@@ -66,7 +66,7 @@ describe('connectToSaved', () => {
     sessionTreeState.createTerminalForNode.mockResolvedValue('term-target');
     const createTab = vi.fn();
 
-    await connectToSaved('saved-1', {
+    const result = await connectToSaved('saved-1', {
       createTab,
       toast: vi.fn(),
       t: (key: string) => key,
@@ -90,6 +90,7 @@ describe('connectToSaved', () => {
     expect(sessionTreeState.createTerminalForNode).toHaveBeenCalledWith('node-target');
     expect(createTab).toHaveBeenCalledWith('terminal', 'term-target');
     expect(apiMocks.markConnectionUsed).toHaveBeenCalledWith('saved-1');
+    expect(result).toEqual({ nodeId: 'node-target', sessionId: 'term-target' });
   });
 
   it('reconnects idle direct nodes and creates a new terminal when none exists', async () => {
@@ -186,7 +187,7 @@ describe('connectToSaved', () => {
     });
     const createTab = vi.fn();
 
-    await connectToSaved('saved-3', {
+    const result = await connectToSaved('saved-3', {
       createTab,
       toast: vi.fn(),
       t: (key: string) => key,
@@ -194,6 +195,7 @@ describe('connectToSaved', () => {
 
     expect(createTab).not.toHaveBeenCalled();
     expect(appStoreState.activeTabId).toBe('tab-1');
+    expect(result).toEqual({ nodeId: 'node-1', sessionId: 'term-1' });
   });
 
   it('suppresses onError for lock-busy style failures', async () => {

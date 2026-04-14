@@ -54,15 +54,54 @@ const settingsState = vi.hoisted(() => ({
 }));
 
 const localExecCommandMock = vi.hoisted(() => vi.fn());
+const nodeIdeExecCommandMock = vi.hoisted(() => vi.fn());
+const nodeGetStateMock = vi.hoisted(() => vi.fn());
+const nodeAgentStatusMock = vi.hoisted(() => vi.fn());
+const sshSetPoolConfigMock = vi.hoisted(() => vi.fn());
+const getAllBufferLinesMock = vi.hoisted(() => vi.fn());
+const connectToSavedMock = vi.hoisted(() => vi.fn());
+const findPaneBySessionIdMock = vi.hoisted(() => vi.fn());
+const getTerminalBufferMock = vi.hoisted(() => vi.fn());
+const writeToTerminalMock = vi.hoisted(() => vi.fn());
+const subscribeTerminalOutputMock = vi.hoisted(() => vi.fn());
+const readScreenMock = vi.hoisted(() => vi.fn());
+const createTabMock = vi.hoisted(() => vi.fn());
+
+const sessionTreeState = vi.hoisted(() => ({
+  nodes: [] as Array<Record<string, unknown>>,
+  getNode: vi.fn(),
+  getNodeByTerminalId: vi.fn(),
+}));
+
+const appStoreState = vi.hoisted(() => ({
+  sessions: new Map(),
+  tabs: [] as Array<Record<string, unknown>>,
+  createTab: createTabMock,
+}));
+
+const ideStoreState = vi.hoisted(() => ({
+  tabs: [] as Array<Record<string, unknown>>,
+  activeTabId: null as string | null,
+  activeFileId: null as string | null,
+  nodeId: null as string | null,
+  project: null as Record<string, unknown> | null,
+  openFile: vi.fn(),
+  createFile: vi.fn(),
+  saveFile: vi.fn(),
+  replaceStringInTab: vi.fn(),
+  insertTextInTab: vi.fn(),
+}));
 
 vi.mock('@/lib/api', () => ({
   api: {
     localExecCommand: localExecCommandMock,
+    sshSetPoolConfig: sshSetPoolConfigMock,
+    getAllBufferLines: getAllBufferLinesMock,
   },
   ragSearch: vi.fn(),
-  nodeIdeExecCommand: vi.fn(),
-  nodeGetState: vi.fn(),
-  nodeAgentStatus: vi.fn(),
+  nodeIdeExecCommand: nodeIdeExecCommandMock,
+  nodeGetState: nodeGetStateMock,
+  nodeAgentStatus: nodeAgentStatusMock,
   nodeAgentReadFile: vi.fn(),
   nodeAgentWriteFile: vi.fn(),
   nodeAgentListTree: vi.fn(),
@@ -82,13 +121,13 @@ vi.mock('@/store/settingsStore', () => ({
 
 vi.mock('@/store/sessionTreeStore', () => ({
   useSessionTreeStore: {
-    getState: () => ({ nodes: [] }),
+    getState: () => sessionTreeState,
   },
 }));
 
 vi.mock('@/store/appStore', () => ({
   useAppStore: {
-    getState: () => ({ sessions: new Map(), tabs: [], createTab: vi.fn() }),
+    getState: () => appStoreState,
   },
 }));
 
@@ -100,7 +139,11 @@ vi.mock('@/store/localTerminalStore', () => ({
 
 vi.mock('@/store/ideStore', () => ({
   useIdeStore: {
-    getState: () => ({ openFiles: [], activeFileId: null, nodeId: null }),
+    getState: () => ideStoreState,
+    setState: (updater: Record<string, unknown> | ((state: typeof ideStoreState) => Record<string, unknown>)) => {
+      const next = typeof updater === 'function' ? updater(ideStoreState) : updater;
+      Object.assign(ideStoreState, next);
+    },
   },
 }));
 
@@ -135,11 +178,15 @@ vi.mock('@/store/broadcastStore', () => ({
 }));
 
 vi.mock('@/lib/terminalRegistry', () => ({
-  findPaneBySessionId: vi.fn(),
-  getTerminalBuffer: vi.fn(),
-  writeToTerminal: vi.fn(),
-  subscribeTerminalOutput: vi.fn(),
-  readScreen: vi.fn(),
+  findPaneBySessionId: findPaneBySessionIdMock,
+  getTerminalBuffer: getTerminalBufferMock,
+  writeToTerminal: writeToTerminalMock,
+  subscribeTerminalOutput: subscribeTerminalOutputMock,
+  readScreen: readScreenMock,
+}));
+
+vi.mock('@/lib/connectToSaved', () => ({
+  connectToSaved: connectToSavedMock,
 }));
 
 vi.mock('@/lib/ai/providerRegistry', () => ({
@@ -159,6 +206,37 @@ import { executeTool } from '@/lib/ai/tools/toolExecutor';
 describe('toolExecutor get_settings sanitization', () => {
   beforeEach(() => {
     localExecCommandMock.mockReset();
+    nodeIdeExecCommandMock.mockReset();
+    nodeGetStateMock.mockReset();
+    nodeGetStateMock.mockResolvedValue({ state: { readiness: 'ready', sftpCwd: '/' } });
+    nodeAgentStatusMock.mockReset();
+    nodeAgentStatusMock.mockResolvedValue({ type: 'error' });
+    sshSetPoolConfigMock.mockReset();
+    sshSetPoolConfigMock.mockResolvedValue(undefined);
+    getAllBufferLinesMock.mockReset();
+    getAllBufferLinesMock.mockRejectedValue(new Error('no backend buffer'));
+    connectToSavedMock.mockReset();
+    findPaneBySessionIdMock.mockReset();
+    getTerminalBufferMock.mockReset();
+    writeToTerminalMock.mockReset();
+    subscribeTerminalOutputMock.mockReset();
+    subscribeTerminalOutputMock.mockImplementation(() => () => {});
+    readScreenMock.mockReset();
+    createTabMock.mockReset();
+    sessionTreeState.nodes = [];
+    sessionTreeState.getNode.mockReset();
+    sessionTreeState.getNodeByTerminalId.mockReset();
+    appStoreState.tabs = [];
+    ideStoreState.tabs = [];
+    ideStoreState.activeTabId = null;
+    ideStoreState.activeFileId = null;
+    ideStoreState.nodeId = null;
+    ideStoreState.project = null;
+    ideStoreState.openFile.mockReset();
+    ideStoreState.createFile.mockReset();
+    ideStoreState.saveFile.mockReset();
+    ideStoreState.replaceStringInTab.mockReset();
+    ideStoreState.insertTextInTab.mockReset();
     settingsState.settings.ai.mcpServers[0].env = {
       API_TOKEN: 'super-secret',
       DEBUG: '1',
@@ -259,5 +337,120 @@ describe('toolExecutor get_settings sanitization', () => {
     );
 
     expect(localExecCommandMock).toHaveBeenCalledWith('sudo reboot', undefined, 5, false);
+  });
+});
+
+describe('toolExecutor regressions', () => {
+  it('cancels await_terminal_output when abort signal fires', async () => {
+    findPaneBySessionIdMock.mockReturnValue('pane-1');
+    getTerminalBufferMock.mockReturnValue('existing line');
+    const abortController = new AbortController();
+
+    const promise = executeTool(
+      'await_terminal_output',
+      { session_id: 'session-1', timeout_secs: 30 },
+      { activeNodeId: null, activeAgentAvailable: false },
+      { abortSignal: abortController.signal },
+    );
+
+    abortController.abort();
+
+    await expect(promise).resolves.toMatchObject({
+      success: false,
+      error: 'Generation was stopped.',
+    });
+  });
+
+  it('stops batch_exec before sending later commands after abort', async () => {
+    findPaneBySessionIdMock.mockReturnValue('pane-1');
+    getTerminalBufferMock.mockReturnValue('buffer');
+    const abortController = new AbortController();
+    writeToTerminalMock.mockImplementation((_paneId: string, data: string) => {
+      if (data === 'first\r') {
+        abortController.abort();
+      }
+      return true;
+    });
+
+    const result = await executeTool(
+      'batch_exec',
+      { session_id: 'session-1', commands: ['first', 'second'] },
+      { activeNodeId: null, activeAgentAvailable: false },
+      { abortSignal: abortController.signal },
+    );
+
+    expect(writeToTerminalMock).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      success: false,
+      error: 'Generation was stopped.',
+    });
+  });
+
+  it('surfaces grep fallback execution errors instead of reporting no matches', async () => {
+    sessionTreeState.nodes = [{ id: 'node-1' }];
+    nodeIdeExecCommandMock.mockResolvedValue({ stdout: '', stderr: 'Permission denied', exitCode: 2 });
+
+    const result = await executeTool(
+      'grep_search',
+      { pattern: 'secret', path: '/root', node_id: 'node-1' },
+      { activeNodeId: null, activeAgentAvailable: false },
+    );
+
+    expect(result).toMatchObject({
+      success: false,
+      error: 'Permission denied',
+    });
+  });
+
+  it('rejects unsupported keepalive_interval_secs in set_pool_config', async () => {
+    const result = await executeTool(
+      'set_pool_config',
+      { keepalive_interval_secs: 30 },
+      { activeNodeId: null, activeAgentAvailable: false },
+    );
+
+    expect(result).toMatchObject({
+      success: false,
+      error: 'keepalive_interval_secs is not supported by the current connection pool backend.',
+    });
+    expect(sshSetPoolConfigMock).not.toHaveBeenCalled();
+  });
+
+  it('uses the exact connectToSaved result when reporting connect_saved_session metadata', async () => {
+    connectToSavedMock.mockResolvedValue({ nodeId: 'node-2', sessionId: 'term-2' });
+    sessionTreeState.getNode.mockReturnValue({
+      id: 'node-2',
+      host: 'example.com',
+      port: 22,
+      username: 'alice',
+      runtime: { status: 'active' },
+    });
+
+    const result = await executeTool(
+      'connect_saved_session',
+      { connection_id: 'saved-1' },
+      { activeNodeId: null, activeAgentAvailable: false },
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.output).toContain('"session_id": "term-2"');
+    expect(result.output).toContain('"node_id": "node-2"');
+  });
+
+  it('reports ide_create_file as partial success when post-create content setup fails', async () => {
+    ideStoreState.nodeId = 'node-ide';
+    ideStoreState.createFile.mockResolvedValue(undefined);
+    ideStoreState.openFile.mockRejectedValue(new Error('open failed'));
+
+    const result = await executeTool(
+      'ide_create_file',
+      { path: '/tmp/new-file.txt', content: 'hello' },
+      { activeNodeId: null, activeAgentAvailable: false },
+    );
+
+    expect(result.success).toBe(true);
+    const parsed = JSON.parse(result.output);
+    expect(parsed.path).toBe('/tmp/new-file.txt');
+    expect(parsed.warning).toContain('File was created');
   });
 });
