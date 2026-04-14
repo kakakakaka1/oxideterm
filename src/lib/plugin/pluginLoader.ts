@@ -18,6 +18,7 @@ import { usePluginStore } from '../../store/pluginStore';
 import { buildPluginContext, cleanupPluginAssets } from './pluginContextFactory';
 import { loadPluginI18n, removePluginI18n } from './pluginI18nManager';
 import { normalizePluginRelativePath } from './pluginPaths';
+import { ensurePluginHostModules } from './pluginSharedModules';
 import type { PluginManifest, PluginModule, PluginGlobalConfig } from '../../types/plugin';
 import packageJson from '../../../package.json';
 
@@ -351,6 +352,8 @@ export async function loadPlugin(manifest: PluginManifest): Promise<void> {
   }
 
   store.setPluginState(id, 'loading');
+
+  await ensurePluginHostModules(OXIDETERM_VERSION);
 
   // Check shared dependencies (advisory — warn but don't block)
   if (manifest.sharedDependencies) {
