@@ -12,6 +12,7 @@ import { useMermaid } from '../../hooks/useMermaid';
 import { ThinkingBlock } from './ThinkingBlock';
 import { ToolCallBlock } from './ToolCallBlock';
 import { GuardrailBlock } from './GuardrailBlock';
+import { WarningBlock } from './WarningBlock';
 import { getTurnTextContent, getTurnThinkingContent } from '../../lib/ai/turnModel/turnProjection';
 
 interface ChatMessageProps {
@@ -93,13 +94,33 @@ export const ChatMessage = memo(function ChatMessage({
       ? message.turn?.parts.filter((part) => part.type === 'guardrail') ?? []
       : []
   ), [isUser, message.turn]);
+  const warningParts = useMemo(() => (
+    !isUser
+      ? message.turn?.parts.filter((part) => part.type === 'warning' || part.type === 'error') ?? []
+      : []
+  ), [isUser, message.turn]);
+  const visibleToolRounds = useMemo(() => (
+    !isUser ? message.turn?.toolRounds ?? [] : []
+  ), [isUser, message.turn]);
+  const hasPartLevelToolCalls = useMemo(() => (
+    !isUser && Boolean(message.turn?.parts.some((part) => part.type === 'tool_call'))
+  ), [isUser, message.turn]);
   const visibleContent = useMemo(() => {
     if (isUser) {
       return message.content;
     }
 
     if (message.turn) {
-      return getTurnTextContent(message.turn);
+      const turnTextContent = getTurnTextContent(message.turn);
+      if (turnTextContent) {
+        return turnTextContent;
+      }
+
+      const hasStructuredFeedback = message.turn.parts.some((part) => (
+        part.type === 'guardrail' || part.type === 'warning' || part.type === 'error'
+      ));
+
+      return hasStructuredFeedback ? '' : message.content;
     }
 
     return message.content;
@@ -301,11 +322,21 @@ export const ChatMessage = memo(function ChatMessage({
           </div>
         )}
 
+        {!isUser && warningParts.length > 0 && (
+          <div className="mb-2 space-y-2">
+            {warningParts.map((part, index) => (
+              <WarningBlock key={`${message.id}-warning-${index}`} part={part} />
+            ))}
+          </div>
+        )}
+
         {/* Tool Calls Block */}
-        {!isUser && message.toolCalls && message.toolCalls.length > 0 && (
+        {!isUser && ((message.toolCalls?.length ?? 0) > 0 || visibleToolRounds.length > 0 || hasPartLevelToolCalls) && (
           <ToolCallBlock
             toolCalls={message.toolCalls}
-            totalRounds={message.toolCalls.length}
+            toolRounds={visibleToolRounds}
+            turnParts={message.turn?.parts}
+            totalRounds={visibleToolRounds.length || message.toolCalls?.length}
           />
         )}
 

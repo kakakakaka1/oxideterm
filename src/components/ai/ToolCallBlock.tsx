@@ -7,12 +7,93 @@ import { useTranslation } from 'react-i18next';
 import { cn } from '../../lib/utils';
 import { useAiChatStore } from '../../store/aiChatStore';
 import { hasDeniedCommands } from '../../lib/ai/tools';
-import type { AiToolCall } from '../../types';
+import type { AiToolCall, AiToolResult } from '../../types';
+import type { AiToolRound, AiTurnPart, AiTurnToolCall } from '../../lib/ai/turnModel/types';
 
 interface ToolCallBlockProps {
-  toolCalls: AiToolCall[];
+  toolCalls?: AiToolCall[];
+  toolRounds?: AiToolRound[];
+  turnParts?: AiTurnPart[];
   /** Total number of tool rounds (optional, for condensation indicator) */
   totalRounds?: number;
+}
+
+function mapTurnToolCallStatus(toolCall: AiTurnToolCall): AiToolCall['status'] {
+  if (toolCall.approvalState === 'rejected') return 'rejected';
+  if (toolCall.executionState === 'completed') return 'completed';
+  if (toolCall.executionState === 'error') return 'error';
+  if (toolCall.executionState === 'running') return 'running';
+  if (toolCall.approvalState === 'approved') return 'approved';
+  if (toolCall.approvalState === 'pending') return 'pending_user_approval';
+  return 'pending';
+}
+
+function collectToolResults(turnParts?: AiTurnPart[]): Map<string, AiToolResult> {
+  const results = new Map<string, AiToolResult>();
+
+  for (const part of turnParts ?? []) {
+    if (part.type !== 'tool_result') continue;
+
+    results.set(part.toolCallId, {
+      toolCallId: part.toolCallId,
+      toolName: part.toolName,
+      success: part.success,
+      output: part.output,
+      error: part.error,
+      durationMs: part.durationMs,
+      truncated: part.truncated,
+    });
+  }
+
+  return results;
+}
+
+function collectPartLevelToolCalls(turnParts: AiTurnPart[] | undefined, existingIds: Set<string>, resultMap: Map<string, AiToolResult>): AiToolCall[] {
+  const normalized: AiToolCall[] = [];
+
+  for (const part of turnParts ?? []) {
+    if (part.type !== 'tool_call' || existingIds.has(part.id)) {
+      continue;
+    }
+
+    const result = resultMap.get(part.id);
+    normalized.push({
+      id: part.id,
+      name: part.name,
+      arguments: part.argumentsText,
+      status: result ? (result.success ? 'completed' : 'error') : (part.status === 'partial' ? 'pending' : 'running'),
+      result,
+    });
+    existingIds.add(part.id);
+  }
+
+  return normalized;
+}
+
+function normalizeToolCalls(toolCalls?: AiToolCall[], toolRounds?: AiToolRound[], turnParts?: AiTurnPart[]): AiToolCall[] {
+  if (toolCalls && toolCalls.length > 0) {
+    return toolCalls;
+  }
+
+  const resultMap = collectToolResults(turnParts);
+
+  if (!toolRounds || toolRounds.length === 0) {
+    return collectPartLevelToolCalls(turnParts, new Set<string>(), resultMap);
+  }
+
+  const existingIds = new Set<string>();
+  const roundDerived = toolRounds.flatMap((round) => round.toolCalls.map((toolCall) => {
+    existingIds.add(toolCall.id);
+    return {
+    id: toolCall.id,
+    name: toolCall.name,
+    arguments: toolCall.argumentsText,
+    status: mapTurnToolCallStatus(toolCall),
+    result: resultMap.get(toolCall.id),
+    };
+  }));
+
+  return [...roundDerived, ...collectPartLevelToolCalls(turnParts, existingIds, resultMap)];
 }
 
 const TOOL_ICONS: Record<string, React.ElementType> = {
@@ -247,22 +328,23 @@ const ToolCallItem = memo(function ToolCallItem({ call }: { call: AiToolCall }) 
  * When 5+ tool calls exist, early calls are collapsed behind a compact toggle,
  * reflecting that their results were condensed for the AI context window.
  */
-export const ToolCallBlock = memo(function ToolCallBlock({ toolCalls }: ToolCallBlockProps) {
+export const ToolCallBlock = memo(function ToolCallBlock({ toolCalls, toolRounds, turnParts }: ToolCallBlockProps) {
   const { t } = useTranslation();
   const [showEarly, setShowEarly] = useState(false);
+  const normalizedToolCalls = normalizeToolCalls(toolCalls, toolRounds, turnParts);
 
-  if (!toolCalls || toolCalls.length === 0) return null;
+  if (normalizedToolCalls.length === 0) return null;
 
   // When 5+ tool calls, collapse the first N-3 behind a toggle
-  const shouldCondense = toolCalls.length >= 5;
-  const splitAt = shouldCondense ? Math.max(0, toolCalls.length - 3) : 0;
-  const earlyCalls = shouldCondense ? toolCalls.slice(0, splitAt) : [];
-  const recentCalls = shouldCondense ? toolCalls.slice(splitAt) : toolCalls;
+  const shouldCondense = normalizedToolCalls.length >= 5;
+  const splitAt = shouldCondense ? Math.max(0, normalizedToolCalls.length - 3) : 0;
+  const earlyCalls = shouldCondense ? normalizedToolCalls.slice(0, splitAt) : [];
+  const recentCalls = shouldCondense ? normalizedToolCalls.slice(splitAt) : normalizedToolCalls;
 
   return (
     <div className="my-2 space-y-1">
       <div className="text-[10px] text-theme-text-muted/40 font-medium uppercase tracking-wider px-0.5">
-        {t('ai.tool_use.heading')} ({toolCalls.length})
+        {t('ai.tool_use.heading')} ({normalizedToolCalls.length})
       </div>
 
       {/* Condensed early calls toggle */}
