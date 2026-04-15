@@ -48,6 +48,9 @@
 > [!NOTE]
 > **Thay đổi giấy phép:** Từ phiên bản v1.0.0, OxideTerm đã thay đổi giấy phép từ **PolyForm Noncommercial 1.0.0** sang **GPL-3.0 (GNU General Public License v3.0)**. OxideTerm hiện là mã nguồn mở hoàn toàn — bạn có thể tự do sử dụng, sửa đổi và phân phối theo các điều khoản của giấy phép GPL-3.0. Xem tệp [LICENSE](../../LICENSE) để biết chi tiết.
 
+> [!WARNING]
+> **Thông báo bảo trì:** OxideTerm được duy trì bởi một nhà phát triển độc lập theo nguyên tắc **nỗ lực tối đa**. **Sửa lỗi được ưu tiên; yêu cầu tính năng có thể không được thực hiện.** Nếu bạn muốn một tính năng được triển khai, PR luôn được chào đón. Việc tạo issue không bắt buộc người bảo trì phải thực hiện. Cảm ơn sự kiên nhẫn và ủng hộ của bạn.
+
 ---
 
 <div align="center">

@@ -48,6 +48,9 @@
 > [!NOTE]
 > **许可证变更：** 从 v1.0.0 起，OxideTerm 已将许可证从 **PolyForm Noncommercial 1.0.0** 变更为 **GPL-3.0（GNU 通用公共许可证 v3.0）**。这意味着 OxideTerm 现在是完全开源的——您可以在 GPL-3.0 许可证条款下自由使用、修改和分发。详见 [LICENSE](../../LICENSE) 文件。
 
+> [!WARNING]
+> **维护声明：** OxideTerm 由独立开发者以**尽力而为**的方式维护。**Bug 修复优先处理；功能请求可能不会被实现。** 如果您希望某个功能落地，欢迎提交 PR。提交 Issue 并不意味着维护者有义务实现它。感谢您的理解与支持。
+
 ---
 
 <div align="center">

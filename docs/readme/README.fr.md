@@ -48,6 +48,9 @@
 > [!NOTE]
 > **Changement de licence :** À partir de la v1.0.0, OxideTerm a changé sa licence de **PolyForm Noncommercial 1.0.0** à **GPL-3.0 (GNU General Public License v3.0)**. OxideTerm est désormais entièrement open source — vous êtes libre de l'utiliser, le modifier et le distribuer selon les termes de la licence GPL-3.0. Voir le fichier [LICENSE](../../LICENSE) pour plus de détails.
 
+> [!WARNING]
+> **Avis de maintenance :** OxideTerm est maintenu par un développeur indépendant sur la base du **meilleur effort**. **Les corrections de bugs sont prioritaires ; les demandes de fonctionnalités peuvent ne pas être traitées.** Si vous souhaitez voir une fonctionnalité implémentée, les PR sont toujours les bienvenues. Le dépôt d'une issue n'oblige pas le mainteneur à la réaliser. Merci pour votre patience et votre soutien.
+
 ---
 
 <div align="center">
