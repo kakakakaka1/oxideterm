@@ -26,6 +26,28 @@ describe('hydrateStructuredConversation', () => {
     expect(projected.suggestions).toBeUndefined();
   });
 
+  it('reuses precomputed suggestions instead of re-parsing the assistant content', () => {
+    const projected = projectAssistantMessage({
+      id: 'assistant-with-suggestions',
+      role: 'assistant',
+      content: 'stale',
+      timestamp: 1,
+      suggestions: [{ text: 'Retry', icon: 'Zap' }],
+      turn: {
+        id: 'assistant-with-suggestions',
+        status: 'complete',
+        plainTextSummary: 'Answer without raw suggestion markup',
+        parts: [
+          { type: 'text', text: 'Answer without raw suggestion markup' },
+        ],
+        toolRounds: [],
+      },
+    });
+
+    expect(projected.content).toBe('Answer without raw suggestion markup');
+    expect(projected.suggestions).toEqual([{ text: 'Retry', icon: 'Zap' }]);
+  });
+
   it('prefers turn-derived projection over stale persisted legacy assistant fields', () => {
     const conversation = dtoToConversation({
       id: 'conv-1',

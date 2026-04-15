@@ -2590,39 +2590,54 @@ You have tools to interact with the user's terminal sessions and workspace. **Us
       clearAwaitingToolSummaryMarker(true);
       accumulator.setStatus('complete');
       let assistantTurn = accumulator.snapshot();
-      const projectedSnapshot = projectTurnToLegacyMessageFields(assistantTurn);
-      const displayContent = projectedSnapshot.content;
-
-      // For providers that handle thinking natively (Anthropic), use extracted thinking
-      // For others (OpenAI-compatible), parse <thinking> tags from content
-      let mainContent = displayContent;
-      let parsedThinking = projectedSnapshot.thinkingContent;
-
-      if (!parsedThinking && displayContent.includes('<thinking>')) {
-        const parsedThink = parseThinkingContent(displayContent);
-        mainContent = parsedThink.content;
-        parsedThinking = parsedThink.thinkingContent;
-      }
-
-      // Parse follow-up suggestions from the response
+      const hasExplicitThinkingParts = assistantTurn.parts.some((part) => part.type === 'thinking');
       let parsedSuggestions: import('../lib/ai/suggestionParser').FollowUpSuggestion[] | undefined;
-      const sugResult = parseSuggestions(mainContent);
-      if (sugResult.suggestions.length > 0) {
-        mainContent = sugResult.cleanContent;
-        parsedSuggestions = sugResult.suggestions;
+      let partsChanged = false;
+      const normalizedParts: AiTurnPart[] = [];
+
+      for (const part of assistantTurn.parts) {
+        if (part.type !== 'text') {
+          normalizedParts.push(part);
+          continue;
+        }
+
+        let nextText = part.text;
+
+        if (!hasExplicitThinkingParts && nextText.includes('<thinking>')) {
+          const parsedThink = parseThinkingContent(nextText);
+          if (parsedThink.thinkingContent) {
+            normalizedParts.push({ type: 'thinking', text: parsedThink.thinkingContent });
+            partsChanged = true;
+          }
+          nextText = parsedThink.content;
+        }
+
+        const sugResult = parseSuggestions(nextText);
+        if (sugResult.suggestions.length > 0) {
+          nextText = sugResult.cleanContent;
+          parsedSuggestions = sugResult.suggestions;
+        }
+
+        if (nextText !== part.text) {
+          partsChanged = true;
+        }
+
+        if (nextText) {
+          normalizedParts.push({ type: 'text', text: nextText });
+        } else {
+          partsChanged = true;
+        }
       }
 
-      if (mainContent !== projectedSnapshot.content || parsedThinking !== projectedSnapshot.thinkingContent) {
-        const structuredParts = assistantTurn.parts.filter((part) => part.type !== 'text' && part.type !== 'thinking');
+      if (partsChanged) {
         assistantTurn = {
           ...assistantTurn,
           status: 'complete',
-          parts: [
-            ...(parsedThinking ? [{ type: 'thinking', text: parsedThinking } satisfies AiTurnPart] : []),
-            ...(mainContent ? [{ type: 'text', text: mainContent } satisfies AiTurnPart] : []),
-            ...structuredParts,
-          ],
-          plainTextSummary: mainContent,
+          parts: normalizedParts,
+          plainTextSummary: normalizedParts
+            .filter((part): part is Extract<AiTurnPart, { type: 'text' }> => part.type === 'text')
+            .map((part) => part.text)
+            .join(''),
         };
       }
 
@@ -3663,12 +3678,6 @@ You have tools to interact with the user's terminal sessions and workspace. **Us
         },
       });
 
-      try {
-        await persistConversationMetadata(normalizedCompactedConversation);
-      } catch (persistErr) {
-        console.warn('[AiChatStore] Failed to persist compaction metadata:', persistErr);
-      }
-
       const postPersistConversation = get().conversations.find((c) => c.id === convId);
       const postPersistMessageIds = postPersistConversation?.messages.map((message) => message.id) ?? [];
       const sharesLatestPrefixAfterPersist =
@@ -3678,6 +3687,10 @@ You have tools to interact with the user's terminal sessions and workspace. **Us
         ? postPersistConversation.messages.slice(latestMessageIds.length)
         : [];
       const finalMessages = [...normalizedCompactedMessages, ...postPersistAppended];
+      const finalSessionMetadata = mergeConversationSessionMetadata(
+        postPersistConversation?.sessionMetadata,
+        normalizedCompactedConversation.sessionMetadata ?? { conversationId: convId },
+      );
 
       // Update local state
       set((state) => ({
@@ -3688,6 +3701,7 @@ You have tools to interact with the user's terminal sessions and workspace. **Us
             messages: finalMessages,
             messageCount: finalMessages.length,
             updatedAt: Date.now(),
+            sessionMetadata: mergeConversationSessionMetadata(c.sessionMetadata, finalSessionMetadata),
           });
         }),
         compactionInfo: silent
@@ -3700,6 +3714,11 @@ You have tools to interact with the user's terminal sessions and workspace. **Us
             }
           : null,
       }));
+      try {
+        await persistConversationMetadata(get().conversations.find((c) => c.id === convId));
+      } catch (persistErr) {
+        console.warn('[AiChatStore] Failed to persist compaction metadata:', persistErr);
+      }
       try {
         await persistDiagnosticEvents(convId, [buildDiagnosticEvent(
           convId,

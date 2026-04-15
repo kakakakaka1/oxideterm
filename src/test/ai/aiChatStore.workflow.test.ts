@@ -479,6 +479,49 @@ describe('aiChatStore workflows', () => {
     expect(assistantMessage?.turn?.toolRounds[0]?.statefulMarker).toBeUndefined();
   });
 
+  it('keeps inline post-tool thinking after the tool round instead of collapsing it to the top', async () => {
+    settingsStoreMock.state.settings.ai.toolUse.enabled = true;
+    settingsStoreMock.state.settings.ai.toolUse.autoApproveTools = { local_exec: true };
+    setConversation([]);
+    getToolsForContextMock.mockReturnValue([
+      { name: 'local_exec', description: 'Run a local command', parameters: {} },
+    ]);
+    executeToolMock.mockResolvedValue({
+      toolCallId: 'tool-inline-think-1',
+      toolName: 'local_exec',
+      success: true,
+      output: 'pwd',
+    });
+
+    providerStreamMock
+      .mockImplementationOnce(async function* () {
+        yield { type: 'tool_call_complete', id: 'tool-inline-think-1', name: 'local_exec', arguments: JSON.stringify({ command: 'pwd' }) };
+        yield { type: 'done' };
+      })
+      .mockImplementationOnce(async function* () {
+        yield { type: 'content', content: '<thinking>Summarize the tool result first.</thinking>final answer' };
+        yield { type: 'done' };
+      });
+
+    await useAiChatStore.getState().sendMessage('check the current directory');
+
+    const assistantMessage = useAiChatStore.getState().conversations[0].messages.find((message) => message.role === 'assistant');
+    expect(assistantMessage?.turn?.parts.map((part) => part.type)).toEqual([
+      'tool_call',
+      'tool_result',
+      'thinking',
+      'text',
+    ]);
+    expect(assistantMessage?.turn?.parts[2]).toMatchObject({
+      type: 'thinking',
+      text: 'Summarize the tool result first.',
+    });
+    expect(assistantMessage?.turn?.parts[3]).toMatchObject({
+      type: 'text',
+      text: 'final answer',
+    });
+  });
+
   it('injects the disabled-tools negative constraint into the system prompt', async () => {
     setConversation([]);
     streamText('plain answer');
@@ -1131,6 +1174,11 @@ describe('aiChatStore workflows', () => {
             { id: 'u-4', role: 'user', content: 'new question', timestamp: 7 },
             { id: 'a-4', role: 'assistant', content: 'new answer', timestamp: 8 },
           ],
+          sessionMetadata: {
+            conversationId: 'conv-1',
+            lastBudgetLevel: 4,
+            affectedTabIds: ['tab-race'],
+          },
           updatedAt: 8,
         };
       }),
@@ -1146,6 +1194,7 @@ describe('aiChatStore workflows', () => {
       metadata: expect.objectContaining({ type: 'compaction-anchor' }),
     });
     expect(messages.slice(-2).map((message) => message.id)).toEqual(['u-4', 'a-4']);
+    const sessionMetadata = useAiChatStore.getState().conversations[0].sessionMetadata;
     expect(invokeMock).toHaveBeenCalledWith('ai_chat_replace_conversation_message_list_with_transcript', expect.objectContaining({
       request: expect.objectContaining({
         conversationId: 'conv-1',
@@ -1156,6 +1205,20 @@ describe('aiChatStore workflows', () => {
         ]),
       }),
     }));
+    expect(sessionMetadata).toMatchObject({
+      conversationId: 'conv-1',
+      lastBudgetLevel: 4,
+      affectedTabIds: ['tab-race'],
+    });
+    expect(invokeMock).toHaveBeenCalledWith('ai_chat_update_conversation', {
+      conversationId: 'conv-1',
+      title: 'Conversation',
+      sessionMetadata: expect.objectContaining({
+        conversationId: 'conv-1',
+        lastBudgetLevel: 4,
+        affectedTabIds: ['tab-race'],
+      }),
+    });
   });
 
   it('gathers sidebar context once and reuses it for context, reminder, and persistence', async () => {
