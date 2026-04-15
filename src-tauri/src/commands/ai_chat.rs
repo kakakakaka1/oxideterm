@@ -11,7 +11,7 @@
 
 use crate::state::{
     AiChatError, AiChatStore, ContextSnapshot, ConversationMeta, LazyManagedStore,
-    PersistedMessage, PersistedToolCall, PersistedTranscriptEntry,
+    PersistedDiagnosticEvent, PersistedMessage, PersistedToolCall, PersistedTranscriptEntry,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -112,6 +112,14 @@ pub struct AppendTranscriptEntriesRequest {
     pub entries: Vec<TranscriptEntryRequest>,
 }
 
+/// Request to append diagnostic events for a conversation.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppendDiagnosticEventsRequest {
+    pub conversation_id: String,
+    pub events: Vec<DiagnosticEventRequest>,
+}
+
 /// Request to atomically save a projection message and append transcript entries.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -131,6 +139,19 @@ pub struct TranscriptEntryRequest {
     pub kind: String,
     #[serde(default)]
     pub payload: Value,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiagnosticEventRequest {
+    pub id: String,
+    pub turn_id: Option<String>,
+    pub round_id: Option<String>,
+    pub timestamp: i64,
+    #[serde(rename = "type")]
+    pub event_type: String,
+    #[serde(default)]
+    pub data: Value,
 }
 
 /// Context snapshot from frontend
@@ -220,6 +241,25 @@ pub struct TranscriptEntryResponse {
     pub timestamp: i64,
     pub kind: String,
     pub payload: Value,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiagnosticTailResponse {
+    pub events: Vec<DiagnosticEventResponse>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiagnosticEventResponse {
+    pub id: String,
+    pub conversation_id: String,
+    pub turn_id: Option<String>,
+    pub round_id: Option<String>,
+    pub timestamp: i64,
+    #[serde(rename = "type")]
+    pub event_type: String,
+    pub data: Value,
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -337,6 +377,34 @@ pub async fn ai_chat_get_transcript(
     })
 }
 
+/// Get the newest diagnostic events for a conversation.
+#[tauri::command]
+pub async fn ai_chat_get_diagnostic_tail(
+    store: State<'_, LazyManagedStore<AiChatStore>>,
+    conversation_id: String,
+    count: usize,
+) -> Result<DiagnosticTailResponse, String> {
+    let store = require_ai_chat_store(&store)?;
+    let events = store
+        .get_diagnostic_events_tail(&conversation_id, count)
+        .map_err(|e| e.to_string())?;
+
+    Ok(DiagnosticTailResponse {
+        events: events
+            .into_iter()
+            .map(|event| DiagnosticEventResponse {
+                id: event.id,
+                conversation_id: event.conversation_id,
+                turn_id: event.turn_id,
+                round_id: event.round_id,
+                timestamp: event.timestamp,
+                event_type: event.event_type,
+                data: event.data,
+            })
+            .collect(),
+    })
+}
+
 /// Create a new conversation
 #[tauri::command]
 pub async fn ai_chat_create_conversation(
@@ -440,12 +508,13 @@ pub async fn ai_chat_append_transcript_entries(
     request: AppendTranscriptEntriesRequest,
 ) -> Result<(), String> {
     let store = require_ai_chat_store(&store)?;
+    let conversation_id = request.conversation_id;
     let entries = request
         .entries
         .into_iter()
         .map(|entry| PersistedTranscriptEntry {
             id: entry.id,
-            conversation_id: request.conversation_id.clone(),
+            conversation_id: conversation_id.clone(),
             turn_id: entry.turn_id,
             parent_id: entry.parent_id,
             timestamp: entry.timestamp,
@@ -455,7 +524,34 @@ pub async fn ai_chat_append_transcript_entries(
         .collect::<Vec<_>>();
 
     store
-        .append_transcript_entries(&request.conversation_id, entries)
+        .append_transcript_entries(&conversation_id, entries)
+        .map_err(|e| e.to_string())
+}
+
+/// Append diagnostic events for a conversation.
+#[tauri::command]
+pub async fn ai_chat_append_diagnostic_events(
+    store: State<'_, LazyManagedStore<AiChatStore>>,
+    request: AppendDiagnosticEventsRequest,
+) -> Result<(), String> {
+    let store = require_ai_chat_store(&store)?;
+    let conversation_id = request.conversation_id;
+    let events = request
+        .events
+        .into_iter()
+        .map(|event| PersistedDiagnosticEvent {
+            id: event.id,
+            conversation_id: conversation_id.clone(),
+            turn_id: event.turn_id,
+            round_id: event.round_id,
+            timestamp: event.timestamp,
+            event_type: event.event_type,
+            data: event.data,
+        })
+        .collect::<Vec<_>>();
+
+    store
+        .append_diagnostic_events(&conversation_id, events)
         .map_err(|e| e.to_string())
 }
 

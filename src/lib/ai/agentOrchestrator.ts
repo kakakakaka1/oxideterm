@@ -48,6 +48,8 @@ import {
   createStep,
 } from './roles';
 import type { ChatMessage, AiStreamProvider } from './providers';
+import { createAiDiagnosticEvent, persistDiagnosticEvents, type AiDiagnosticTelemetryBase } from './turnModel/diagnostics';
+import type { AiDiagnosticEvent } from './turnModel/types';
 import type {
   AgentReviewResult,
   AgentRoleConfig,
@@ -363,8 +365,12 @@ async function buildContractForRound(options: {
   recentSteps: AgentStep[];
   executorConfig: ResolvedRoleConfig;
   signal: AbortSignal;
+  diagnostics?: {
+    telemetryBase: AiDiagnosticTelemetryBase;
+    emit: (event: AiDiagnosticEvent) => void;
+  };
 }): Promise<AgentRoundContract> {
-  const { task, round, recentSteps, executorConfig, signal } = options;
+  const { task, round, recentSteps, executorConfig, signal, diagnostics } = options;
   const contractMessages: ChatMessage[] = [
     { role: 'system', content: buildRoundContractSystemPrompt() },
     {
@@ -381,7 +387,14 @@ async function buildContractForRound(options: {
   ];
 
   try {
-    const result = await runSingleShot(executorConfig, contractMessages, signal);
+    const result = await runSingleShot(executorConfig, contractMessages, signal, diagnostics ? {
+      conversationId: task.lineageId,
+      turnId: task.id,
+      logicalRound: round,
+      requestKind: 'contract',
+      telemetryBase: diagnostics.telemetryBase,
+      onEvent: diagnostics.emit,
+    } : undefined);
     const parsed = parseRoundContract(result.text);
     if (parsed) {
       return normalizeRoundContract(parsed, task.id, round);
@@ -407,15 +420,26 @@ async function runReviewerRound(options: {
   recentSteps: AgentStep[];
   reviewerConfig: ResolvedRoleConfig;
   signal: AbortSignal;
+  diagnostics?: {
+    telemetryBase: AiDiagnosticTelemetryBase;
+    emit: (event: AiDiagnosticEvent) => void;
+  };
 }): Promise<AgentReviewResult> {
-  const { task, round, maxRounds, contract, recentSteps, reviewerConfig, signal } = options;
+  const { task, round, maxRounds, contract, recentSteps, reviewerConfig, signal, diagnostics } = options;
 
   const reviewMessages: ChatMessage[] = [
     { role: 'system', content: buildReviewerSystemPrompt() },
     { role: 'user', content: buildReviewPrompt(task.goal, contract, recentSteps, round, maxRounds) },
   ];
 
-  const result = await runSingleShot(reviewerConfig, reviewMessages, signal);
+  const result = await runSingleShot(reviewerConfig, reviewMessages, signal, diagnostics ? {
+    conversationId: task.lineageId,
+    turnId: task.id,
+    logicalRound: round,
+    requestKind: 'review',
+    telemetryBase: diagnostics.telemetryBase,
+    onEvent: diagnostics.emit,
+  } : undefined);
   const parsed = parseReview(result.text);
   if (!parsed) {
     return buildSyntheticReview('Reviewer output could not be parsed into a scorecard.');
@@ -486,6 +510,46 @@ async function executeTask(task: AgentTask, signal: AbortSignal): Promise<{ next
     settings.ai.userContextWindows,
   );
   const reserve = responseReserve(contextWindow);
+  const diagnosticEvents: AiDiagnosticEvent[] = [];
+  let flushedDiagnosticCount = 0;
+  const telemetryBase: AiDiagnosticTelemetryBase = {
+    source: 'agent',
+    providerId: task.providerId,
+    model: task.model,
+    autonomyLevel: task.autonomyLevel,
+    runId: task.id,
+  };
+  const emitDiagnostic = (event: AiDiagnosticEvent) => {
+    diagnosticEvents.push(event);
+  };
+  const queueDiagnosticEvent = (
+    type: AiDiagnosticEvent['type'],
+    data?: Record<string, unknown>,
+    options?: { roundId?: string; timestamp?: number; requestKind?: string },
+  ) => {
+    diagnosticEvents.push(createAiDiagnosticEvent({
+      conversationId: task.lineageId,
+      turnId: task.id,
+      roundId: options?.roundId,
+      timestamp: options?.timestamp,
+      type,
+      base: {
+        ...telemetryBase,
+        requestKind: options?.requestKind,
+      },
+      data,
+    }));
+  };
+  const flushDiagnosticEvents = async () => {
+    if (flushedDiagnosticCount >= diagnosticEvents.length) return;
+    const pendingEvents = diagnosticEvents.slice(flushedDiagnosticCount);
+    try {
+      await persistDiagnosticEvents(task.lineageId, pendingEvents);
+      flushedDiagnosticCount += pendingEvents.length;
+    } catch (error) {
+      console.warn('[AgentOrchestrator] Failed to persist diagnostic events:', error);
+    }
+  };
   const messages: ChatMessage[] = [];
   const cwd = getActiveCwd();
 
@@ -594,10 +658,23 @@ async function executeTask(task: AgentTask, signal: AbortSignal): Promise<{ next
         useDedicatedPlanner ? plannerConfig : executorConfig,
         planningMessages,
         signal,
+        {
+          conversationId: task.lineageId,
+          turnId: task.id,
+          logicalRound: 0,
+          requestKind: 'plan',
+          telemetryBase,
+          onEvent: emitDiagnostic,
+        },
       );
       planText = result.text;
       planThinking = result.thinkingContent;
+      await flushDiagnosticEvents();
     } catch (planErr) {
+      queueDiagnosticEvent('error', {
+        message: planErr instanceof Error ? planErr.message : String(planErr),
+      }, { requestKind: 'plan' });
+      await flushDiagnosticEvents();
       store().updateStep(planStep.id, {
         status: 'error',
         content: planText || (planErr instanceof Error ? planErr.message : String(planErr)),
@@ -689,7 +766,12 @@ async function executeTask(task: AgentTask, signal: AbortSignal): Promise<{ next
       recentSteps: contractContextSteps,
       executorConfig,
       signal,
+      diagnostics: {
+        telemetryBase,
+        emit: emitDiagnostic,
+      },
     });
+    await flushDiagnosticEvents();
     store().setActiveContract(contract);
     store().updateStep(contractStep.id, {
       status: 'completed',
@@ -700,17 +782,21 @@ async function executeTask(task: AgentTask, signal: AbortSignal): Promise<{ next
 
     const budget = contextWindow - reserve;
     const trimmed = trimMessages(messages, budget);
-    const streamResult = await streamCompletion(executorConfig, trimmed, tools, signal);
+    const streamResult = await streamCompletion(executorConfig, trimmed, tools, signal, {
+      conversationId: task.lineageId,
+      turnId: task.id,
+      logicalRound: round,
+      requestKind: 'execute',
+      telemetryBase,
+      onEvent: emitDiagnostic,
+    });
+    await flushDiagnosticEvents();
     const responseText = streamResult.turn.plainTextSummary;
     const thinkingContent = streamResult.turn.parts
       .filter((part): part is Extract<typeof streamResult.turn.parts[number], { type: 'thinking' }> => part.type === 'thinking')
       .map((part) => part.text)
       .join('');
-    const collectedToolCalls = streamResult.toolRounds.flatMap((toolRound) => toolRound.toolCalls.map((toolCall) => ({
-      id: toolCall.id,
-      name: toolCall.name,
-      arguments: toolCall.argumentsText,
-    })));
+    const collectedToolCalls = streamResult.toolCalls;
 
     const responseMessage: ChatMessage = { role: 'assistant', content: responseText };
     if (thinkingContent) {
@@ -800,7 +886,17 @@ async function executeTask(task: AgentTask, signal: AbortSignal): Promise<{ next
       store().activeTask ?? liveTask,
       toolContext,
       signal,
+      {
+        conversationId: task.lineageId,
+        turnId: task.id,
+        logicalRound: round,
+        roundId: streamResult.toolRounds.at(-1)?.id,
+        requestKind: 'execute',
+        telemetryBase,
+        onEvent: emitDiagnostic,
+      },
     );
+    await flushDiagnosticEvents();
     messages.push(...toolResults);
 
     if (round >= CONDENSE_AFTER_ROUND) {
@@ -838,7 +934,12 @@ async function executeTask(task: AgentTask, signal: AbortSignal): Promise<{ next
             recentSteps,
             reviewerConfig,
             signal,
+            diagnostics: {
+              telemetryBase,
+              emit: emitDiagnostic,
+            },
           });
+          await flushDiagnosticEvents();
           store().setLastReview(review);
           store().updateStep(reviewStep.id, {
             status: review.assessment === 'critical_failure' ? 'error' : 'completed',
@@ -871,6 +972,11 @@ async function executeTask(task: AgentTask, signal: AbortSignal): Promise<{ next
         }
       } catch (reviewErr) {
         const errMsg = reviewErr instanceof Error ? reviewErr.message : String(reviewErr);
+        queueDiagnosticEvent('error', {
+          message: `Reviewer failed: ${errMsg}`,
+          logicalRound: round,
+        }, { requestKind: 'review' });
+        await flushDiagnosticEvents();
         const errStep = createStep(round, 'error', `Reviewer failed: ${errMsg}`);
         store().appendStep(errStep);
         store().updateStep(errStep.id, { status: 'error' });

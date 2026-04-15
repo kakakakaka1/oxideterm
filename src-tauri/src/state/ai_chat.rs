@@ -31,7 +31,7 @@ use tracing::{debug, error, info, warn};
 // ═══════════════════════════════════════════════════════════════════════════
 
 /// Database version for migrations
-pub const AI_CHAT_DB_VERSION: u32 = 2;
+pub const AI_CHAT_DB_VERSION: u32 = 3;
 
 /// Maximum conversations to keep (LRU eviction)
 pub const MAX_CONVERSATIONS: usize = 100;
@@ -70,6 +70,13 @@ const CONV_TRANSCRIPT_TABLE: TableDefinition<&str, &[u8]> =
 
 /// Table: metadata (key: string, value: MessagePack bytes)
 const METADATA_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("ai_chat_metadata");
+
+/// Table: diagnostic events (key: event_id, value: MessagePack bytes)
+const DIAGNOSTIC_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("ai_chat_diagnostic_events");
+
+/// Table: conversation diagnostic index (key: conv_id, value: Vec<event_id> as MessagePack)
+const CONV_DIAGNOSTIC_TABLE: TableDefinition<&str, &[u8]> =
+    TableDefinition::new("conversation_diagnostic_events");
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Data Types
@@ -207,6 +214,22 @@ pub struct PersistedTranscriptEntry {
     pub kind: String,
     #[serde(default)]
     pub payload: Value,
+}
+
+/// Diagnostic event persisted separately from transcript/projection.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PersistedDiagnosticEvent {
+    pub id: String,
+    pub conversation_id: String,
+    #[serde(default)]
+    pub turn_id: Option<String>,
+    #[serde(default)]
+    pub round_id: Option<String>,
+    pub timestamp: i64,
+    #[serde(rename = "type")]
+    pub event_type: String,
+    #[serde(default)]
+    pub data: Value,
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -386,6 +409,8 @@ impl AiChatStore {
             let _ = write_txn.open_table(TRANSCRIPT_TABLE)?;
             let _ = write_txn.open_table(CONV_TRANSCRIPT_TABLE)?;
             let _ = write_txn.open_table(METADATA_TABLE)?;
+            let _ = write_txn.open_table(DIAGNOSTIC_TABLE)?;
+            let _ = write_txn.open_table(CONV_DIAGNOSTIC_TABLE)?;
         }
 
         write_txn.commit()?;
@@ -455,6 +480,9 @@ impl AiChatStore {
 
             let mut transcript_index_table = write_txn.open_table(CONV_TRANSCRIPT_TABLE)?;
             transcript_index_table.insert(meta.id.as_str(), list_bytes.as_slice())?;
+
+            let mut diagnostic_index_table = write_txn.open_table(CONV_DIAGNOSTIC_TABLE)?;
+            diagnostic_index_table.insert(meta.id.as_str(), list_bytes.as_slice())?;
         }
 
         write_txn.commit()?;
@@ -491,6 +519,8 @@ impl AiChatStore {
             let mut msg_index_table = write_txn.open_table(CONV_MESSAGES_TABLE)?;
             let mut transcript_table = write_txn.open_table(TRANSCRIPT_TABLE)?;
             let mut transcript_index_table = write_txn.open_table(CONV_TRANSCRIPT_TABLE)?;
+            let mut diagnostic_table = write_txn.open_table(DIAGNOSTIC_TABLE)?;
+            let mut diagnostic_index_table = write_txn.open_table(CONV_DIAGNOSTIC_TABLE)?;
 
             // Get message IDs for this conversation
             if let Some(list_bytes) = msg_index_table.get(conversation_id)? {
@@ -513,6 +543,15 @@ impl AiChatStore {
             }
 
             let _ = transcript_index_table.remove(conversation_id);
+
+            if let Some(list_bytes) = diagnostic_index_table.get(conversation_id)? {
+                let diagnostic_ids: Vec<String> = rmp_serde::from_slice(list_bytes.value())?;
+                for event_id in diagnostic_ids {
+                    let _ = diagnostic_table.remove(event_id.as_str());
+                }
+            }
+
+            let _ = diagnostic_index_table.remove(conversation_id);
 
             // Delete conversation meta
             let _ = conv_table.remove(conversation_id);
@@ -824,6 +863,89 @@ impl AiChatStore {
         }
 
         Ok(entries)
+    }
+
+    /// Append diagnostic events for a conversation in stable insertion order.
+    pub fn append_diagnostic_events(
+        &self,
+        conversation_id: &str,
+        events: Vec<PersistedDiagnosticEvent>,
+    ) -> Result<(), AiChatError> {
+        if events.is_empty() {
+            return Ok(());
+        }
+
+        let event_count = events.len();
+        let write_txn = self.db.begin_write()?;
+
+        {
+            let conv_table = write_txn.open_table(CONVERSATIONS_TABLE)?;
+            if conv_table.get(conversation_id)?.is_none() {
+                return Err(AiChatError::NotFound(conversation_id.to_string()));
+            }
+
+            let mut diagnostic_table = write_txn.open_table(DIAGNOSTIC_TABLE)?;
+            let mut diagnostic_index_table = write_txn.open_table(CONV_DIAGNOSTIC_TABLE)?;
+
+            let existing_ids: Option<Vec<String>> = diagnostic_index_table
+                .get(conversation_id)?
+                .map(|list_bytes| rmp_serde::from_slice(list_bytes.value()).ok())
+                .flatten();
+
+            let mut diagnostic_ids = existing_ids.unwrap_or_default();
+
+            for event in events {
+                let event_bytes = rmp_serde::to_vec(&event)?;
+                diagnostic_table.insert(event.id.as_str(), event_bytes.as_slice())?;
+                if !diagnostic_ids.contains(&event.id) {
+                    diagnostic_ids.push(event.id);
+                }
+            }
+
+            let list_bytes = rmp_serde::to_vec(&diagnostic_ids)?;
+            diagnostic_index_table.insert(conversation_id, list_bytes.as_slice())?;
+        }
+
+        write_txn.commit()?;
+        debug!(
+            "Appended {} diagnostic events to conversation {}",
+            event_count,
+            conversation_id
+        );
+        Ok(())
+    }
+
+    /// Read the newest diagnostic events for a conversation in chronological order.
+    pub fn get_diagnostic_events_tail(
+        &self,
+        conversation_id: &str,
+        count: usize,
+    ) -> Result<Vec<PersistedDiagnosticEvent>, AiChatError> {
+        let read_txn = self.db.begin_read()?;
+        let conv_table = read_txn.open_table(CONVERSATIONS_TABLE)?;
+        if conv_table.get(conversation_id)?.is_none() {
+            return Err(AiChatError::NotFound(conversation_id.to_string()));
+        }
+
+        let diagnostic_index_table = read_txn.open_table(CONV_DIAGNOSTIC_TABLE)?;
+        let event_ids: Vec<String> = diagnostic_index_table
+            .get(conversation_id)?
+            .map(|list_bytes| rmp_serde::from_slice(list_bytes.value()).ok())
+            .flatten()
+            .unwrap_or_default();
+
+        let tail_start = event_ids.len().saturating_sub(count);
+        let diagnostic_table = read_txn.open_table(DIAGNOSTIC_TABLE)?;
+        let mut events = Vec::new();
+
+        for event_id in event_ids.into_iter().skip(tail_start) {
+          if let Some(event_bytes) = diagnostic_table.get(event_id.as_str())? {
+                let event: PersistedDiagnosticEvent = rmp_serde::from_slice(event_bytes.value())?;
+                events.push(event);
+            }
+        }
+
+        Ok(events)
     }
 
     /// Update a message (for streaming content updates)
@@ -1318,6 +1440,8 @@ impl AiChatStore {
             let mut msg_index_table = write_txn.open_table(CONV_MESSAGES_TABLE)?;
             let mut transcript_table = write_txn.open_table(TRANSCRIPT_TABLE)?;
             let mut transcript_index_table = write_txn.open_table(CONV_TRANSCRIPT_TABLE)?;
+            let mut diagnostic_table = write_txn.open_table(DIAGNOSTIC_TABLE)?;
+            let mut diagnostic_index_table = write_txn.open_table(CONV_DIAGNOSTIC_TABLE)?;
 
             // Collect all keys first (can't delete while iterating)
             let conv_keys: Vec<String> = conv_table
@@ -1345,6 +1469,16 @@ impl AiChatStore {
                 .filter_map(|r| r.ok().map(|(k, _)| k.value().to_string()))
                 .collect();
 
+            let diagnostic_keys: Vec<String> = diagnostic_table
+                .iter()?
+                .filter_map(|r| r.ok().map(|(k, _)| k.value().to_string()))
+                .collect();
+
+            let diagnostic_idx_keys: Vec<String> = diagnostic_index_table
+                .iter()?
+                .filter_map(|r| r.ok().map(|(k, _)| k.value().to_string()))
+                .collect();
+
             // Delete all entries
             for key in conv_keys {
                 let _ = conv_table.remove(key.as_str());
@@ -1360,6 +1494,12 @@ impl AiChatStore {
             }
             for key in transcript_idx_keys {
                 let _ = transcript_index_table.remove(key.as_str());
+            }
+            for key in diagnostic_keys {
+                let _ = diagnostic_table.remove(key.as_str());
+            }
+            for key in diagnostic_idx_keys {
+                let _ = diagnostic_index_table.remove(key.as_str());
             }
         }
 
@@ -2058,6 +2198,56 @@ mod tests {
     }
 
     #[test]
+    fn test_append_and_tail_diagnostic_events() {
+        let (store, _dir) = create_test_store();
+        store.create_conversation(&create_test_meta("conv-diagnostics")).unwrap();
+
+        store
+            .append_diagnostic_events(
+                "conv-diagnostics",
+                vec![
+                    PersistedDiagnosticEvent {
+                        id: "diag-1".to_string(),
+                        conversation_id: "conv-diagnostics".to_string(),
+                        turn_id: Some("turn-1".to_string()),
+                        round_id: None,
+                        timestamp: 1,
+                        event_type: "llm_request".to_string(),
+                        data: serde_json::json!({ "requestKind": "chat" }),
+                    },
+                    PersistedDiagnosticEvent {
+                        id: "diag-2".to_string(),
+                        conversation_id: "conv-diagnostics".to_string(),
+                        turn_id: Some("turn-1".to_string()),
+                        round_id: Some("round-1".to_string()),
+                        timestamp: 2,
+                        event_type: "assistant_round".to_string(),
+                        data: serde_json::json!({ "toolCallCount": 1 }),
+                    },
+                    PersistedDiagnosticEvent {
+                        id: "diag-3".to_string(),
+                        conversation_id: "conv-diagnostics".to_string(),
+                        turn_id: Some("turn-1".to_string()),
+                        round_id: Some("round-1".to_string()),
+                        timestamp: 3,
+                        event_type: "tool_result".to_string(),
+                        data: serde_json::json!({ "success": true }),
+                    },
+                ],
+            )
+            .unwrap();
+
+        let tail = store
+            .get_diagnostic_events_tail("conv-diagnostics", 2)
+            .unwrap();
+
+        assert_eq!(tail.len(), 2);
+        assert_eq!(tail[0].id, "diag-2");
+        assert_eq!(tail[1].id, "diag-3");
+        assert_eq!(tail[0].round_id.as_deref(), Some("round-1"));
+    }
+
+    #[test]
     fn test_replace_conversation_messages_with_transcript_entries_is_atomic() {
         let (store, _dir) = create_test_store();
         store
@@ -2213,5 +2403,32 @@ mod tests {
 
         let error = store.get_transcript_entries("conv-cleanup").unwrap_err();
         assert!(matches!(error, AiChatError::NotFound(id) if id == "conv-cleanup"));
+    }
+
+    #[test]
+    fn test_delete_conversation_clears_diagnostic_events() {
+        let (store, _dir) = create_test_store();
+        store.create_conversation(&create_test_meta("conv-diagnostic-cleanup")).unwrap();
+        store
+            .append_diagnostic_events(
+                "conv-diagnostic-cleanup",
+                vec![PersistedDiagnosticEvent {
+                    id: "diag-cleanup".to_string(),
+                    conversation_id: "conv-diagnostic-cleanup".to_string(),
+                    turn_id: Some("turn-1".to_string()),
+                    round_id: None,
+                    timestamp: 1,
+                    event_type: "error".to_string(),
+                    data: serde_json::json!({ "message": "boom" }),
+                }],
+            )
+            .unwrap();
+
+        store.delete_conversation("conv-diagnostic-cleanup").unwrap();
+
+        let error = store
+            .get_diagnostic_events_tail("conv-diagnostic-cleanup", 10)
+            .unwrap_err();
+        assert!(matches!(error, AiChatError::NotFound(id) if id == "conv-diagnostic-cleanup"));
     }
 }

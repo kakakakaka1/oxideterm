@@ -147,6 +147,92 @@ describe('roleRunner.streamCompletion', () => {
       { type: 'text', text: 'answer' },
     ]);
   });
+
+  it('throws provider errors instead of swallowing them', async () => {
+    const { streamCompletion } = await import('@/lib/ai/roles');
+
+    const provider = {
+      type: 'openai' as const,
+      displayName: 'Mock Provider',
+      async *streamCompletion() {
+        yield { type: 'content' as const, content: 'partial' };
+        yield { type: 'error' as const, message: 'rate limited' };
+      },
+    };
+
+    await expect(streamCompletion(
+      {
+        provider,
+        baseUrl: 'https://example.com',
+        model: 'mock-model',
+        apiKey: 'mock-key',
+      },
+      [{ role: 'user', content: 'fail please' }],
+      [],
+      new AbortController().signal,
+    )).rejects.toThrow('rate limited');
+  });
+
+  it('emits shared diagnostic events for requests and completed rounds', async () => {
+    const { streamCompletion } = await import('@/lib/ai/roles');
+    const onEvent = vi.fn();
+
+    const provider = {
+      type: 'openai' as const,
+      displayName: 'Mock Provider',
+      async *streamCompletion() {
+        yield { type: 'content' as const, content: 'answer' };
+        yield { type: 'done' as const };
+      },
+    };
+
+    await streamCompletion(
+      {
+        provider,
+        baseUrl: 'https://example.com',
+        model: 'mock-model',
+        apiKey: 'mock-key',
+      },
+      [{ role: 'user', content: 'diagnose' }],
+      [],
+      new AbortController().signal,
+      {
+        conversationId: 'lineage-1',
+        turnId: 'task-1',
+        logicalRound: 2,
+        requestKind: 'execute',
+        telemetryBase: {
+          source: 'agent',
+          providerId: 'provider-1',
+          model: 'mock-model',
+          runId: 'task-1',
+        },
+        onEvent,
+      },
+    );
+
+    expect(onEvent).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'llm_request',
+      conversationId: 'lineage-1',
+      turnId: 'task-1',
+      data: expect.objectContaining({
+        source: 'agent',
+        requestKind: 'execute',
+        logicalRound: 2,
+      }),
+    }));
+    expect(onEvent).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'assistant_round',
+      conversationId: 'lineage-1',
+      turnId: 'task-1',
+      data: expect.objectContaining({
+        source: 'agent',
+        requestKind: 'execute',
+        logicalRound: 2,
+        responseLength: 6,
+      }),
+    }));
+  });
 });
 
 describe('roleRunner.processToolCalls', () => {

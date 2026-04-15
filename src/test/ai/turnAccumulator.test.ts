@@ -120,4 +120,19 @@ describe('turnAccumulator', () => {
     expect(snapshot.toolRounds[0]).toMatchObject({ round: 1, toolCalls: [expect.objectContaining({ id: 'call-1' })] });
     expect(snapshot.toolRounds[1]).toMatchObject({ round: 2, toolCalls: [expect.objectContaining({ id: 'call-2' })] });
   });
+
+  it('captures error parts and marks the snapshot as error', () => {
+    const accumulator = createTurnAccumulator({ turnId: 'turn-4' });
+
+    accumulator.onThinking('partial reasoning');
+    accumulator.onError('provider failed');
+
+    const snapshot = accumulator.snapshot();
+
+    expect(snapshot.status).toBe('error');
+    expect(snapshot.parts).toEqual([
+      { type: 'thinking', text: 'partial reasoning', streaming: true },
+      { type: 'error', message: 'provider failed' },
+    ]);
+  });
 });

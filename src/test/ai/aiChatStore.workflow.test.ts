@@ -445,6 +445,16 @@ describe('aiChatStore workflows', () => {
         ]),
       }),
     });
+    expect(invokeMock).toHaveBeenCalledWith('ai_chat_append_diagnostic_events', {
+      request: expect.objectContaining({
+        conversationId: 'conv-1',
+        events: expect.arrayContaining([
+          expect.objectContaining({ type: 'user_message' }),
+          expect.objectContaining({ type: 'budget_level_changed' }),
+          expect.objectContaining({ type: 'llm_request' }),
+        ]),
+      }),
+    });
   });
 
   it('records synthetic rejected tool calls with preserved arguments when tools are disabled', async () => {

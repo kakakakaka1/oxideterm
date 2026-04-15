@@ -20,7 +20,8 @@ import type { AgentStep, AgentApproval, AgentTask, AiToolResult } from '../../..
 import type { ToolExecutionContext } from '../tools';
 import { sanitizeApiMessages } from '../contextSanitizer';
 import { createTurnAccumulator } from '../turnModel/turnAccumulator';
-import type { AiAssistantTurn, AiToolRound } from '../turnModel/types';
+import { createAiDiagnosticEvent, type AiDiagnosticTelemetryBase } from '../turnModel/diagnostics';
+import type { AiAssistantTurn, AiDiagnosticEvent, AiToolRound } from '../turnModel/types';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Types
@@ -65,6 +66,42 @@ export type ToolCallOutcome = {
   resultMessage: ChatMessage;
 };
 
+export type RoleRunnerDiagnosticOptions = {
+  conversationId: string;
+  turnId?: string;
+  roundId?: string;
+  logicalRound?: number;
+  requestKind?: string;
+  telemetryBase?: AiDiagnosticTelemetryBase;
+  onEvent?: (event: AiDiagnosticEvent) => void | Promise<void>;
+};
+
+async function emitDiagnosticEvent(
+  diagnostics: RoleRunnerDiagnosticOptions | undefined,
+  type: AiDiagnosticEvent['type'],
+  data?: Record<string, unknown>,
+  options?: { roundId?: string; timestamp?: number },
+): Promise<void> {
+  if (!diagnostics?.onEvent) return;
+
+  const base = diagnostics.telemetryBase?.source
+    ? {
+        ...diagnostics.telemetryBase,
+        requestKind: diagnostics.requestKind ?? diagnostics.telemetryBase.requestKind,
+      }
+    : undefined;
+
+  await diagnostics.onEvent(createAiDiagnosticEvent({
+    conversationId: diagnostics.conversationId,
+    turnId: diagnostics.turnId,
+    roundId: options?.roundId ?? diagnostics.roundId,
+    timestamp: options?.timestamp,
+    type,
+    base,
+    data,
+  }));
+}
+
 function getThinkingContent(turn: AiAssistantTurn): string {
   return turn.parts
     .filter((part): part is Extract<AiAssistantTurn['parts'][number], { type: 'thinking' }> => part.type === 'thinking')
@@ -81,12 +118,12 @@ function getCollectedToolCalls(toolRounds: readonly AiToolRound[]): CollectedToo
 }
 
 function attachRoundResponseText(turn: AiAssistantTurn): AiAssistantTurn {
-  if (turn.toolRounds.length === 0 || !turn.plainTextSummary) {
+  if (turn.toolRounds.length !== 1 || !turn.plainTextSummary) {
     return turn;
   }
 
-  const toolRounds = turn.toolRounds.map((round, index) => (
-    index === turn.toolRounds.length - 1 && !round.responseText
+  const toolRounds = turn.toolRounds.map((round) => (
+    !round.responseText
       ? { ...round, responseText: turn.plainTextSummary }
       : round
   ));
@@ -107,8 +144,10 @@ export async function streamCompletion(
   messages: ChatMessage[],
   tools: AiToolDefinition[],
   signal: AbortSignal,
+  diagnostics?: RoleRunnerDiagnosticOptions,
 ): Promise<StreamResult> {
-  const accumulator = createTurnAccumulator({ turnId: crypto.randomUUID() });
+  const turnId = diagnostics?.turnId ?? crypto.randomUUID();
+  const accumulator = createTurnAccumulator({ turnId });
 
   const config = {
     baseUrl: llmConfig.baseUrl,
@@ -116,6 +155,12 @@ export async function streamCompletion(
     apiKey: llmConfig.apiKey,
     tools,
   };
+
+  await emitDiagnosticEvent(diagnostics, 'llm_request', {
+    logicalRound: diagnostics?.logicalRound,
+    messageCount: messages.length,
+    toolDefinitionCount: tools.length,
+  });
 
   for await (const event of llmConfig.provider.streamCompletion(config, sanitizeApiMessages(messages), signal)) {
     if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
@@ -141,12 +186,26 @@ export async function streamCompletion(
         break;
       case 'error':
         accumulator.onError(event.message);
+        await emitDiagnosticEvent(diagnostics, 'error', {
+          logicalRound: diagnostics?.logicalRound,
+          message: event.message,
+        });
         throw new Error(event.message);
     }
   }
 
   accumulator.setStatus('complete');
   const turn = attachRoundResponseText(accumulator.snapshot());
+  await emitDiagnosticEvent(diagnostics, 'assistant_round', {
+    logicalRound: diagnostics?.logicalRound,
+    responseLength: turn.plainTextSummary.length,
+    thinkingLength: getThinkingContent(turn).length,
+    toolCallCount: getCollectedToolCalls(turn.toolRounds).length,
+    toolRoundCount: turn.toolRounds.length,
+    toolRoundIds: turn.toolRounds.map((round) => round.id),
+  }, {
+    roundId: turn.toolRounds.length === 1 ? turn.toolRounds[0].id : diagnostics?.roundId,
+  });
 
   return {
     text: turn.plainTextSummary,
@@ -169,8 +228,9 @@ export async function runSingleShot(
   llmConfig: LLMCallConfig,
   messages: ChatMessage[],
   signal: AbortSignal,
+  diagnostics?: RoleRunnerDiagnosticOptions,
 ): Promise<SingleShotResult> {
-  const result = await streamCompletion(llmConfig, messages, [], signal);
+  const result = await streamCompletion(llmConfig, messages, [], signal, diagnostics);
   return { text: result.text, thinkingContent: result.thinkingContent, turn: result.turn };
 }
 
@@ -237,6 +297,7 @@ export async function processToolCalls(
   task: AgentTask,
   toolContext: ToolExecutionContext,
   signal: AbortSignal,
+  diagnostics?: RoleRunnerDiagnosticOptions,
 ): Promise<{ results: ChatMessage[]; allSucceeded: boolean }> {
   const store = useAgentStore.getState;
   const addToast = useToastStore.getState().addToast;
@@ -255,6 +316,11 @@ export async function processToolCalls(
     const overflowStep = createStep(round, 'error', overflowContent);
     store().appendStep(overflowStep);
     store().updateStep(overflowStep.id, { status: 'error' });
+    await emitDiagnosticEvent(diagnostics, 'error', {
+      logicalRound: round,
+      message: overflowContent,
+      toolCallCount: toolCalls.length,
+    });
   }
 
   for (const tc of clamped) {
@@ -267,6 +333,12 @@ export async function processToolCalls(
       const errorStep = createStep(round, 'error', `Malformed tool arguments for ${tc.name}: ${tc.arguments.slice(0, 200)}`);
       store().appendStep(errorStep);
       store().updateStep(errorStep.id, { status: 'error' });
+      await emitDiagnosticEvent(diagnostics, 'error', {
+        logicalRound: round,
+        message: `Malformed tool arguments for ${tc.name}`,
+        toolCallId: tc.id,
+        toolName: tc.name,
+      });
       results.push({
         role: 'tool',
         content: `Error: Invalid JSON arguments for ${tc.name}`,
@@ -283,6 +355,12 @@ export async function processToolCalls(
       arguments: tc.arguments,
     });
     store().appendStep(toolStep);
+    await emitDiagnosticEvent(diagnostics, 'tool_call', {
+      logicalRound: round,
+      toolCallId: tc.id,
+      toolName: tc.name,
+      arguments: tc.arguments,
+    });
 
     // Check approval
     const isDangerousCommand = hasDeniedCommands(tc.name, parsedArgs);
@@ -329,6 +407,13 @@ export async function processToolCalls(
       if (resolution === 'rejected') {
         store().updateStep(toolStep.id, { status: 'skipped', content: `${tc.name} (rejected)` });
         store().setTaskStatus('executing');
+        await emitDiagnosticEvent(diagnostics, 'tool_result', {
+          logicalRound: round,
+          toolCallId: tc.id,
+          toolName: tc.name,
+          success: false,
+          error: 'User rejected this tool call.',
+        });
         results.push({
           role: 'tool',
           content: 'User rejected this tool call.',
@@ -342,6 +427,13 @@ export async function processToolCalls(
       if (resolution === 'skipped') {
         store().updateStep(toolStep.id, { status: 'skipped', content: `${tc.name} (skipped)` });
         store().setTaskStatus('executing');
+        await emitDiagnosticEvent(diagnostics, 'tool_result', {
+          logicalRound: round,
+          toolCallId: tc.id,
+          toolName: tc.name,
+          success: false,
+          error: 'User skipped this tool call.',
+        });
         results.push({
           role: 'tool',
           content: 'User skipped this tool call. Continue with remaining steps.',
@@ -388,6 +480,15 @@ export async function processToolCalls(
     });
 
     if (!result.success) allSucceeded = false;
+    await emitDiagnosticEvent(diagnostics, 'tool_result', {
+      logicalRound: round,
+      toolCallId: result.toolCallId,
+      toolName: result.toolName,
+      success: result.success,
+      error: result.error,
+      outputLength: result.output.length,
+      durationMs,
+    });
 
     // Add observation step
     const obsContent = result.success
