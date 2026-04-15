@@ -49,6 +49,8 @@ pub struct SaveMessageRequest {
     pub content: String,
     pub timestamp: i64,
     #[serde(default)]
+    pub projection_updated_at: Option<i64>,
+    #[serde(default)]
     pub tool_calls: Vec<PersistedToolCall>,
     pub context_snapshot: Option<ContextSnapshotRequest>,
     #[serde(default)]
@@ -483,6 +485,7 @@ pub async fn ai_chat_save_message(
         role: request.role,
         content: request.content,
         timestamp: request.timestamp,
+        projection_updated_at: request.projection_updated_at.unwrap_or(request.timestamp),
         tool_calls: request.tool_calls,
         context_snapshot: request.context_snapshot.map(|c| ContextSnapshot {
             cwd: c.cwd,
@@ -571,6 +574,10 @@ pub async fn ai_chat_save_message_with_transcript(
         role: request.message.role,
         content: request.message.content,
         timestamp: request.message.timestamp,
+        projection_updated_at: request
+            .message
+            .projection_updated_at
+            .unwrap_or(request.message.timestamp),
         tool_calls: request.message.tool_calls,
         context_snapshot: request.message.context_snapshot.map(|c| ContextSnapshot {
             cwd: c.cwd,
@@ -658,6 +665,10 @@ pub async fn ai_chat_replace_conversation_messages(
         role: request.message.role,
         content: request.message.content,
         timestamp: request.message.timestamp,
+        projection_updated_at: request
+            .message
+            .projection_updated_at
+            .unwrap_or(request.message.timestamp),
         tool_calls: request.message.tool_calls,
         context_snapshot: request.message.context_snapshot.map(|c| ContextSnapshot {
             cwd: c.cwd,
@@ -692,6 +703,10 @@ pub async fn ai_chat_replace_conversation_messages_with_transcript(
         role: request.message.role,
         content: request.message.content,
         timestamp: request.message.timestamp,
+        projection_updated_at: request
+            .message
+            .projection_updated_at
+            .unwrap_or(request.message.timestamp),
         tool_calls: request.message.tool_calls,
         context_snapshot: request.message.context_snapshot.map(|c| ContextSnapshot {
             cwd: c.cwd,
@@ -749,6 +764,7 @@ pub async fn ai_chat_replace_conversation_message_list(
             role: message.role,
             content: message.content,
             timestamp: message.timestamp,
+            projection_updated_at: message.projection_updated_at.unwrap_or(message.timestamp),
             tool_calls: message.tool_calls,
             context_snapshot: message.context_snapshot.map(|c| ContextSnapshot {
                 cwd: c.cwd,
@@ -792,6 +808,7 @@ pub async fn ai_chat_replace_conversation_message_list_with_transcript(
             role: message.role,
             content: message.content,
             timestamp: message.timestamp,
+            projection_updated_at: message.projection_updated_at.unwrap_or(message.timestamp),
             tool_calls: message.tool_calls,
             context_snapshot: message.context_snapshot.map(|c| ContextSnapshot {
                 cwd: c.cwd,

@@ -152,6 +152,9 @@ pub struct PersistedMessage {
     pub content: String,
     /// Unix timestamp (ms)
     pub timestamp: i64,
+    /// Monotonic projection write marker used to reject stale async overwrites.
+    #[serde(default)]
+    pub projection_updated_at: i64,
     /// Tool calls associated with this assistant message
     #[serde(default)]
     pub tool_calls: Vec<PersistedToolCall>,
@@ -193,6 +196,25 @@ pub struct ConversationMeta {
 
 fn default_origin() -> String {
     "sidebar".to_string()
+}
+
+fn effective_projection_updated_at(message: &PersistedMessage) -> i64 {
+    if message.projection_updated_at > 0 {
+        message.projection_updated_at
+    } else {
+        message.timestamp
+    }
+}
+
+fn should_replace_projection(incoming: &PersistedMessage, existing: &PersistedMessage) -> bool {
+    match (
+        incoming.projection_updated_at > 0,
+        existing.projection_updated_at > 0,
+    ) {
+        (false, true) => false,
+        (true, false) => incoming.projection_updated_at >= existing.timestamp,
+        _ => effective_projection_updated_at(incoming) >= effective_projection_updated_at(existing),
+    }
 }
 
 /// Full conversation with messages (for loading)
@@ -656,9 +678,19 @@ impl AiChatStore {
                 .flatten()
                 .ok_or_else(|| AiChatError::NotFound(message.conversation_id.clone()))?;
 
-            // Save message
-            let msg_bytes = rmp_serde::to_vec(&message)?;
-            msg_table.insert(message.id.as_str(), msg_bytes.as_slice())?;
+            let should_write_message = msg_table
+                .get(message.id.as_str())?
+                .map(|existing_bytes| {
+                    rmp_serde::from_slice::<PersistedMessage>(existing_bytes.value())
+                })
+                .transpose()?
+                .map(|existing| should_replace_projection(&message, &existing))
+                .unwrap_or(true);
+
+            if should_write_message {
+                let msg_bytes = rmp_serde::to_vec(&message)?;
+                msg_table.insert(message.id.as_str(), msg_bytes.as_slice())?;
+            }
 
             // Update message index - read first, then write
             let existing_ids: Option<Vec<String>> = msg_index_table
@@ -683,7 +715,9 @@ impl AiChatStore {
                 msg_index_table.insert(message.conversation_id.as_str(), list_bytes.as_slice())?;
             }
 
-            meta.updated_at = message.timestamp;
+            meta.updated_at = meta
+                .updated_at
+                .max(effective_projection_updated_at(&message));
             meta.message_count = message_ids.len();
             let updated_bytes = rmp_serde::to_vec(&meta)?;
             conv_table.insert(message.conversation_id.as_str(), updated_bytes.as_slice())?;
@@ -726,8 +760,19 @@ impl AiChatStore {
                 .flatten()
                 .ok_or_else(|| AiChatError::NotFound(message.conversation_id.clone()))?;
 
-            let msg_bytes = rmp_serde::to_vec(&message)?;
-            msg_table.insert(message.id.as_str(), msg_bytes.as_slice())?;
+            let should_write_message = msg_table
+                .get(message.id.as_str())?
+                .map(|existing_bytes| {
+                    rmp_serde::from_slice::<PersistedMessage>(existing_bytes.value())
+                })
+                .transpose()?
+                .map(|existing| should_replace_projection(&message, &existing))
+                .unwrap_or(true);
+
+            if should_write_message {
+                let msg_bytes = rmp_serde::to_vec(&message)?;
+                msg_table.insert(message.id.as_str(), msg_bytes.as_slice())?;
+            }
 
             let existing_ids: Option<Vec<String>> = msg_index_table
                 .get(message.conversation_id.as_str())?
@@ -750,6 +795,12 @@ impl AiChatStore {
                 msg_index_table.insert(message.conversation_id.as_str(), list_bytes.as_slice())?;
             }
 
+            let transcript_latest_at = entries
+                .iter()
+                .map(|entry| entry.timestamp)
+                .max()
+                .unwrap_or(i64::MIN);
+
             if !entries.is_empty() {
                 let existing_transcript_ids: Option<Vec<String>> = transcript_index_table
                     .get(message.conversation_id.as_str())?
@@ -758,11 +809,11 @@ impl AiChatStore {
 
                 let mut transcript_ids = existing_transcript_ids.unwrap_or_default();
 
-                for entry in entries {
-                    let entry_bytes = rmp_serde::to_vec(&entry)?;
+                for entry in &entries {
+                    let entry_bytes = rmp_serde::to_vec(entry)?;
                     transcript_table.insert(entry.id.as_str(), entry_bytes.as_slice())?;
                     if !transcript_ids.contains(&entry.id) {
-                        transcript_ids.push(entry.id);
+                        transcript_ids.push(entry.id.clone());
                     }
                 }
 
@@ -771,7 +822,10 @@ impl AiChatStore {
                     .insert(message.conversation_id.as_str(), list_bytes.as_slice())?;
             }
 
-            meta.updated_at = message.timestamp;
+            meta.updated_at = meta
+                .updated_at
+                .max(effective_projection_updated_at(&message))
+                .max(transcript_latest_at);
             meta.message_count = message_ids.len();
             let updated_bytes = rmp_serde::to_vec(&meta)?;
             conv_table.insert(message.conversation_id.as_str(), updated_bytes.as_slice())?;
@@ -1579,6 +1633,7 @@ mod tests {
             role: "user".to_string(),
             content: content.into(),
             timestamp,
+            projection_updated_at: timestamp,
             tool_calls: vec![],
             context_snapshot: None,
             turn: None,
@@ -1639,6 +1694,7 @@ mod tests {
             role: "user".to_string(),
             content: "Hello".to_string(),
             timestamp: 1001,
+            projection_updated_at: 1001,
             tool_calls: vec![],
             context_snapshot: Some(ContextSnapshot {
                 cwd: Some("/home/user".to_string()),
@@ -1710,6 +1766,7 @@ mod tests {
                 role: if i % 2 == 0 { "user" } else { "assistant" }.to_string(),
                 content: format!("Message {}", i),
                 timestamp: 1000 + i as i64,
+                projection_updated_at: 1000 + i as i64,
                 tool_calls: vec![],
                 context_snapshot: None,
                 turn: None,
@@ -1768,6 +1825,7 @@ mod tests {
                     role: "user".to_string(),
                     content: "Test".to_string(),
                     timestamp: 1000_i64,
+                    projection_updated_at: 1000_i64,
                     tool_calls: vec![],
                     context_snapshot: None,
                     turn: None,
@@ -1878,6 +1936,7 @@ mod tests {
                 role: "user".to_string(),
                 content: format!("Message {}", i),
                 timestamp: 1000 + i as i64,
+                projection_updated_at: 1000 + i as i64,
                 tool_calls: vec![],
                 context_snapshot: None,
                 turn: None,
@@ -1917,6 +1976,7 @@ mod tests {
             role: "assistant".to_string(),
             content: "Original response".to_string(),
             timestamp: 1001,
+            projection_updated_at: 1001,
             tool_calls: vec![],
             context_snapshot: None,
             turn: None,
@@ -2024,6 +2084,7 @@ mod tests {
             role: "assistant".to_string(),
             content: large_content.clone(),
             timestamp: 5000,
+            projection_updated_at: 5000,
             tool_calls: vec![],
             context_snapshot: Some(ContextSnapshot {
                 cwd: None,
@@ -2070,6 +2131,7 @@ mod tests {
             role: "user".to_string(),
             content: "trigger fallback".to_string(),
             timestamp: 1001,
+            projection_updated_at: 1001,
             tool_calls: vec![],
             context_snapshot: Some(ContextSnapshot {
                 cwd: None,
@@ -2142,6 +2204,7 @@ mod tests {
             role: "assistant".to_string(),
             content: "summary content".to_string(),
             timestamp: 3000,
+            projection_updated_at: 3000,
             tool_calls: vec![],
             context_snapshot: None,
             turn: None,
@@ -2272,6 +2335,7 @@ mod tests {
             role: "assistant".to_string(),
             content: "summary".to_string(),
             timestamp: 2,
+            projection_updated_at: 2,
             tool_calls: vec![],
             context_snapshot: None,
             turn: None,
@@ -2348,6 +2412,7 @@ mod tests {
                     role: "system".to_string(),
                     content: "anchor".to_string(),
                     timestamp: 3,
+                    projection_updated_at: 3,
                     tool_calls: vec![],
                     context_snapshot: None,
                     turn: None,
@@ -2382,6 +2447,193 @@ mod tests {
         assert_eq!(full.messages[0].id, "anchor-1");
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].id, "entry-anchor");
+    }
+
+    #[test]
+    fn test_save_message_with_transcript_rejects_stale_projection_overwrite() {
+        let (store, _dir) = create_test_store();
+        store
+            .create_conversation(&create_test_meta("conv-stale-projection"))
+            .unwrap();
+
+        store
+            .save_message_with_transcript_entries(
+                PersistedMessage {
+                    id: "assistant-1".to_string(),
+                    conversation_id: "conv-stale-projection".to_string(),
+                    role: "assistant".to_string(),
+                    content: "new projection".to_string(),
+                    timestamp: 1000,
+                    projection_updated_at: 2000,
+                    tool_calls: vec![],
+                    context_snapshot: None,
+                    turn: None,
+                    transcript_ref: None,
+                    summary_ref: None,
+                },
+                vec![],
+            )
+            .unwrap();
+
+        store
+            .save_message_with_transcript_entries(
+                PersistedMessage {
+                    id: "assistant-1".to_string(),
+                    conversation_id: "conv-stale-projection".to_string(),
+                    role: "assistant".to_string(),
+                    content: "stale projection".to_string(),
+                    timestamp: 1000,
+                    projection_updated_at: 1500,
+                    tool_calls: vec![],
+                    context_snapshot: None,
+                    turn: None,
+                    transcript_ref: None,
+                    summary_ref: None,
+                },
+                vec![PersistedTranscriptEntry {
+                    id: "entry-1".to_string(),
+                    conversation_id: "conv-stale-projection".to_string(),
+                    turn_id: Some("assistant-1".to_string()),
+                    parent_id: None,
+                    timestamp: 1100,
+                    kind: "assistant_turn_end".to_string(),
+                    payload: serde_json::json!({
+                        "messageId": "assistant-1",
+                        "status": "complete"
+                    }),
+                }],
+            )
+            .unwrap();
+
+        let full = store.get_conversation("conv-stale-projection").unwrap();
+        assert_eq!(full.messages.len(), 1);
+        assert_eq!(full.messages[0].content, "new projection");
+        assert_eq!(full.messages[0].projection_updated_at, 2000);
+
+        let transcript = store
+            .get_transcript_entries("conv-stale-projection")
+            .unwrap();
+        assert_eq!(transcript.len(), 1);
+        assert_eq!(transcript[0].id, "entry-1");
+
+        let full = store.get_conversation("conv-stale-projection").unwrap();
+        assert_eq!(full.meta.updated_at, 2000);
+    }
+
+    #[test]
+    fn test_save_message_rejects_stale_projection_overwrite() {
+        let (store, _dir) = create_test_store();
+        store
+            .create_conversation(&create_test_meta("conv-stale-save"))
+            .unwrap();
+
+        store
+            .save_message(PersistedMessage {
+                id: "assistant-1".to_string(),
+                conversation_id: "conv-stale-save".to_string(),
+                role: "assistant".to_string(),
+                content: "fresh projection".to_string(),
+                timestamp: 1000,
+                projection_updated_at: 3000,
+                tool_calls: vec![],
+                context_snapshot: None,
+                turn: None,
+                transcript_ref: None,
+                summary_ref: None,
+            })
+            .unwrap();
+
+        store
+            .save_message(PersistedMessage {
+                id: "assistant-1".to_string(),
+                conversation_id: "conv-stale-save".to_string(),
+                role: "assistant".to_string(),
+                content: "stale projection".to_string(),
+                timestamp: 1000,
+                projection_updated_at: 2000,
+                tool_calls: vec![],
+                context_snapshot: None,
+                turn: None,
+                transcript_ref: None,
+                summary_ref: None,
+            })
+            .unwrap();
+
+        let full = store.get_conversation("conv-stale-save").unwrap();
+        assert_eq!(full.messages.len(), 1);
+        assert_eq!(full.messages[0].content, "fresh projection");
+        assert_eq!(full.messages[0].projection_updated_at, 3000);
+        assert_eq!(full.meta.updated_at, 3000);
+    }
+
+    #[test]
+    fn test_stale_projection_still_appends_transcript_and_advances_meta() {
+        let (store, _dir) = create_test_store();
+        store
+            .create_conversation(&create_test_meta("conv-transcript-only-update"))
+            .unwrap();
+
+        store
+            .save_message_with_transcript_entries(
+                PersistedMessage {
+                    id: "assistant-1".to_string(),
+                    conversation_id: "conv-transcript-only-update".to_string(),
+                    role: "assistant".to_string(),
+                    content: "current projection".to_string(),
+                    timestamp: 1000,
+                    projection_updated_at: 1500,
+                    tool_calls: vec![],
+                    context_snapshot: None,
+                    turn: None,
+                    transcript_ref: None,
+                    summary_ref: None,
+                },
+                vec![],
+            )
+            .unwrap();
+
+        store
+            .save_message_with_transcript_entries(
+                PersistedMessage {
+                    id: "assistant-1".to_string(),
+                    conversation_id: "conv-transcript-only-update".to_string(),
+                    role: "assistant".to_string(),
+                    content: "older projection".to_string(),
+                    timestamp: 1000,
+                    projection_updated_at: 1400,
+                    tool_calls: vec![],
+                    context_snapshot: None,
+                    turn: None,
+                    transcript_ref: None,
+                    summary_ref: None,
+                },
+                vec![PersistedTranscriptEntry {
+                    id: "entry-newer".to_string(),
+                    conversation_id: "conv-transcript-only-update".to_string(),
+                    turn_id: Some("assistant-1".to_string()),
+                    parent_id: None,
+                    timestamp: 2500,
+                    kind: "assistant_turn_end".to_string(),
+                    payload: serde_json::json!({
+                        "messageId": "assistant-1",
+                        "status": "complete"
+                    }),
+                }],
+            )
+            .unwrap();
+
+        let full = store
+            .get_conversation("conv-transcript-only-update")
+            .unwrap();
+        assert_eq!(full.messages[0].content, "current projection");
+        assert_eq!(full.messages[0].projection_updated_at, 1500);
+        assert_eq!(full.meta.updated_at, 2500);
+
+        let transcript = store
+            .get_transcript_entries("conv-transcript-only-update")
+            .unwrap();
+        assert_eq!(transcript.len(), 1);
+        assert_eq!(transcript[0].id, "entry-newer");
     }
 
     #[test]

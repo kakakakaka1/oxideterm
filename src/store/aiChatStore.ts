@@ -170,6 +170,14 @@ function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
+let lastProjectionPersistAt = 0;
+
+function nextProjectionPersistAt(): number {
+  const now = Date.now();
+  lastProjectionPersistAt = now > lastProjectionPersistAt ? now : lastProjectionPersistAt + 1;
+  return lastProjectionPersistAt;
+}
+
 function userExplicitlyRequestedJson(text: string): boolean {
   return JSON_REQUEST_RE.test(text);
 }
@@ -218,6 +226,7 @@ function buildPersistedMessageRequest(
       ? encodeAnchorContent(normalizedMessage.content, normalizedMessage.metadata)
       : normalizedMessage.content,
     timestamp: normalizedMessage.timestamp,
+    projectionUpdatedAt: nextProjectionPersistAt(),
     toolCalls: normalizedMessage.toolCalls || [],
     contextSnapshot,
     turn: normalizedMessage.turn ?? null,
