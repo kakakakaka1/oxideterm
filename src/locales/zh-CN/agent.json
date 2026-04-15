@@ -81,7 +81,10 @@
     "summary": {
       "completed": "任务完成",
       "handed_off": "任务已交接",
-      "failed": "任务失败"
+      "failed": "任务失败",
+      "pause_timeout": "任务已自动取消：暂停超过30分钟。",
+      "no_progress": "代理已停止：多轮后没有可执行的响应。",
+      "max_rounds": "已达到最大轮次。任务可能尚未完成。"
     },
     "review": {
       "title": "审查闸门",

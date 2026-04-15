@@ -81,7 +81,10 @@
     "summary": {
       "completed": "Aufgabe abgeschlossen",
       "handed_off": "Aufgabe übergeben",
-      "failed": "Aufgabe fehlgeschlagen"
+      "failed": "Aufgabe fehlgeschlagen",
+      "pause_timeout": "Aufgabe automatisch abgebrochen: länger als 30 Minuten pausiert.",
+      "no_progress": "Agent gestoppt: nach mehreren Runden keine umsetzbare Antwort.",
+      "max_rounds": "Maximale Rundenzahl erreicht. Die Aufgabe ist möglicherweise noch nicht abgeschlossen."
     },
     "review": {
       "title": "Review-Gate",

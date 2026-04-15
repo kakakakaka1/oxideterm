@@ -81,7 +81,10 @@
     "summary": {
       "completed": "Nhiệm vụ hoàn thành",
       "handed_off": "Nhiệm vụ đã bàn giao",
-      "failed": "Nhiệm vụ thất bại"
+      "failed": "Nhiệm vụ thất bại",
+      "pause_timeout": "Nhiệm vụ đã bị hủy tự động: tạm dừng hơn 30 phút.",
+      "no_progress": "Tác nhân đã dừng: không có phản hồi khả thi sau nhiều vòng.",
+      "max_rounds": "Đã đạt số vòng tối đa. Nhiệm vụ có thể vẫn chưa hoàn thành."
     },
     "review": {
       "title": "Cổng rà soát",

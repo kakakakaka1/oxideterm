@@ -296,6 +296,7 @@ export async function processToolCalls(
   round: number,
   task: AgentTask,
   toolContext: ToolExecutionContext,
+  autonomyLevel: AgentTask['autonomyLevel'],
   signal: AbortSignal,
   diagnostics?: RoleRunnerDiagnosticOptions,
 ): Promise<{ results: ChatMessage[]; allSucceeded: boolean }> {
@@ -364,7 +365,7 @@ export async function processToolCalls(
 
     // Check approval
     const isDangerousCommand = hasDeniedCommands(tc.name, parsedArgs);
-    const autoApprove = shouldAutoApprove(tc.name, parsedArgs, task.autonomyLevel);
+    const autoApprove = shouldAutoApprove(tc.name, parsedArgs, autonomyLevel);
     let dangerousCommandApproved = false;
 
     if (!autoApprove) {

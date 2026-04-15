@@ -121,6 +121,71 @@ function trimMessages(messages: ChatMessage[], budgetTokens: number): ChatMessag
   return [systemMsg, ...kept];
 }
 
+const PROMPT_BUDGET_TRUNCATION_NOTE = '\n\n[Context truncated to fit model budget]';
+
+function truncateTextToTokenBudget(text: string, budgetTokens: number): string {
+  const trimmedText = text.trimEnd();
+  if (!trimmedText) return trimmedText;
+  if (estimateTokens(trimmedText) <= budgetTokens) return trimmedText;
+
+  const noteTokens = estimateTokens(PROMPT_BUDGET_TRUNCATION_NOTE);
+  const contentBudget = Math.max(0, budgetTokens - noteTokens);
+  if (contentBudget <= 0) {
+    return PROMPT_BUDGET_TRUNCATION_NOTE.trimStart();
+  }
+
+  let low = 0;
+  let high = trimmedText.length;
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    if (estimateTokens(trimmedText.slice(0, mid)) <= contentBudget) {
+      low = mid;
+    } else {
+      high = mid - 1;
+    }
+  }
+
+  return `${trimmedText.slice(0, Math.max(0, low)).trimEnd()}${PROMPT_BUDGET_TRUNCATION_NOTE}`;
+}
+
+function buildBudgetedPromptMessages<T>(options: {
+  systemContent: string;
+  recentItems: T[];
+  budgetTokens: number;
+  buildUserContent: (recentItems: T[]) => string;
+}): ChatMessage[] {
+  const { systemContent, recentItems, budgetTokens, buildUserContent } = options;
+  let keptRecentItems = recentItems;
+  let userContent = buildUserContent(keptRecentItems);
+  let messages: ChatMessage[] = [
+    { role: 'system', content: systemContent },
+    { role: 'user', content: userContent },
+  ];
+
+  while (estimateTotalTokens(messages) > budgetTokens && keptRecentItems.length > 1) {
+    const nextCount = keptRecentItems.length <= 4
+      ? keptRecentItems.length - 1
+      : Math.max(1, Math.ceil(keptRecentItems.length / 2));
+    keptRecentItems = keptRecentItems.slice(-nextCount);
+    userContent = buildUserContent(keptRecentItems);
+    messages = [
+      { role: 'system', content: systemContent },
+      { role: 'user', content: userContent },
+    ];
+  }
+
+  if (estimateTotalTokens(messages) <= budgetTokens) {
+    return messages;
+  }
+
+  const systemTokens = estimateTokens(systemContent);
+  const userBudget = Math.max(1, budgetTokens - systemTokens);
+  return [
+    { role: 'system', content: systemContent },
+    { role: 'user', content: truncateTextToTokenBudget(userContent, userBudget) },
+  ];
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Helper: Condense old tool result messages to save context
 // ═══════════════════════════════════════════════════════════════════════════
@@ -364,27 +429,28 @@ async function buildContractForRound(options: {
   round: number;
   recentSteps: AgentStep[];
   executorConfig: ResolvedRoleConfig;
+  budgetTokens: number;
   signal: AbortSignal;
   diagnostics?: {
     telemetryBase: AiDiagnosticTelemetryBase;
     emit: (event: AiDiagnosticEvent) => void;
   };
 }): Promise<AgentRoundContract> {
-  const { task, round, recentSteps, executorConfig, signal, diagnostics } = options;
-  const contractMessages: ChatMessage[] = [
-    { role: 'system', content: buildRoundContractSystemPrompt() },
-    {
-      role: 'user',
-      content: buildRoundContractPrompt({
-        taskId: task.id,
-        goal: task.goal,
-        roundIndex: round,
-        plan: task.plan,
-        recentSteps,
-        lastReview: task.lastReview,
-      }),
-    },
-  ];
+  const { task, round, recentSteps, executorConfig, budgetTokens, signal, diagnostics } = options;
+  const systemContent = buildRoundContractSystemPrompt();
+  const contractMessages = buildBudgetedPromptMessages({
+    systemContent,
+    recentItems: recentSteps,
+    budgetTokens,
+    buildUserContent: (trimmedRecentSteps) => buildRoundContractPrompt({
+      taskId: task.id,
+      goal: task.goal,
+      roundIndex: round,
+      plan: task.plan,
+      recentSteps: trimmedRecentSteps,
+      lastReview: task.lastReview,
+    }),
+  });
 
   try {
     const result = await runSingleShot(executorConfig, contractMessages, signal, diagnostics ? {
@@ -419,18 +485,21 @@ async function runReviewerRound(options: {
   contract: AgentRoundContract | null;
   recentSteps: AgentStep[];
   reviewerConfig: ResolvedRoleConfig;
+  budgetTokens: number;
   signal: AbortSignal;
   diagnostics?: {
     telemetryBase: AiDiagnosticTelemetryBase;
     emit: (event: AiDiagnosticEvent) => void;
   };
 }): Promise<AgentReviewResult> {
-  const { task, round, maxRounds, contract, recentSteps, reviewerConfig, signal, diagnostics } = options;
-
-  const reviewMessages: ChatMessage[] = [
-    { role: 'system', content: buildReviewerSystemPrompt() },
-    { role: 'user', content: buildReviewPrompt(task.goal, contract, recentSteps, round, maxRounds) },
-  ];
+  const { task, round, maxRounds, contract, recentSteps, reviewerConfig, budgetTokens, signal, diagnostics } = options;
+  const systemContent = buildReviewerSystemPrompt();
+  const reviewMessages = buildBudgetedPromptMessages({
+    systemContent,
+    recentItems: recentSteps,
+    budgetTokens,
+    buildUserContent: (trimmedRecentSteps) => buildReviewPrompt(task.goal, contract, trimmedRecentSteps, round, maxRounds),
+  });
 
   const result = await runSingleShot(reviewerConfig, reviewMessages, signal, diagnostics ? {
     conversationId: task.lineageId,
@@ -719,7 +788,7 @@ async function executeTask(task: AgentTask, signal: AbortSignal): Promise<{ next
       try {
         while (store().activeTask?.status === 'paused') {
           if (pauseTimedOut) {
-            store().setTaskSummary('Task auto-cancelled: paused for over 30 minutes.');
+            store().setTaskSummary(i18n.t('agent.summary.pause_timeout'));
             store().setTaskStatus('cancelled');
             showToast('agent.toast.pause_timeout', 'warning');
             return null;
@@ -754,6 +823,7 @@ async function executeTask(task: AgentTask, signal: AbortSignal): Promise<{ next
         cwd: cwd ?? undefined,
       }),
     };
+    const budget = contextWindow - reserve;
 
     const contractContextSteps = liveTask.steps.filter((step) => step.roundIndex >= Math.max(0, round - 1));
     const contractStep = createStep(round, 'contract', '');
@@ -765,6 +835,7 @@ async function executeTask(task: AgentTask, signal: AbortSignal): Promise<{ next
       round,
       recentSteps: contractContextSteps,
       executorConfig,
+      budgetTokens: budget,
       signal,
       diagnostics: {
         telemetryBase,
@@ -779,8 +850,6 @@ async function executeTask(task: AgentTask, signal: AbortSignal): Promise<{ next
       content: JSON.stringify(contract, null, 2),
     });
     messages.push({ role: 'user', content: formatRoundContractForExecutor(contract) });
-
-    const budget = contextWindow - reserve;
     const trimmed = trimMessages(messages, budget);
     const streamResult = await streamCompletion(executorConfig, trimmed, tools, signal, {
       conversationId: task.lineageId,
@@ -824,6 +893,7 @@ async function executeTask(task: AgentTask, signal: AbortSignal): Promise<{ next
           contract,
           recentSteps,
           reviewerConfig,
+          budgetTokens: budget,
           signal,
         });
         store().setLastReview(review);
@@ -867,7 +937,7 @@ async function executeTask(task: AgentTask, signal: AbortSignal): Promise<{ next
       if (emptyRoundCount >= MAX_EMPTY_ROUNDS) {
         const plan = store().activeTask?.plan;
         if (plan) store().setPlan({ ...plan, currentStepIndex: plan.steps.length });
-        store().setTaskSummary('Agent stopped: no actionable response after multiple rounds.');
+        store().setTaskSummary(i18n.t('agent.summary.no_progress'));
         store().setTaskStatus('completed');
         showToast('agent.toast.no_progress', 'warning');
         return null;
@@ -885,6 +955,7 @@ async function executeTask(task: AgentTask, signal: AbortSignal): Promise<{ next
       round,
       store().activeTask ?? liveTask,
       toolContext,
+      liveAutonomyLevel,
       signal,
       {
         conversationId: task.lineageId,
@@ -933,6 +1004,7 @@ async function executeTask(task: AgentTask, signal: AbortSignal): Promise<{ next
             contract,
             recentSteps,
             reviewerConfig,
+            budgetTokens: budget,
             signal,
             diagnostics: {
               telemetryBase,
@@ -990,7 +1062,7 @@ async function executeTask(task: AgentTask, signal: AbortSignal): Promise<{ next
 
   const finalPlan = store().activeTask?.plan;
   if (finalPlan) store().setPlan({ ...finalPlan, currentStepIndex: finalPlan.steps.length });
-  store().setTaskSummary('Maximum rounds reached. Task may be incomplete.');
+  store().setTaskSummary(i18n.t('agent.summary.max_rounds'));
   store().setTaskStatus('completed');
   showToast('agent.toast.max_rounds', 'warning');
   return null;

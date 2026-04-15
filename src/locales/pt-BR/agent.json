@@ -81,7 +81,10 @@
     "summary": {
       "completed": "Tarefa concluída",
       "handed_off": "Tarefa encaminhada",
-      "failed": "Tarefa falhou"
+      "failed": "Tarefa falhou",
+      "pause_timeout": "Tarefa cancelada automaticamente: ficou pausada por mais de 30 minutos.",
+      "no_progress": "Agente interrompido: não houve resposta acionável após várias rodadas.",
+      "max_rounds": "O número máximo de rodadas foi atingido. A tarefa pode estar incompleta."
     },
     "review": {
       "title": "Gate de revisão",

@@ -81,7 +81,10 @@
     "summary": {
       "completed": "Task Completed",
       "handed_off": "Task Handed Off",
-      "failed": "Task Failed"
+      "failed": "Task Failed",
+      "pause_timeout": "Task auto-cancelled: paused for over 30 minutes.",
+      "no_progress": "Agent stopped: no actionable response after multiple rounds.",
+      "max_rounds": "Maximum rounds reached. Task may be incomplete."
     },
     "review": {
       "title": "Review Gate",

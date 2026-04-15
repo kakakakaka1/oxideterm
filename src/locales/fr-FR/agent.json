@@ -81,7 +81,10 @@
     "summary": {
       "completed": "Tâche terminée",
       "handed_off": "Tâche transmise",
-      "failed": "Tâche échouée"
+      "failed": "Tâche échouée",
+      "pause_timeout": "Tâche annulée automatiquement : en pause depuis plus de 30 minutes.",
+      "no_progress": "Agent arrêté : aucune réponse exploitable après plusieurs tours.",
+      "max_rounds": "Nombre maximal de tours atteint. La tâche peut être incomplète."
     },
     "review": {
       "title": "Porte de révision",

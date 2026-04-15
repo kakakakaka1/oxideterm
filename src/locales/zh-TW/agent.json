@@ -81,7 +81,10 @@
     "summary": {
       "completed": "任務完成",
       "handed_off": "任務已交接",
-      "failed": "任務失敗"
+      "failed": "任務失敗",
+      "pause_timeout": "任務已自動取消：暫停超過30分鐘。",
+      "no_progress": "代理已停止：多輪後沒有可執行的回應。",
+      "max_rounds": "已達到最大輪次。任務可能尚未完成。"
     },
     "review": {
       "title": "審查閘門",

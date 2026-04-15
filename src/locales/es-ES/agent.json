@@ -81,7 +81,10 @@
     "summary": {
       "completed": "Tarea completada",
       "handed_off": "Tarea transferida",
-      "failed": "Tarea fallida"
+      "failed": "Tarea fallida",
+      "pause_timeout": "Tarea cancelada automáticamente: estuvo en pausa durante más de 30 minutos.",
+      "no_progress": "Agente detenido: no hubo una respuesta accionable tras múltiples rondas.",
+      "max_rounds": "Se alcanzó el máximo de rondas. Es posible que la tarea esté incompleta."
     },
     "review": {
       "title": "Puerta de revisión",

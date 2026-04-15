@@ -41,9 +41,8 @@ import { useBroadcastStore } from '../../../store/broadcastStore';
 import { findPaneBySessionId, getTerminalBuffer, writeToTerminal, subscribeTerminalOutput, readScreen } from '../../terminalRegistry';
 import { compressOutput } from './outputCompressor';
 import { sanitizeConnectionInfo } from '../contextSanitizer';
+import { MAX_OUTPUT_BYTES } from '../agentConfig';
 
-/** Max output size returned from a tool execution (bytes) */
-const MAX_OUTPUT_BYTES = 8192;
 const MAX_COMMAND_TIMEOUT_SECS = 60;
 const MAX_LIST_DEPTH = 8;
 const MAX_GREP_RESULTS = 200;

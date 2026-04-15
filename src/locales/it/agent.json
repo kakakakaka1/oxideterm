@@ -81,7 +81,10 @@
     "summary": {
       "completed": "Compito completato",
       "handed_off": "Compito passato di mano",
-      "failed": "Compito fallito"
+      "failed": "Compito fallito",
+      "pause_timeout": "Compito annullato automaticamente: in pausa da oltre 30 minuti.",
+      "no_progress": "Agente fermato: nessuna risposta utilizzabile dopo più round.",
+      "max_rounds": "Raggiunto il numero massimo di round. Il compito potrebbe essere incompleto."
     },
     "review": {
       "title": "Controllo revisione",

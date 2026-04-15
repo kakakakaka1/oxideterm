@@ -292,6 +292,7 @@ describe('roleRunner.processToolCalls', () => {
         lineageArtifacts: [],
       },
       { activeNodeId: null, activeAgentAvailable: false, skipFocus: true },
+      'balanced',
       new AbortController().signal,
     );
 
@@ -309,6 +310,52 @@ describe('roleRunner.processToolCalls', () => {
     const { shouldAutoApprove } = await import('@/lib/ai/roles');
 
     expect(shouldAutoApprove('read_file', { path: '/tmp/demo.txt' }, 'balanced')).toBe(true);
+  });
+
+  it('uses the live autonomy level for auto-approval instead of the stale task snapshot', async () => {
+    const { processToolCalls } = await import('@/lib/ai/roles');
+
+    executeToolMock.mockResolvedValue({
+      toolCallId: 'write-1',
+      toolName: 'write_file',
+      success: true,
+      output: 'written',
+    });
+
+    const result = await processToolCalls(
+      [{ id: 'tool-1', name: 'write_file', arguments: JSON.stringify({ path: '/tmp/demo.txt', content: 'hello' }) }],
+      0,
+      {
+        id: 'task-1',
+        goal: 'update file',
+        status: 'executing',
+        autonomyLevel: 'supervised',
+        providerId: 'provider-1',
+        model: 'model-1',
+        plan: null,
+        steps: [],
+        currentRound: 0,
+        maxRounds: 10,
+        createdAt: Date.now(),
+        completedAt: null,
+        summary: null,
+        error: null,
+        lineageId: 'lineage-1',
+        resetCount: 0,
+        activeContract: null,
+        lastReview: null,
+        handoffFromTaskId: null,
+        lineageArtifacts: [],
+      },
+      { activeNodeId: null, activeAgentAvailable: false, skipFocus: true },
+      'autonomous',
+      new AbortController().signal,
+    );
+
+    expect(addApprovalMock).not.toHaveBeenCalled();
+    expect(addToastMock).not.toHaveBeenCalled();
+    expect(executeToolMock).toHaveBeenCalledOnce();
+    expect(result.allSucceeded).toBe(true);
   });
 
   it('never auto-approves deny-listed command payloads', async () => {
