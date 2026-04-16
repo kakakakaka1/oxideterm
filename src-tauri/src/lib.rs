@@ -155,6 +155,18 @@ fn show_startup_error(_title: &str, _message: &str) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // On Linux, disable WebKitGTK DMA-BUF renderer to prevent EGL_BAD_PARAMETER
+    // crashes on AMD Wayland setups (especially AppImage with bundled libs).
+    // This must be set before any WebKitGTK initialization.
+    #[cfg(target_os = "linux")]
+    {
+        if std::env::var("WEBKIT_DISABLE_DMABUF_RENDERER").is_err() {
+            unsafe {
+                std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+            }
+        }
+    }
+
     write_startup_log("OxideTerm starting...");
 
     init_logging();
