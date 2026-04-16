@@ -97,6 +97,22 @@ jobs:
               }
             }
 
+            // ── 7. Hostile / toxic language ──
+            // Only catches blatant cases. Subtle sarcasm is impossible to detect with regex.
+            // Flag for manual review (label only), do NOT auto-close — avoid false positives.
+            const toxicPatterns = [
+              // English — only personal attacks, not general frustration
+              /\b(incompetent|stupid|idiot|moron|dumb[- ]?ass|brain[- ]?dead)\b/i,
+              // Chinese — blatant hostility / personal attacks
+              /废物|傻[逼比叉缺]|脑[残瘫]|智[障商低]|弱智|狗屎|你[妈马]|操你|脑子有/,
+              // Passive-aggressive patterns (Chinese) — only the unambiguous ones
+              /这也叫|就这[？?]|糊弄|骗人/,
+            ];
+            const isToxic = toxicPatterns.some(p => p.test(body) || p.test(title));
+            if (isToxic) {
+              problems.push('toxic');
+            }
+
             // ── Decide ──
             if (problems.length === 0) {
               console.log('Issue passed quality gate.');
@@ -105,13 +121,34 @@ jobs:
 
             console.log(`Quality issues found: ${problems.join(', ')}`);
 
-            // Build a friendly bilingual comment
-            let comment = '👋 Thanks for opening this issue!\n\n';
-            comment += 'It looks like some information is missing, which makes it hard to investigate. ';
-            comment += 'This issue has been **closed automatically** — please don\'t take it personally!\n\n';
+            // Toxic-only issues get flagged but NOT auto-closed (high false-positive risk)
+            const toxicOnly = problems.length === 1 && problems[0] === 'toxic';
+            const structuralProblems = problems.filter(p => p !== 'toxic');
 
-            comment += '感谢提交 Issue！看起来缺少一些关键信息，这会让排查变得很困难。';
-            comment += '此 Issue 已被**自动关闭**——请不要介意！\n\n';
+            // Always add labels
+            const labelsToAdd = [];
+            if (structuralProblems.length > 0) labelsToAdd.push('incomplete');
+            if (problems.includes('toxic')) labelsToAdd.push('needs-review');
+
+            if (labelsToAdd.length > 0) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                labels: labelsToAdd
+              });
+            }
+
+            // Build comment
+            let comment = '';
+
+            if (structuralProblems.length > 0) {
+              comment += '👋 Thanks for opening this issue!\n\n';
+              comment += 'It looks like some information is missing, which makes it hard to investigate. ';
+              comment += 'This issue has been **closed automatically** — please don\'t take it personally!\n\n';
+              comment += '感谢提交 Issue！看起来缺少一些关键信息，这会让排查变得很困难。';
+              comment += '此 Issue 已被**自动关闭**——请不要介意！\n\n';
+            }
 
             if (problems.includes('body_too_short')) {
               comment += '- **Description too short** — please describe the problem in detail.\n';
@@ -139,23 +176,26 @@ jobs:
               comment += '  **版本号不存在** — 你填写的版本号不对应任何已发布的 OxideTerm 版本。请确认：设置 → 帮助与关于，或标题栏。\n';
             }
 
-            comment += '\nPlease reopen this issue (or open a new one) with the missing info. We\'re happy to help!\n';
-            comment += '请补充信息后重新打开此 Issue（或新建一个）。我们很乐意帮忙！\n';
+            if (structuralProblems.length > 0) {
+              comment += '\nPlease reopen this issue (or open a new one) with the missing info. We\'re happy to help!\n';
+              comment += '请补充信息后重新打开此 Issue（或新建一个）。我们很乐意帮忙！\n';
+            }
 
-            // Add label, comment, and close
-            await github.rest.issues.addLabels({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: issue.number,
-              labels: ['incomplete']
-            });
+            // Toxic-only: silent label for maintainer review, no public comment
+            if (toxicOnly) {
+              console.log('Toxic language detected, labeled for manual review. Not auto-closing.');
+              return;
+            }
 
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: issue.number,
-              body: comment
-            });
+            // Post comment and close for structural issues
+            if (comment) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                body: comment
+              });
+            }
 
             await github.rest.issues.update({
               owner: context.repo.owner,
