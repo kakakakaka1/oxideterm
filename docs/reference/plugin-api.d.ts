@@ -50,7 +50,7 @@ export type PluginTerminalHooksDef = {
   shortcuts?: Array<{ key: string; command: string }>;
 };
 
-export type ConnectionHookType = 'onConnect' | 'onDisconnect' | 'onReconnect' | 'onLinkDown' | 'onIdle';
+export type ConnectionHookType = 'onConnect' | 'onDisconnect' | 'onReconnect' | 'onLinkDown';
 
 /** The plugin.json manifest */
 export type PluginManifest = {
@@ -181,9 +181,6 @@ export type PluginEventsAPI = {
   onDisconnect(handler: (snapshot: ConnectionSnapshot) => void): Disposable;
   onLinkDown(handler: (snapshot: ConnectionSnapshot) => void): Disposable;
   onReconnect(handler: (snapshot: ConnectionSnapshot) => void): Disposable;
-  onIdle(handler: (snapshot: ConnectionSnapshot) => void): Disposable;
-  onNodeReady(handler: (info: { nodeId: string; connectionId: string }) => void): Disposable;
-  onNodeDisconnected(handler: (info: { nodeId: string }) => void): Disposable;
   /** Inter-plugin events (namespaced as plugin:{pluginId}:{name}) */
   on(name: string, handler: (data: unknown) => void): Disposable;
   emit(name: string, data: unknown): void;

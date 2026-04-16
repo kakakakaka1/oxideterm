@@ -565,24 +565,6 @@ export function buildPluginContext(manifest: PluginManifest): PluginContext {
       });
       return createDisposable(pluginId, unsub);
     },
-    onIdle(handler) {
-      const unsub = pluginEventBridge.on('connection:idle', (snapshot) => {
-        try { handler(snapshot as ConnectionSnapshot); } catch { /* swallow */ }
-      });
-      return createDisposable(pluginId, unsub);
-    },
-    onNodeReady(handler) {
-      const unsub = pluginEventBridge.on('node:ready', (info) => {
-        try { handler(info as { nodeId: string; connectionId: string }); } catch { /* swallow */ }
-      });
-      return createDisposable(pluginId, unsub);
-    },
-    onNodeDisconnected(handler) {
-      const unsub = pluginEventBridge.on('node:disconnected', (info) => {
-        try { handler(info as { nodeId: string }); } catch { /* swallow */ }
-      });
-      return createDisposable(pluginId, unsub);
-    },
     on(name, handler) {
       const namespacedName = `plugin:${pluginId}:${name}`;
       const unsub = pluginEventBridge.on(namespacedName, (data) => {
