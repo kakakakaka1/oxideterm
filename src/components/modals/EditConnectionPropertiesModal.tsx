@@ -52,6 +52,8 @@ export const EditConnectionPropertiesModal = ({
   const [username, setUsername] = useState('');
   const [authType, setAuthType] = useState<'password' | 'key' | 'agent' | 'certificate'>('password');
   const [keyPath, setKeyPath] = useState('');
+  const [certPath, setCertPath] = useState('');
+  const [passphrase, setPassphrase] = useState('');
   const [group, setGroup] = useState('');
   const [color, setColor] = useState('');
   const [groups, setGroups] = useState<string[]>([]);
@@ -70,6 +72,8 @@ export const EditConnectionPropertiesModal = ({
       setUsername(connection.username || '');
       setAuthType(connection.auth_type || 'password');
       setKeyPath(connection.key_path || '');
+      setCertPath(connection.cert_path || '');
+      setPassphrase('');
       setGroup(connection.group || 'Ungrouped');
       setColor(connection.color || '');
       api.getGroups().then(setGroups).catch(() => setGroups([]));
@@ -86,6 +90,23 @@ export const EditConnectionPropertiesModal = ({
       });
       if (selected && typeof selected === 'string') {
         setKeyPath(selected);
+      }
+    } catch (e) {
+      console.error('Failed to open file dialog:', e);
+    }
+  };
+
+  const handleBrowseCert = async () => {
+    try {
+      const selected = await open({
+        multiple: false,
+        directory: false,
+        title: t('modals.new_connection.browse_cert'),
+        defaultPath: '~/.ssh',
+        filters: [{ name: 'Certificate', extensions: ['pub'] }],
+      });
+      if (selected && typeof selected === 'string') {
+        setCertPath(selected);
       }
     } catch (e) {
       console.error('Failed to open file dialog:', e);
@@ -113,6 +134,8 @@ export const EditConnectionPropertiesModal = ({
         username,
         auth_type: authType,
         key_path: (authType === 'key' || authType === 'certificate') ? keyPath : undefined,
+        cert_path: authType === 'certificate' ? certPath : undefined,
+        passphrase: (authType === 'key' || authType === 'certificate') && passphrase ? passphrase : undefined,
         color: color || undefined,
         tags: conn.tags,
       });
@@ -187,9 +210,10 @@ export const EditConnectionPropertiesModal = ({
           <div className="grid gap-2">
             <Label>{t('sessionManager.edit_properties.auth_type')}</Label>
             <Tabs value={authType} onValueChange={handleAuthTypeChange} className="w-full">
-              <TabsList className="grid w-full grid-cols-3">
+              <TabsList className="grid w-full grid-cols-4">
                 <TabsTrigger value="password">{t('sessionManager.edit_properties.auth_password')}</TabsTrigger>
                 <TabsTrigger value="key">{t('sessionManager.edit_properties.auth_key')}</TabsTrigger>
+                <TabsTrigger value="certificate">{t('modals.new_connection.auth_certificate')}</TabsTrigger>
                 <TabsTrigger value="agent">{t('sessionManager.edit_properties.auth_agent')}</TabsTrigger>
               </TabsList>
 
@@ -211,6 +235,53 @@ export const EditConnectionPropertiesModal = ({
                     <Button variant="outline" size="sm" onClick={handleBrowseKey}>
                       {t('sessionManager.edit_properties.browse')}
                     </Button>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>{t('modals.edit_connection.passphrase')}</Label>
+                    <Input
+                      type="password"
+                      value={passphrase}
+                      onChange={(e) => setPassphrase(e.target.value)}
+                      placeholder={t('modals.edit_connection.passphrase_placeholder')}
+                    />
+                  </div>
+                </div>
+              </TabsContent>
+
+              <TabsContent value="certificate">
+                <div className="space-y-2 pt-2">
+                  <Label>{t('sessionManager.edit_properties.key_path')}</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      value={keyPath}
+                      onChange={(e) => setKeyPath(e.target.value)}
+                      placeholder="~/.ssh/id_rsa"
+                    />
+                    <Button variant="outline" size="sm" onClick={handleBrowseKey}>
+                      {t('sessionManager.edit_properties.browse')}
+                    </Button>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>{t('modals.new_connection.certificate')}</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        value={certPath}
+                        onChange={(e) => setCertPath(e.target.value)}
+                        placeholder={t('modals.new_connection.certificate_placeholder')}
+                      />
+                      <Button variant="outline" size="sm" onClick={handleBrowseCert}>
+                        {t('sessionManager.edit_properties.browse')}
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>{t('modals.edit_connection.passphrase')}</Label>
+                    <Input
+                      type="password"
+                      value={passphrase}
+                      onChange={(e) => setPassphrase(e.target.value)}
+                      placeholder={t('modals.edit_connection.passphrase_placeholder')}
+                    />
                   </div>
                 </div>
               </TabsContent>

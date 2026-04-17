@@ -10,9 +10,10 @@
 //! - Port Forwarding: LocalForward, RemoteForward, DynamicForward
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::path::PathBuf;
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 use tokio::fs;
+use glob::{MatchOptions, glob};
 use tracing::warn;
 
 /// Port forwarding rule
@@ -72,6 +73,10 @@ pub struct ProxyJumpHost {
     pub host: String,
     /// Port (default: 22)
     pub port: u16,
+
+    /// Whether the port was explicitly specified in the ProxyJump string.
+    #[serde(skip)]
+    pub port_specified: bool,
 }
 
 impl ProxyJumpHost {
@@ -91,8 +96,35 @@ impl ProxyJumpHost {
             (host_port.to_string(), 22)
         };
 
-        Some(ProxyJumpHost { user, host, port })
+        Some(ProxyJumpHost {
+            user,
+            host,
+            port,
+            port_specified: host_port.contains(':'),
+        })
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ResolvedProxyJumpHost {
+    pub alias: Option<String>,
+    pub user: Option<String>,
+    pub host: String,
+    pub port: u16,
+    pub identity_file: Option<String>,
+    pub certificate_file: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ResolvedSshConfigHost {
+    pub alias: String,
+    pub host: String,
+    pub user: Option<String>,
+    pub port: u16,
+    pub identity_file: Option<String>,
+    pub certificate_file: Option<String>,
+    #[serde(default)]
+    pub proxy_chain: Vec<ResolvedProxyJumpHost>,
 }
 
 /// A parsed SSH config host entry (Enhanced)
@@ -205,6 +237,432 @@ pub fn default_ssh_config_path() -> Result<PathBuf, SshConfigError> {
         .ok_or(SshConfigError::NoHomeDir)
 }
 
+fn parse_key_value(line: &str) -> Option<(&str, &str)> {
+    if let Some(eq_pos) = line.find('=') {
+        let key = line[..eq_pos].trim();
+        let value = line[eq_pos + 1..].trim();
+        Some((key, value))
+    } else {
+        let parts: Vec<&str> = line.splitn(2, char::is_whitespace).collect();
+        if parts.len() < 2 {
+            None
+        } else {
+            Some((parts[0], parts[1].trim()))
+        }
+    }
+}
+
+fn parse_include_tokens(value: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+    let mut quote: Option<char> = None;
+    let mut chars = value.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if let Some(active_quote) = quote {
+            if ch == active_quote {
+                quote = None;
+            } else if ch == '\\' {
+                if let Some(next) = chars.next() {
+                    current.push(next);
+                }
+            } else {
+                current.push(ch);
+            }
+            continue;
+        }
+
+        match ch {
+            '\'' | '"' => quote = Some(ch),
+            ch if ch.is_whitespace() => {
+                if !current.is_empty() {
+                    tokens.push(std::mem::take(&mut current));
+                }
+            }
+            '\\' => {
+                if let Some(next) = chars.next() {
+                    current.push(next);
+                }
+            }
+            _ => current.push(ch),
+        }
+    }
+
+    if !current.is_empty() {
+        tokens.push(current);
+    }
+
+    tokens
+}
+
+fn has_glob_magic(value: &str) -> bool {
+    value.contains('*') || value.contains('?') || value.contains('[')
+}
+
+fn expand_include_token(base_dir: &Path, token: &str) -> Result<Vec<PathBuf>, SshConfigError> {
+    let expanded = crate::path_utils::expand_tilde(token);
+    let pattern_path = PathBuf::from(expanded);
+    let resolved = if pattern_path.is_absolute() {
+        pattern_path
+    } else {
+        base_dir.join(pattern_path)
+    };
+
+    if has_glob_magic(&resolved.to_string_lossy()) {
+        let mut matches = Vec::new();
+        for entry in glob(&resolved.to_string_lossy()).map_err(|error| SshConfigError::Parse {
+            line: 0,
+            message: format!("Invalid Include glob '{}': {}", token, error),
+        })? {
+            match entry {
+                Ok(path) => matches.push(path),
+                Err(error) => {
+                    return Err(SshConfigError::Parse {
+                        line: 0,
+                        message: format!("Failed to expand Include '{}': {}", token, error),
+                    });
+                }
+            }
+        }
+        matches.sort();
+        Ok(matches)
+    } else if resolved.exists() {
+        Ok(vec![resolved])
+    } else {
+        Ok(Vec::new())
+    }
+}
+
+fn read_ssh_config_with_includes_internal(
+    path: &Path,
+    include_stack: &mut HashSet<PathBuf>,
+) -> Result<String, SshConfigError> {
+    let visit_key = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    if !include_stack.insert(visit_key.clone()) {
+        warn!(path = %visit_key.display(), "Skipping recursive SSH config Include");
+        return Ok(String::new());
+    }
+
+    let result = (|| {
+        let content = std::fs::read_to_string(path)?;
+        let base_dir = path.parent().unwrap_or_else(|| Path::new("."));
+        let mut expanded = String::new();
+
+        for raw_line in content.lines() {
+            let line = raw_line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                expanded.push_str(raw_line);
+                expanded.push('\n');
+                continue;
+            }
+
+            let Some((key, value)) = parse_key_value(line) else {
+                expanded.push_str(raw_line);
+                expanded.push('\n');
+                continue;
+            };
+
+            if key.eq_ignore_ascii_case("include") {
+                for token in parse_include_tokens(value) {
+                    for include_path in expand_include_token(base_dir, &token)? {
+                        let include_content = match std::fs::metadata(&include_path) {
+                            Ok(metadata) if metadata.is_file() => {
+                                read_ssh_config_with_includes_internal(&include_path, include_stack)?
+                            }
+                            Ok(_) => continue,
+                            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                                continue;
+                            }
+                            Err(error) => return Err(SshConfigError::Io(error)),
+                        };
+                        expanded.push_str(&include_content);
+                        if !include_content.ends_with('\n') {
+                            expanded.push('\n');
+                        }
+                    }
+                }
+                continue;
+            }
+
+            expanded.push_str(raw_line);
+            expanded.push('\n');
+        }
+
+        Ok(expanded)
+    })();
+
+    include_stack.remove(&visit_key);
+    result
+}
+
+fn read_ssh_config_with_includes(path: &Path) -> Result<String, SshConfigError> {
+    let mut include_stack = HashSet::new();
+    read_ssh_config_with_includes_internal(path, &mut include_stack)
+}
+
+fn host_pattern_matches(pattern: &str, alias: &str) -> bool {
+    let options = MatchOptions {
+        case_sensitive: false,
+        require_literal_separator: false,
+        require_literal_leading_dot: false,
+    };
+
+    glob::Pattern::new(pattern)
+        .map(|compiled| compiled.matches_with(alias, options))
+        .unwrap_or_else(|_| pattern.eq_ignore_ascii_case(alias))
+}
+
+fn host_block_matches(patterns: &[String], alias: &str) -> bool {
+    let mut matched = false;
+
+    for pattern in patterns {
+        let (negated, value) = if let Some(stripped) = pattern.strip_prefix('!') {
+            (true, stripped)
+        } else {
+            (false, pattern.as_str())
+        };
+
+        if host_pattern_matches(value, alias) {
+            if negated {
+                return false;
+            }
+            matched = true;
+        }
+    }
+
+    matched
+}
+
+fn is_explicit_host_selector(pattern: &str) -> bool {
+    !pattern.starts_with('!') && pattern != "*"
+}
+
+fn explicit_host_selector_matches(pattern: &str, alias: &str) -> bool {
+    is_explicit_host_selector(pattern) && host_pattern_matches(pattern, alias)
+}
+
+#[derive(Debug, Clone, Default)]
+struct ResolveAccumulator {
+    hostname: Option<String>,
+    user: Option<String>,
+    port: Option<u16>,
+    identity_file: Option<String>,
+    certificate_file: Option<String>,
+    proxy_jump_seen: bool,
+    proxy_jump: Vec<ProxyJumpHost>,
+}
+
+fn resolve_ssh_config_alias_content_internal(
+    content: &str,
+    alias: &str,
+    require_explicit_match: bool,
+) -> Result<Option<ResolveAccumulator>, SshConfigError> {
+    let mut accumulator = ResolveAccumulator::default();
+    let mut current_patterns: Option<Vec<String>> = None;
+    let mut matched_specific_host = false;
+    let mut matched_any_block = false;
+
+    for raw_line in content.lines() {
+        let line = raw_line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+
+        let Some((key, value)) = parse_key_value(line) else {
+            continue;
+        };
+
+        if key.eq_ignore_ascii_case("host") {
+            current_patterns = Some(value.split_whitespace().map(|part| part.to_string()).collect());
+            continue;
+        }
+
+        let block_matches = match &current_patterns {
+            Some(patterns) => host_block_matches(patterns, alias),
+            None => true,
+        };
+
+        if !block_matches {
+            continue;
+        }
+
+        matched_any_block = true;
+        if let Some(patterns) = &current_patterns {
+            matched_specific_host |= patterns
+                .iter()
+                .any(|pattern| explicit_host_selector_matches(pattern, alias));
+        }
+
+        match key.to_ascii_lowercase().as_str() {
+            "hostname" if accumulator.hostname.is_none() => {
+                accumulator.hostname = Some(value.to_string());
+            }
+            "user" if accumulator.user.is_none() => {
+                accumulator.user = Some(value.to_string());
+            }
+            "port" if accumulator.port.is_none() => {
+                accumulator.port = value.parse().ok();
+            }
+            "identityfile" if accumulator.identity_file.is_none() => {
+                accumulator.identity_file = Some(crate::path_utils::expand_tilde(value));
+            }
+            "certificatefile" if accumulator.certificate_file.is_none() => {
+                accumulator.certificate_file = Some(crate::path_utils::expand_tilde(value));
+            }
+            "proxyjump" if !accumulator.proxy_jump_seen => {
+                accumulator.proxy_jump_seen = true;
+                if !value.eq_ignore_ascii_case("none") {
+                    for jump in value.split(',') {
+                        if let Some(proxy_host) = ProxyJumpHost::parse(jump.trim()) {
+                            accumulator.proxy_jump.push(proxy_host);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if (require_explicit_match && matched_specific_host) || (!require_explicit_match && matched_any_block)
+    {
+        Ok(Some(accumulator))
+    } else {
+        Ok(None)
+    }
+}
+
+fn resolve_ssh_config_alias_content(
+    content: &str,
+    alias: &str,
+) -> Result<Option<ResolveAccumulator>, SshConfigError> {
+    resolve_ssh_config_alias_content_internal(content, alias, true)
+}
+
+fn resolve_ssh_config_defaults_content(
+    content: &str,
+    alias: &str,
+) -> Result<Option<ResolveAccumulator>, SshConfigError> {
+    resolve_ssh_config_alias_content_internal(content, alias, false)
+}
+
+fn resolve_proxy_chain(
+    content: &str,
+    proxy_jump: &[ProxyJumpHost],
+    stack: &mut Vec<String>,
+) -> Result<Vec<ResolvedProxyJumpHost>, SshConfigError> {
+    let mut resolved_chain = Vec::new();
+
+    for hop in proxy_jump {
+        if stack.iter().any(|entry| entry.eq_ignore_ascii_case(&hop.host)) {
+            return Err(SshConfigError::Parse {
+                line: 0,
+                message: format!("Detected cyclic SSH alias reference involving '{}'", hop.host),
+            });
+        }
+
+        if let Some(resolved_alias) = resolve_ssh_config_alias_content(content, &hop.host)? {
+            stack.push(hop.host.clone());
+            let nested_chain = resolve_proxy_chain(content, &resolved_alias.proxy_jump, stack)?;
+            stack.pop();
+
+            resolved_chain.extend(nested_chain);
+            resolved_chain.push(ResolvedProxyJumpHost {
+                alias: Some(hop.host.clone()),
+                user: hop
+                    .user
+                    .clone()
+                    .or(resolved_alias.user.clone())
+                    .or_else(|| Some(whoami::username())),
+                host: resolved_alias.hostname.unwrap_or_else(|| hop.host.clone()),
+                port: if hop.port_specified {
+                    hop.port
+                } else {
+                    resolved_alias.port.unwrap_or(hop.port)
+                },
+                identity_file: resolved_alias.identity_file.clone(),
+                certificate_file: resolved_alias.certificate_file.clone(),
+            });
+        } else {
+            let defaults = resolve_ssh_config_defaults_content(content, &hop.host)?;
+            resolved_chain.push(ResolvedProxyJumpHost {
+                alias: None,
+                user: hop
+                    .user
+                    .clone()
+                    .or_else(|| defaults.as_ref().and_then(|entry| entry.user.clone()))
+                    .or_else(|| Some(whoami::username())),
+                host: defaults
+                    .as_ref()
+                    .and_then(|entry| entry.hostname.clone())
+                    .unwrap_or_else(|| hop.host.clone()),
+                port: if hop.port_specified {
+                    hop.port
+                } else {
+                    defaults
+                        .as_ref()
+                        .and_then(|entry| entry.port)
+                        .unwrap_or(hop.port)
+                },
+                identity_file: defaults.as_ref().and_then(|entry| entry.identity_file.clone()),
+                certificate_file: defaults
+                    .as_ref()
+                    .and_then(|entry| entry.certificate_file.clone()),
+            });
+        }
+    }
+
+    Ok(resolved_chain)
+}
+
+pub fn resolve_ssh_config_host_content(
+    content: &str,
+    alias: &str,
+) -> Result<Option<ResolvedSshConfigHost>, SshConfigError> {
+    let Some(resolved) = resolve_ssh_config_alias_content(content, alias)? else {
+        return Ok(None);
+    };
+
+    let mut stack = vec![alias.to_string()];
+    let proxy_chain = resolve_proxy_chain(content, &resolved.proxy_jump, &mut stack)?;
+
+    Ok(Some(ResolvedSshConfigHost {
+        alias: alias.to_string(),
+        host: resolved.hostname.unwrap_or_else(|| alias.to_string()),
+        user: resolved.user,
+        port: resolved.port.unwrap_or(22),
+        identity_file: resolved.identity_file,
+        certificate_file: resolved.certificate_file,
+        proxy_chain,
+    }))
+}
+
+pub async fn load_ssh_config_content(
+    path: Option<PathBuf>,
+) -> Result<Option<String>, SshConfigError> {
+    let path = match path {
+        Some(path) => path,
+        None => default_ssh_config_path()?,
+    };
+
+    match fs::metadata(&path).await {
+        Ok(metadata) if metadata.is_file() => read_ssh_config_with_includes(&path).map(Some),
+        Ok(_) => Ok(None),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(SshConfigError::Io(error)),
+    }
+}
+
+pub async fn resolve_ssh_config_host(
+    alias: &str,
+    path: Option<PathBuf>,
+) -> Result<Option<ResolvedSshConfigHost>, SshConfigError> {
+    let Some(content) = load_ssh_config_content(path).await? else {
+        return Ok(None);
+    };
+
+    resolve_ssh_config_host_content(&content, alias)
+}
+
 /// Parse SSH config file
 pub async fn parse_ssh_config(path: Option<PathBuf>) -> Result<Vec<SshConfigHost>, SshConfigError> {
     let path = match path {
@@ -212,8 +670,9 @@ pub async fn parse_ssh_config(path: Option<PathBuf>) -> Result<Vec<SshConfigHost
         None => default_ssh_config_path()?,
     };
 
-    let content = match fs::read_to_string(&path).await {
-        Ok(c) => c,
+    let content = match fs::metadata(&path).await {
+        Ok(metadata) if metadata.is_file() => read_ssh_config_with_includes(&path)?,
+        Ok(_) => return Ok(Vec::new()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             return Ok(Vec::new());
         }
@@ -236,17 +695,8 @@ pub fn parse_ssh_config_content(content: &str) -> Result<Vec<SshConfigHost>, Ssh
             continue;
         }
 
-        // Parse "Key Value" or "Key=Value"
-        let (key, value) = if let Some(eq_pos) = line.find('=') {
-            let key = line[..eq_pos].trim();
-            let value = line[eq_pos + 1..].trim();
-            (key, value)
-        } else {
-            let parts: Vec<&str> = line.splitn(2, char::is_whitespace).collect();
-            if parts.len() < 2 {
-                continue; // Skip malformed lines
-            }
-            (parts[0], parts[1].trim())
+        let Some((key, value)) = parse_key_value(line) else {
+            continue;
         };
 
         let key_lower = key.to_lowercase();
@@ -433,6 +883,7 @@ Host bastion
         assert_eq!(hosts[0].proxy_jump.len(), 1);
         assert_eq!(hosts[0].proxy_jump[0].host, "bastion");
         assert_eq!(hosts[0].proxy_jump[0].port, 22);
+        assert!(!hosts[0].proxy_jump[0].port_specified);
 
         // Bastion host (no proxy)
         assert_eq!(hosts[1].alias, "bastion");
@@ -503,11 +954,13 @@ Host hpc
                     user: Some("admin".to_string()),
                     host: "jump1".to_string(),
                     port: 22,
+                    port_specified: false,
                 },
                 ProxyJumpHost {
                     user: None,
                     host: "jump2".to_string(),
                     port: 2222,
+                    port_specified: true,
                 },
             ],
             ..Default::default()
@@ -566,6 +1019,7 @@ Host hpc
         assert_eq!(pj.user, None);
         assert_eq!(pj.host, "bastion.example.com");
         assert_eq!(pj.port, 22);
+        assert!(!pj.port_specified);
     }
 
     #[test]
@@ -582,6 +1036,7 @@ Host hpc
         assert_eq!(pj.user, None);
         assert_eq!(pj.host, "jump.example.com");
         assert_eq!(pj.port, 2222);
+        assert!(pj.port_specified);
     }
 
     #[test]
@@ -590,6 +1045,7 @@ Host hpc
         assert_eq!(pj.user, Some("root".to_string()));
         assert_eq!(pj.host, "gateway.corp");
         assert_eq!(pj.port, 10022);
+        assert!(pj.port_specified);
     }
 
     #[test]
@@ -630,5 +1086,262 @@ Host hpc
     fn test_filter_importable_hosts_empty() {
         let filtered = filter_importable_hosts(vec![]);
         assert!(filtered.is_empty());
+    }
+
+    #[test]
+    fn test_resolve_alias_applies_global_defaults() {
+        let content = r#"
+Host *
+    User shared-user
+    IdentityFile ~/.ssh/id_shared
+
+Host app
+    HostName app.example.com
+"#;
+
+        let resolved = resolve_ssh_config_host_content(content, "app").unwrap().unwrap();
+        assert_eq!(resolved.host, "app.example.com");
+        assert_eq!(resolved.user, Some("shared-user".to_string()));
+        assert!(resolved.identity_file.unwrap().ends_with("/.ssh/id_shared"));
+    }
+
+    #[test]
+    fn test_resolve_alias_flattens_proxy_jump_aliases() {
+        let content = r#"
+Host *
+    User shared-user
+
+Host bastion
+    HostName jump.example.com
+    Port 2222
+    IdentityFile ~/.ssh/id_jump
+
+Host target
+    HostName target.internal
+    ProxyJump bastion
+"#;
+
+        let resolved = resolve_ssh_config_host_content(content, "target").unwrap().unwrap();
+        assert_eq!(resolved.host, "target.internal");
+        assert_eq!(resolved.proxy_chain.len(), 1);
+        assert_eq!(resolved.proxy_chain[0].alias, Some("bastion".to_string()));
+        assert_eq!(resolved.proxy_chain[0].host, "jump.example.com");
+        assert_eq!(resolved.proxy_chain[0].port, 2222);
+        assert_eq!(resolved.proxy_chain[0].user, Some("shared-user".to_string()));
+        assert!(resolved.proxy_chain[0]
+            .identity_file
+            .as_ref()
+            .is_some_and(|path| path.ends_with("/.ssh/id_jump")));
+    }
+
+    #[test]
+    fn test_resolve_missing_alias_ignores_global_default_only_blocks() {
+        let content = r#"
+Host *
+    User shared-user
+    IdentityFile ~/.ssh/id_shared
+"#;
+
+        let resolved = resolve_ssh_config_host_content(content, "missing-alias").unwrap();
+        assert!(resolved.is_none());
+    }
+
+    #[test]
+    fn test_resolve_missing_alias_ignores_non_matching_explicit_selector_in_mixed_block() {
+        let content = r#"
+Host foo *
+    User shared-user
+
+Host foo
+    HostName foo.example.com
+"#;
+
+        let resolved = resolve_ssh_config_host_content(content, "bar").unwrap();
+        assert!(resolved.is_none());
+    }
+
+    #[test]
+    fn test_resolve_proxy_jump_raw_host_inherits_defaults() {
+        let content = r#"
+Host *
+    User shared-user
+    IdentityFile ~/.ssh/id_shared
+
+Host target
+    HostName target.internal
+    ProxyJump bastion.example.com
+"#;
+
+        let resolved = resolve_ssh_config_host_content(content, "target").unwrap().unwrap();
+        assert_eq!(resolved.proxy_chain.len(), 1);
+        assert_eq!(resolved.proxy_chain[0].host, "bastion.example.com");
+        assert_eq!(resolved.proxy_chain[0].user, Some("shared-user".to_string()));
+        assert!(resolved.proxy_chain[0]
+            .identity_file
+            .as_ref()
+            .is_some_and(|path| path.ends_with("/.ssh/id_shared")));
+    }
+
+    #[test]
+    fn test_resolve_alias_proxy_jump_none_overrides_defaults() {
+        let content = r#"
+Host bastion
+    HostName jump.example.com
+
+Host target
+    HostName target.internal
+    ProxyJump none
+
+Host *
+    ProxyJump bastion
+"#;
+
+        let resolved = resolve_ssh_config_host_content(content, "target").unwrap().unwrap();
+        assert!(resolved.proxy_chain.is_empty());
+    }
+
+    #[test]
+    fn test_parse_include_tokens_keeps_quoted_paths_with_spaces() {
+        let tokens = parse_include_tokens(r#""dir with spaces/config" plain.conf 'other dir/*.conf'"#);
+
+        assert_eq!(
+            tokens,
+            vec![
+                "dir with spaces/config".to_string(),
+                "plain.conf".to_string(),
+                "other dir/*.conf".to_string(),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn test_parse_ssh_config_supports_include() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("config");
+        let included = temp.path().join("included.conf");
+
+        fs::write(
+            &included,
+            r#"
+Host included-host
+    HostName included.example.com
+    User included-user
+"#,
+        )
+        .await
+        .unwrap();
+
+        fs::write(
+            &root,
+            format!(
+                "Include {}\n\nHost root-host\n    HostName root.example.com\n",
+                included.to_string_lossy()
+            ),
+        )
+        .await
+        .unwrap();
+
+        let hosts = parse_ssh_config(Some(root)).await.unwrap();
+        assert_eq!(hosts.len(), 2);
+        assert!(hosts.iter().any(|host| host.alias == "included-host"));
+        assert!(hosts.iter().any(|host| host.alias == "root-host"));
+    }
+
+    #[tokio::test]
+    async fn test_parse_ssh_config_supports_quoted_include_with_spaces() {
+        let temp = tempfile::tempdir().unwrap();
+        let include_dir = temp.path().join("ssh includes");
+        let root = temp.path().join("config");
+        let included = include_dir.join("quoted.conf");
+
+        fs::create_dir_all(&include_dir).await.unwrap();
+        fs::write(
+            &included,
+            r#"
+Host included-host
+    HostName included.example.com
+"#,
+        )
+        .await
+        .unwrap();
+
+        fs::write(
+            &root,
+            format!(
+                "Include \"{}\"\n\nHost root-host\n    HostName root.example.com\n",
+                included.to_string_lossy()
+            ),
+        )
+        .await
+        .unwrap();
+
+        let hosts = parse_ssh_config(Some(root)).await.unwrap();
+        assert!(hosts.iter().any(|host| host.alias == "included-host"));
+        assert!(hosts.iter().any(|host| host.alias == "root-host"));
+    }
+
+    #[tokio::test]
+    async fn test_parse_ssh_config_include_cycle_is_ignored() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("config");
+        let included = temp.path().join("included.conf");
+
+        fs::write(
+            &included,
+            format!(
+                "Include {}\n\nHost included-host\n    HostName included.example.com\n",
+                root.to_string_lossy()
+            ),
+        )
+        .await
+        .unwrap();
+
+        fs::write(
+            &root,
+            format!(
+                "Include {}\n\nHost root-host\n    HostName root.example.com\n",
+                included.to_string_lossy()
+            ),
+        )
+        .await
+        .unwrap();
+
+        let hosts = parse_ssh_config(Some(root)).await.unwrap();
+        assert_eq!(hosts.len(), 2);
+        assert!(hosts.iter().any(|host| host.alias == "included-host"));
+        assert!(hosts.iter().any(|host| host.alias == "root-host"));
+    }
+
+    #[tokio::test]
+    async fn test_parse_ssh_config_allows_repeated_include() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("config");
+        let included = temp.path().join("included.conf");
+
+        fs::write(
+            &included,
+            r#"
+Host included-host
+    HostName included.example.com
+"#,
+        )
+        .await
+        .unwrap();
+
+        fs::write(
+            &root,
+            format!(
+                "Include {}\nInclude {}\n",
+                included.to_string_lossy(),
+                included.to_string_lossy()
+            ),
+        )
+        .await
+        .unwrap();
+
+        let hosts = parse_ssh_config(Some(root)).await.unwrap();
+        assert_eq!(hosts.len(), 2);
+        assert_eq!(hosts[0].alias, "included-host");
+        assert_eq!(hosts[1].alias, "included-host");
     }
 }

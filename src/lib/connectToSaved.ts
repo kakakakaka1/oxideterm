@@ -37,15 +37,17 @@ export async function connectToSaved(
 ): Promise<ConnectToSavedResult | null> {
   const { createTab, toast, t, onError } = options;
 
-  const mapAuthType = (authType: string): 'password' | 'key' | 'agent' | undefined => {
+  const mapAuthType = (authType: string): 'password' | 'key' | 'agent' | 'certificate' | undefined => {
     if (authType === 'agent') return 'agent';
+    if (authType === 'certificate') return 'certificate';
     if (authType === 'key') return 'key';
     if (authType === 'password') return 'password';
     return undefined; // default_key
   };
 
-  const mapPresetAuthType = (authType: string): 'password' | 'key' | 'agent' => {
+  const mapPresetAuthType = (authType: string): 'password' | 'key' | 'agent' | 'certificate' => {
     if (authType === 'agent') return 'agent';
+    if (authType === 'certificate') return 'certificate';
     if (authType === 'key') return 'key';
     if (authType === 'password') return 'password';
     return 'key'; // default_key fallback to key
@@ -84,13 +86,14 @@ export async function connectToSaved(
 
       const { expandManualPreset, connectNodeWithAncestors, createTerminalForNode } = useSessionTreeStore.getState();
 
-      const hops = savedConn.proxy_chain.map((hop: { host: string; port: number; username: string; auth_type: string; password?: string; key_path?: string; passphrase?: string; agent_forwarding: boolean }) => ({
+      const hops = savedConn.proxy_chain.map((hop: { host: string; port: number; username: string; auth_type: string; password?: string; key_path?: string; cert_path?: string; passphrase?: string; agent_forwarding: boolean }) => ({
         host: hop.host,
         port: hop.port,
         username: hop.username,
         authType: mapPresetAuthType(hop.auth_type),
         password: hop.password,
         keyPath: hop.key_path,
+        certPath: hop.cert_path,
         passphrase: hop.passphrase,
         agentForwarding: hop.agent_forwarding,
       }));
@@ -102,6 +105,7 @@ export async function connectToSaved(
         authType: mapPresetAuthType(savedConn.auth_type),
         password: savedConn.password,
         keyPath: savedConn.key_path,
+        certPath: savedConn.cert_path,
         passphrase: savedConn.passphrase,
         agentForwarding: savedConn.agent_forwarding,
       };
@@ -171,6 +175,7 @@ export async function connectToSaved(
         authType: mapAuthType(savedConn.auth_type),
         password: savedConn.password,
         keyPath: savedConn.key_path,
+        certPath: savedConn.cert_path,
         passphrase: savedConn.passphrase,
         displayName: savedConn.name,
         agentForwarding: savedConn.agent_forwarding,

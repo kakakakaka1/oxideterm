@@ -18,9 +18,10 @@ interface JumpServer {
   host: string;
   port: string;
   username: string;
-  authType: 'password' | 'key' | 'default_key' | 'agent';
+  authType: 'password' | 'key' | 'default_key' | 'agent' | 'certificate';
   password?: string;
   keyPath?: string;
+  certPath?: string;
   passphrase?: string;
   agentForwarding?: boolean;
 }
@@ -40,15 +41,16 @@ export const AddJumpServerDialog: React.FC<AddJumpServerDialogProps> = ({
   const [host, setHost] = useState('');
   const [port, setPort] = useState('22');
   const [username, setUsername] = useState('');
-  const [authType, setAuthType] = useState<'password' | 'key' | 'default_key' | 'agent'>('key');
+  const [authType, setAuthType] = useState<'password' | 'key' | 'default_key' | 'agent' | 'certificate'>('key');
   const [password, setPassword] = useState('');
   const [keyPath, setKeyPath] = useState('');
+  const [certPath, setCertPath] = useState('');
   const [passphrase, setPassphrase] = useState<string>('');
   const [agentForwarding, setAgentForwarding] = useState(false);
 
   // Type-safe auth type handler
   const handleAuthTypeChange = (value: string) => {
-    if (value === 'password' || value === 'key' || value === 'default_key' || value === 'agent') {
+    if (value === 'password' || value === 'key' || value === 'default_key' || value === 'agent' || value === 'certificate') {
       setAuthType(value);
     }
   };
@@ -69,6 +71,23 @@ export const AddJumpServerDialog: React.FC<AddJumpServerDialogProps> = ({
     }
   };
 
+  const handleBrowseCert = async () => {
+    try {
+      const selected = await openDialog({
+        multiple: false,
+        directory: false,
+        title: t('modals.new_connection.browse_cert'),
+        defaultPath: '~/.ssh',
+        filters: [{ name: 'Certificate', extensions: ['pub'] }],
+      });
+      if (selected && typeof selected === 'string') {
+        setCertPath(selected);
+      }
+    } catch (e) {
+      console.error('Failed to open file dialog:', e);
+    }
+  };
+
   const handleAdd = () => {
     if (!host || !username) return;
 
@@ -79,8 +98,9 @@ export const AddJumpServerDialog: React.FC<AddJumpServerDialogProps> = ({
       username,
       authType,
       password: authType === 'password' ? password : undefined,
-      keyPath: authType === 'key' ? keyPath : undefined,
-      passphrase: authType === 'key' ? passphrase || undefined : undefined,
+      keyPath: authType === 'key' || authType === 'certificate' ? keyPath : undefined,
+      certPath: authType === 'certificate' ? certPath : undefined,
+      passphrase: authType === 'key' || authType === 'certificate' ? passphrase || undefined : undefined,
       agentForwarding,
     });
     onClose();
@@ -135,9 +155,10 @@ export const AddJumpServerDialog: React.FC<AddJumpServerDialogProps> = ({
               onValueChange={handleAuthTypeChange}
               className="w-full"
             >
-              <TabsList className="grid w-full grid-cols-4">
+                <TabsList className="grid w-full grid-cols-5">
           <TabsTrigger value="default_key">{t('modals.jump_server.auth_default_key')}</TabsTrigger>
           <TabsTrigger value="key">{t('modals.jump_server.auth_ssh_key')}</TabsTrigger>
+              <TabsTrigger value="certificate">{t('modals.new_connection.auth_certificate')}</TabsTrigger>
           <TabsTrigger value="password">{t('modals.jump_server.auth_password')}</TabsTrigger>
           <TabsTrigger value="agent">{t('modals.jump_server.auth_agent')}</TabsTrigger>
               </TabsList>
@@ -164,6 +185,40 @@ export const AddJumpServerDialog: React.FC<AddJumpServerDialogProps> = ({
               <Label htmlFor="jump-passphrase" className="text-sm font-normal">{t('modals.jump_server.passphrase')}</Label>
               <Input
                 id="jump-passphrase"
+                type="password"
+                value={passphrase}
+                onChange={(e) => setPassphrase(e.target.value)}
+              />
+            </div>
+          </div>
+              </TabsContent>
+
+              <TabsContent value="certificate" forceMount>
+          <div className="space-y-2 pt-2">
+            <Label htmlFor="jump-cert-keypath">{t('modals.new_connection.private_key')}</Label>
+            <div className="flex gap-2">
+              <Input
+                id="jump-cert-keypath"
+                value={keyPath}
+                onChange={(e) => setKeyPath(e.target.value)}
+                placeholder={t('modals.jump_server.key_path_placeholder')}
+              />
+              <Button variant="outline" onClick={handleBrowseKey} type="button">{t('modals.jump_server.browse')}</Button>
+            </div>
+            <Label htmlFor="jump-certpath">{t('modals.new_connection.certificate')}</Label>
+            <div className="flex gap-2">
+              <Input
+                id="jump-certpath"
+                value={certPath}
+                onChange={(e) => setCertPath(e.target.value)}
+                placeholder="~/.ssh/id_ed25519-cert.pub"
+              />
+              <Button variant="outline" onClick={handleBrowseCert} type="button">{t('modals.jump_server.browse')}</Button>
+            </div>
+            <div className="space-y-1 pt-1">
+              <Label htmlFor="jump-cert-passphrase" className="text-sm font-normal">{t('modals.jump_server.passphrase')}</Label>
+              <Input
+                id="jump-cert-passphrase"
                 type="password"
                 value={passphrase}
                 onChange={(e) => setPassphrase(e.target.value)}

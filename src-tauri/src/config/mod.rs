@@ -21,7 +21,11 @@ pub mod vault;
 pub mod touch_id;
 
 pub use keychain::{Keychain, KeychainError};
-pub use ssh_config::{SshConfigError, SshConfigHost, default_ssh_config_path, parse_ssh_config};
+pub use ssh_config::{
+    ResolvedProxyJumpHost, ResolvedSshConfigHost, SshConfigError, SshConfigHost,
+    default_ssh_config_path, load_ssh_config_content, parse_ssh_config,
+    resolve_ssh_config_host, resolve_ssh_config_host_content,
+};
 pub use storage::{
     BootstrapConfig, CONFIG_ENCRYPTION_KEY_LEN, ConfigStorage, ConfigStorageFormat, LoadedConfig,
     StorageError, config_dir, connections_file, default_dir, get_data_dir_info,

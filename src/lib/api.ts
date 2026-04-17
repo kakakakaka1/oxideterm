@@ -14,6 +14,7 @@ import {
   ForwardRule,
   ForwardResponse,
   SshHostInfo,
+  ResolvedSshConfigHostInfo,
   SshBatchImportResult,
   DataDirInfo,
   DataDirCheck,
@@ -24,6 +25,7 @@ import {
   BufferStats,
   SearchOptions,
   ArchiveHealthSnapshot,
+  ConnectPresetChainRequest,
   StartTerminalHistorySearchResponse,
   TerminalHistorySearchResultsResponse,
   ArchivedHistoryExcerpt,
@@ -574,10 +576,20 @@ export const api = {
     return invoke('delete_group', { name });
   },
 
+  moveConnectionsToGroup: async (ids: string[], group?: string | null): Promise<number> => {
+    if (USE_MOCK) return ids.length;
+    return invoke('move_connections_to_group', { ids, group: group ?? null });
+  },
+
   // ============ SSH Config & Keys ============
   listSshConfigHosts: async (): Promise<SshHostInfo[]> => {
     if (USE_MOCK) return [];
     return invoke('list_ssh_config_hosts');
+  },
+
+  resolveSshConfigAlias: async (alias: string): Promise<ResolvedSshConfigHostInfo | null> => {
+    if (USE_MOCK) return null;
+    return invoke('resolve_ssh_config_alias', { alias });
   },
   
   importSshHost: async (alias: string): Promise<ConnectionInfo> => {
@@ -1343,7 +1355,7 @@ export const api = {
    * 前端负责通过 connectNodeWithAncestors 进行线性连接
    */
   expandManualPreset: async (
-    request: { savedConnectionId: string; hops: Array<{ host: string; port: number; username: string; authType?: string; password?: string; keyPath?: string; passphrase?: string }>; target: { host: string; port: number; username: string; authType?: string; password?: string; keyPath?: string; passphrase?: string } }
+    request: ConnectPresetChainRequest,
   ): Promise<{ targetNodeId: string; pathNodeIds: string[]; chainDepth: number }> => {
     if (USE_MOCK) {
       const mockId = crypto.randomUUID();

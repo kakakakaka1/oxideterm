@@ -11,6 +11,7 @@ import { useSessionTreeStore } from './sessionTreeStore';
 import { useLocalTerminalStore } from './localTerminalStore';
 import { useActivityStore } from './activityStore';
 import { 
+  AuthType,
   SessionInfo, 
   Tab, 
   TabType,
@@ -25,6 +26,7 @@ import {
   PaneTerminalType,
   MAX_PANES_PER_TAB,
   RemoteEnvInfo,
+  ProxyHopConfig,
 } from '../types';
 
 interface ModalsState {
@@ -37,9 +39,15 @@ interface ModalsState {
 
 /** Pre-fill data for NewConnectionModal when opened via Quick Connect */
 export type QuickConnectData = {
+  alias?: string;
+  name?: string;
   host: string;
   port: number;
   username: string;
+  authType?: Extract<AuthType, 'key' | 'default_key' | 'agent' | 'certificate'>;
+  keyPath?: string | null;
+  certPath?: string | null;
+  proxyChain?: ProxyHopConfig[];
 } | null;
 
 // Re-export SidebarSection from settingsStore for backwards compatibility

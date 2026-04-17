@@ -12,6 +12,7 @@ import { OxideImportModal } from '../modals/OxideImportModal';
 import { EditConnectionModal } from '../modals/EditConnectionModal';
 import { EditConnectionPropertiesModal } from '../modals/EditConnectionPropertiesModal';
 import { HostKeyConfirmDialog } from '../modals/HostKeyConfirmDialog';
+import { buildSaveConnectionRequestFromSaved } from '../../lib/buildSaveConnectionRequestFromSaved';
 import { connectToSaved } from '../../lib/connectToSaved';
 import { findUnsupportedProxyHopAuth } from '../../lib/proxyHopSupport';
 import { useAppStore } from '../../store/appStore';
@@ -124,17 +125,13 @@ export const SessionManagerPanel = () => {
   // Duplicate action
   const handleDuplicate = useCallback(async (conn: ConnectionInfo) => {
     try {
-      await api.saveConnection({
-        name: `${conn.name} (Copy)`,
-        group: conn.group,
-        host: conn.host,
-        port: conn.port,
-        username: conn.username,
-        auth_type: conn.auth_type,
-        key_path: conn.key_path ?? undefined,
-        tags: conn.tags,
-        color: conn.color ?? undefined,
-      });
+      const saved = await api.getSavedConnectionForConnect(conn.id);
+      await api.saveConnection(
+        buildSaveConnectionRequestFromSaved(conn, saved, {
+          id: undefined,
+          name: `${conn.name} (Copy)`,
+        }),
+      );
       toast({
         title: t('sessionManager.toast.connection_duplicated'),
         description: '',
@@ -149,12 +146,15 @@ export const SessionManagerPanel = () => {
 
   // Delete action
   const handleDelete = useCallback(async (conn: ConnectionInfo) => {
-    if (!await confirm({
+    const confirmed = await confirm({
       title: t('sessionManager.actions.confirm_delete', { name: conn.name }),
+      confirmLabel: t('sessionManager.actions.delete'),
       variant: 'danger',
-    })) {
+    });
+    if (!confirmed) {
       return;
     }
+
     try {
       await api.deleteConnection(conn.id);
       toast({
@@ -268,6 +268,7 @@ export const SessionManagerPanel = () => {
     authType,
     password,
     keyPath,
+    certPath,
     passphrase,
   }: EditConnectionSubmitPayload) => {
     await prepareTestConnection(
@@ -280,6 +281,7 @@ export const SessionManagerPanel = () => {
         authType,
         password,
         keyPath,
+        certPath,
         passphrase,
       }),
     );

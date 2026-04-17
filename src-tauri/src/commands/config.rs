@@ -7,8 +7,10 @@
 
 use crate::config::{
     AiProviderVault, CONFIG_ENCRYPTION_KEY_LEN, ConfigFile, ConfigStorage, ConfigStorageFormat,
-    Keychain, KeychainError, ProxyHopConfig, SavedAuth, SavedConnection, SshConfigHost,
-    default_ssh_config_path, parse_ssh_config,
+    Keychain, KeychainError, ProxyHopConfig, ResolvedProxyJumpHost, ResolvedSshConfigHost,
+    SavedAuth, SavedConnection, SshConfigHost, default_ssh_config_path,
+    load_ssh_config_content, parse_ssh_config, resolve_ssh_config_host,
+    resolve_ssh_config_host_content,
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use parking_lot::RwLock;
@@ -236,7 +238,33 @@ pub struct ProxyHopInfo {
     pub username: String,
     pub auth_type: String, // "password", "key", "agent"
     pub key_path: Option<String>,
+    pub cert_path: Option<String>,
     pub agent_forwarding: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolvedSshConfigProxyHopInfo {
+    pub host: String,
+    pub port: u16,
+    pub username: String,
+    pub auth_type: String,
+    pub key_path: Option<String>,
+    pub cert_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolvedSshConfigHostInfo {
+    pub alias: String,
+    pub host: String,
+    pub port: u16,
+    pub username: String,
+    pub auth_type: String,
+    pub key_path: Option<String>,
+    pub cert_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub proxy_chain: Vec<ResolvedSshConfigProxyHopInfo>,
 }
 
 /// Connection info for frontend (without sensitive data)
@@ -312,6 +340,73 @@ fn auth_to_info(auth: &SavedAuth) -> (String, Option<String>, Option<String>) {
     }
 }
 
+fn auth_to_connect_info(
+    auth: &SavedAuth,
+    keychain: &Keychain,
+) -> (
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+) {
+    match auth {
+        SavedAuth::Password { keychain_id } => (
+            "password".to_string(),
+            keychain_id
+                .as_ref()
+                .and_then(|kc_id| keychain.get(kc_id).ok()),
+            None,
+            None,
+            None,
+        ),
+        SavedAuth::Key {
+            key_path,
+            has_passphrase,
+            passphrase_keychain_id,
+        } => {
+            let passphrase = if *has_passphrase {
+                passphrase_keychain_id
+                    .as_ref()
+                    .and_then(|kc_id| keychain.get(kc_id).ok())
+            } else {
+                None
+            };
+
+            (
+                "key".to_string(),
+                None,
+                Some(key_path.clone()),
+                None,
+                passphrase,
+            )
+        }
+        SavedAuth::Certificate {
+            key_path,
+            cert_path,
+            has_passphrase,
+            passphrase_keychain_id,
+        } => {
+            let passphrase = if *has_passphrase {
+                passphrase_keychain_id
+                    .as_ref()
+                    .and_then(|kc_id| keychain.get(kc_id).ok())
+            } else {
+                None
+            };
+
+            (
+                "certificate".to_string(),
+                None,
+                Some(key_path.clone()),
+                Some(cert_path.clone()),
+                passphrase,
+            )
+        }
+        SavedAuth::Agent => ("agent".to_string(), None, None, None, None),
+    }
+}
+
 pub(crate) fn collect_keychain_ids_for_auth(auth: &SavedAuth) -> Vec<String> {
     match auth {
         SavedAuth::Password {
@@ -347,13 +442,14 @@ impl From<&SavedConnection> for ConnectionInfo {
             .proxy_chain
             .iter()
             .map(|hop| {
-                let (hop_auth_type, hop_key_path, _) = auth_to_info(&hop.auth);
+                let (hop_auth_type, hop_key_path, hop_cert_path) = auth_to_info(&hop.auth);
                 ProxyHopInfo {
                     host: hop.host.clone(),
                     port: hop.port,
                     username: hop.username.clone(),
                     auth_type: hop_auth_type,
                     key_path: hop_key_path,
+                    cert_path: hop_cert_path,
                     agent_forwarding: hop.agent_forwarding,
                 }
             })
@@ -376,6 +472,132 @@ impl From<&SavedConnection> for ConnectionInfo {
             agent_forwarding: conn.options.agent_forwarding,
             proxy_chain,
         }
+    }
+}
+
+fn build_saved_auth_from_paths(
+    identity_file: Option<&String>,
+    certificate_file: Option<&String>,
+) -> Result<SavedAuth, String> {
+    let inferred_identity = inferred_identity_path(identity_file, certificate_file);
+
+    match (identity_file, certificate_file) {
+        (_, Some(cert_path)) => Ok(SavedAuth::Certificate {
+            key_path: inferred_identity.ok_or_else(|| {
+                format!(
+                    "CertificateFile '{}' requires an explicit IdentityFile for import",
+                    cert_path
+                )
+            })?,
+            cert_path: cert_path.clone(),
+            has_passphrase: false,
+            passphrase_keychain_id: None,
+        }),
+        (Some(key_path), None) => Ok(SavedAuth::Key {
+            key_path: key_path.clone(),
+            has_passphrase: false,
+            passphrase_keychain_id: None,
+        }),
+        _ => match crate::session::auth::list_available_keys().into_iter().next() {
+            Some(key_path) => Ok(SavedAuth::Key {
+                key_path: key_path.to_string_lossy().into_owned(),
+                has_passphrase: false,
+                passphrase_keychain_id: None,
+            }),
+            None => Ok(SavedAuth::Agent),
+        },
+    }
+}
+
+fn inferred_identity_path(
+    identity_file: Option<&String>,
+    certificate_file: Option<&String>,
+) -> Option<String> {
+    if let Some(identity_file) = identity_file {
+        return Some(identity_file.clone());
+    }
+
+    let certificate_file = certificate_file?;
+    if let Some(stripped) = certificate_file.strip_suffix("-cert.pub") {
+        return Some(stripped.to_string());
+    }
+
+    certificate_file
+        .strip_suffix(".pub")
+        .map(|stripped| stripped.to_string())
+}
+
+fn auth_type_and_paths(
+    identity_file: Option<&String>,
+    certificate_file: Option<&String>,
+) -> (String, Option<String>, Option<String>) {
+    let inferred_identity = inferred_identity_path(identity_file, certificate_file);
+
+    match (identity_file, certificate_file) {
+        (_, Some(cert_path)) => (
+            "certificate".to_string(),
+            inferred_identity,
+            Some(cert_path.clone()),
+        ),
+        (Some(key_path), None) => ("key".to_string(), Some(key_path.clone()), None),
+        _ => ("default_key".to_string(), None, None),
+    }
+}
+
+fn resolved_proxy_hop_to_saved(hop: &ResolvedProxyJumpHost) -> Result<ProxyHopConfig, String> {
+    Ok(ProxyHopConfig {
+        host: hop.host.clone(),
+        port: hop.port,
+        username: hop.user.clone().unwrap_or_else(whoami::username),
+        auth: build_saved_auth_from_paths(
+            hop.identity_file.as_ref(),
+            hop.certificate_file.as_ref(),
+        )?,
+        agent_forwarding: false,
+    })
+}
+
+fn ensure_resolved_host_can_connect(resolved: &ResolvedSshConfigHost) -> Result<(), String> {
+    build_saved_auth_from_paths(
+        resolved.identity_file.as_ref(),
+        resolved.certificate_file.as_ref(),
+    )?;
+
+    for hop in &resolved.proxy_chain {
+        build_saved_auth_from_paths(hop.identity_file.as_ref(), hop.certificate_file.as_ref())?;
+    }
+
+    Ok(())
+}
+
+fn resolved_host_to_frontend(resolved: &ResolvedSshConfigHost) -> ResolvedSshConfigHostInfo {
+    let (auth_type, key_path, cert_path) =
+        auth_type_and_paths(resolved.identity_file.as_ref(), resolved.certificate_file.as_ref());
+
+    ResolvedSshConfigHostInfo {
+        alias: resolved.alias.clone(),
+        host: resolved.host.clone(),
+        port: resolved.port,
+        username: resolved.user.clone().unwrap_or_else(whoami::username),
+        auth_type,
+        key_path,
+        cert_path,
+        proxy_chain: resolved
+            .proxy_chain
+            .iter()
+            .map(|hop| {
+                let (auth_type, key_path, cert_path) =
+                    auth_type_and_paths(hop.identity_file.as_ref(), hop.certificate_file.as_ref());
+                ResolvedSshConfigProxyHopInfo {
+                    host: hop.host.clone(),
+                    port: hop.port,
+                    username: hop.user.clone().unwrap_or_else(whoami::username),
+                    auth_type,
+                    key_path,
+                    cert_path,
+                }
+            })
+            .collect(),
     }
 }
 
@@ -526,6 +748,7 @@ fn build_synced_proxy_chain(
                     &hop.auth_type,
                     None,
                     hop.key_path.as_deref(),
+                    hop.cert_path.as_deref(),
                     None,
                     keychain,
                 )?
@@ -534,6 +757,7 @@ fn build_synced_proxy_chain(
                     &hop.auth_type,
                     None,
                     hop.key_path.as_deref(),
+                    hop.cert_path.as_deref(),
                     None,
                     keychain,
                 )?
@@ -564,6 +788,7 @@ fn build_saved_connection_from_sync_payload(
             None,
             payload.key_path.as_deref(),
             payload.cert_path.as_deref(),
+            None,
             keychain,
         )?
     } else {
@@ -572,6 +797,7 @@ fn build_saved_connection_from_sync_payload(
             None,
             payload.key_path.as_deref(),
             payload.cert_path.as_deref(),
+            None,
             keychain,
         )?
     };
@@ -763,6 +989,7 @@ pub struct SaveConnectionRequest {
     pub password: Option<Zeroizing<String>>, // Only for password auth
     pub key_path: Option<String>,            // Only for key auth
     pub cert_path: Option<String>,           // Only for certificate auth
+    pub passphrase: Option<Zeroizing<String>>, // Only for key/certificate auth
     pub color: Option<String>,
     #[serde(default)]
     pub tags: Vec<String>,
@@ -770,6 +997,40 @@ pub struct SaveConnectionRequest {
     #[serde(default)]
     pub agent_forwarding: Option<bool>,
     pub proxy_chain: Option<Vec<ProxyHopRequest>>, // Multi-hop proxy chain
+}
+
+#[tauri::command]
+pub async fn move_connections_to_group(
+    state: State<'_, Arc<ConfigState>>,
+    ids: Vec<String>,
+    group: Option<String>,
+) -> Result<usize, String> {
+    let normalized_group = normalize_optional_group_name(group.as_deref())?;
+
+    let updated = {
+        let mut config = state.config.write();
+        let now = chrono::Utc::now();
+        let mut updated = 0usize;
+
+        for id in ids {
+            if let Some(connection) = config.get_connection_mut(&id) {
+                connection.group = normalized_group.clone();
+                connection.updated_at = Some(now);
+                updated += 1;
+            }
+        }
+
+        if let Some(ref group_name) = normalized_group {
+            if !config.groups.contains(group_name) {
+                config.groups.push(group_name.clone());
+            }
+        }
+
+        updated
+    };
+
+    state.save().await?;
+    Ok(updated)
 }
 
 /// Request for a single proxy hop in the chain
@@ -781,6 +1042,7 @@ pub struct ProxyHopRequest {
     pub auth_type: String, // "password", "key", "agent", "default_key"
     pub password: Option<Zeroizing<String>>, // Only for password auth
     pub key_path: Option<String>, // Only for key auth
+    pub cert_path: Option<String>, // Only for certificate auth
     pub passphrase: Option<Zeroizing<String>>, // Passphrase for encrypted keys
     #[serde(default)]
     pub agent_forwarding: Option<bool>,
@@ -912,6 +1174,7 @@ fn build_saved_auth(
     password: Option<&str>,
     key_path: Option<&str>,
     cert_path: Option<&str>,
+    passphrase: Option<&str>,
     keychain: &crate::config::keychain::Keychain,
 ) -> Result<SavedAuth, String> {
     match auth_type {
@@ -932,19 +1195,57 @@ fn build_saved_auth(
         "certificate" => {
             let kp = key_path.ok_or("Key path required for certificate authentication")?;
             let cp = cert_path.ok_or("Certificate path required for certificate authentication")?;
+            let passphrase_keychain_id = if let Some(passphrase) = passphrase {
+                let keychain_id = format!("oxide_conn_key_{}", uuid::Uuid::new_v4());
+                keychain
+                    .store(&keychain_id, passphrase)
+                    .map_err(|e| e.to_string())?;
+                Some(keychain_id)
+            } else {
+                None
+            };
             Ok(SavedAuth::Certificate {
                 key_path: kp.to_string(),
                 cert_path: cp.to_string(),
-                has_passphrase: false,
-                passphrase_keychain_id: None,
+                has_passphrase: passphrase.is_some(),
+                passphrase_keychain_id,
+            })
+        }
+        "default_key" => {
+            let detected_key_path = crate::session::auth::list_available_keys()
+                .into_iter()
+                .next()
+                .ok_or("No default SSH key found")?;
+            let passphrase_keychain_id = if let Some(passphrase) = passphrase {
+                let keychain_id = format!("oxide_conn_key_{}", uuid::Uuid::new_v4());
+                keychain
+                    .store(&keychain_id, passphrase)
+                    .map_err(|e| e.to_string())?;
+                Some(keychain_id)
+            } else {
+                None
+            };
+            Ok(SavedAuth::Key {
+                key_path: detected_key_path.to_string_lossy().into_owned(),
+                has_passphrase: passphrase.is_some(),
+                passphrase_keychain_id,
             })
         }
         "key" => {
             let kp = key_path.ok_or("Key path required for key authentication")?;
+            let passphrase_keychain_id = if let Some(passphrase) = passphrase {
+                let keychain_id = format!("oxide_conn_key_{}", uuid::Uuid::new_v4());
+                keychain
+                    .store(&keychain_id, passphrase)
+                    .map_err(|e| e.to_string())?;
+                Some(keychain_id)
+            } else {
+                None
+            };
             Ok(SavedAuth::Key {
                 key_path: kp.to_string(),
-                has_passphrase: false,
-                passphrase_keychain_id: None,
+                has_passphrase: passphrase.is_some(),
+                passphrase_keychain_id,
             })
         }
         _ => Ok(SavedAuth::Agent),
@@ -957,6 +1258,7 @@ fn build_saved_auth_for_update(
     password: Option<&str>,
     key_path: Option<&str>,
     cert_path: Option<&str>,
+    passphrase: Option<&str>,
     keychain: &crate::config::keychain::Keychain,
 ) -> Result<SavedAuth, String> {
     match auth_type {
@@ -973,7 +1275,7 @@ fn build_saved_auth_for_update(
                         keychain_id: Some(existing_keychain_id.clone()),
                     })
                 } else {
-                    build_saved_auth(auth_type, Some(pwd), key_path, cert_path, keychain)
+                    build_saved_auth(auth_type, Some(pwd), key_path, cert_path, passphrase, keychain)
                 }
             } else if let SavedAuth::Password { keychain_id } = existing_auth {
                 Ok(SavedAuth::Password {
@@ -992,14 +1294,20 @@ fn build_saved_auth_for_update(
                     passphrase_keychain_id,
                 } if existing_key_path == kp => Ok(SavedAuth::Key {
                     key_path: kp.to_string(),
-                    has_passphrase: *has_passphrase,
-                    passphrase_keychain_id: passphrase_keychain_id.clone(),
+                    has_passphrase: passphrase.map(|_| true).unwrap_or(*has_passphrase),
+                    passphrase_keychain_id: if let Some(passphrase) = passphrase {
+                        let keychain_id = passphrase_keychain_id
+                            .clone()
+                            .unwrap_or_else(|| format!("oxide_conn_key_{}", uuid::Uuid::new_v4()));
+                        keychain
+                            .store(&keychain_id, passphrase)
+                            .map_err(|e| e.to_string())?;
+                        Some(keychain_id)
+                    } else {
+                        passphrase_keychain_id.clone()
+                    },
                 }),
-                _ => Ok(SavedAuth::Key {
-                    key_path: kp.to_string(),
-                    has_passphrase: false,
-                    passphrase_keychain_id: None,
-                }),
+                _ => build_saved_auth(auth_type, None, Some(kp), cert_path, passphrase, keychain),
             }
         }
         "certificate" => {
@@ -1015,18 +1323,24 @@ fn build_saved_auth_for_update(
                     Ok(SavedAuth::Certificate {
                         key_path: kp.to_string(),
                         cert_path: cp.to_string(),
-                        has_passphrase: *has_passphrase,
-                        passphrase_keychain_id: passphrase_keychain_id.clone(),
+                        has_passphrase: passphrase.map(|_| true).unwrap_or(*has_passphrase),
+                        passphrase_keychain_id: if let Some(passphrase) = passphrase {
+                            let keychain_id = passphrase_keychain_id
+                                .clone()
+                                .unwrap_or_else(|| format!("oxide_conn_key_{}", uuid::Uuid::new_v4()));
+                            keychain
+                                .store(&keychain_id, passphrase)
+                                .map_err(|e| e.to_string())?;
+                            Some(keychain_id)
+                        } else {
+                            passphrase_keychain_id.clone()
+                        },
                     })
                 }
-                _ => Ok(SavedAuth::Certificate {
-                    key_path: kp.to_string(),
-                    cert_path: cp.to_string(),
-                    has_passphrase: false,
-                    passphrase_keychain_id: None,
-                }),
+                _ => build_saved_auth(auth_type, None, Some(kp), Some(cp), passphrase, keychain),
             }
         }
+        "default_key" => build_saved_auth(auth_type, None, None, None, passphrase, keychain),
         _ => Ok(SavedAuth::Agent),
     }
 }
@@ -1040,7 +1354,7 @@ pub async fn save_connection(
 ) -> Result<ConnectionInfo, String> {
     let normalized_group = normalize_optional_group_name(request.group.as_deref())?;
 
-    let connection = {
+    let (connection, keychain_ids_to_delete) = {
         let mut config = state.config.write();
 
         if let Some(id) = request.id {
@@ -1057,6 +1371,7 @@ pub async fn save_connection(
             let conn = config
                 .get_connection_mut(&id)
                 .ok_or("Connection not found")?;
+            let existing = conn.clone();
 
             if request.jump_host.is_some() {
                 if !matches!(&conn.auth, SavedAuth::Key { .. }) {
@@ -1141,6 +1456,34 @@ pub async fn save_connection(
                                 passphrase_keychain_id,
                             }
                         }
+                        "certificate" => {
+                            let key_path = hop_req
+                                .key_path
+                                .as_ref()
+                                .ok_or("Key path required for proxy hop certificate")?;
+                            let cert_path = hop_req
+                                .cert_path
+                                .as_ref()
+                                .ok_or("Certificate path required for proxy hop certificate")?;
+                            let passphrase_keychain_id =
+                                if let Some(ref passphrase) = hop_req.passphrase {
+                                    let kc_id = format!("oxide_hop_key_{}", uuid::Uuid::new_v4());
+                                    state
+                                        .keychain
+                                        .store(&kc_id, passphrase)
+                                        .map_err(|e| e.to_string())?;
+                                    Some(kc_id)
+                                } else {
+                                    None
+                                };
+
+                            SavedAuth::Certificate {
+                                key_path: key_path.clone(),
+                                cert_path: cert_path.clone(),
+                                has_passphrase: hop_req.passphrase.is_some(),
+                                passphrase_keychain_id,
+                            }
+                        }
                         "default_key" => {
                             use crate::session::KeyAuth;
                             let key_auth = KeyAuth::from_default_locations(
@@ -1186,6 +1529,7 @@ pub async fn save_connection(
                 request.password.as_ref().map(|s| s.as_str()),
                 request.key_path.as_deref(),
                 request.cert_path.as_deref(),
+                request.passphrase.as_ref().map(|s| s.as_str()),
                 &state.keychain,
             )?;
 
@@ -1193,13 +1537,26 @@ pub async fn save_connection(
             conn.last_used_at = Some(now);
             conn.updated_at = Some(now);
 
-            conn.clone()
+            let updated = conn.clone();
+            let existing_keychain_ids: HashSet<String> =
+                collect_connection_keychain_ids(&existing).into_iter().collect();
+            let next_keychain_ids: HashSet<String> =
+                collect_connection_keychain_ids(&updated).into_iter().collect();
+
+            (
+                updated,
+                existing_keychain_ids
+                    .difference(&next_keychain_ids)
+                    .cloned()
+                    .collect::<Vec<_>>(),
+            )
         } else {
             let auth = build_saved_auth(
                 &request.auth_type,
                 request.password.as_ref().map(|s| s.as_str()),
                 request.key_path.as_deref(),
                 request.cert_path.as_deref(),
+                request.passphrase.as_ref().map(|s| s.as_str()),
                 &state.keychain,
             )?;
 
@@ -1241,6 +1598,34 @@ pub async fn save_connection(
 
                             SavedAuth::Key {
                                 key_path: key_path.clone(),
+                                has_passphrase: hop_req.passphrase.is_some(),
+                                passphrase_keychain_id,
+                            }
+                        }
+                        "certificate" => {
+                            let key_path = hop_req
+                                .key_path
+                                .as_ref()
+                                .ok_or("Key path required for proxy hop certificate")?;
+                            let cert_path = hop_req
+                                .cert_path
+                                .as_ref()
+                                .ok_or("Certificate path required for proxy hop certificate")?;
+                            let passphrase_keychain_id =
+                                if let Some(ref passphrase) = hop_req.passphrase {
+                                    let kc_id = format!("oxide_hop_key_{}", uuid::Uuid::new_v4());
+                                    state
+                                        .keychain
+                                        .store(&kc_id, passphrase)
+                                        .map_err(|e| e.to_string())?;
+                                    Some(kc_id)
+                                } else {
+                                    None
+                                };
+
+                            SavedAuth::Certificate {
+                                key_path: key_path.clone(),
+                                cert_path: cert_path.clone(),
                                 has_passphrase: hop_req.passphrase.is_some(),
                                 passphrase_keychain_id,
                             }
@@ -1300,11 +1685,15 @@ pub async fn save_connection(
             }
 
             config.add_connection(conn.clone());
-            conn
+            (conn, Vec::new())
         }
     };
 
     state.save().await?;
+
+    for keychain_id in keychain_ids_to_delete {
+        let _ = state.keychain.delete(&keychain_id);
+    }
 
     Ok(ConnectionInfo::from(&connection))
 }
@@ -1345,6 +1734,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             &Keychain::with_service("com.oxideterm.test"),
         )
         .unwrap();
@@ -1371,6 +1761,7 @@ mod tests {
             None,
             Some("/tmp/id_ed25519"),
             None,
+            None,
             &Keychain::with_service("com.oxideterm.test"),
         )
         .unwrap();
@@ -1391,6 +1782,7 @@ mod tests {
             "key",
             None,
             Some("/tmp/id_rsa"),
+            None,
             None,
             &Keychain::with_service("com.oxideterm.test"),
         )
@@ -1421,11 +1813,118 @@ mod tests {
             None,
             Some("/tmp/id_ed25519"),
             Some("/tmp/id_ed25519-cert.pub"),
+            None,
             &Keychain::with_service("com.oxideterm.test"),
         )
         .unwrap();
 
         assert_eq!(updated, existing);
+    }
+
+    #[test]
+    fn build_saved_auth_stores_certificate_passphrase() {
+        let keychain = Keychain::with_service("com.oxideterm.test");
+        let auth = build_saved_auth(
+            "certificate",
+            None,
+            Some("/tmp/id_ed25519"),
+            Some("/tmp/id_ed25519-cert.pub"),
+            Some("secret-passphrase"),
+            &keychain,
+        )
+        .unwrap();
+
+        let SavedAuth::Certificate {
+            has_passphrase,
+            passphrase_keychain_id,
+            ..
+        } = auth
+        else {
+            panic!("expected certificate auth");
+        };
+
+        assert!(has_passphrase);
+        let keychain_id = passphrase_keychain_id.expect("missing passphrase keychain id");
+        assert_eq!(keychain.get(&keychain_id).unwrap(), "secret-passphrase");
+    }
+
+    #[test]
+    fn build_saved_auth_for_update_stores_new_key_passphrase() {
+        let keychain = Keychain::with_service("com.oxideterm.test");
+        let existing = SavedAuth::Key {
+            key_path: "/tmp/id_ed25519".to_string(),
+            has_passphrase: false,
+            passphrase_keychain_id: None,
+        };
+
+        let updated = build_saved_auth_for_update(
+            &existing,
+            "key",
+            None,
+            Some("/tmp/id_ed25519"),
+            None,
+            Some("fresh-passphrase"),
+            &keychain,
+        )
+        .unwrap();
+
+        let SavedAuth::Key {
+            has_passphrase,
+            passphrase_keychain_id,
+            ..
+        } = updated
+        else {
+            panic!("expected key auth");
+        };
+
+        assert!(has_passphrase);
+        let keychain_id = passphrase_keychain_id.expect("missing passphrase keychain id");
+        assert_eq!(keychain.get(&keychain_id).unwrap(), "fresh-passphrase");
+    }
+
+    #[test]
+    fn auth_to_connect_info_includes_certificate_paths() {
+        let keychain = Keychain::with_service("com.oxideterm.test");
+        let auth = SavedAuth::Certificate {
+            key_path: "/tmp/id_ed25519".to_string(),
+            cert_path: "/tmp/id_ed25519-cert.pub".to_string(),
+            has_passphrase: false,
+            passphrase_keychain_id: None,
+        };
+
+        let (auth_type, password, key_path, cert_path, passphrase) =
+            auth_to_connect_info(&auth, &keychain);
+
+        assert_eq!(auth_type, "certificate");
+        assert!(password.is_none());
+        assert_eq!(key_path.as_deref(), Some("/tmp/id_ed25519"));
+        assert_eq!(cert_path.as_deref(), Some("/tmp/id_ed25519-cert.pub"));
+        assert!(passphrase.is_none());
+    }
+
+    #[test]
+    fn ensure_resolved_host_can_connect_rejects_certificate_without_identity() {
+        let resolved = ResolvedSshConfigHost {
+            alias: "prod".to_string(),
+            host: "prod.example.com".to_string(),
+            user: Some("alice".to_string()),
+            port: 22,
+            identity_file: None,
+            certificate_file: Some("/tmp/certs/prod-cert".to_string()),
+            proxy_chain: Vec::new(),
+        };
+
+        let error = ensure_resolved_host_can_connect(&resolved).unwrap_err();
+        assert!(error.contains("requires an explicit IdentityFile"));
+    }
+
+    #[test]
+    fn auth_type_and_paths_defaults_to_default_key_without_identity_file() {
+        let (auth_type, key_path, cert_path) = auth_type_and_paths(None, None);
+
+        assert_eq!(auth_type, "default_key");
+        assert!(key_path.is_none());
+        assert!(cert_path.is_none());
     }
 
     #[test]
@@ -1634,6 +2133,7 @@ mod tests {
                         username: "jump-a".to_string(),
                         auth_type: "password".to_string(),
                         key_path: None,
+                        cert_path: None,
                         agent_forwarding: false,
                     }],
                 }),
@@ -1653,6 +2153,69 @@ mod tests {
             side_effects.keychain_ids_to_delete,
             vec!["kc-hop-b".to_string()]
         );
+    }
+
+    #[test]
+    fn apply_saved_connections_snapshot_merge_rebuilds_certificate_proxy_hops() {
+        let mut config = ConfigFile::default();
+
+        let snapshot = SavedConnectionsSyncSnapshot {
+            revision: "rev-cert-hop".to_string(),
+            exported_at: chrono::Utc::now().to_rfc3339(),
+            records: vec![SavedConnectionSyncRecord {
+                id: "conn-cert-hop".to_string(),
+                revision: "rec-cert-hop".to_string(),
+                updated_at: chrono::Utc::now().to_rfc3339(),
+                deleted: false,
+                payload: Some(ConnectionInfo {
+                    id: "conn-cert-hop".to_string(),
+                    name: "Cert Hop".to_string(),
+                    group: None,
+                    host: "target.example.com".to_string(),
+                    port: 22,
+                    username: "root".to_string(),
+                    auth_type: "agent".to_string(),
+                    key_path: None,
+                    cert_path: None,
+                    created_at: chrono::Utc::now().to_rfc3339(),
+                    last_used_at: None,
+                    color: None,
+                    tags: Vec::new(),
+                    agent_forwarding: false,
+                    proxy_chain: vec![ProxyHopInfo {
+                        host: "jump.example.com".to_string(),
+                        port: 22,
+                        username: "jump".to_string(),
+                        auth_type: "certificate".to_string(),
+                        key_path: Some("/tmp/id_jump".to_string()),
+                        cert_path: Some("/tmp/id_jump-cert.pub".to_string()),
+                        agent_forwarding: true,
+                    }],
+                }),
+            }],
+        };
+
+        let (result, _side_effects) = apply_saved_connections_snapshot_to_config(
+            &mut config,
+            &snapshot,
+            SavedConnectionsConflictStrategy::Merge,
+            &Keychain::with_service("com.oxideterm.test"),
+        )
+        .unwrap();
+
+        let connection = config.get_connection("conn-cert-hop").unwrap();
+        assert_eq!(result.applied, 1);
+        assert_eq!(connection.proxy_chain.len(), 1);
+        assert_eq!(
+            connection.proxy_chain[0].auth,
+            SavedAuth::Certificate {
+                key_path: "/tmp/id_jump".to_string(),
+                cert_path: "/tmp/id_jump-cert.pub".to_string(),
+                has_passphrase: false,
+                passphrase_keychain_id: None,
+            }
+        );
+        assert!(connection.proxy_chain[0].agent_forwarding);
     }
 
     #[test]
@@ -1894,39 +2457,50 @@ pub async fn list_ssh_config_hosts(
         .collect())
 }
 
+#[tauri::command]
+pub async fn resolve_ssh_config_alias(
+    alias: String,
+) -> Result<Option<ResolvedSshConfigHostInfo>, String> {
+    let resolved = resolve_ssh_config_host(&alias, None)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if let Some(host) = resolved.as_ref() {
+        ensure_resolved_host_can_connect(host)?;
+    }
+
+    Ok(resolved.as_ref().map(resolved_host_to_frontend))
+}
+
 /// Import a single SSH config host as a saved connection
 #[tauri::command]
 pub async fn import_ssh_host(
     state: State<'_, Arc<ConfigState>>,
     alias: String,
 ) -> Result<ConnectionInfo, String> {
-    // Parse SSH config
-    let hosts = parse_ssh_config(None).await.map_err(|e| e.to_string())?;
-    let host = hosts
-        .iter()
-        .find(|h| h.alias == alias)
+    let resolved = resolve_ssh_config_host(&alias, None)
+        .await
+        .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Host '{}' not found in SSH config", alias))?;
 
-    // Create connection
-    let auth = if let Some(ref key_path) = host.identity_file {
-        SavedAuth::Key {
-            key_path: key_path.clone(),
-            has_passphrase: false,
-            passphrase_keychain_id: None,
-        }
-    } else {
-        SavedAuth::Agent
-    };
-
-    let username = host.user.clone().unwrap_or_else(whoami::username);
+    let auth = build_saved_auth_from_paths(
+        resolved.identity_file.as_ref(),
+        resolved.certificate_file.as_ref(),
+    )?;
+    let username = resolved.user.clone().unwrap_or_else(whoami::username);
+    let proxy_chain = resolved
+        .proxy_chain
+        .iter()
+        .map(resolved_proxy_hop_to_saved)
+        .collect::<Result<Vec<_>, _>>()?;
 
     let conn = SavedConnection {
         id: uuid::Uuid::new_v4().to_string(),
         version: crate::config::CONFIG_VERSION,
         name: alias.clone(),
         group: Some("Imported".to_string()),
-        host: host.effective_hostname().to_string(),
-        port: host.effective_port(),
+        host: resolved.host.clone(),
+        port: resolved.port,
         username,
         auth,
         options: Default::default(),
@@ -1935,7 +2509,7 @@ pub async fn import_ssh_host(
         updated_at: Some(chrono::Utc::now()),
         color: None,
         tags: vec!["ssh-config".to_string()],
-        proxy_chain: Vec::new(),
+        proxy_chain,
     };
 
     {
@@ -1967,7 +2541,9 @@ pub async fn import_ssh_hosts(
     state: State<'_, Arc<ConfigState>>,
     aliases: Vec<String>,
 ) -> Result<SshBatchImportResult, String> {
-    let hosts = parse_ssh_config(None).await.map_err(|e| e.to_string())?;
+    let ssh_config_content = load_ssh_config_content(None)
+        .await
+        .map_err(|e| e.to_string())?;
 
     let mut imported = 0usize;
     let mut skipped = 0usize;
@@ -1980,8 +2556,18 @@ pub async fn import_ssh_hosts(
     };
 
     for alias in &aliases {
-        let host = match hosts.iter().find(|h| &h.alias == alias) {
-            Some(h) => h,
+        let resolved = match ssh_config_content.as_deref() {
+            Some(content) => match resolve_ssh_config_host_content(content, alias) {
+                Ok(Some(host)) => host,
+                Ok(None) => {
+                    errors.push(format!("Host '{}' not found in SSH config", alias));
+                    continue;
+                }
+                Err(error) => {
+                    errors.push(format!("Failed to resolve '{}': {}", alias, error));
+                    continue;
+                }
+            },
             None => {
                 errors.push(format!("Host '{}' not found in SSH config", alias));
                 continue;
@@ -1993,25 +2579,37 @@ pub async fn import_ssh_hosts(
             continue;
         }
 
-        let auth = if let Some(ref key_path) = host.identity_file {
-            SavedAuth::Key {
-                key_path: key_path.clone(),
-                has_passphrase: false,
-                passphrase_keychain_id: None,
+        let auth = match build_saved_auth_from_paths(
+            resolved.identity_file.as_ref(),
+            resolved.certificate_file.as_ref(),
+        ) {
+            Ok(auth) => auth,
+            Err(error) => {
+                errors.push(format!("Failed to import '{}': {}", alias, error));
+                continue;
             }
-        } else {
-            SavedAuth::Agent
         };
-
-        let username = host.user.clone().unwrap_or_else(whoami::username);
+        let username = resolved.user.clone().unwrap_or_else(whoami::username);
+        let proxy_chain = match resolved
+            .proxy_chain
+            .iter()
+            .map(resolved_proxy_hop_to_saved)
+            .collect::<Result<Vec<_>, _>>()
+        {
+            Ok(proxy_chain) => proxy_chain,
+            Err(error) => {
+                errors.push(format!("Failed to import '{}': {}", alias, error));
+                continue;
+            }
+        };
 
         let conn = SavedConnection {
             id: uuid::Uuid::new_v4().to_string(),
             version: crate::config::CONFIG_VERSION,
             name: alias.clone(),
             group: Some("Imported".to_string()),
-            host: host.effective_hostname().to_string(),
-            port: host.effective_port(),
+            host: resolved.host.clone(),
+            port: resolved.port,
             username,
             auth,
             options: Default::default(),
@@ -2020,7 +2618,7 @@ pub async fn import_ssh_hosts(
             updated_at: Some(chrono::Utc::now()),
             color: None,
             tags: vec!["ssh-config".to_string()],
-            proxy_chain: Vec::new(),
+            proxy_chain,
         };
 
         {
@@ -2118,6 +2716,7 @@ pub struct SavedConnectionForConnect {
     pub auth_type: String,
     pub password: Option<String>,
     pub key_path: Option<String>,
+    pub cert_path: Option<String>,
     pub passphrase: Option<String>,
     pub name: String,
     pub agent_forwarding: bool,
@@ -2148,56 +2747,8 @@ pub async fn get_saved_connection_for_connect(
     let conn = config.get_connection(&id).ok_or("Connection not found")?;
 
     // Convert main auth
-    let (auth_type, password, key_path, _cert_path, passphrase) = match &conn.auth {
-        SavedAuth::Password { keychain_id } => {
-            let pwd = keychain_id
-                .as_ref()
-                .and_then(|kc_id| state.keychain.get(kc_id).ok());
-            ("password".to_string(), pwd, None, None, None)
-        }
-        SavedAuth::Key {
-            key_path,
-            has_passphrase,
-            passphrase_keychain_id,
-        } => {
-            let passphrase = if *has_passphrase {
-                passphrase_keychain_id
-                    .as_ref()
-                    .and_then(|kc_id| state.keychain.get(kc_id).ok())
-            } else {
-                None
-            };
-            (
-                "key".to_string(),
-                None,
-                Some(key_path.clone()),
-                None,
-                passphrase,
-            )
-        }
-        SavedAuth::Certificate {
-            key_path,
-            cert_path,
-            has_passphrase,
-            passphrase_keychain_id,
-        } => {
-            let passphrase = if *has_passphrase {
-                passphrase_keychain_id
-                    .as_ref()
-                    .and_then(|kc_id| state.keychain.get(kc_id).ok())
-            } else {
-                None
-            };
-            (
-                "certificate".to_string(),
-                None,
-                Some(key_path.clone()),
-                Some(cert_path.clone()),
-                passphrase,
-            )
-        }
-        SavedAuth::Agent => ("agent".to_string(), None, None, None, None),
-    };
+    let (auth_type, password, key_path, cert_path, passphrase) =
+        auth_to_connect_info(&conn.auth, &state.keychain);
 
     // Convert proxy_chain
     let proxy_chain: Vec<ProxyHopForConnect> = conn
@@ -2205,48 +2756,7 @@ pub async fn get_saved_connection_for_connect(
         .iter()
         .map(|hop| {
             let (hop_auth_type, hop_password, hop_key_path, hop_cert_path, hop_passphrase) =
-                match &hop.auth {
-                    SavedAuth::Password { keychain_id } => {
-                        let pwd = keychain_id
-                            .as_ref()
-                            .and_then(|kc_id| state.keychain.get(kc_id).ok());
-                        ("password".to_string(), pwd, None, None, None)
-                    }
-                    SavedAuth::Key {
-                        key_path,
-                        passphrase_keychain_id,
-                        ..
-                    } => {
-                        let passphrase = passphrase_keychain_id
-                            .as_ref()
-                            .and_then(|kc_id| state.keychain.get(kc_id).ok());
-                        (
-                            "key".to_string(),
-                            None,
-                            Some(key_path.clone()),
-                            None,
-                            passphrase,
-                        )
-                    }
-                    SavedAuth::Certificate {
-                        key_path,
-                        cert_path,
-                        passphrase_keychain_id,
-                        ..
-                    } => {
-                        let passphrase = passphrase_keychain_id
-                            .as_ref()
-                            .and_then(|kc_id| state.keychain.get(kc_id).ok());
-                        (
-                            "certificate".to_string(),
-                            None,
-                            Some(key_path.clone()),
-                            Some(cert_path.clone()),
-                            passphrase,
-                        )
-                    }
-                    SavedAuth::Agent => ("agent".to_string(), None, None, None, None),
-                };
+                auth_to_connect_info(&hop.auth, &state.keychain);
 
             ProxyHopForConnect {
                 host: hop.host.clone(),
@@ -2269,6 +2779,7 @@ pub async fn get_saved_connection_for_connect(
         auth_type,
         password,
         key_path,
+        cert_path,
         passphrase,
         name: conn.name.clone(),
         agent_forwarding: conn.options.agent_forwarding,

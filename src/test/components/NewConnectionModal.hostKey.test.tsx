@@ -15,7 +15,24 @@ const appStoreState = vi.hoisted(() => ({
   modals: { newConnection: true },
   toggleModal: vi.fn(),
   createTab: vi.fn(),
-  quickConnectData: null as null | { host: string; port: number; username: string },
+  quickConnectData: null as null | {
+    alias?: string;
+    name?: string;
+    host: string;
+    port: number;
+    username: string;
+    authType?: 'key' | 'agent' | 'certificate';
+    keyPath?: string | null;
+    certPath?: string | null;
+    proxyChain?: Array<{
+      id: string;
+      host: string;
+      port: number;
+      username: string;
+      auth_type: 'password' | 'key' | 'default_key' | 'agent';
+      key_path?: string;
+    }>;
+  },
 }));
 
 const sessionTreeState = vi.hoisted(() => ({
@@ -244,6 +261,42 @@ describe('NewConnectionModal host key flows', () => {
     });
   });
 
+
+  it('prefills auth and proxy chain when opened from resolved ssh config alias', async () => {
+    appStoreState.quickConnectData = {
+      alias: 'prod',
+      name: 'prod',
+      host: 'target.internal',
+      port: 2200,
+      username: 'alice',
+      authType: 'certificate',
+      keyPath: '/tmp/id_ed25519',
+      certPath: '/tmp/id_ed25519-cert.pub',
+      proxyChain: [
+        {
+          id: 'bob@jump.example.com:22',
+          host: 'jump.example.com',
+          port: 22,
+          username: 'bob',
+          auth_type: 'key',
+          key_path: '/tmp/jump-key',
+        },
+      ],
+    };
+
+    await act(async () => {
+      render(<NewConnectionModal />);
+    });
+
+    expect(screen.getByDisplayValue('prod')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('target.internal')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('2200')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('alice')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('/tmp/id_ed25519')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('/tmp/id_ed25519-cert.pub')).toBeInTheDocument();
+    expect(screen.getByText('jump.example.com')).toBeInTheDocument();
+    expect(screen.getByText('bob')).toBeInTheDocument();
+  });
   it('preflights direct connect and forwards the accepted fingerprint into connectNode', async () => {
     apiMocks.sshPreflight
       .mockResolvedValueOnce({

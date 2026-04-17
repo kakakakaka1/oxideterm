@@ -204,6 +204,8 @@
     "cmd_reset_settings": "Đặt lại tất cả cài đặt",
     "confirm_reset_settings": "Bạn có chắc muốn đặt lại tất cả cài đặt về mặc định không?",
     "cmd_reload_window": "Tải lại cửa sổ",
+    "quick_connect_alias_not_found": "Không tìm thấy alias SSH config '{{alias}}'",
+    "quick_connect_resolve_failed": "Lỗi khi phân giải alias '{{alias}}'",
     "footer_hint": "Nhấn Esc để đóng"
   },
   "zen_mode": {

@@ -49,6 +49,32 @@ import {
 
 const SAVE_CONNECTION_KEY = 'oxideterm.saveConnection';
 
+type ConnectHostKeyStep = {
+  host: string;
+  port: number;
+  trustHostKey?: boolean;
+  expectedHostKeyFingerprint?: string;
+};
+
+type ConnectFormRequest = {
+  displayName?: string;
+  host: string;
+  port: number;
+  username: string;
+  authType: 'password' | 'key' | 'default_key' | 'agent' | 'certificate' | 'keyboard_interactive';
+  password?: string;
+  keyPath?: string;
+  certPath?: string;
+  passphrase?: string;
+  agentForwarding?: boolean;
+};
+
+type PendingProxyConnectPlan = {
+  request: ConnectFormRequest;
+  steps: ConnectHostKeyStep[];
+  currentIndex: number;
+};
+
 export const NewConnectionModal = () => {
   const { t } = useTranslation();
   const { 
@@ -57,7 +83,12 @@ export const NewConnectionModal = () => {
     quickConnectData,
     createTab,
   } = useAppStore();
-  const { addRootNode, connectNode, createTerminalForNode } = useSessionTreeStore();
+  const {
+    addRootNode,
+    connectNode,
+    createTerminalForNode,
+    expandManualPreset,
+  } = useSessionTreeStore();
   const { success: toastSuccess, error: toastError } = useToast();
   const [loading, setLoading] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -89,11 +120,17 @@ export const NewConnectionModal = () => {
   const [agentAvailable, setAgentAvailable] = useState<boolean | null>(null);
   const [agentForwarding, setAgentForwarding] = useState(false);
   const [connectHostKeyStatus, setConnectHostKeyStatus] = useState<HostKeyStatus | null>(null);
-  const [pendingConnectRequest, setPendingConnectRequest] = useState<Parameters<typeof addRootNode>[0] | null>(null);
+  const [pendingConnectRequest, setPendingConnectRequest] = useState<ConnectFormRequest | null>(null);
+  const [pendingProxyConnectPlan, setPendingProxyConnectPlan] = useState<PendingProxyConnectPlan | null>(null);
   const [testHostKeyStatus, setTestHostKeyStatus] = useState<HostKeyStatus | null>(null);
   const [pendingTestRequest, setPendingTestRequest] = useState<TestConnectionRequest | null>(null);
   const isComposingRef = useRef(false);
   const kbiDisabledForProxyChain = proxyServers.length > 0;
+  const currentConnectStep = pendingProxyConnectPlan
+    ? pendingProxyConnectPlan.steps[pendingProxyConnectPlan.currentIndex]
+    : pendingConnectRequest
+      ? { host: pendingConnectRequest.host, port: pendingConnectRequest.port }
+      : null;
 
   const formatTestFailure = useCallback((result: TestConnectionResponse) => {
     const { summary, detail } = result.diagnostic;
@@ -117,19 +154,66 @@ export const NewConnectionModal = () => {
   }, [formatTestFailure, t, toastError, toastSuccess]);
 
   const executeConnect = useCallback(async (
-    request: Parameters<typeof addRootNode>[0],
+    request: ConnectFormRequest,
     options?: { trustHostKey?: boolean; expectedHostKeyFingerprint?: string },
+    chainOptions?: ConnectHostKeyStep[],
   ) => {
-    const nodeId = await addRootNode(request);
-    console.log(`Root node created: ${nodeId}`);
+    let nodeId: string;
+    let terminalId: string;
 
-    await connectNode(nodeId, options);
+    if (proxyServers.length > 0) {
+      const expandResult = await expandManualPreset({
+        savedConnectionId: `manual:${Date.now()}`,
+        hops: proxyServers.map((hop) => ({
+          host: hop.host,
+          port: hop.port,
+          username: hop.username,
+          authType: hop.auth_type,
+          password: hop.password,
+          keyPath: hop.key_path,
+          certPath: hop.cert_path,
+          passphrase: hop.passphrase,
+          agentForwarding: hop.agent_forwarding,
+        })),
+        target: {
+          host: request.host,
+          port: request.port,
+          username: request.username,
+          authType: request.authType === 'keyboard_interactive' ? 'password' : request.authType,
+          password: request.password,
+          keyPath: request.keyPath,
+          certPath: request.certPath,
+          passphrase: request.passphrase,
+          agentForwarding: request.agentForwarding,
+        },
+      });
 
-    const terminalId = await createTerminalForNode(nodeId, 120, 40);
+      nodeId = expandResult.targetNodeId;
+      for (let index = 0; index < expandResult.pathNodeIds.length; index += 1) {
+        const stepOptions = chainOptions?.[index];
+        await connectNode(expandResult.pathNodeIds[index], stepOptions ? {
+          trustHostKey: stepOptions.trustHostKey,
+          expectedHostKeyFingerprint: stepOptions.expectedHostKeyFingerprint,
+        } : undefined);
+
+        if (index < expandResult.pathNodeIds.length - 1) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+      }
+      terminalId = await createTerminalForNode(nodeId, 120, 40);
+    } else {
+      nodeId = await addRootNode(request);
+      console.log(`Root node created: ${nodeId}`);
+
+      await connectNode(nodeId, options);
+      terminalId = await createTerminalForNode(nodeId, 120, 40);
+    }
+
     createTab('terminal', terminalId);
 
     setConnectHostKeyStatus(null);
     setPendingConnectRequest(null);
+  setPendingProxyConnectPlan(null);
     toggleModal('newConnection', false);
 
     if (saveConnection) {
@@ -140,10 +224,13 @@ export const NewConnectionModal = () => {
           host: request.host,
           port: request.port,
           username: request.username,
-          auth_type: request.authType as 'password' | 'key' | 'agent' | 'certificate',
+          auth_type: request.authType as 'password' | 'key' | 'default_key' | 'agent' | 'certificate',
           password: (authType === 'password' && savePassword) ? password : undefined,
-          key_path: (authType === 'key' || authType === 'default_key' || authType === 'certificate') ? keyPath : undefined,
+          key_path: (authType === 'key' || authType === 'certificate') ? keyPath : undefined,
           cert_path: authType === 'certificate' ? certPath : undefined,
+          passphrase: (authType === 'key' || authType === 'certificate' || authType === 'default_key') && passphrase
+            ? passphrase
+            : undefined,
           tags: [],
           agent_forwarding: request.agentForwarding,
           proxy_chain: proxyServers.length > 0 ? proxyServers : undefined,
@@ -166,6 +253,7 @@ export const NewConnectionModal = () => {
     connectNode,
     createTab,
     createTerminalForNode,
+    expandManualPreset,
     group,
     keyPath,
     name,
@@ -178,6 +266,30 @@ export const NewConnectionModal = () => {
     toggleModal,
     certPath,
   ]);
+
+  const continueProxyConnectPlan = useCallback(async (plan: PendingProxyConnectPlan) => {
+    for (let index = plan.currentIndex; index < plan.steps.length; index += 1) {
+      const step = plan.steps[index];
+      const preflight = await api.sshPreflight({ host: step.host, port: step.port });
+
+      if (preflight.status === 'verified') {
+        continue;
+      }
+
+      if (preflight.status === 'unknown' || preflight.status === 'changed') {
+        setPendingProxyConnectPlan({ ...plan, currentIndex: index });
+        setConnectHostKeyStatus(preflight);
+        return;
+      }
+
+      setPendingProxyConnectPlan(null);
+      setConnectHostKeyStatus(null);
+      toastError(t('modals.new_connection.connect_failed'), preflight.message);
+      return;
+    }
+
+    await executeConnect(plan.request, undefined, plan.steps);
+  }, [executeConnect, t, toastError]);
 
   // Enter key submit (with IME guard)
   const handleFormKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -207,9 +319,15 @@ export const NewConnectionModal = () => {
 
       // Pre-fill from Quick Connect data (⌘K user@host:port)
       if (quickConnectData) {
+        setName(quickConnectData.name ?? quickConnectData.alias ?? '');
         setHost(quickConnectData.host);
         setPort(String(quickConnectData.port));
         setUsername(quickConnectData.username);
+        setAuthType(quickConnectData.authType ?? 'password');
+        setKeyPath(quickConnectData.keyPath ?? '');
+        setCertPath(quickConnectData.certPath ?? '');
+        setProxyServers(quickConnectData.proxyChain ?? []);
+        setProxyChainExpanded((quickConnectData.proxyChain?.length ?? 0) > 0);
       }
     }
   }, [modals.newConnection, quickConnectData]);
@@ -262,9 +380,10 @@ export const NewConnectionModal = () => {
     host: string; 
     port: string; 
     username: string; 
-    authType: 'password' | 'key' | 'default_key' | 'agent';
+    authType: 'password' | 'key' | 'default_key' | 'agent' | 'certificate';
     password?: string;
     keyPath?: string;
+    certPath?: string;
     passphrase?: string;
     agentForwarding?: boolean;
   }) => {
@@ -276,6 +395,7 @@ export const NewConnectionModal = () => {
       auth_type: server.authType,
       password: server.password,
       key_path: server.keyPath,
+      cert_path: server.certPath,
       passphrase: server.passphrase,
       agent_forwarding: server.agentForwarding,
     };
@@ -308,21 +428,28 @@ export const NewConnectionModal = () => {
       }
 
       // 使用 SessionTree 的 addRootNode API 创建节点
-      const request = {
+      const request: ConnectFormRequest = {
         displayName: name || undefined,
         host,
         port: parseInt(port) || 22,
         username,
-        authType: authType === 'default_key' ? 'key' : authType,
+        authType,
         password: authType === 'password' ? password : undefined,
-        keyPath: (authType === 'key' || authType === 'default_key' || authType === 'certificate') ? keyPath : undefined,
+        keyPath: (authType === 'key' || authType === 'certificate') ? keyPath : undefined,
         certPath: authType === 'certificate' ? certPath : undefined,
         passphrase: (authType === 'key' || authType === 'default_key' || authType === 'certificate') && passphrase ? passphrase : undefined,
         agentForwarding,
       };
 
       if (proxyServers.length > 0) {
-        await executeConnect(request);
+        await continueProxyConnectPlan({
+          request,
+          // Only the first hop is guaranteed to be directly reachable from the client.
+          // Later hops and the target may only exist behind the already-established tunnel,
+          // so preflighting them locally causes false negatives on valid proxy topologies.
+          steps: [{ host: proxyServers[0].host, port: proxyServers[0].port }],
+          currentIndex: 0,
+        });
         return;
       }
 
@@ -376,6 +503,7 @@ export const NewConnectionModal = () => {
           authType: hop.auth_type,
           password: hop.password,
           keyPath: hop.key_path,
+          certPath: hop.cert_path,
           passphrase: hop.passphrase,
         })),
       });
@@ -435,12 +563,35 @@ export const NewConnectionModal = () => {
   };
 
   const handleAcceptConnectHostKey = async (persist: boolean) => {
-    if (!pendingConnectRequest || !connectHostKeyStatus || connectHostKeyStatus.status !== 'unknown') {
+    if (!connectHostKeyStatus || connectHostKeyStatus.status !== 'unknown') {
       return;
     }
 
     setLoading(true);
     try {
+      if (pendingProxyConnectPlan) {
+        const steps = pendingProxyConnectPlan.steps.map((step, index) => (
+          index === pendingProxyConnectPlan.currentIndex
+            ? {
+                ...step,
+                trustHostKey: persist,
+                expectedHostKeyFingerprint: connectHostKeyStatus.fingerprint,
+              }
+            : step
+        ));
+
+        await continueProxyConnectPlan({
+          ...pendingProxyConnectPlan,
+          steps,
+          currentIndex: pendingProxyConnectPlan.currentIndex + 1,
+        });
+        return;
+      }
+
+      if (!pendingConnectRequest) {
+        return;
+      }
+
       await executeConnect(pendingConnectRequest, {
         trustHostKey: persist,
         expectedHostKeyFingerprint: connectHostKeyStatus.fingerprint,
@@ -449,6 +600,7 @@ export const NewConnectionModal = () => {
       console.error(e);
       setConnectHostKeyStatus(null);
       setPendingConnectRequest(null);
+      setPendingProxyConnectPlan(null);
       toastError(t('modals.new_connection.connect_failed'), String(e));
     } finally {
       setLoading(false);
@@ -479,26 +631,44 @@ export const NewConnectionModal = () => {
   };
 
   const handleRemoveChangedConnectKey = async () => {
-    if (!pendingConnectRequest || !connectHostKeyStatus || connectHostKeyStatus.status !== 'changed') {
+    if (!currentConnectStep || !connectHostKeyStatus || connectHostKeyStatus.status !== 'changed') {
       return;
     }
 
     setLoading(true);
     try {
       await api.sshRemoveHostKey({
-        host: pendingConnectRequest.host,
-        port: pendingConnectRequest.port,
+        host: currentConnectStep.host,
+        port: currentConnectStep.port,
         keyType: connectHostKeyStatus.keyType,
         expectedFingerprint: connectHostKeyStatus.expectedFingerprint,
       });
 
       const preflight = await api.sshPreflight({
-        host: pendingConnectRequest.host,
-        port: pendingConnectRequest.port,
+        host: currentConnectStep.host,
+        port: currentConnectStep.port,
       });
 
+      if (pendingProxyConnectPlan) {
+        if (preflight.status === 'verified') {
+          await continueProxyConnectPlan({
+            ...pendingProxyConnectPlan,
+            currentIndex: pendingProxyConnectPlan.currentIndex + 1,
+          });
+          return;
+        }
+
+        setConnectHostKeyStatus(preflight);
+        return;
+      }
+
       if (preflight.status === 'verified') {
-        await executeConnect(pendingConnectRequest);
+        const request = pendingConnectRequest;
+        if (!request) {
+          return;
+        }
+
+        await executeConnect(request);
         return;
       }
 
@@ -518,16 +688,18 @@ export const NewConnectionModal = () => {
           if (!loading) {
             setConnectHostKeyStatus(null);
             setPendingConnectRequest(null);
+            setPendingProxyConnectPlan(null);
           }
         }}
         status={connectHostKeyStatus}
-        host={pendingConnectRequest?.host || host}
-        port={pendingConnectRequest?.port || parseInt(port) || 22}
+        host={currentConnectStep?.host || host}
+        port={currentConnectStep?.port || parseInt(port) || 22}
         onAccept={handleAcceptConnectHostKey}
         onRemoveSavedKey={handleRemoveChangedConnectKey}
         onCancel={() => {
           setConnectHostKeyStatus(null);
           setPendingConnectRequest(null);
+          setPendingProxyConnectPlan(null);
         }}
         loading={loading}
       />
@@ -560,6 +732,7 @@ export const NewConnectionModal = () => {
           setAgentForwarding(false);
           setConnectHostKeyStatus(null);
           setPendingConnectRequest(null);
+          setPendingProxyConnectPlan(null);
           setTestHostKeyStatus(null);
           setPendingTestRequest(null);
           // 清除代理链中的密码
@@ -607,7 +780,7 @@ export const NewConnectionModal = () => {
                         <span className="flex-1 truncate">
                           <span className="font-mono">{idx + 1}.</span>
                           <span className="ml-2">{server.username}@{server.host}:{server.port}</span>
-                          {server.auth_type === 'key' || server.auth_type === 'default_key' ? (
+                          {server.auth_type === 'key' || server.auth_type === 'default_key' || server.auth_type === 'certificate' ? (
                             <Key className="inline-block h-3.5 w-3.5 text-theme-text-muted ml-1" />
                           ) : (
                             <Lock className="inline-block h-3.5 w-3.5 text-theme-text-muted ml-1" />
@@ -941,7 +1114,9 @@ export const NewConnectionModal = () => {
                                 <span className="text-theme-text-muted">{t('modals.new_connection.proxy_chain.auth')}:</span>
                                 <span className="font-medium ml-2">
                                   {server.auth_type === 'key' ? t('modals.new_connection.auth_key') :
+                                   server.auth_type === 'certificate' ? t('modals.new_connection.auth_certificate') :
                                    server.auth_type === 'default_key' ? t('modals.new_connection.auth_default_key') :
+                                   server.auth_type === 'agent' ? t('modals.new_connection.auth_agent') :
                                    t('modals.new_connection.auth_password')}
                                 </span>
                               </div>

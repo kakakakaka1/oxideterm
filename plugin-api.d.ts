@@ -349,8 +349,9 @@ export type SavedConnectionSnapshot = Readonly<{
     host: string;
     port: number;
     username: string;
-    auth_type: 'password' | 'key' | 'agent';
+    auth_type: 'password' | 'key' | 'agent' | 'certificate';
     key_path?: string;
+    cert_path?: string;
     agent_forwarding?: boolean;
   }>[];
 }>;

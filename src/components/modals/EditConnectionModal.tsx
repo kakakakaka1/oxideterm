@@ -23,9 +23,10 @@ import { api } from '../../lib/api';
 
 export type EditConnectionSubmitPayload = {
   connection: ConnectionInfo;
-  authType: 'password' | 'key' | 'agent';
+  authType: 'password' | 'key' | 'agent' | 'certificate';
   password?: string;
   keyPath?: string;
+  certPath?: string;
   passphrase?: string;
 };
 
@@ -51,8 +52,9 @@ export const EditConnectionModal: React.FC<EditConnectionModalProps> = ({
   const { connectNodeWithAncestors } = useSessionTreeStore();
   const [password, setPassword] = useState('');
   const [keyPath, setKeyPath] = useState('');
+  const [certPath, setCertPath] = useState('');
   const [passphrase, setPassphrase] = useState('');
-  const [authType, setAuthType] = useState<'password' | 'key' | 'agent'>('password');
+  const [authType, setAuthType] = useState<'password' | 'key' | 'agent' | 'certificate'>('password');
   const [group, setGroup] = useState('');
   const [isConnecting, setIsConnecting] = useState(false);
   const [error, setError] = useState('');
@@ -60,10 +62,16 @@ export const EditConnectionModal: React.FC<EditConnectionModalProps> = ({
   useEffect(() => {
     if (open && connection) {
       // Map auth_type to modal's authType
-      const modalAuthType = connection.auth_type === 'password' ? 'password' : 
-                           connection.auth_type === 'agent' ? 'agent' : 'key';
+      const modalAuthType = connection.auth_type === 'password'
+        ? 'password'
+        : connection.auth_type === 'agent'
+          ? 'agent'
+          : connection.auth_type === 'certificate'
+            ? 'certificate'
+            : 'key';
       setAuthType(modalAuthType);
       setKeyPath(connection.key_path || '');
+      setCertPath(connection.cert_path || '');
       setGroup(connection.group || '');
       setPassword('');
       setPassphrase('');
@@ -84,8 +92,9 @@ export const EditConnectionModal: React.FC<EditConnectionModalProps> = ({
           connection,
           authType,
           password: authType === 'password' ? password : undefined,
-          keyPath: authType === 'key' ? keyPath : undefined,
-          passphrase: authType === 'key' && passphrase ? passphrase : undefined,
+          keyPath: authType === 'key' || authType === 'certificate' ? keyPath : undefined,
+          certPath: authType === 'certificate' ? certPath : undefined,
+          passphrase: (authType === 'key' || authType === 'certificate') && passphrase ? passphrase : undefined,
         });
       } else {
         // Build the preset chain request (direct connection, no hops)
@@ -95,8 +104,9 @@ export const EditConnectionModal: React.FC<EditConnectionModalProps> = ({
           username: connection.username,
           authType: authType,
           password: authType === 'password' ? password : undefined,
-          keyPath: authType === 'key' ? keyPath : undefined,
-          passphrase: authType === 'key' && passphrase ? passphrase : undefined,
+          keyPath: authType === 'key' || authType === 'certificate' ? keyPath : undefined,
+          certPath: authType === 'certificate' ? certPath : undefined,
+          passphrase: (authType === 'key' || authType === 'certificate') && passphrase ? passphrase : undefined,
         };
 
         // Expand the preset into a session tree node
@@ -132,6 +142,7 @@ export const EditConnectionModal: React.FC<EditConnectionModalProps> = ({
       // 关闭 modal 时清除敏感数据
       if (!open) {
         setPassword('');
+        setPassphrase('');
       }
       onOpenChange(open);
     }}>
@@ -154,7 +165,7 @@ export const EditConnectionModal: React.FC<EditConnectionModalProps> = ({
             <Label className="text-theme-text">{t('modals.edit_connection.auth_method')}</Label>
             <RadioGroup 
               value={authType} 
-              onValueChange={(v: 'password' | 'key' | 'agent') => setAuthType(v)}
+              onValueChange={(v: 'password' | 'key' | 'agent' | 'certificate') => setAuthType(v)}
               className="flex space-x-4"
             >
               <div className="flex items-center space-x-2">
@@ -168,6 +179,10 @@ export const EditConnectionModal: React.FC<EditConnectionModalProps> = ({
               <div className="flex items-center space-x-2">
                 <RadioGroupItem value="agent" id="auth-agent" className="border-theme-border data-[state=checked]:bg-theme-accent" />
                 <Label htmlFor="auth-agent" className="text-theme-text">{t('modals.edit_connection.auth_agent')}</Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="certificate" id="auth-certificate" className="border-theme-border data-[state=checked]:bg-theme-accent" />
+                <Label htmlFor="auth-certificate" className="text-theme-text">{t('modals.new_connection.auth_certificate')}</Label>
               </div>
             </RadioGroup>
           </div>
@@ -185,7 +200,7 @@ export const EditConnectionModal: React.FC<EditConnectionModalProps> = ({
                 autoFocus
               />
             </div>
-          ) : authType === 'key' ? (
+          ) : authType === 'key' || authType === 'certificate' ? (
             <>
               <div className="space-y-2">
                 <Label htmlFor="key-path" className="text-theme-text">{t('modals.edit_connection.key_path')}</Label>
@@ -197,6 +212,18 @@ export const EditConnectionModal: React.FC<EditConnectionModalProps> = ({
                   className="bg-theme-bg-panel border-theme-border text-theme-text focus-visible:ring-theme-accent"
                 />
               </div>
+              {authType === 'certificate' && (
+                <div className="space-y-2">
+                  <Label htmlFor="cert-path" className="text-theme-text">{t('modals.new_connection.certificate')}</Label>
+                  <Input
+                    id="cert-path"
+                    placeholder={t('modals.new_connection.certificate_placeholder')}
+                    value={certPath}
+                    onChange={(e) => setCertPath(e.target.value)}
+                    className="bg-theme-bg-panel border-theme-border text-theme-text focus-visible:ring-theme-accent"
+                  />
+                </div>
+              )}
               <div className="space-y-2">
                 <Label htmlFor="passphrase" className="text-theme-text">{t('modals.edit_connection.passphrase')}</Label>
                 <Input

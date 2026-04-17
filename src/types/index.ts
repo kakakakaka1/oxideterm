@@ -387,9 +387,10 @@ export interface ProxyHopConfig {
   host: string;
   port: number;
   username: string;
-  auth_type: 'password' | 'key' | 'default_key' | 'agent';
+  auth_type: 'password' | 'key' | 'default_key' | 'agent' | 'certificate';
   password?: string;
   key_path?: string;
+  cert_path?: string;
   passphrase?: string;
   agent_forwarding?: boolean;
 }
@@ -507,8 +508,9 @@ export interface ProxyHopInfo {
   host: string;
   port: number;
   username: string;
-  auth_type: 'password' | 'key' | 'agent';
+  auth_type: 'password' | 'key' | 'agent' | 'certificate';
   key_path?: string;
+  cert_path?: string;
   agent_forwarding?: boolean;
 }
 
@@ -647,10 +649,11 @@ export interface SaveConnectionRequest {
   host: string;
   port: number;
   username: string;
-  auth_type: 'password' | 'key' | 'agent' | 'certificate';
+  auth_type: 'password' | 'key' | 'default_key' | 'agent' | 'certificate';
   password?: string;
   key_path?: string;
   cert_path?: string;
+  passphrase?: string;
   color?: string;
   tags?: string[];
   agent_forwarding?: boolean;
@@ -665,6 +668,7 @@ export interface SaveProxyHopRequest {
   auth_type: string;
   password?: string;
   key_path?: string;
+  cert_path?: string;
   passphrase?: string;
   agent_forwarding?: boolean;
 }
@@ -875,6 +879,26 @@ export interface SshHostInfo {
     port: number;
     identity_file: string | null;
     already_imported: boolean;
+}
+
+export interface ResolvedSshConfigProxyHopInfo {
+  host: string;
+  port: number;
+  username: string;
+  authType: 'key' | 'default_key' | 'agent' | 'certificate';
+  keyPath: string | null;
+  certPath: string | null;
+}
+
+export interface ResolvedSshConfigHostInfo {
+  alias: string;
+  host: string;
+  port: number;
+  username: string;
+  authType: 'key' | 'default_key' | 'agent' | 'certificate';
+  keyPath: string | null;
+  certPath: string | null;
+  proxyChain: ResolvedSshConfigProxyHopInfo[];
 }
 
 export interface SshBatchImportResult {
@@ -1173,7 +1197,7 @@ export interface ConnectServerRequest {
   host: string;
   port: number;
   username: string;
-  authType?: 'password' | 'key' | 'agent' | 'certificate' | 'keyboard_interactive';
+  authType?: 'password' | 'key' | 'default_key' | 'agent' | 'certificate' | 'keyboard_interactive';
   password?: string;
   keyPath?: string;
   certPath?: string;
@@ -1190,7 +1214,7 @@ export interface DrillDownRequest {
   host: string;
   port: number;
   username: string;
-  authType?: 'password' | 'key' | 'agent' | 'certificate';
+  authType?: 'password' | 'key' | 'default_key' | 'agent' | 'certificate';
   password?: string;
   keyPath?: string;
   certPath?: string;
@@ -1206,7 +1230,7 @@ export interface HopInfo {
   host: string;
   port: number;
   username: string;
-  authType?: 'password' | 'key' | 'agent' | 'certificate';
+  authType?: 'password' | 'key' | 'default_key' | 'agent' | 'certificate';
   password?: string;
   keyPath?: string;
   certPath?: string;

@@ -137,6 +137,16 @@ fn build_auth(
                 password: Zeroizing::new(pwd),
             })
         }
+        "default_key" => {
+            let key_path = crate::session::auth::list_available_keys()
+                .into_iter()
+                .next()
+                .ok_or("No default SSH key found")?;
+            Ok(AuthMethod::Key {
+                key_path: key_path.to_string_lossy().into_owned(),
+                passphrase: passphrase.map(Zeroizing::new),
+            })
+        }
         "key" => {
             let path = key_path.ok_or("Key path required for key authentication")?;
             Ok(AuthMethod::Key {

@@ -204,6 +204,8 @@
     "cmd_reset_settings": "Redefinir todas as configurações",
     "confirm_reset_settings": "Tem certeza de que deseja redefinir todas as configurações para os padrões?",
     "cmd_reload_window": "Recarregar janela",
+    "quick_connect_alias_not_found": "Alias de config SSH '{{alias}}' não encontrado",
+    "quick_connect_resolve_failed": "Erro ao resolver alias '{{alias}}'",
     "footer_hint": "Pressione Esc para fechar"
   },
   "zen_mode": {

@@ -2578,8 +2578,19 @@ type SavedConnectionSnapshot = Readonly<{
   color: string | null;
   tags: readonly string[];
   agent_forwarding: boolean;
+  proxy_chain: readonly Readonly<{
+    host: string;
+    port: number;
+    username: string;
+    auth_type: 'password' | 'key' | 'agent' | 'certificate';
+    key_path?: string;
+    cert_path?: string;
+    agent_forwarding?: boolean;
+  }>[];
 }>;
 ```
+
+This snapshot is intentionally metadata-only. Passwords and key or certificate passphrases are never exposed to plugins, but key paths, certificate paths, and proxy-chain topology are available so sync or inventory plugins can reason about certificate-auth hops without re-reading private secrets.
 
 #### `onSavedConnectionsChange(handler)`
 

@@ -2666,8 +2666,19 @@ type SavedConnectionSnapshot = Readonly<{
   color: string | null;
   tags: readonly string[];
   agent_forwarding: boolean;
+  proxy_chain: readonly Readonly<{
+    host: string;
+    port: number;
+    username: string;
+    auth_type: 'password' | 'key' | 'agent' | 'certificate';
+    key_path?: string;
+    cert_path?: string;
+    agent_forwarding?: boolean;
+  }>[];
 }>;
 ```
+
+这个快照刻意只暴露非 secret 元数据。插件拿不到 password，也拿不到 key / certificate 的 passphrase；但会拿到 key_path、cert_path 和 proxy_chain 拓扑，便于同步类或审计类插件识别证书认证跳板，而不需要接触私密凭据。
 
 #### `onSavedConnectionsChange(handler)`
 

@@ -92,7 +92,7 @@ import { getAllThemeNames } from '@/lib/themes';
 import { api } from '@/lib/api';
 import { useReconnectOrchestratorStore } from '@/store/reconnectOrchestratorStore';
 import { useSessionTreeStore } from '@/store/sessionTreeStore';
-import type { ConnectionInfo, PaneNode } from '@/types';
+import type { ConnectionInfo, PaneNode, SshHostInfo } from '@/types';
 import { platform } from '@/lib/platform';
 import { type ActionId, getDisplayBinding } from '@/lib/keybindingRegistry';
 
@@ -130,6 +130,7 @@ type CommandPaletteProps = {
 // ─── Constants ────────────────────────────────────────────────────────
 
 const QUICK_CONNECT_RE = /^([^@\s]+)@([^:\s]+)(?::(\d+))?$/;
+const QUICK_CONNECT_ALIAS_RE = /^[^\s@:]+$/;
 
 const isMac = platform.isMac;
 
@@ -225,6 +226,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ open, onOpenChan
   const { toast } = useToast();
 
   const [rawQuery, setRawQuery] = useState('');
+  const [sshConfigHosts, setSshConfigHosts] = useState<SshHostInfo[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const isComposingRef = useRef(false);
 
@@ -833,22 +835,83 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ open, onOpenChan
     return items;
   }, [pluginCommands]);
 
+  const openResolvedQuickConnect = useCallback(async (alias: string) => {
+    try {
+      const resolved = await api.resolveSshConfigAlias(alias);
+      if (!resolved) {
+        toast({
+          title: t('command_palette.quick_connect_alias_not_found', { alias }),
+          variant: 'error',
+        });
+        return;
+      }
+
+      useAppStore.getState().toggleModal('newConnection', true, {
+        alias: resolved.alias,
+        name: resolved.alias,
+        host: resolved.host,
+        port: resolved.port,
+        username: resolved.username,
+        authType: resolved.authType,
+        keyPath: resolved.keyPath,
+        certPath: resolved.certPath,
+        proxyChain: resolved.proxyChain.map((hop) => ({
+          id: `${hop.username}@${hop.host}:${hop.port}`,
+          host: hop.host,
+          port: hop.port,
+          username: hop.username,
+          auth_type: hop.authType,
+          key_path: hop.keyPath ?? undefined,
+          cert_path: hop.certPath ?? undefined,
+        })),
+      });
+    } catch (error) {
+      toast({
+        title: t('command_palette.quick_connect_resolve_failed', { alias }),
+        description: String(error),
+        variant: 'error',
+      });
+    }
+  }, [t, toast]);
+
   // ── Quick connect item ───────────────────────────────────────────
 
   const quickConnectItem = useMemo<PaletteItem | null>(() => {
-    const match = QUICK_CONNECT_RE.exec(search.trim());
-    if (!match) return null;
-    const [, username, host, portStr] = match;
-    const port = portStr ? parseInt(portStr, 10) : 22;
+    if (mode !== 'all') return null;
+
+    const trimmed = search.trim();
+    const match = QUICK_CONNECT_RE.exec(trimmed);
+    if (match) {
+      const [, username, host, portStr] = match;
+      const port = portStr ? parseInt(portStr, 10) : 22;
+      return {
+        id: 'quick_connect',
+        label: `${t('command_palette.quick_connect')}: ${username}@${host}:${port}`,
+        section: 'quick_connect',
+        icon: <Zap className="h-4 w-4" />,
+        action: () => useAppStore.getState().toggleModal('newConnection', true, { host, port, username }),
+        value: `quick_connect ${username}@${host}:${port}`,
+      };
+    }
+
+    if (!trimmed || !QUICK_CONNECT_ALIAS_RE.test(trimmed)) {
+      return null;
+    }
+
+    const aliasExists = sshConfigHosts.some((host) => host.alias.toLowerCase() === trimmed.toLowerCase());
+    if (!aliasExists) {
+      return null;
+    }
+
     return {
-      id: 'quick_connect',
-      label: `${t('command_palette.quick_connect')}: ${username}@${host}:${port}`,
+      id: `quick_connect_alias:${trimmed}`,
+      label: `${t('command_palette.quick_connect')}: ${trimmed}`,
       section: 'quick_connect',
       icon: <Zap className="h-4 w-4" />,
-      action: () => useAppStore.getState().toggleModal('newConnection', true, { host, port, username }),
-      value: `quick_connect ${username}@${host}:${port}`,
+      action: () => openResolvedQuickConnect(trimmed),
+      value: `quick_connect ${trimmed}`,
     };
-  }, [search, t]);
+  }, [mode, openResolvedQuickConnect, search, sshConfigHosts, t]);
 
   // ── MRU recent items ─────────────────────────────────────────────
 
@@ -905,6 +968,31 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ open, onOpenChan
       requestAnimationFrame(() => inputRef.current?.focus());
     }
   }, [open, savedConnections.length]);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    let cancelled = false;
+
+    api.listSshConfigHosts()
+      .then((hosts) => {
+        if (!cancelled) {
+          setSshConfigHosts(hosts);
+        }
+      })
+      .catch((error) => {
+        console.error('Failed to load SSH config hosts for command palette:', error);
+        if (!cancelled) {
+          setSshConfigHosts([]);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
 
   // ── Mode badge label ─────────────────────────────────────────────
 

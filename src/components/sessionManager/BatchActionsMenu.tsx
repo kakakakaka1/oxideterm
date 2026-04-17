@@ -28,7 +28,6 @@ type BatchActionsMenuProps = {
 
 export const BatchActionsMenu = ({
   selectedIds,
-  allConnections,
   groups,
   onRefresh,
   onClearSelection,
@@ -68,24 +67,7 @@ export const BatchActionsMenu = ({
 
   const handleMoveToGroup = async (group: string) => {
     try {
-      for (const id of selectedIds) {
-        const conn = allConnections.find(c => c.id === id);
-        if (conn) {
-          await api.saveConnection({
-            id: conn.id,
-            name: conn.name,
-            group: group || null,
-            host: conn.host,
-            port: conn.port,
-            username: conn.username,
-            auth_type: conn.auth_type,
-            key_path: conn.key_path ?? undefined,
-            color: conn.color ?? undefined,
-            tags: conn.tags,
-            proxy_chain: conn.proxy_chain,
-          });
-        }
-      }
+      await api.moveConnectionsToGroup(Array.from(selectedIds), group || null);
       toast({
         title: t('sessionManager.toast.connections_moved', { count: selectedIds.size, group: group || t('sessionManager.folder_tree.ungrouped') }),
         description: '',

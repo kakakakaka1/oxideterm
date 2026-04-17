@@ -204,6 +204,8 @@
     "cmd_reset_settings": "Réinitialiser tous les paramètres",
     "confirm_reset_settings": "Êtes-vous sûr de vouloir réinitialiser tous les paramètres ?",
     "cmd_reload_window": "Recharger la fenêtre",
+    "quick_connect_alias_not_found": "Alias de config SSH '{{alias}}' introuvable",
+    "quick_connect_resolve_failed": "Échec de la résolution de l'alias '{{alias}}'",
     "footer_hint": "Appuyez sur Échap pour fermer"
   },
   "zen_mode": {

@@ -203,6 +203,8 @@
     "cmd_reset_settings": "重設所有設定",
     "confirm_reset_settings": "確定要將所有設定重設為預設值嗎？",
     "cmd_reload_window": "重新載入視窗",
+    "quick_connect_alias_not_found": "找不到名為 {{alias}} 的 SSH config alias",
+    "quick_connect_resolve_failed": "解析 SSH config alias {{alias}} 失敗",
     "footer_hint": "按 Esc 關閉"
   },
   "zen_mode": {
