@@ -36,10 +36,14 @@ type ManualProxyHopInput = {
   passphrase?: string | null;
 };
 
+function isMissingPassword(password?: string | null): password is undefined | null {
+  return password === undefined || password === null;
+}
+
 function buildProxyHopRequest(input: ManualProxyHopInput): TestConnectionProxyHop {
   switch (input.authType) {
     case 'password': {
-      if (!input.password) {
+      if (isMissingPassword(input.password)) {
         throw new Error(`Password is required for proxy hop ${input.username}@${input.host}`);
       }
       return {
@@ -120,7 +124,7 @@ function normalizeProxyHopInput(
 export function requiresSavedConnectionPasswordPrompt(
   connection: Pick<SavedConnectionForConnect, 'auth_type' | 'password'>,
 ): boolean {
-  return connection.auth_type === 'password' && !connection.password;
+  return connection.auth_type === 'password' && isMissingPassword(connection.password);
 }
 
 export function buildTestConnectionRequest(
@@ -138,7 +142,7 @@ export function buildTestConnectionRequest(
 
   switch (input.authType) {
     case 'password': {
-      if (!input.password) {
+      if (isMissingPassword(input.password)) {
         throw new Error('Password is required for password authentication');
       }
       return {

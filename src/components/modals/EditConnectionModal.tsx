@@ -248,7 +248,7 @@ export const EditConnectionModal: React.FC<EditConnectionModalProps> = ({
           </Button>
           <Button 
             onClick={handleConnect}
-            disabled={isConnecting || (authType === 'password' && !password) || (authType === 'key' && !keyPath)}
+            disabled={isConnecting || (authType === 'key' && !keyPath)}
             className="bg-theme-accent hover:bg-theme-accent-hover text-white"
           >
             {isConnecting

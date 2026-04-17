@@ -9,6 +9,8 @@ import {
 describe('testConnectionRequest helpers', () => {
   it('detects saved password connections without stored passwords', () => {
     expect(requiresSavedConnectionPasswordPrompt({ auth_type: 'password', password: undefined })).toBe(true);
+    expect(requiresSavedConnectionPasswordPrompt({ auth_type: 'password', password: null })).toBe(true);
+    expect(requiresSavedConnectionPasswordPrompt({ auth_type: 'password', password: '' })).toBe(false);
     expect(requiresSavedConnectionPasswordPrompt({ auth_type: 'key', password: undefined })).toBe(false);
   });
 
@@ -46,6 +48,41 @@ describe('testConnectionRequest helpers', () => {
       name: undefined,
       auth_type: 'password',
       password: 'top-secret',
+    });
+  });
+
+  it('allows explicitly empty passwords for direct and proxy-hop password auth', () => {
+    expect(buildTestConnectionRequest({
+      host: 'example.com',
+      port: 22,
+      username: 'tester',
+      authType: 'password',
+      password: '',
+      proxyChain: [
+        {
+          host: 'jump.example.com',
+          port: 22,
+          username: 'jump',
+          authType: 'password',
+          password: '',
+        },
+      ],
+    })).toEqual({
+      host: 'example.com',
+      port: 22,
+      username: 'tester',
+      name: undefined,
+      auth_type: 'password',
+      password: '',
+      proxy_chain: [
+        {
+          host: 'jump.example.com',
+          port: 22,
+          username: 'jump',
+          auth_type: 'password',
+          password: '',
+        },
+      ],
     });
   });
 

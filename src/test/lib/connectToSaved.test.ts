@@ -236,6 +236,34 @@ describe('connectToSaved', () => {
     expect(sessionTreeState.connectNodeWithAncestors).not.toHaveBeenCalled();
   });
 
+  it('treats an explicitly empty saved password as a valid password auth value', async () => {
+    apiMocks.getSavedConnectionForConnect.mockResolvedValue({
+      name: 'Empty Password',
+      host: 'example.com',
+      port: 22,
+      username: 'tester',
+      auth_type: 'password',
+      password: '',
+      agent_forwarding: false,
+      proxy_chain: [],
+    });
+    const onError = vi.fn();
+
+    await connectToSaved('saved-empty-password', {
+      createTab: vi.fn(),
+      toast: vi.fn(),
+      t: (key: string) => key,
+      onError,
+    });
+
+    expect(onError).not.toHaveBeenCalled();
+    expect(sessionTreeState.addRootNode).toHaveBeenCalledWith(expect.objectContaining({
+      authType: 'password',
+      password: '',
+    }));
+    expect(sessionTreeState.connectNodeWithAncestors).toHaveBeenCalled();
+  });
+
   it('reuses an active node without prompting for password when a terminal already exists', async () => {
     sessionTreeState.nodes = [
       {

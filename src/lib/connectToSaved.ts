@@ -4,6 +4,7 @@
 import { api } from './api';
 import { findUnsupportedProxyHopAuth } from './proxyHopSupport';
 import { notifyConnectionIssue } from './notificationCenter';
+import { requiresSavedConnectionPasswordPrompt } from './testConnectionRequest';
 import { useSessionTreeStore } from '../store/sessionTreeStore';
 import { useAppStore } from '../store/appStore';
 import type { UnifiedFlatNode } from '../types';
@@ -52,8 +53,6 @@ export async function connectToSaved(
 
   try {
     const savedConn = await api.getSavedConnectionForConnect(connectionId);
-
-    const requiresPasswordPrompt = (authType?: string, password?: string) => authType === 'password' && !password;
 
     // ========== Proxy Chain 支持 ==========
     if (savedConn.proxy_chain && savedConn.proxy_chain.length > 0) {
@@ -147,7 +146,7 @@ export async function connectToSaved(
     );
 
     const canReuseActiveNode = !!existingNode && existingNode.runtime.status === 'active';
-    if (!canReuseActiveNode && requiresPasswordPrompt(savedConn.auth_type, savedConn.password)) {
+    if (!canReuseActiveNode && requiresSavedConnectionPasswordPrompt(savedConn)) {
       onError?.(connectionId, 'missing-password');
       return null;
     }
