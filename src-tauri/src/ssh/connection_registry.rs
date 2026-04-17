@@ -42,7 +42,7 @@ use super::auth::{
     DEFAULT_AUTH_TIMEOUT_SECS, authenticate_certificate_best_algo, authenticate_password,
     authenticate_publickey_best_algo, build_client_config, ensure_auth_success,
     load_certificate_auth_material, load_private_key_material, try_kbi_auth_chain,
-    try_password_as_kbi_fallback,
+    try_none_auth_probe, try_password_as_kbi_fallback,
 };
 use super::handle_owner::HandleController;
 use super::{AuthMethod as SshAuthMethod, SshClient, SshConfig};
@@ -1090,47 +1090,63 @@ impl SshConnectionRegistry {
         debug!("SSH handshake via tunnel completed");
 
         // 5. 认证
-        let authenticated = match &target_config.auth {
-            AuthMethod::Password { password } => authenticate_password(
-                &mut handle,
-                &target_config.username,
-                password,
-                DEFAULT_AUTH_TIMEOUT_SECS,
-                "Password authentication timed out",
-                "Password authentication timed out (retry)",
-                &format!("Tunnel password auth to {}", target_config.host),
-            )
-            .await
-            .map_err(|e| ConnectionRegistryError::ConnectionFailed(e.to_string()))?,
-            AuthMethod::Key {
-                key_path,
-                passphrase,
-            } => {
-                let key =
-                    load_private_key_material(key_path, passphrase.as_ref().map(|p| p.as_str()))
-                        .map_err(|e| ConnectionRegistryError::ConnectionFailed(e.to_string()))?;
-                authenticate_publickey_best_algo(&mut handle, &target_config.username, key)
-                    .await
-                    .map_err(|e| {
-                        ConnectionRegistryError::ConnectionFailed(format!(
-                            "Authentication failed: {}",
-                            e
-                        ))
-                    })?
-            }
-            AuthMethod::Certificate {
-                key_path,
-                cert_path,
-                passphrase,
-            } => {
-                let (key, cert) = load_certificate_auth_material(
+        // 先发隐式 "none" auth probe（与 OpenSSH 行为一致），
+        // 部分网关（如 cnb.space）直接接受 none auth，不做此探测会导致超时。
+        // 详见: https://github.com/AnalyseDeCircuit/oxideterm/issues/95
+        let auth_scope = format!("Tunnel auth to {}", target_config.host);
+        let authenticated = if let Some(result) =
+            try_none_auth_probe(&mut handle, &target_config.username, &auth_scope).await
+        {
+            result
+        } else {
+            match &target_config.auth {
+                AuthMethod::Password { password } => authenticate_password(
+                    &mut handle,
+                    &target_config.username,
+                    password,
+                    DEFAULT_AUTH_TIMEOUT_SECS,
+                    "Password authentication timed out",
+                    "Password authentication timed out (retry)",
+                    &format!("Tunnel password auth to {}", target_config.host),
+                )
+                .await
+                .map_err(|e| ConnectionRegistryError::ConnectionFailed(e.to_string()))?,
+                AuthMethod::Key {
+                    key_path,
+                    passphrase,
+                } => {
+                    let key = load_private_key_material(
+                        key_path,
+                        passphrase.as_ref().map(|p| p.as_str()),
+                    )
+                    .map_err(|e| ConnectionRegistryError::ConnectionFailed(e.to_string()))?;
+                    authenticate_publickey_best_algo(&mut handle, &target_config.username, key)
+                        .await
+                        .map_err(|e| {
+                            ConnectionRegistryError::ConnectionFailed(format!(
+                                "Authentication failed: {}",
+                                e
+                            ))
+                        })?
+                }
+                AuthMethod::Certificate {
                     key_path,
                     cert_path,
-                    passphrase.as_ref().map(|p| p.as_str()),
-                )
-                .map_err(|e| ConnectionRegistryError::ConnectionFailed(e.to_string()))?;
+                    passphrase,
+                } => {
+                    let (key, cert) = load_certificate_auth_material(
+                        key_path,
+                        cert_path,
+                        passphrase.as_ref().map(|p| p.as_str()),
+                    )
+                    .map_err(|e| ConnectionRegistryError::ConnectionFailed(e.to_string()))?;
 
-                authenticate_certificate_best_algo(&mut handle, &target_config.username, key, cert)
+                    authenticate_certificate_best_algo(
+                        &mut handle,
+                        &target_config.username,
+                        key,
+                        cert,
+                    )
                     .await
                     .map_err(|e| {
                         ConnectionRegistryError::ConnectionFailed(format!(
@@ -1138,33 +1154,35 @@ impl SshConnectionRegistry {
                             e
                         ))
                     })?
-            }
-            AuthMethod::Agent => {
-                let mut agent =
-                    crate::ssh::agent::SshAgentClient::connect()
+                }
+                AuthMethod::Agent => {
+                    let mut agent =
+                        crate::ssh::agent::SshAgentClient::connect()
+                            .await
+                            .map_err(|e| {
+                                ConnectionRegistryError::ConnectionFailed(format!(
+                                    "Failed to connect to SSH agent: {}",
+                                    e
+                                ))
+                            })?;
+                    agent
+                        .authenticate(&mut handle, target_config.username.clone())
                         .await
                         .map_err(|e| {
                             ConnectionRegistryError::ConnectionFailed(format!(
-                                "Failed to connect to SSH agent: {}",
+                                "Agent authentication failed: {}",
                                 e
                             ))
                         })?;
-                agent
-                    .authenticate(&mut handle, target_config.username.clone())
-                    .await
-                    .map_err(|e| {
-                        ConnectionRegistryError::ConnectionFailed(format!(
-                            "Agent authentication failed: {}",
-                            e
-                        ))
-                    })?;
-                russh::client::AuthResult::Success
-            }
-            AuthMethod::KeyboardInteractive => {
-                // KBI via proxy chain is not supported in MVP
-                return Err(ConnectionRegistryError::ConnectionFailed(
-                    "KeyboardInteractive authentication not supported via proxy chain".to_string(),
-                ));
+                    russh::client::AuthResult::Success
+                }
+                AuthMethod::KeyboardInteractive => {
+                    // KBI via proxy chain is not supported in MVP
+                    return Err(ConnectionRegistryError::ConnectionFailed(
+                        "KeyboardInteractive authentication not supported via proxy chain"
+                            .to_string(),
+                    ));
+                }
             }
         };
 

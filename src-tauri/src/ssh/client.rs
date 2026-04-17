@@ -15,7 +15,8 @@ use super::auth::{
     DEFAULT_AUTH_TIMEOUT_SECS, authenticate_certificate_best_algo,
     authenticate_keyboard_interactive, authenticate_password, authenticate_publickey_best_algo,
     build_client_config, ensure_auth_success, load_certificate_auth_material,
-    load_private_key_material, try_kbi_auth_chain, try_password_as_kbi_fallback,
+    load_private_key_material, try_kbi_auth_chain, try_none_auth_probe,
+    try_password_as_kbi_fallback,
 };
 use super::config::{AuthMethod, SshConfig};
 use super::error::SshError;
@@ -86,59 +87,80 @@ impl SshClient {
 
         debug!("SSH handshake completed");
 
-        // Authenticate
-        let authenticated = match &self.config.auth {
-            AuthMethod::Password { password } => {
-                authenticate_password(
-                    &mut handle,
-                    &self.config.username,
-                    password,
-                    DEFAULT_AUTH_TIMEOUT_SECS,
-                    "Password authentication timed out",
-                    "Password authentication timed out (retry)",
-                    "Password auth",
-                )
-                .await?
-            }
-            AuthMethod::Key {
-                key_path,
-                passphrase,
-            } => {
-                let key =
-                    load_private_key_material(key_path, passphrase.as_ref().map(|p| p.as_str()))?;
-                authenticate_publickey_best_algo(&mut handle, &self.config.username, key).await?
-            }
-            AuthMethod::Agent => {
-                // Connect to SSH Agent and authenticate
-                let mut agent = crate::ssh::agent::SshAgentClient::connect().await?;
-                agent
-                    .authenticate(&mut handle, self.config.username.clone())
-                    .await?;
-                client::AuthResult::Success
-            }
-            AuthMethod::Certificate {
-                key_path,
-                cert_path,
-                passphrase,
-            } => {
-                let (key, cert) = load_certificate_auth_material(
+        // Authenticate.
+        // Step 1: implicit "none" auth probe (mirrors OpenSSH behavior).
+        // Some gateways (e.g. cnb.space) accept "none" auth immediately;
+        // without this probe they'd timeout waiting for a real auth method.
+        // See: https://github.com/AnalyseDeCircuit/oxideterm/issues/95
+        // Step 2: if probe doesn't succeed, fall through to user-selected method.
+        let auth_scope = format!("SSH auth to {}", addr);
+        let authenticated = if let Some(result) =
+            try_none_auth_probe(&mut handle, &self.config.username, &auth_scope).await
+        {
+            result
+        } else {
+            match &self.config.auth {
+                AuthMethod::Password { password } => {
+                    authenticate_password(
+                        &mut handle,
+                        &self.config.username,
+                        password,
+                        DEFAULT_AUTH_TIMEOUT_SECS,
+                        "Password authentication timed out",
+                        "Password authentication timed out (retry)",
+                        "Password auth",
+                    )
+                    .await?
+                }
+                AuthMethod::Key {
+                    key_path,
+                    passphrase,
+                } => {
+                    let key = load_private_key_material(
+                        key_path,
+                        passphrase.as_ref().map(|p| p.as_str()),
+                    )?;
+                    authenticate_publickey_best_algo(&mut handle, &self.config.username, key)
+                        .await?
+                }
+                AuthMethod::Agent => {
+                    // Connect to SSH Agent and authenticate
+                    let mut agent = crate::ssh::agent::SshAgentClient::connect().await?;
+                    agent
+                        .authenticate(&mut handle, self.config.username.clone())
+                        .await?;
+                    client::AuthResult::Success
+                }
+                AuthMethod::Certificate {
                     key_path,
                     cert_path,
-                    passphrase.as_ref().map(|p| p.as_str()),
-                )?;
+                    passphrase,
+                } => {
+                    let (key, cert) = load_certificate_auth_material(
+                        key_path,
+                        cert_path,
+                        passphrase.as_ref().map(|p| p.as_str()),
+                    )?;
 
-                authenticate_certificate_best_algo(&mut handle, &self.config.username, key, cert)
+                    authenticate_certificate_best_algo(
+                        &mut handle,
+                        &self.config.username,
+                        key,
+                        cert,
+                    )
                     .await?
-            }
-            AuthMethod::KeyboardInteractive => {
-                let Some(app) = app_handle else {
-                    return Err(SshError::AuthenticationFailed(
-                        "KeyboardInteractive requires an interactive UI context".to_string(),
-                    ));
-                };
+                }
+                AuthMethod::KeyboardInteractive => {
+                    let Some(app) = app_handle else {
+                        return Err(SshError::AuthenticationFailed(
+                            "KeyboardInteractive requires an interactive UI context".to_string(),
+                        ));
+                    };
 
-                authenticate_keyboard_interactive(&mut handle, &self.config.username, app).await?;
-                client::AuthResult::Success
+                    authenticate_keyboard_interactive(&mut handle, &self.config.username, app)
+                        .await?;
+                    client::AuthResult::Success
+                }
             }
         };
 

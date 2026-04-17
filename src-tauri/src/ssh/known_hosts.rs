@@ -361,7 +361,8 @@ impl KnownHostsStore {
 
         let mut removed_any = false;
 
-        removed_any |= self.rewrite_without_host_key(&lookup_keys, key_type, expected_fingerprint)?;
+        removed_any |=
+            self.rewrite_without_host_key(&lookup_keys, key_type, expected_fingerprint)?;
 
         {
             let mut hosts = self.hosts.write();
@@ -408,7 +409,10 @@ impl KnownHostsStore {
         }
 
         let content = fs::read_to_string(&self.path).map_err(SshError::IoError)?;
-        let remove_hosts: Vec<String> = remove_hosts.iter().map(|host| host.to_lowercase()).collect();
+        let remove_hosts: Vec<String> = remove_hosts
+            .iter()
+            .map(|host| host.to_lowercase())
+            .collect();
         let mut removed_any = false;
 
         let filtered: Vec<String> = content
@@ -435,7 +439,9 @@ impl KnownHostsStore {
                     .split(',')
                     .filter(|h| {
                         let canonical = Self::canonical_host_entry(h);
-                        !remove_hosts.iter().any(|remove_host| canonical == *remove_host)
+                        !remove_hosts
+                            .iter()
+                            .any(|remove_host| canonical == *remove_host)
                     })
                     .collect();
 
@@ -449,7 +455,11 @@ impl KnownHostsStore {
                     return None;
                 }
 
-                let mut rebuilt = vec![kept_hostnames.join(","), key_type.to_string(), key_data.to_string()];
+                let mut rebuilt = vec![
+                    kept_hostnames.join(","),
+                    key_type.to_string(),
+                    key_data.to_string(),
+                ];
                 if parts.len() > 3 {
                     rebuilt.extend(parts[3..].iter().map(|part| (*part).to_string()));
                 }
@@ -684,7 +694,10 @@ mod tests {
 
         let content = fs::read_to_string(path).unwrap();
         assert!(content.contains(&format!("example.com ssh-ed25519 {}", fallback_key_data)));
-        assert!(!content.contains(&format!("[example.com]:2222 ssh-ed25519 {}", exact_key_data)));
+        assert!(!content.contains(&format!(
+            "[example.com]:2222 ssh-ed25519 {}",
+            exact_key_data
+        )));
     }
 
     #[test]
@@ -709,7 +722,10 @@ mod tests {
 
         let content = fs::read_to_string(path).unwrap();
         assert!(!content.contains("example.com,"));
-        assert!(content.contains(&format!("alias.example.com ssh-ed25519 {} keep-me", key_data)));
+        assert!(content.contains(&format!(
+            "alias.example.com ssh-ed25519 {} keep-me",
+            key_data
+        )));
     }
 
     #[test]

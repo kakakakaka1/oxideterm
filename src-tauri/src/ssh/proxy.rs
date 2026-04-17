@@ -35,7 +35,7 @@ use tracing::{debug, info};
 use super::auth::{
     DEFAULT_AUTH_TIMEOUT_SECS, authenticate_certificate_best_algo, authenticate_password,
     authenticate_publickey_best_algo, build_client_config, ensure_auth_success,
-    load_certificate_auth_material, load_private_key_material,
+    load_certificate_auth_material, load_private_key_material, try_none_auth_probe,
 };
 use super::client::ClientHandler;
 use super::config::AuthMethod;
@@ -261,61 +261,72 @@ async fn authenticate_proxy_hop(
     hop: &ProxyHop,
     auth_path: ProxyAuthPath,
 ) -> Result<(), SshError> {
-    let authenticated = match &hop.auth {
-        AuthMethod::Password { password } => {
-            let (timeout_message, retry_timeout_message, retry_debug_label) = match auth_path {
-                ProxyAuthPath::Direct => (
-                    format!("Password auth to {} timed out", hop.host),
-                    format!("Password auth to {} timed out (retry)", hop.host),
-                    format!("Jump host password auth to {}", hop.host),
-                ),
-                ProxyAuthPath::Stream => (
-                    format!("Password auth to {} timed out", hop.host),
-                    format!("Password auth to {} timed out (retry)", hop.host),
-                    format!("Stream password auth to {}", hop.host),
-                ),
-            };
+    // Implicit "none" auth probe before configured method.
+    // See try_none_auth_probe() doc and issue #95 for rationale.
+    let auth_scope = format!("Proxy auth to {}", hop.host);
+    let authenticated = if let Some(result) =
+        try_none_auth_probe(handle, &hop.username, &auth_scope).await
+    {
+        result
+    } else {
+        match &hop.auth {
+            AuthMethod::Password { password } => {
+                let (timeout_message, retry_timeout_message, retry_debug_label) = match auth_path {
+                    ProxyAuthPath::Direct => (
+                        format!("Password auth to {} timed out", hop.host),
+                        format!("Password auth to {} timed out (retry)", hop.host),
+                        format!("Jump host password auth to {}", hop.host),
+                    ),
+                    ProxyAuthPath::Stream => (
+                        format!("Password auth to {} timed out", hop.host),
+                        format!("Password auth to {} timed out (retry)", hop.host),
+                        format!("Stream password auth to {}", hop.host),
+                    ),
+                };
 
-            authenticate_password(
-                handle,
-                &hop.username,
-                password,
-                DEFAULT_AUTH_TIMEOUT_SECS,
-                &timeout_message,
-                &retry_timeout_message,
-                &retry_debug_label,
-            )
-            .await?
-        }
-        AuthMethod::Key {
-            key_path,
-            passphrase,
-        } => {
-            let key = load_private_key_material(key_path, passphrase.as_ref().map(|p| p.as_str()))?;
-            authenticate_publickey_best_algo(handle, &hop.username, key).await?
-        }
-        AuthMethod::Certificate {
-            key_path,
-            cert_path,
-            passphrase,
-        } => {
-            let (key, cert) = load_certificate_auth_material(
+                authenticate_password(
+                    handle,
+                    &hop.username,
+                    password,
+                    DEFAULT_AUTH_TIMEOUT_SECS,
+                    &timeout_message,
+                    &retry_timeout_message,
+                    &retry_debug_label,
+                )
+                .await?
+            }
+            AuthMethod::Key {
+                key_path,
+                passphrase,
+            } => {
+                let key =
+                    load_private_key_material(key_path, passphrase.as_ref().map(|p| p.as_str()))?;
+                authenticate_publickey_best_algo(handle, &hop.username, key).await?
+            }
+            AuthMethod::Certificate {
                 key_path,
                 cert_path,
-                passphrase.as_ref().map(|p| p.as_str()),
-            )?;
+                passphrase,
+            } => {
+                let (key, cert) = load_certificate_auth_material(
+                    key_path,
+                    cert_path,
+                    passphrase.as_ref().map(|p| p.as_str()),
+                )?;
 
-            authenticate_certificate_best_algo(handle, &hop.username, key, cert).await?
-        }
-        AuthMethod::Agent => {
-            let mut agent = crate::ssh::agent::SshAgentClient::connect().await?;
-            agent.authenticate(handle, hop.username.clone()).await?;
-            client::AuthResult::Success
-        }
-        AuthMethod::KeyboardInteractive => {
-            return Err(SshError::AuthenticationFailed(
-                "KeyboardInteractive authentication not supported for proxy chain hops".to_string(),
-            ));
+                authenticate_certificate_best_algo(handle, &hop.username, key, cert).await?
+            }
+            AuthMethod::Agent => {
+                let mut agent = crate::ssh::agent::SshAgentClient::connect().await?;
+                agent.authenticate(handle, hop.username.clone()).await?;
+                client::AuthResult::Success
+            }
+            AuthMethod::KeyboardInteractive => {
+                return Err(SshError::AuthenticationFailed(
+                    "KeyboardInteractive authentication not supported for proxy chain hops"
+                        .to_string(),
+                ));
+            }
         }
     };
 

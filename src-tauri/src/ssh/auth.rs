@@ -31,6 +31,11 @@ use super::keyboard_interactive::{
 use crate::path_utils::expand_tilde;
 
 pub(crate) const DEFAULT_AUTH_TIMEOUT_SECS: u64 = 30;
+
+/// Timeout for the implicit "none" auth probe (see `try_none_auth_probe`).
+/// Kept short (5s) so that normal servers that reject "none" don't noticeably
+/// delay the overall connection flow.
+const NONE_AUTH_PROBE_TIMEOUT_SECS: u64 = 5;
 const PASSWORD_RETRY_DELAY_MS: u64 = 500;
 const RSA_AUTH_ALGORITHMS: [Option<HashAlg>; 3] =
     [Some(HashAlg::Sha512), Some(HashAlg::Sha256), None];
@@ -75,6 +80,66 @@ pub(crate) fn build_client_config() -> client::Config {
         window_size: 32 * 1024 * 1024,
         maximum_packet_size: 256 * 1024,
         ..Default::default()
+    }
+}
+
+/// Implicit "none" authentication probe — mirrors OpenSSH behavior.
+///
+/// Some SSH gateways (e.g. cnb.space cloud dev platform) accept the RFC 4252
+/// `"none"` method immediately after `ssh-userauth` service setup, skipping
+/// real authentication entirely. OpenSSH always sends a `"none"` request
+/// first to discover allowed methods; russh does **not** do this by default.
+///
+/// Without this probe, OxideTerm would send a real auth request (password/key/
+/// agent) that the gateway either ignores or rejects, causing a 30s timeout
+/// or a `Channel send error`.
+///
+/// The probe is transparent to users:
+/// - If the server accepts "none" → return `Some(Success)`, skip further auth.
+/// - If the server rejects / times out / errors → return `None`, fall through
+///   to the user-selected auth method with zero side effects.
+///
+/// See: <https://github.com/AnalyseDeCircuit/oxideterm/issues/95>
+pub(crate) async fn try_none_auth_probe(
+    handle: &mut client::Handle<ClientHandler>,
+    username: &str,
+    auth_scope: &str,
+) -> Option<client::AuthResult> {
+    let result = match tokio::time::timeout(
+        Duration::from_secs(NONE_AUTH_PROBE_TIMEOUT_SECS),
+        handle.authenticate_none(username),
+    )
+    .await
+    {
+        Ok(Ok(result)) => result,
+        Ok(Err(error)) => {
+            debug!(
+                "{}: none auth probe failed for {}: {}",
+                auth_scope, username, error
+            );
+            return None;
+        }
+        Err(_) => {
+            debug!(
+                "{}: none auth probe timed out for {} after {}s",
+                auth_scope, username, NONE_AUTH_PROBE_TIMEOUT_SECS
+            );
+            return None;
+        }
+    };
+
+    if result.success() {
+        info!(
+            "{}: server accepted none authentication for {}",
+            auth_scope, username
+        );
+        Some(result)
+    } else {
+        debug!(
+            "{}: none auth probe rejected for {} with {:?}",
+            auth_scope, username, result
+        );
+        None
     }
 }
 
@@ -829,6 +894,11 @@ mod tests {
         assert_eq!(config.window_size, 32 * 1024 * 1024);
         assert_eq!(config.maximum_packet_size, 256 * 1024);
         assert!(config.inactivity_timeout.is_none());
+    }
+
+    #[test]
+    fn test_none_auth_probe_timeout_is_short() {
+        assert_eq!(NONE_AUTH_PROBE_TIMEOUT_SECS, 5);
     }
 
     #[test]
