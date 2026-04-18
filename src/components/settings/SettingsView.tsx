@@ -193,7 +193,7 @@ export const SettingsView = () => {
             {/* Content */}
             <div className="flex-1 overflow-y-auto">
                 <div className="max-w-4xl mx-auto p-10">
-                    {activeTab === 'general' && <GeneralTab general={general} setLanguage={setLanguage} />}
+                    {activeTab === 'general' && <GeneralTab general={general} setLanguage={setLanguage} portableStatus={portableStatus ?? null} />}
 
                     {activeTab === 'terminal' && <TerminalTab terminal={terminal} updateTerminal={updateTerminal} />}
 

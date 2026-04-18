@@ -17,6 +17,7 @@ import { exportOxideWithClientState, type OxideExportProgress } from '../../lib/
 import { api } from '../../lib/api';
 import { collectPluginSettingsSnapshot, parseSettingStorageKey } from '../../lib/plugin/pluginSettingsManager';
 import {
+  getAllOxideAppSettingsExportSections,
   getDefaultOxideAppSettingsExportSections,
   type OxideAppSettingsSectionId,
 } from '../../store/settingsStore';
@@ -25,6 +26,7 @@ import type { ExportPreflightResult, PersistedForwardInfo } from '../../types';
 type OxideExportModalProps = {
   isOpen: boolean;
   onClose: () => void;
+  mode?: 'default' | 'portableMigration';
 };
 
 type ExportStage = 'idle' | 'reading_keys' | 'encrypting' | 'writing' | 'done';
@@ -64,11 +66,15 @@ function getFallbackProgressPercent(stage: ExportStage): number {
   }
 }
 
-export function OxideExportModal({ isOpen, onClose }: OxideExportModalProps) {
+export function OxideExportModal({ isOpen, onClose, mode = 'default' }: OxideExportModalProps) {
   const { t } = useTranslation();
   const { savedConnections, loadSavedConnections } = useAppStore();
   const defaultAppSettingsSections = useMemo(
     () => getDefaultOxideAppSettingsExportSections(),
+    [],
+  );
+  const allAppSettingsSections = useMemo(
+    () => getAllOxideAppSettingsExportSections(),
     [],
   );
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -86,6 +92,7 @@ export function OxideExportModal({ isOpen, onClose }: OxideExportModalProps) {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [description, setDescription] = useState('');
   const [embedKeys, setEmbedKeys] = useState(false);
+  const [includePortableSecrets, setIncludePortableSecrets] = useState(mode === 'portableMigration');
   const [exporting, setExporting] = useState(false);
   const [exportStage, setExportStage] = useState<ExportStage>('idle');
   const [exportProgress, setExportProgress] = useState<OxideExportProgress | null>(null);
@@ -114,12 +121,13 @@ export function OxideExportModal({ isOpen, onClose }: OxideExportModalProps) {
     selectedIds.length > 0
     || hasSelectedAppSettings
     || hasSelectedPluginSettings
+    || includePortableSecrets
     || selectedForwardIds.size > 0,
   );
   const selectedPluginSettingCount = pluginGroupEntries.reduce((total, [pluginId, count]) => (
     selectedPluginIds.has(pluginId) ? total + count : total
   ), 0);
-  const appSettingsSectionIds = defaultAppSettingsSections;
+  const appSettingsSectionIds = allAppSettingsSections;
 
   const formatAppSettingsSectionLabel = (sectionId: OxideAppSettingsSectionId) => {
     switch (sectionId) {
@@ -133,6 +141,8 @@ export function OxideExportModal({ isOpen, onClose }: OxideExportModalProps) {
         return t('settings_view.appearance.title');
       case 'connections':
         return t('settings_view.connections.title');
+      case 'ai':
+        return t('settings_view.tabs.ai');
       case 'fileAndEditor':
         return t('modals.export.app_settings_section_file_editor');
       case 'localTerminal':
@@ -189,23 +199,38 @@ export function OxideExportModal({ isOpen, onClose }: OxideExportModalProps) {
 
     setSelectedIds([]);
     setIncludeAppSettings(true);
-    setSelectedAppSettingsSections(new Set(defaultAppSettingsSections));
+    setSelectedAppSettingsSections(new Set(
+      mode === 'portableMigration'
+        ? Array.from(new Set([...defaultAppSettingsSections, 'ai']))
+        : defaultAppSettingsSections,
+    ));
     setIncludeLocalTerminalEnvVars(false);
     setIncludePluginSettings(true);
     setPassword('');
     setConfirmPassword('');
     setDescription('');
-    setEmbedKeys(false);
+    setEmbedKeys(mode === 'portableMigration');
+    setIncludePortableSecrets(mode === 'portableMigration');
     setError(null);
     setPreflight(null);
     setExportStage('idle');
     setExportProgress(null);
 
     void loadExportSources();
-  }, [isOpen, loadExportSources]);
+  }, [defaultAppSettingsSections, isOpen, loadExportSources, mode]);
 
-  const runPreflight = useCallback(async (ids: string[], embed: boolean) => {
-    if (ids.length === 0) {
+  useEffect(() => {
+    if (!isOpen || mode !== 'portableMigration') {
+      return;
+    }
+
+    setSelectedIds(savedConnections.map((connection) => connection.id));
+    setSelectedForwardIds(new Set(allSavedForwards.map((forward) => forward.id)));
+    setSelectedPluginIds(new Set(Object.keys(pluginGroups)));
+  }, [allSavedForwards, isOpen, mode, pluginGroups, savedConnections]);
+
+  const runPreflight = useCallback(async (ids: string[], embed: boolean, includeSecrets: boolean) => {
+    if (ids.length === 0 && !includeSecrets) {
       setPreflight(null);
       return;
     }
@@ -215,6 +240,7 @@ export function OxideExportModal({ isOpen, onClose }: OxideExportModalProps) {
       const result: ExportPreflightResult = await invoke('preflight_export', {
         connectionIds: ids,
         embedKeys: embed || null,
+        includePortableSecrets: includeSecrets || null,
       });
       setPreflight(result);
     } catch (err) {
@@ -226,10 +252,10 @@ export function OxideExportModal({ isOpen, onClose }: OxideExportModalProps) {
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      void runPreflight(effectiveConnectionIds, embedKeys);
+      void runPreflight(effectiveConnectionIds, embedKeys, includePortableSecrets);
     }, 300);
     return () => clearTimeout(timer);
-  }, [effectiveConnectionIds, embedKeys, runPreflight]);
+  }, [effectiveConnectionIds, embedKeys, includePortableSecrets, runPreflight]);
 
   const handleSelectAll = () => {
     if (selectedIds.length === savedConnections.length) {
@@ -393,6 +419,7 @@ export function OxideExportModal({ isOpen, onClose }: OxideExportModalProps) {
         password,
         description: description || null,
         embedKeys: embedKeys || null,
+        includePortableSecrets,
         includeAppSettings,
         selectedAppSettingsSections: Array.from(selectedAppSettingsSections),
         includeLocalTerminalEnvVars,
@@ -649,6 +676,23 @@ export function OxideExportModal({ isOpen, onClose }: OxideExportModalProps) {
                 ))
               )}
             </div>
+
+            <div className="flex items-start space-x-2">
+              <Checkbox
+                id="includePortableSecrets"
+                checked={includePortableSecrets}
+                onCheckedChange={(checked) => setIncludePortableSecrets(checked === true)}
+                className="mt-0.5 border-theme-text-muted data-[state=checked]:bg-theme-accent data-[state=checked]:border-theme-accent"
+              />
+              <div className="flex flex-col">
+                <Label htmlFor="includePortableSecrets" className="cursor-pointer text-theme-text">
+                  {t('modals.export.include_portable_secrets')}
+                </Label>
+                <p className="text-xs text-theme-text-muted mt-0.5">
+                  {t('modals.export.include_portable_secrets_description')}
+                </p>
+              </div>
+            </div>
           </div>
 
           <div>
@@ -658,7 +702,7 @@ export function OxideExportModal({ isOpen, onClose }: OxideExportModalProps) {
               {preflightLoading && <Loader2 className="h-3 w-3 animate-spin" />}
             </div>
 
-            {effectiveConnectionIds.length > 0 && preflight && (
+            {(effectiveConnectionIds.length > 0 || includePortableSecrets) && preflight && (
               <div className="border border-theme-border rounded-md p-3 bg-theme-bg space-y-2">
                 <div className="grid grid-cols-3 gap-2 text-xs">
                   <div className="flex items-center gap-1.5 text-theme-text-muted">
@@ -674,6 +718,12 @@ export function OxideExportModal({ isOpen, onClose }: OxideExportModalProps) {
                     <span>{t('modals.export.summary_agent', { count: preflight.connectionsWithAgent })}</span>
                   </div>
                 </div>
+
+                {preflight.portableSecretCount > 0 && (
+                  <div className="text-xs text-theme-text-muted">
+                    {t('modals.export.summary_portable_secrets', { count: preflight.portableSecretCount })}
+                  </div>
+                )}
 
                 {preflight.connectionsWithPasswords > 0 && (
                   <div className="bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 px-2 py-1.5 rounded text-xs">
@@ -752,6 +802,11 @@ export function OxideExportModal({ isOpen, onClose }: OxideExportModalProps) {
                   count: selectedPluginSettingCount,
                 })}</li>
               )}
+              {includePortableSecrets && (
+                <li>{t('modals.export.content_summary_portable_secrets', {
+                  count: preflight?.portableSecretCount ?? 0,
+                })}</li>
+              )}
               {embedKeys && (
                 <li>{t('modals.export.content_summary_embed_keys')}</li>
               )}
@@ -807,6 +862,9 @@ export function OxideExportModal({ isOpen, onClose }: OxideExportModalProps) {
               <li>• {t('modals.export.security_settings', {
                 app: includeAppSettings ? t('common.yes') : t('common.no'),
                 plugin: hasSelectedPluginSettings ? t('common.yes') : t('common.no'),
+              })}</li>
+              <li>• {t('modals.export.security_portable_secrets', {
+                portable: includePortableSecrets ? t('common.yes') : t('common.no'),
               })}</li>
               <li>• {t('modals.export.security_passwords_excluded')}</li>
               <li>• <strong>{t('modals.export.security_no_session')}</strong></li>

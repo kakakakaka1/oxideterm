@@ -60,10 +60,10 @@ function BootstrapGateApp() {
         <div className="w-full max-w-lg rounded-3xl border border-theme-border bg-theme-bg-card p-8 text-center shadow-2xl">
           <Loader2 className="mx-auto h-8 w-8 animate-spin text-theme-accent" />
           <h1 className="mt-5 text-2xl font-semibold text-theme-text-heading">
-            {t('common.portable_bootstrap.loading_title')}
+            {t('portable_bootstrap.loading_title')}
           </h1>
           <p className="mt-3 text-sm leading-6 text-theme-text-muted">
-            {t('common.portable_bootstrap.loading_description')}
+            {t('portable_bootstrap.loading_description')}
           </p>
         </div>
       </div>
@@ -77,11 +77,11 @@ function BootstrapGateApp() {
           <div className="flex items-center gap-3 text-red-300">
             <AlertTriangle className="h-6 w-6" />
             <h1 className="text-2xl font-semibold text-theme-text-heading">
-              {t('common.portable_bootstrap.load_failed_title')}
+              {t('portable_bootstrap.load_failed_title')}
             </h1>
           </div>
           <p className="mt-3 text-sm leading-6 text-theme-text-muted">
-            {t('common.portable_bootstrap.load_failed_description')}
+            {t('portable_bootstrap.load_failed_description')}
           </p>
           {loadError && (
             <pre className="mt-4 overflow-x-auto rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-xs text-red-200">

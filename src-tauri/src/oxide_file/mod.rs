@@ -21,5 +21,5 @@ pub use crypto::{
 pub use error::OxideFileError;
 pub use format::{
     EncryptedAuth, EncryptedConnection, EncryptedForward, EncryptedPayload, EncryptedPluginSetting,
-    EncryptedProxyHop, OxideFile, OxideMetadata,
+    EncryptedPortableSecret, EncryptedProxyHop, OxideFile, OxideMetadata,
 };

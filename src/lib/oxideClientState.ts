@@ -20,6 +20,7 @@ type ExportOxideRequest = {
   password: string;
   description?: string | null;
   embedKeys?: boolean | null;
+  includePortableSecrets?: boolean;
   includeAppSettings?: boolean;
   selectedAppSettingsSections?: OxideAppSettingsSectionId[];
   includeLocalTerminalEnvVars?: boolean;
@@ -56,6 +57,7 @@ type ImportOxideOptions = PreviewImportOptions & {
   importPluginSettings?: boolean;
   selectedPluginIds?: string[];
   importForwards?: boolean;
+  importPortableSecrets?: boolean;
 };
 
 type ImportFromOxideEnvelope = Omit<ImportResult, 'importedAppSettings' | 'importedPluginSettings'> & {
@@ -81,11 +83,12 @@ function buildClientStatePayload(options?: {
 
 export async function preflightOxideExport(
   connectionIds: string[],
-  options?: { embedKeys?: boolean },
+  options?: { embedKeys?: boolean; includePortableSecrets?: boolean },
 ): Promise<ExportPreflightResult> {
   return invoke<ExportPreflightResult>('preflight_export', {
     connectionIds,
     embedKeys: options?.embedKeys ?? null,
+    includePortableSecrets: options?.includePortableSecrets ?? null,
   });
 }
 
@@ -114,6 +117,7 @@ export async function exportOxideWithClientState(
     password: request.password,
     description: request.description ?? null,
     embedKeys: request.embedKeys ?? null,
+    includePortableSecrets: request.includePortableSecrets ?? null,
     selectedForwardIds: request.selectedForwardIds ?? null,
     appSettingsJson: includeAppSettings ? clientState.appSettingsJson : null,
     pluginSettings: filteredPluginSettings.length > 0
@@ -187,6 +191,7 @@ export async function importOxideWithClientState(
     selectedNames: options?.selectedNames ?? null,
     conflictStrategy: options?.conflictStrategy ?? null,
     importForwards: options?.importForwards ?? null,
+    importPortableSecrets: options?.importPortableSecrets ?? null,
   };
   const envelope = options?.onProgress
     ? await (async () => {

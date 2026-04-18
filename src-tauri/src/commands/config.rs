@@ -250,6 +250,74 @@ impl ConfigState {
         })
     }
 
+    pub(crate) fn count_exportable_ai_provider_keys(
+        &self,
+        app_handle: &tauri::AppHandle,
+    ) -> Result<usize, String> {
+        Ok(self.resolve_exportable_ai_provider_key_secrets(app_handle)?.len())
+    }
+
+    pub(crate) fn export_ai_provider_key_secrets(
+        &self,
+        app_handle: &tauri::AppHandle,
+    ) -> Result<Vec<(String, String)>, String> {
+        self.resolve_exportable_ai_provider_key_secrets(app_handle)
+    }
+
+    fn resolve_exportable_ai_provider_key_secrets(
+        &self,
+        app_handle: &tauri::AppHandle,
+    ) -> Result<Vec<(String, String)>, String> {
+        let mut fallback_secrets = std::collections::HashMap::new();
+        let provider_ids = collect_ai_provider_key_ids(app_handle, self)?;
+        if provider_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        for provider_id in &provider_ids {
+            if self.ai_keychain.exists(provider_id).unwrap_or(false) {
+                continue;
+            }
+
+            if let Some(migrated) = try_migrate_vault_to_keychain(app_handle, &self.ai_keychain, provider_id)
+            {
+                fallback_secrets.insert(provider_id.clone(), migrated.clone());
+                self.api_key_cache
+                    .write()
+                    .insert(provider_id.clone(), migrated);
+            }
+        }
+
+        let values = self
+            .ai_keychain
+            .get_many(&provider_ids)
+            .map_err(|e| format!("Failed to read AI provider secrets: {}", e))?;
+
+        Ok(provider_ids
+            .into_iter()
+            .zip(values)
+            .filter_map(|(provider_id, value)| {
+                value
+                    .or_else(|| fallback_secrets.remove(&provider_id))
+                    .map(|secret| (provider_id, secret))
+            })
+            .collect())
+    }
+
+    pub(crate) fn store_ai_provider_key_secret(
+        &self,
+        provider_id: &str,
+        api_key: &str,
+    ) -> Result<(), String> {
+        self.ai_keychain
+            .store(provider_id, api_key)
+            .map_err(|e| e.to_string())?;
+        self.api_key_cache
+            .write()
+            .insert(provider_id.to_string(), api_key.to_string());
+        Ok(())
+    }
+
     pub async fn setup_portable_keystore(&self, password: &str) -> Result<(), String> {
         if !crate::config::is_portable_mode().map_err(|e| e.to_string())? {
             return Err("Portable setup is only available in portable mode".to_string());
@@ -3219,36 +3287,53 @@ pub async fn delete_ai_provider_api_key(
 
 /// List all provider IDs that have stored API keys
 /// Note: This checks both keychain and legacy vault files
-#[tauri::command]
-pub async fn list_ai_provider_keys(
-    app_handle: tauri::AppHandle,
-    state: State<'_, Arc<ConfigState>>,
+pub(crate) fn collect_ai_provider_key_ids(
+    app_handle: &tauri::AppHandle,
+    state: &ConfigState,
 ) -> Result<Vec<String>, String> {
     let mut providers = std::collections::HashSet::new();
 
-    // Check legacy vault files (will be migrated on next access)
-    let vault = ai_provider_vault_for_app(&app_handle)?;
+    let vault = ai_provider_vault_for_app(app_handle)?;
     if let Ok(vault_providers) = vault.list_providers() {
-        for p in vault_providers {
-            providers.insert(p);
+        for provider_id in vault_providers {
+            providers.insert(provider_id);
         }
     }
 
-    // Check known provider IDs in keychain (uses exists() to avoid Touch ID prompts)
-    // Since keychain doesn't support enumeration, we probe known provider IDs
+    let (configured_providers, active_provider) = state.ai_providers.read().clone();
+    let mut keychain_candidates = configured_providers
+        .into_iter()
+        .map(|provider| provider.id)
+        .collect::<Vec<_>>();
+    if let Some(provider_id) = active_provider {
+        keychain_candidates.push(provider_id);
+    }
+
     let known_ids = [
         "builtin-openai",
         "builtin-anthropic",
         "builtin-gemini",
         "builtin-ollama",
     ];
-    for id in &known_ids {
-        if state.ai_keychain.exists(id).unwrap_or(false) {
-            providers.insert(id.to_string());
+    for provider_id in &known_ids {
+        keychain_candidates.push((*provider_id).to_string());
+    }
+
+    for provider_id in keychain_candidates {
+        if state.ai_keychain.exists(&provider_id).unwrap_or(false) {
+            providers.insert(provider_id);
         }
     }
 
     Ok(providers.into_iter().collect())
+}
+
+#[tauri::command]
+pub async fn list_ai_provider_keys(
+    app_handle: tauri::AppHandle,
+    state: State<'_, Arc<ConfigState>>,
+) -> Result<Vec<String>, String> {
+    collect_ai_provider_key_ids(&app_handle, state.inner().as_ref())
 }
 
 // ─── Data Directory Management ──────────────────────────────────────────────

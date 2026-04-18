@@ -16,7 +16,7 @@ use crate::commands::forwarding::ForwardingRegistry;
 use crate::config::types::SavedAuth;
 use crate::oxide_file::{
     EncryptedAuth, EncryptedConnection, EncryptedForward, EncryptedPayload, EncryptedPluginSetting,
-    EncryptedProxyHop, OxideMetadata, compute_checksum, encrypt_oxide_file,
+    EncryptedPortableSecret, EncryptedProxyHop, OxideMetadata, compute_checksum, encrypt_oxide_file,
     encrypt_oxide_file_with_progress,
 };
 use zeroize::Zeroizing;
@@ -39,6 +39,8 @@ pub struct ExportPreflightResult {
     pub total_key_bytes: u64,
     /// Whether all connections can be exported
     pub can_export: bool,
+    /// Portable secrets that can be bundled for migration (for example AI provider keys)
+    pub portable_secret_count: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -153,8 +155,10 @@ fn export_forward(forward: &crate::state::PersistedForward) -> EncryptedForward 
 /// Pre-flight check before export - detects issues early
 #[tauri::command]
 pub async fn preflight_export(
+    app_handle: tauri::AppHandle,
     connection_ids: Vec<String>,
     embed_keys: Option<bool>,
+    include_portable_secrets: Option<bool>,
     config_state: State<'_, Arc<ConfigState>>,
 ) -> Result<ExportPreflightResult, String> {
     info!(
@@ -170,6 +174,11 @@ pub async fn preflight_export(
     let mut connections_with_passwords = 0;
     let mut connections_with_agent = 0;
     let mut total_key_bytes: u64 = 0;
+    let portable_secret_count = if include_portable_secrets.unwrap_or(false) {
+        config_state.count_exportable_ai_provider_keys(&app_handle)?
+    } else {
+        0
+    };
 
     for id in &connection_ids {
         let saved_conn = match config.get_connection(id) {
@@ -265,16 +274,19 @@ pub async fn preflight_export(
         connections_with_agent,
         total_key_bytes,
         can_export: true, // We can always export, missing keys just won't be embedded
+        portable_secret_count,
     })
 }
 
 /// Export connections to encrypted .oxide file
 #[tauri::command]
 pub async fn export_to_oxide(
+    app_handle: tauri::AppHandle,
     connection_ids: Vec<String>,
     password: String,
     description: Option<String>,
     embed_keys: Option<bool>,
+    include_portable_secrets: Option<bool>,
     selected_forward_ids: Option<Vec<String>>,
     app_settings_json: Option<String>,
     plugin_settings: Option<Vec<EncryptedPluginSetting>>,
@@ -282,10 +294,12 @@ pub async fn export_to_oxide(
     forwarding_registry: State<'_, Arc<ForwardingRegistry>>,
 ) -> Result<Vec<u8>, String> {
     export_to_oxide_inner(
+        app_handle,
         connection_ids,
         password,
         description,
         embed_keys,
+        include_portable_secrets,
         selected_forward_ids,
         app_settings_json,
         plugin_settings,
@@ -298,10 +312,12 @@ pub async fn export_to_oxide(
 
 #[tauri::command]
 pub async fn export_to_oxide_with_progress(
+    app_handle: tauri::AppHandle,
     connection_ids: Vec<String>,
     password: String,
     description: Option<String>,
     embed_keys: Option<bool>,
+    include_portable_secrets: Option<bool>,
     selected_forward_ids: Option<Vec<String>>,
     app_settings_json: Option<String>,
     plugin_settings: Option<Vec<EncryptedPluginSetting>>,
@@ -310,10 +326,12 @@ pub async fn export_to_oxide_with_progress(
     forwarding_registry: State<'_, Arc<ForwardingRegistry>>,
 ) -> Result<Vec<u8>, String> {
     export_to_oxide_inner(
+        app_handle,
         connection_ids,
         password,
         description,
         embed_keys,
+        include_portable_secrets,
         selected_forward_ids,
         app_settings_json,
         plugin_settings,
@@ -325,10 +343,12 @@ pub async fn export_to_oxide_with_progress(
 }
 
 async fn export_to_oxide_inner(
+    app_handle: tauri::AppHandle,
     connection_ids: Vec<String>,
     password: String,
     description: Option<String>,
     embed_keys: Option<bool>,
+    include_portable_secrets: Option<bool>,
     selected_forward_ids: Option<Vec<String>>,
     app_settings_json: Option<String>,
     plugin_settings: Option<Vec<EncryptedPluginSetting>>,
@@ -337,13 +357,14 @@ async fn export_to_oxide_inner(
     on_progress: Option<Channel<OxideExportProgressEvent>>,
 ) -> Result<Vec<u8>, String> {
     let should_embed_keys = embed_keys.unwrap_or(false);
+    let should_include_portable_secrets = include_portable_secrets.unwrap_or(false);
     info!(
         "Exporting {} connections to .oxide file (embed_keys={})",
         connection_ids.len(),
         should_embed_keys
     );
 
-    let total_steps = connection_ids.len() + 8;
+    let total_steps = connection_ids.len() + 9;
     let mut current_step = 0usize;
     let report_progress = |stage: &str, current_step: &mut usize| {
         *current_step += 1;
@@ -519,12 +540,28 @@ async fn export_to_oxide_inner(
         report_progress("collecting_connections", &mut current_step);
     }
 
+    let portable_secrets = if should_include_portable_secrets {
+        config_state
+            .export_ai_provider_key_secrets(&app_handle)?
+            .into_iter()
+            .map(|(provider_id, secret)| EncryptedPortableSecret {
+                kind: "ai_provider_key".to_string(),
+                id: provider_id,
+                secret: Zeroizing::new(secret),
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+    report_progress("collecting_portable_secrets", &mut current_step);
+
     // 3. Compute checksum and build payload
     let mut payload = EncryptedPayload {
         version: if app_settings_json.is_some()
             || plugin_settings
                 .as_ref()
                 .is_some_and(|entries| !entries.is_empty())
+            || !portable_secrets.is_empty()
         {
             2
         } else {
@@ -533,6 +570,7 @@ async fn export_to_oxide_inner(
         connections: connections.clone(),
         app_settings_json,
         plugin_settings: plugin_settings.unwrap_or_default(),
+        portable_secrets,
         checksum: String::new(),
     };
     payload.checksum =
@@ -549,6 +587,8 @@ async fn export_to_oxide_inner(
         has_app_settings: payload.app_settings_json.as_ref().map(|_| true),
         plugin_settings_count: (!payload.plugin_settings.is_empty())
             .then_some(payload.plugin_settings.len()),
+        portable_secret_count: (!payload.portable_secrets.is_empty())
+            .then_some(payload.portable_secrets.len()),
     };
     report_progress("building_metadata", &mut current_step);
 

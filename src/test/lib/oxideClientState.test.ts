@@ -61,6 +61,7 @@ describe('oxideClientState', () => {
     const result = await exportOxideWithClientState({
       connectionIds: ['saved-1'],
       password: '123456',
+      includePortableSecrets: true,
       includeAppSettings: true,
       includePluginSettings: true,
       selectedPluginIds: ['plugin-b'],
@@ -73,6 +74,7 @@ describe('oxideClientState', () => {
       password: '123456',
       description: null,
       embedKeys: null,
+      includePortableSecrets: true,
       selectedForwardIds: ['forward-1'],
       appSettingsJson: '{"format":"oxide-settings-sections-v1"}',
       pluginSettings: [{
@@ -118,6 +120,8 @@ describe('oxideClientState', () => {
       renames: [],
       importedForwards: 0,
       skippedForwards: 2,
+      importedPortableSecrets: 0,
+      skippedPortableSecrets: 0,
       appSettingsJson: '{"theme":"imported"}',
       pluginSettings: [{
         storageKey: 'oxide-plugin-plugin-a-setting-theme',
@@ -137,6 +141,7 @@ describe('oxideClientState', () => {
       selectedNames: null,
       conflictStrategy: null,
       importForwards: false,
+      importPortableSecrets: null,
     });
     expect(applyImportedSettingsSnapshotMock).not.toHaveBeenCalled();
     expect(applyImportedPluginSettingsSnapshotMock).not.toHaveBeenCalled();
@@ -158,6 +163,8 @@ describe('oxideClientState', () => {
       renames: [],
       importedForwards: 1,
       skippedForwards: 0,
+      importedPortableSecrets: 0,
+      skippedPortableSecrets: 0,
       appSettingsJson: null,
       pluginSettings: [
         {

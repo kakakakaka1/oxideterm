@@ -47,9 +47,9 @@ export function PortableUnlockDialog({
     <Dialog open={open} onOpenChange={pending ? undefined : onOpenChange}>
       <DialogContent className="sm:max-w-[420px] bg-theme-bg-elevated border-theme-border text-theme-text">
         <DialogHeader>
-          <DialogTitle>{t('common.portable_bootstrap.unlock_title')}</DialogTitle>
+          <DialogTitle>{t('portable_bootstrap.unlock_title')}</DialogTitle>
           <DialogDescription>
-            {t('common.portable_bootstrap.unlock_description')}
+            {t('portable_bootstrap.unlock_description')}
           </DialogDescription>
         </DialogHeader>
 
@@ -62,14 +62,14 @@ export function PortableUnlockDialog({
           <div className="space-y-4 py-2">
             <div className="space-y-2">
               <Label htmlFor="portable-unlock-password">
-                {t('common.portable_bootstrap.password_label')}
+                {t('portable_bootstrap.password_label')}
               </Label>
               <Input
                 id="portable-unlock-password"
                 type="password"
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
-                placeholder={t('common.portable_bootstrap.password_placeholder')}
+                placeholder={t('portable_bootstrap.password_placeholder')}
                 disabled={pending}
               />
             </div>
@@ -87,8 +87,8 @@ export function PortableUnlockDialog({
             </Button>
             <Button type="submit" disabled={pending || password.length === 0}>
               {pending
-                ? t('common.portable_bootstrap.unlock_pending')
-                : t('common.portable_bootstrap.unlock_submit')}
+                ? t('portable_bootstrap.unlock_pending')
+                : t('portable_bootstrap.unlock_submit')}
             </Button>
           </DialogFooter>
         </form>

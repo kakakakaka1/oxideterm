@@ -4,7 +4,9 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { open as openFileDialog } from '@tauri-apps/plugin-dialog';
-import { ArrowDownToLine, Loader2, TerminalSquare, Trash2 } from 'lucide-react';
+import { ArrowDownToLine, ArrowUpToLine, Loader2, TerminalSquare, Trash2 } from 'lucide-react';
+import { OxideExportModal } from '@/components/modals/OxideExportModal';
+import { OxideImportModal } from '@/components/modals/OxideImportModal';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -12,7 +14,7 @@ import { Separator } from '@/components/ui/separator';
 import { useConfirm } from '@/hooks/useConfirm';
 import { useToast } from '@/hooks/useToast';
 import { api } from '@/lib/api';
-import type { DataDirInfo } from '@/types';
+import type { DataDirInfo, PortableMigrationSummaryResponse, PortableStatusResponse } from '@/types';
 import type { GeneralSettings, Language } from '@/store/settingsStore';
 
 type CliStatus = {
@@ -28,9 +30,10 @@ type CliStatus = {
 type GeneralTabProps = {
     general: GeneralSettings;
     setLanguage: (language: Language) => void;
+    portableStatus: PortableStatusResponse | null;
 };
 
-export const GeneralTab = ({ general, setLanguage }: GeneralTabProps) => {
+export const GeneralTab = ({ general, setLanguage, portableStatus }: GeneralTabProps) => {
     const { t } = useTranslation();
     const { success: toastSuccess, error: toastError } = useToast();
     const { confirm, ConfirmDialog } = useConfirm();
@@ -38,6 +41,9 @@ export const GeneralTab = ({ general, setLanguage }: GeneralTabProps) => {
     const [dataDirLoading, setDataDirLoading] = useState(false);
     const [cliStatus, setCliStatus] = useState<CliStatus | null>(null);
     const [cliLoading, setCliLoading] = useState(false);
+    const [migrationSummary, setMigrationSummary] = useState<PortableMigrationSummaryResponse | null>(null);
+    const [exportModalOpen, setExportModalOpen] = useState(false);
+    const [importModalOpen, setImportModalOpen] = useState(false);
 
     useEffect(() => {
         let cancelled = false;
@@ -56,6 +62,14 @@ export const GeneralTab = ({ general, setLanguage }: GeneralTabProps) => {
             })
             .catch((error) => {
                 console.error('Failed to load CLI status:', error);
+            });
+
+        api.getPortableMigrationSummary()
+            .then((summary) => {
+                if (!cancelled) setMigrationSummary(summary);
+            })
+            .catch((error) => {
+                console.error('Failed to load portable migration summary:', error);
             });
 
         return () => {
@@ -207,6 +221,63 @@ export const GeneralTab = ({ general, setLanguage }: GeneralTabProps) => {
 
             <div className="rounded-lg border border-theme-border bg-theme-bg-card p-5">
                 <h4 className="text-sm font-medium text-theme-text mb-4 uppercase tracking-wider">
+                    {t('settings_view.general.portable_migration')}
+                </h4>
+                <div className="space-y-4">
+                    <div>
+                        <Label className="text-theme-text">{t('settings_view.general.portable_migration')}</Label>
+                        <p className="text-xs text-theme-text-muted mt-0.5">
+                            {portableStatus?.isPortable
+                                ? t('settings_view.general.portable_migration_portable_hint')
+                                : t('settings_view.general.portable_migration_installed_hint')}
+                        </p>
+                    </div>
+
+                    {migrationSummary && (
+                        <div className="space-y-3 rounded-md border border-theme-border bg-theme-bg p-3">
+                            <div>
+                                <p className="text-xs text-theme-text-muted">{t('settings_view.general.portable_migration_current_dir')}</p>
+                                <code className="mt-1 block rounded bg-theme-bg-subtle px-3 py-2 text-xs text-theme-text font-mono break-all">
+                                    {migrationSummary.currentDataDir}
+                                </code>
+                            </div>
+                            <div>
+                                <p className="text-xs text-theme-text-muted">{t('settings_view.general.portable_migration_target_dir')}</p>
+                                <code className="mt-1 block rounded bg-theme-bg-subtle px-3 py-2 text-xs text-theme-text font-mono break-all">
+                                    {migrationSummary.portableDataDir}
+                                </code>
+                            </div>
+                            <p className="text-xs text-theme-text-muted">
+                                {t('settings_view.general.portable_migration_secret_summary', {
+                                    count: migrationSummary.exportablePortableSecretCount,
+                                })}
+                            </p>
+                        </div>
+                    )}
+
+                    <div className="flex flex-wrap gap-3">
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setExportModalOpen(true)}
+                        >
+                            <ArrowUpToLine className="h-3 w-3 mr-1" />
+                            {t('settings_view.general.portable_migration_export')}
+                        </Button>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setImportModalOpen(true)}
+                        >
+                            <ArrowDownToLine className="h-3 w-3 mr-1" />
+                            {t('settings_view.general.portable_migration_import')}
+                        </Button>
+                    </div>
+                </div>
+            </div>
+
+            <div className="rounded-lg border border-theme-border bg-theme-bg-card p-5">
+                <h4 className="text-sm font-medium text-theme-text mb-4 uppercase tracking-wider">
                     {t('settings_view.general.cli_companion')}
                 </h4>
                 <div className="space-y-4">
@@ -291,6 +362,8 @@ export const GeneralTab = ({ general, setLanguage }: GeneralTabProps) => {
                     )}
                 </div>
             </div>
+            <OxideExportModal isOpen={exportModalOpen} onClose={() => setExportModalOpen(false)} mode="portableMigration" />
+            <OxideImportModal isOpen={importModalOpen} onClose={() => setImportModalOpen(false)} mode="portableMigration" />
             {ConfirmDialog}
         </div>
     );

@@ -24,8 +24,11 @@ const translationMap: Record<string, string> = {
   'modals.export.app_settings_no_sections': 'No application settings sections selected',
   'modals.export.include_plugin_settings': 'Include Plugin Preferences',
   'modals.export.include_plugin_settings_description': 'Include plugin settings',
+  'modals.export.include_portable_secrets': 'Include Portable Secrets',
+  'modals.export.include_portable_secrets_description': 'Include portable secrets',
   'modals.export.no_plugin_settings': 'No plugin preferences to export',
   'modals.export.summary_title': 'Export Summary',
+  'modals.export.summary_portable_secrets': 'Portable secrets summary',
   'modals.export.description': 'Description',
   'modals.export.description_placeholder': 'Description placeholder',
   'modals.export.embed_keys': 'Embed Private Keys',
@@ -45,6 +48,7 @@ const translationMap: Record<string, string> = {
   'modals.export.security_kdf': 'KDF',
   'modals.export.security_contains': 'Contains',
   'modals.export.security_settings': 'Settings',
+  'modals.export.security_portable_secrets': 'Portable secrets setting',
   'modals.export.security_passwords_excluded': 'Passwords excluded',
   'modals.export.security_no_session': 'No session data',
   'modals.export.security_keep_safe': 'Keep safe',
@@ -56,8 +60,10 @@ const translationMap: Record<string, string> = {
   'modals.export.stage_writing': 'Writing file',
   'modals.export.stage_done': 'Done',
   'modals.export.section_plugin_by_id': 'Plugin row',
+  'modals.export.content_summary_portable_secrets': 'Portable secrets content',
   'settings_view.general.title': 'General',
   'settings_view.appearance.title': 'Appearance',
+  'settings_view.tabs.ai': 'AI',
   'settings_view.connections.title': 'Connection Defaults',
   'settings_view.local_terminal.title': 'Local Terminal',
   'common.yes': 'Yes',
@@ -88,6 +94,15 @@ vi.mock('@/store/appStore', () => ({
 }));
 
 vi.mock('@/store/settingsStore', () => ({
+  getAllOxideAppSettingsExportSections: () => [
+    'general',
+    'terminalAppearance',
+    'terminalBehavior',
+    'appearance',
+    'connections',
+    'fileAndEditor',
+    'ai',
+  ],
   getDefaultOxideAppSettingsExportSections: () => [
     'general',
     'terminalAppearance',
@@ -323,6 +338,7 @@ describe('OxideExportModal', () => {
     expect(invokeMock).toHaveBeenCalledWith('preflight_export', {
       connectionIds: ['saved-1'],
       embedKeys: null,
+      includePortableSecrets: null,
     });
 
     await act(async () => {

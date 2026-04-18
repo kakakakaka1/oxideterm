@@ -540,6 +540,7 @@ export interface OxideMetadata {
   connection_names: string[];
   has_app_settings?: boolean;
   plugin_settings_count?: number;
+  portable_secret_count?: number;
 }
 
 export interface ImportResult {
@@ -557,6 +558,8 @@ export interface ImportResult {
   skippedPluginSettings: boolean;
   importedForwards: number;
   skippedForwards: number;
+  importedPortableSecrets: number;
+  skippedPortableSecrets: number;
 }
 
 export interface ImportPreview {
@@ -588,6 +591,8 @@ export interface ImportPreview {
   appSettingsSections?: ImportPreviewAppSettingsSection[];
   /** Number of plugin settings entries bundled in the payload */
   pluginSettingsCount: number;
+  /** Number of portable secret items bundled in the payload */
+  portableSecretCount: number;
   /** Plugin settings grouped by plugin id */
   pluginSettingsByPlugin: Record<string, number>;
   /** Flattened saved forward details for preview */
@@ -640,6 +645,8 @@ export interface ExportPreflightResult {
   totalKeyBytes: number;
   /** Whether all connections can be exported */
   canExport: boolean;
+  /** Portable secret items that can be bundled for migration */
+  portableSecretCount: number;
 }
 
 export interface SaveConnectionRequest {
@@ -931,6 +938,13 @@ export type PortableStatusResponse = {
   hasKeystore: boolean;
   isUnlocked: boolean;
   keystorePath: string | null;
+}
+
+export type PortableMigrationSummaryResponse = {
+  isPortable: boolean;
+  currentDataDir: string;
+  portableDataDir: string;
+  exportablePortableSecretCount: number;
 }
 
 export type DataDirCheck = {

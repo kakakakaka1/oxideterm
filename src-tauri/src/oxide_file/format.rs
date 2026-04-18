@@ -130,6 +130,8 @@ pub struct OxideMetadata {
     pub has_app_settings: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plugin_settings_count: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub portable_secret_count: Option<usize>,
 }
 
 /// Encrypted payload structure
@@ -141,6 +143,8 @@ pub struct EncryptedPayload {
     pub app_settings_json: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub plugin_settings: Vec<EncryptedPluginSetting>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub portable_secrets: Vec<EncryptedPortableSecret>,
     pub checksum: String,
 }
 
@@ -149,6 +153,14 @@ pub struct EncryptedPayload {
 pub struct EncryptedPluginSetting {
     pub storage_key: String,
     pub serialized_value: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EncryptedPortableSecret {
+    pub kind: String,
+    pub id: String,
+    pub secret: Zeroizing<String>,
 }
 
 /// Connection data stored in encrypted payload

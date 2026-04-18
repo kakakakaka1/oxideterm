@@ -1456,6 +1456,7 @@ export const OXIDE_APP_SETTINGS_SECTION_IDS = [
   'appearance',
   'connections',
   'fileAndEditor',
+  'ai',
   'localTerminal',
 ] as const;
 
@@ -1473,12 +1474,13 @@ type ApplyImportedSettingsOptions = {
 
 type OxidePartialSettingsSnapshot = Omit<
   Partial<PersistedSettingsV2>,
-  'general' | 'terminal' | 'appearance' | 'connectionDefaults' | 'localTerminal' | 'sftp' | 'ide' | 'reconnect' | 'connectionPool'
+  'general' | 'terminal' | 'appearance' | 'connectionDefaults' | 'localTerminal' | 'sftp' | 'ide' | 'reconnect' | 'connectionPool' | 'ai'
 > & {
   general?: Partial<GeneralSettings>;
   terminal?: Partial<TerminalSettings>;
   appearance?: Partial<AppearanceSettings>;
   connectionDefaults?: Partial<ConnectionDefaults>;
+  ai?: Partial<AiSettings>;
   localTerminal?: Partial<LocalTerminalSettings>;
   sftp?: Partial<SftpSettings>;
   ide?: Partial<IdeSettings>;
@@ -1539,6 +1541,28 @@ const TERMINAL_BEHAVIOR_KEYS: Array<keyof TerminalSettings> = [
 const GENERAL_KEYS: Array<keyof GeneralSettings> = ['language', 'updateChannel'];
 const APPEARANCE_KEYS: Array<keyof AppearanceSettings> = ['sidebarCollapsedDefault', 'uiDensity', 'borderRadius', 'uiFontFamily', 'animationSpeed', 'frostedGlass'];
 const CONNECTION_DEFAULT_KEYS: Array<keyof ConnectionDefaults> = ['username', 'port'];
+const AI_KEYS: Array<keyof AiSettings> = [
+  'enabled',
+  'enabledConfirmed',
+  'baseUrl',
+  'model',
+  'providers',
+  'activeProviderId',
+  'activeModel',
+  'contextMaxChars',
+  'contextVisibleLines',
+  'thinkingStyle',
+  'thinkingDefaultExpanded',
+  'modelContextWindows',
+  'userContextWindows',
+  'customSystemPrompt',
+  'modelMaxResponseTokens',
+  'toolUse',
+  'contextSources',
+  'mcpServers',
+  'embeddingConfig',
+  'agentRoles',
+];
 const RECONNECT_KEYS: Array<keyof ReconnectSettings> = ['enabled', 'maxAttempts', 'baseDelayMs', 'maxDelayMs'];
 const CONNECTION_POOL_KEYS: Array<keyof ConnectionPoolSettings> = ['idleTimeoutSecs'];
 const SFTP_KEYS: Array<keyof SftpSettings> = ['maxConcurrentTransfers', 'speedLimitEnabled', 'speedLimitKBps', 'conflictAction'];
@@ -1634,6 +1658,8 @@ function buildSectionPreviewValues(
         ...buildPreviewValues(settings.reconnect, RECONNECT_KEYS, 'reconnect'),
         ...buildPreviewValues(settings.connectionPool, CONNECTION_POOL_KEYS, 'connectionPool'),
       };
+    case 'ai':
+      return buildPreviewValues(settings.ai, AI_KEYS, 'ai');
     case 'fileAndEditor':
       return {
         ...buildPreviewValues(settings.sftp, SFTP_KEYS, 'sftp'),
@@ -1659,6 +1685,10 @@ export function buildOxideAppSettingsSectionValueMap(
 
 export function getDefaultOxideAppSettingsExportSections(): OxideAppSettingsSectionId[] {
   return [...DEFAULT_OXIDE_APP_SETTINGS_EXPORT_SECTIONS];
+}
+
+export function getAllOxideAppSettingsExportSections(): OxideAppSettingsSectionId[] {
+  return [...OXIDE_APP_SETTINGS_SECTION_IDS];
 }
 
 function buildOxideSectionedSettingsSnapshot(
@@ -1703,6 +1733,9 @@ function buildOxideSectionedSettingsSnapshot(
         if (settings.connectionPool) {
           partialSettings.connectionPool = { ...pickDefinedFields(settings.connectionPool, CONNECTION_POOL_KEYS) };
         }
+        break;
+      case 'ai':
+        partialSettings.ai = { ...pickDefinedFields(settings.ai, AI_KEYS) };
         break;
       case 'fileAndEditor':
         if (settings.sftp) {
@@ -1825,6 +1858,14 @@ function mergeSelectedOxideSettingsSections(
           nextSettings.connectionPool = {
             ...(nextSettings.connectionPool || defaultConnectionPoolSettings),
             ...importedSettings.connectionPool,
+          };
+        }
+        break;
+      case 'ai':
+        if (importedSettings.ai) {
+          nextSettings.ai = {
+            ...nextSettings.ai,
+            ...importedSettings.ai,
           };
         }
         break;

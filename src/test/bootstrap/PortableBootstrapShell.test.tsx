@@ -76,14 +76,14 @@ describe('PortableBootstrapShell', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'common.portable_bootstrap.setup_cta' }));
-    fireEvent.change(screen.getByLabelText('common.portable_bootstrap.password_label'), {
+    fireEvent.click(screen.getByRole('button', { name: 'portable_bootstrap.setup_cta' }));
+    fireEvent.change(screen.getByLabelText('portable_bootstrap.password_label'), {
       target: { value: 'secret123' },
     });
-    fireEvent.change(screen.getByLabelText('common.portable_bootstrap.confirm_password_label'), {
+    fireEvent.change(screen.getByLabelText('portable_bootstrap.confirm_password_label'), {
       target: { value: 'secret123' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'common.portable_bootstrap.setup_submit' }));
+    fireEvent.click(screen.getByRole('button', { name: 'portable_bootstrap.setup_submit' }));
 
     await waitFor(() => {
       expect(setupPortableKeystoreMock).toHaveBeenCalledWith('secret123');
@@ -115,17 +115,17 @@ describe('PortableBootstrapShell', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'common.portable_bootstrap.setup_cta' }));
-    fireEvent.change(screen.getByLabelText('common.portable_bootstrap.password_label'), {
+    fireEvent.click(screen.getByRole('button', { name: 'portable_bootstrap.setup_cta' }));
+    fireEvent.change(screen.getByLabelText('portable_bootstrap.password_label'), {
       target: { value: 'secret123' },
     });
-    fireEvent.change(screen.getByLabelText('common.portable_bootstrap.confirm_password_label'), {
+    fireEvent.change(screen.getByLabelText('portable_bootstrap.confirm_password_label'), {
       target: { value: 'different123' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'common.portable_bootstrap.setup_submit' }));
+    fireEvent.click(screen.getByRole('button', { name: 'portable_bootstrap.setup_submit' }));
 
     expect(setupPortableKeystoreMock).not.toHaveBeenCalled();
-    expect(screen.getByRole('alert')).toHaveTextContent('common.portable_bootstrap.password_mismatch');
+    expect(screen.getByRole('alert')).toHaveTextContent('portable_bootstrap.password_mismatch');
   });
 
   it('completes unlock flow when a keystore already exists', async () => {
@@ -159,11 +159,11 @@ describe('PortableBootstrapShell', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'common.portable_bootstrap.unlock_cta' }));
-    fireEvent.change(screen.getByLabelText('common.portable_bootstrap.password_label'), {
+    fireEvent.click(screen.getByRole('button', { name: 'portable_bootstrap.unlock_cta' }));
+    fireEvent.change(screen.getByLabelText('portable_bootstrap.password_label'), {
       target: { value: 'secret123' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'common.portable_bootstrap.unlock_submit' }));
+    fireEvent.click(screen.getByRole('button', { name: 'portable_bootstrap.unlock_submit' }));
 
     await waitFor(() => {
       expect(unlockPortableKeystoreMock).toHaveBeenCalledWith('secret123');
@@ -205,14 +205,14 @@ describe('PortableBootstrapShell', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'common.portable_bootstrap.setup_cta' }));
-    fireEvent.change(screen.getByLabelText('common.portable_bootstrap.password_label'), {
+    fireEvent.click(screen.getByRole('button', { name: 'portable_bootstrap.setup_cta' }));
+    fireEvent.change(screen.getByLabelText('portable_bootstrap.password_label'), {
       target: { value: 'secret123' },
     });
-    fireEvent.change(screen.getByLabelText('common.portable_bootstrap.confirm_password_label'), {
+    fireEvent.change(screen.getByLabelText('portable_bootstrap.confirm_password_label'), {
       target: { value: 'secret123' },
     });
-    fireEvent.submit(screen.getByLabelText('common.portable_bootstrap.confirm_password_label').closest('form')!);
+    fireEvent.submit(screen.getByLabelText('portable_bootstrap.confirm_password_label').closest('form')!);
 
     await waitFor(() => {
       expect(setupPortableKeystoreMock).toHaveBeenCalledWith('secret123');

@@ -208,6 +208,7 @@ pub fn compute_checksum(payload: &EncryptedPayload) -> Result<String, OxideFileE
     if payload.version <= 1
         && payload.app_settings_json.is_none()
         && payload.plugin_settings.is_empty()
+        && payload.portable_secrets.is_empty()
     {
         return compute_legacy_checksum(payload);
     }
@@ -234,6 +235,12 @@ pub fn compute_checksum(payload: &EncryptedPayload) -> Result<String, OxideFileE
     for plugin_setting in &payload.plugin_settings {
         let plugin_setting_bytes = rmp_serde::to_vec_named(plugin_setting)?;
         hasher.update(&plugin_setting_bytes);
+    }
+
+    hasher.update((payload.portable_secrets.len() as u64).to_le_bytes());
+    for portable_secret in &payload.portable_secrets {
+        let portable_secret_bytes = rmp_serde::to_vec_named(portable_secret)?;
+        hasher.update(&portable_secret_bytes);
     }
 
     Ok(format!("sha256:{:x}", hasher.finalize()))
@@ -283,6 +290,7 @@ mod tests {
             connections,
             app_settings_json: None,
             plugin_settings: Vec::new(),
+            portable_secrets: Vec::new(),
             checksum: String::new(),
         };
         let checksum = compute_checksum(&payload).unwrap();
@@ -300,6 +308,7 @@ mod tests {
             connection_names: vec!["Test Server".to_string()],
             has_app_settings: None,
             plugin_settings_count: None,
+            portable_secret_count: None,
         }
     }
 
@@ -374,6 +383,7 @@ mod tests {
             connections: vec![conn.clone()],
             app_settings_json: None,
             plugin_settings: Vec::new(),
+            portable_secrets: Vec::new(),
             checksum: String::new(),
         };
         let payload2 = EncryptedPayload {
@@ -381,6 +391,7 @@ mod tests {
             connections: vec![conn.clone()],
             app_settings_json: None,
             plugin_settings: Vec::new(),
+            portable_secrets: Vec::new(),
             checksum: String::new(),
         };
         let checksum1 = compute_checksum(&payload1).unwrap();
@@ -398,6 +409,7 @@ mod tests {
             connections: vec![conn2],
             app_settings_json: None,
             plugin_settings: Vec::new(),
+            portable_secrets: Vec::new(),
             checksum: String::new(),
         };
         let checksum3 = compute_checksum(&payload3).unwrap();

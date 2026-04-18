@@ -29,6 +29,15 @@ pub struct PortableStatusResponse {
     pub keystore_path: Option<String>,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PortableMigrationSummaryResponse {
+    pub is_portable: bool,
+    pub current_data_dir: String,
+    pub portable_data_dir: String,
+    pub exportable_portable_secret_count: usize,
+}
+
 fn build_status_response() -> Result<PortableStatusResponse, String> {
     let info = crate::config::portable_info().map_err(|e| e.to_string())?;
     let status = crate::config::portable_bootstrap_status().map_err(|e| e.to_string())?;
@@ -61,6 +70,22 @@ pub async fn get_portable_info() -> Result<PortableInfoResponse, String> {
 #[tauri::command]
 pub async fn get_portable_status() -> Result<PortableStatusResponse, String> {
     build_status_response()
+}
+
+#[tauri::command]
+pub async fn get_portable_migration_summary(
+    app_handle: tauri::AppHandle,
+    state: State<'_, Arc<ConfigState>>,
+) -> Result<PortableMigrationSummaryResponse, String> {
+    let portable_info = crate::config::portable_info().map_err(|e| e.to_string())?;
+    let data_dir_info = crate::config::storage::get_data_dir_info().map_err(|e| e.to_string())?;
+
+    Ok(PortableMigrationSummaryResponse {
+        is_portable: portable_info.is_portable,
+        current_data_dir: data_dir_info.effective.to_string_lossy().to_string(),
+        portable_data_dir: portable_info.data_dir.to_string_lossy().to_string(),
+        exportable_portable_secret_count: state.count_exportable_ai_provider_keys(&app_handle)?,
+    })
 }
 
 #[tauri::command]

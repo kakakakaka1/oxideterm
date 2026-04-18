@@ -19,6 +19,7 @@ import {
   DataDirInfo,
   DataDirCheck,
   PortableInfoResponse,
+  PortableMigrationSummaryResponse,
   PortableStatusResponse,
   SshKeyInfo,
   PersistedSessionInfo,
@@ -655,6 +656,18 @@ export const api = {
       };
     }
     return invoke('get_portable_status');
+  },
+
+  getPortableMigrationSummary: async (): Promise<PortableMigrationSummaryResponse> => {
+    if (USE_MOCK || !hasTauriRuntime()) {
+      return {
+        isPortable: false,
+        currentDataDir: '/mock/.oxideterm',
+        portableDataDir: '/mock/OxideTerm/data',
+        exportablePortableSecretCount: 2,
+      };
+    }
+    return invoke('get_portable_migration_summary');
   },
 
   setupPortableKeystore: async (password: string): Promise<PortableStatusResponse> => {

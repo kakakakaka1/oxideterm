@@ -71,9 +71,10 @@ function getFallbackImportPercent(stage: ImportStage, operation: ImportOperation
 interface OxideImportModalProps {
   isOpen: boolean;
   onClose: () => void;
+  mode?: 'default' | 'portableMigration';
 }
 
-export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
+export function OxideImportModal({ isOpen, onClose, mode = 'default' }: OxideImportModalProps) {
   const { t } = useTranslation();
   const { loadSavedConnections } = useAppStore();
   const [fileData, setFileData] = useState<Uint8Array | null>(null);
@@ -92,6 +93,7 @@ export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
   const [importPluginSettings, setImportPluginSettings] = useState(true);
   const [selectedPluginIds, setSelectedPluginIds] = useState<Set<string>>(new Set());
   const [importForwards, setImportForwards] = useState(true);
+  const [importPortableSecrets, setImportPortableSecrets] = useState(mode === 'portableMigration');
   const [conflictStrategy, setConflictStrategy] = useState<ImportConflictStrategy>('rename');
   const [expandedAppSettingsSections, setExpandedAppSettingsSections] = useState<Set<string>>(new Set());
   const plugins = usePluginStore((state) => state.plugins);
@@ -133,7 +135,8 @@ export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
     selectedNames.size > 0
     || (preview?.hasAppSettings && importAppSettings)
     || ((preview?.pluginSettingsCount ?? 0) > 0 && importPluginSettings)
-    || ((preview?.totalForwards ?? 0) > 0 && importForwards),
+    || ((preview?.totalForwards ?? 0) > 0 && importForwards)
+    || ((preview?.portableSecretCount ?? 0) > 0 && importPortableSecrets),
   );
   const progressPercent = progressDetail && progressDetail.total > 0
     ? Math.round((progressDetail.current / progressDetail.total) * 100)
@@ -182,6 +185,7 @@ export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
     setImportPluginSettings(true);
     setSelectedPluginIds(new Set());
     setImportForwards(true);
+    setImportPortableSecrets(mode === 'portableMigration');
     setConflictStrategy('rename');
     setExpandedAppSettingsSections(new Set());
     setActiveOperation(null);
@@ -208,6 +212,8 @@ export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
         return t('settings_view.appearance.title');
       case 'connections':
         return t('settings_view.connections.title');
+      case 'ai':
+        return t('settings_view.tabs.ai');
       case 'fileAndEditor':
         return t('modals.export.app_settings_section_file_editor');
       case 'localTerminal':
@@ -358,6 +364,7 @@ export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
     setImportPluginSettings(true);
     setSelectedPluginIds(new Set());
     setImportForwards(true);
+    setImportPortableSecrets(mode === 'portableMigration');
 
     try {
       const selected = await open({
@@ -406,6 +413,7 @@ export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
       setSelectedNames(getSelectableNames(previewResult));
       setSelectedAppSettingsSections(getSelectableAppSettingsSectionIds(previewResult));
       setSelectedPluginIds(getSelectablePluginIds(previewResult));
+      setImportPortableSecrets(mode === 'portableMigration');
       setExpandedAppSettingsSections(new Set());
     } catch (err) {
       console.error('Preview failed:', err);
@@ -446,6 +454,7 @@ export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
           ? (hasStructuredPluginPreview ? Array.from(selectedPluginIds) : undefined)
           : [],
         importForwards,
+        importPortableSecrets,
         onProgress: handleImportProgress('import'),
       });
 
@@ -628,6 +637,12 @@ export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
                 )}
                 {(preview?.pluginSettingsCount ?? 0) > 0 && !importPluginSettings && (
                   <p className="text-sm mt-1">{t('modals.import.skipped_plugin_settings')}</p>
+                )}
+                {result.importedPortableSecrets > 0 && (
+                  <p className="text-sm mt-1">{t('modals.import.imported_portable_secrets', { count: result.importedPortableSecrets })}</p>
+                )}
+                {(preview?.portableSecretCount ?? 0) > 0 && !importPortableSecrets && (
+                  <p className="text-sm mt-1">{t('modals.import.skipped_portable_secrets')}</p>
                 )}
                 {(preview?.totalForwards ?? 0) > 0 && !importForwards && (
                   <p className="text-sm mt-1">{t('modals.import.skipped_forwards')}</p>
@@ -985,6 +1000,33 @@ export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
                   )
                 )}
 
+                {preview.portableSecretCount > 0 && (
+                  <div className="rounded-md border border-theme-border bg-theme-bg-elevated/60 p-3 space-y-3">
+                    <button
+                      type="button"
+                      onClick={() => setImportPortableSecrets((prev) => !prev)}
+                      className="flex w-full items-start gap-2 text-left"
+                    >
+                      {importPortableSecrets
+                        ? <CheckSquare className="mt-0.5 h-4 w-4 flex-shrink-0 text-theme-accent" />
+                        : <Square className="mt-0.5 h-4 w-4 flex-shrink-0 text-theme-text-muted" />}
+                      <div>
+                        <p className="text-sm font-semibold text-theme-text">
+                          {t('modals.import.section_portable_secrets', { count: preview.portableSecretCount })}
+                        </p>
+                        <p className="text-xs text-theme-text-muted">{t('modals.import.toggle_portable_secrets')}</p>
+                        {!importPortableSecrets && (
+                          <p className="mt-1 text-xs text-yellow-400">{t('modals.import.skipped_portable_secrets')}</p>
+                        )}
+                      </div>
+                    </button>
+
+                    <div className="bg-blue-500/10 border border-blue-500/20 text-blue-500 px-3 py-2 rounded text-xs">
+                      {t('modals.import.preview_portable_secrets', { count: preview.portableSecretCount })}
+                    </div>
+                  </div>
+                )}
+
                 {preview.totalForwards > 0 && (
                   hasStructuredForwardPreview ? (
                     <div className="rounded-md border border-theme-border bg-theme-bg-elevated/60 p-3 space-y-3">
@@ -1086,6 +1128,9 @@ export function OxideImportModal({ isOpen, onClose }: OxideImportModalProps) {
                     )}
                     {typeof metadata.plugin_settings_count === 'number' && metadata.plugin_settings_count > 0 && (
                       <p><span className="text-theme-text-muted">{t('modals.import.contains_plugin_settings')}</span> {t('modals.import.plugin_settings_count', { count: metadata.plugin_settings_count })}</p>
+                    )}
+                    {typeof metadata.portable_secret_count === 'number' && metadata.portable_secret_count > 0 && (
+                      <p><span className="text-theme-text-muted">{t('modals.import.contains_portable_secrets')}</span> {t('modals.import.portable_secrets_count', { count: metadata.portable_secret_count })}</p>
                     )}
                   </div>
 

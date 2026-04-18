@@ -25,7 +25,8 @@ use crate::config::types::{
 };
 use crate::forwarding::{ForwardRule, ForwardStatus};
 use crate::oxide_file::{
-    EncryptedAuth, EncryptedForward, EncryptedPluginSetting, EncryptedProxyHop, OxideMetadata,
+    EncryptedAuth, EncryptedForward, EncryptedPluginSetting, EncryptedPortableSecret,
+    EncryptedProxyHop, OxideMetadata,
     decrypt_oxide_file_with_progress,
 };
 use crate::state::PersistedForward;
@@ -62,6 +63,8 @@ pub struct ImportResultEnvelope {
     pub renames: Vec<(String, String)>,
     pub imported_forwards: usize,
     pub skipped_forwards: usize,
+    pub imported_portable_secrets: usize,
+    pub skipped_portable_secrets: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub app_settings_json: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -104,6 +107,8 @@ pub struct ImportPreview {
     pub app_settings_sections: Vec<AppSettingsSectionPreview>,
     /// Number of plugin setting entries bundled in the payload.
     pub plugin_settings_count: usize,
+    /// Number of portable secret items bundled in the payload.
+    pub portable_secret_count: usize,
     /// Plugin settings grouped by plugin id.
     pub plugin_settings_by_plugin: HashMap<String, usize>,
     /// Flattened saved forward details for the preview UI.
@@ -1237,6 +1242,7 @@ async fn preview_oxide_import_inner(
         app_settings_preview,
         app_settings_sections,
         plugin_settings_count: payload.plugin_settings.len(),
+        portable_secret_count: payload.portable_secrets.len(),
         plugin_settings_by_plugin,
         forward_details,
         records,
@@ -1252,6 +1258,7 @@ pub async fn import_from_oxide(
     selected_names: Option<Vec<String>>,
     conflict_strategy: Option<String>,
     import_forwards: Option<bool>,
+    import_portable_secrets: Option<bool>,
     config_state: State<'_, Arc<ConfigState>>,
     forwarding_registry: State<'_, Arc<ForwardingRegistry>>,
 ) -> Result<ImportResultEnvelope, String> {
@@ -1261,6 +1268,7 @@ pub async fn import_from_oxide(
         selected_names,
         conflict_strategy,
         import_forwards,
+        import_portable_secrets,
         config_state,
         forwarding_registry,
         None,
@@ -1275,6 +1283,7 @@ pub async fn import_from_oxide_with_progress(
     selected_names: Option<Vec<String>>,
     conflict_strategy: Option<String>,
     import_forwards: Option<bool>,
+    import_portable_secrets: Option<bool>,
     on_progress: Channel<OxideImportProgressEvent>,
     config_state: State<'_, Arc<ConfigState>>,
     forwarding_registry: State<'_, Arc<ForwardingRegistry>>,
@@ -1285,6 +1294,7 @@ pub async fn import_from_oxide_with_progress(
         selected_names,
         conflict_strategy,
         import_forwards,
+        import_portable_secrets,
         config_state,
         forwarding_registry,
         Some(on_progress),
@@ -1298,6 +1308,7 @@ async fn import_from_oxide_inner(
     selected_names: Option<Vec<String>>,
     conflict_strategy: Option<String>,
     import_forwards: Option<bool>,
+    import_portable_secrets: Option<bool>,
     config_state: State<'_, Arc<ConfigState>>,
     forwarding_registry: State<'_, Arc<ForwardingRegistry>>,
     on_progress: Option<Channel<OxideImportProgressEvent>>,
@@ -1305,6 +1316,7 @@ async fn import_from_oxide_inner(
     info!("Importing from .oxide file ({} bytes)", file_data.len());
     let conflict_strategy = ImportConflictStrategy::parse(conflict_strategy)?;
     let should_import_forwards = import_forwards.unwrap_or(true);
+    let should_import_portable_secrets = import_portable_secrets.unwrap_or(false);
 
     // 1. Parse file
     let oxide_file = crate::oxide_file::OxideFile::from_bytes(&file_data)
@@ -1334,6 +1346,14 @@ async fn import_from_oxide_inner(
         payload.connections.len()
     );
 
+    let crate::oxide_file::EncryptedPayload {
+        connections: payload_connections,
+        app_settings_json,
+        plugin_settings,
+        portable_secrets,
+        ..
+    } = payload;
+
     // Filter connections by selected_names if provided
     current_step += 1;
     emit_import_progress(
@@ -1344,13 +1364,12 @@ async fn import_from_oxide_inner(
     );
     let connections_to_import: Vec<_> = if let Some(ref names) = selected_names {
         let name_set: HashSet<&str> = names.iter().map(|s| s.as_str()).collect();
-        payload
-            .connections
+        payload_connections
             .into_iter()
             .filter(|c| name_set.contains(c.name.as_str()))
             .collect()
     } else {
-        payload.connections
+        payload_connections
     };
     let total_selected_forwards: usize = connections_to_import
         .iter()
@@ -1513,6 +1532,20 @@ async fn import_from_oxide_inner(
         }
 
         (hops, all_entries)
+    }
+
+    fn import_portable_secret(
+        config_state: &ConfigState,
+        portable_secret: EncryptedPortableSecret,
+    ) -> Result<(), String> {
+        match portable_secret.kind.as_str() {
+            "ai_provider_key" => config_state
+                .store_ai_provider_key_secret(&portable_secret.id, portable_secret.secret.as_str()),
+            other => Err(format!(
+                "Unsupported portable secret kind '{}' for id '{}'",
+                other, portable_secret.id
+            )),
+        }
     }
 
     current_step += 1;
@@ -1894,6 +1927,17 @@ async fn import_from_oxide_inner(
             .map_err(|e| format!("Failed to save config: {}", e))?;
     }
 
+    let total_portable_secret_count = portable_secrets.len();
+    let mut imported_portable_secret_count = 0usize;
+    if should_import_portable_secrets {
+        for portable_secret in portable_secrets {
+            match import_portable_secret(config_state.inner().as_ref(), portable_secret) {
+                Ok(()) => imported_portable_secret_count += 1,
+                Err(error) => errors.push(error),
+            }
+        }
+    }
+
     info!("Successfully imported {} connections", imported_count);
 
     Ok(ImportResultEnvelope {
@@ -1910,8 +1954,14 @@ async fn import_from_oxide_inner(
         } else {
             total_selected_forwards
         },
-        app_settings_json: payload.app_settings_json,
-        plugin_settings: payload.plugin_settings,
+        imported_portable_secrets: imported_portable_secret_count,
+        skipped_portable_secrets: if should_import_portable_secrets {
+            total_portable_secret_count.saturating_sub(imported_portable_secret_count)
+        } else {
+            total_portable_secret_count
+        },
+        app_settings_json,
+        plugin_settings,
     })
 }
 

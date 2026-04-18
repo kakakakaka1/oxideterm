@@ -45,12 +45,12 @@ export function PortableSetupDialog({
 
   const handleSubmit = async () => {
     if (password.length < 6) {
-      setValidationError(t('common.portable_bootstrap.password_too_short'));
+      setValidationError(t('portable_bootstrap.password_too_short'));
       return;
     }
 
     if (password !== confirmPassword) {
-      setValidationError(t('common.portable_bootstrap.password_mismatch'));
+      setValidationError(t('portable_bootstrap.password_mismatch'));
       return;
     }
 
@@ -62,9 +62,9 @@ export function PortableSetupDialog({
     <Dialog open={open} onOpenChange={pending ? undefined : onOpenChange}>
       <DialogContent className="sm:max-w-[440px] bg-theme-bg-elevated border-theme-border text-theme-text">
         <DialogHeader>
-          <DialogTitle>{t('common.portable_bootstrap.setup_title')}</DialogTitle>
+          <DialogTitle>{t('portable_bootstrap.setup_title')}</DialogTitle>
           <DialogDescription>
-            {t('common.portable_bootstrap.setup_description')}
+            {t('portable_bootstrap.setup_description')}
           </DialogDescription>
         </DialogHeader>
 
@@ -77,28 +77,28 @@ export function PortableSetupDialog({
           <div className="space-y-4 py-2">
             <div className="space-y-2">
               <Label htmlFor="portable-setup-password">
-                {t('common.portable_bootstrap.password_label')}
+                {t('portable_bootstrap.password_label')}
               </Label>
               <Input
                 id="portable-setup-password"
                 type="password"
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
-                placeholder={t('common.portable_bootstrap.password_placeholder')}
+                placeholder={t('portable_bootstrap.password_placeholder')}
                 disabled={pending}
               />
             </div>
 
             <div className="space-y-2">
               <Label htmlFor="portable-setup-confirm-password">
-                {t('common.portable_bootstrap.confirm_password_label')}
+                {t('portable_bootstrap.confirm_password_label')}
               </Label>
               <Input
                 id="portable-setup-confirm-password"
                 type="password"
                 value={confirmPassword}
                 onChange={(event) => setConfirmPassword(event.target.value)}
-                placeholder={t('common.portable_bootstrap.confirm_password_placeholder')}
+                placeholder={t('portable_bootstrap.confirm_password_placeholder')}
                 disabled={pending}
               />
             </div>
@@ -116,8 +116,8 @@ export function PortableSetupDialog({
             </Button>
             <Button type="submit" disabled={pending}>
               {pending
-                ? t('common.portable_bootstrap.setup_pending')
-                : t('common.portable_bootstrap.setup_submit')}
+                ? t('portable_bootstrap.setup_pending')
+                : t('portable_bootstrap.setup_submit')}
             </Button>
           </DialogFooter>
         </form>
