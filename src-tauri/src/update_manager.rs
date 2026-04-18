@@ -6,7 +6,7 @@
 //! Supports断点续传 download, signature verification, and cross-restart recovery.
 //! Adapted from lumina-note's update_manager.
 
-use crate::config::portable_aware_app_data_dir;
+use crate::config::{is_portable_mode, portable_aware_app_data_dir};
 use base64::Engine as _;
 use futures_util::StreamExt;
 use minisign_verify::{PublicKey, Signature};
@@ -181,6 +181,12 @@ fn build_updater_for_channel(
     app: &AppHandle,
     channel: Option<&str>,
 ) -> Result<tauri_plugin_updater::Updater, UpdateError> {
+    if is_portable_mode().map_err(|e| UpdateError::General(e.to_string()))? {
+        return Err(UpdateError::General(
+            "Updater is disabled in portable mode".to_string(),
+        ));
+    }
+
     let mut builder = app.updater_builder();
     if channel == Some("beta") {
         builder = builder

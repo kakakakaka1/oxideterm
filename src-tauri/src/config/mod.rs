@@ -13,6 +13,7 @@
 
 pub mod keychain;
 pub mod portable;
+pub mod portable_keystore;
 pub mod ssh_config;
 pub mod storage;
 pub mod types;
@@ -23,9 +24,11 @@ pub mod touch_id;
 
 pub use keychain::{Keychain, KeychainError};
 pub use portable::{
-    PortableError, PortableInfo, is_portable_mode, portable_aware_app_data_dir, portable_data_dir,
-    portable_info,
+    PortableBootstrapStatus, PortableError, PortableInfo, initialize_portable_runtime,
+    is_portable_mode, portable_aware_app_data_dir, portable_bootstrap_status,
+    portable_can_launch_full_app, portable_data_dir, portable_info, set_portable_bootstrap_status,
 };
+pub use portable_keystore::PortableKeystoreError;
 pub use ssh_config::{
     ResolvedProxyJumpHost, ResolvedSshConfigHost, SshConfigError, SshConfigHost,
     default_ssh_config_path, load_ssh_config_content, parse_ssh_config, resolve_ssh_config_host,

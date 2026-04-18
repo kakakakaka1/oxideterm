@@ -7,10 +7,10 @@
 
 use crate::config::{
     AiProviderVault, CONFIG_ENCRYPTION_KEY_LEN, ConfigFile, ConfigStorage, ConfigStorageFormat,
-    Keychain, KeychainError, ProxyHopConfig, ResolvedProxyJumpHost, ResolvedSshConfigHost,
-    SavedAuth, SavedConnection, SshConfigHost, default_ssh_config_path, load_ssh_config_content,
-    parse_ssh_config, portable_aware_app_data_dir, resolve_ssh_config_host,
-    resolve_ssh_config_host_content,
+    Keychain, KeychainError, PortableBootstrapStatus, ProxyHopConfig, ResolvedProxyJumpHost,
+    ResolvedSshConfigHost, SavedAuth, SavedConnection, SshConfigHost, default_ssh_config_path,
+    load_ssh_config_content, parse_ssh_config, portable_aware_app_data_dir,
+    resolve_ssh_config_host, resolve_ssh_config_host_content,
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use parking_lot::RwLock;
@@ -29,6 +29,12 @@ const AI_KEYCHAIN_SERVICE: &str = "com.oxideterm.ai";
 const CONFIG_KEYCHAIN_SERVICE: &str = "com.oxideterm.config";
 const CONFIG_KEYCHAIN_ID: &str = "local-config-master-key";
 
+enum ConfigEncryptionKeyLookup {
+    Found([u8; CONFIG_ENCRYPTION_KEY_LEN]),
+    Missing,
+    Locked,
+}
+
 fn decode_config_encryption_key(secret: &str) -> Result<[u8; CONFIG_ENCRYPTION_KEY_LEN], String> {
     let decoded = BASE64
         .decode(secret)
@@ -41,12 +47,11 @@ fn decode_config_encryption_key(secret: &str) -> Result<[u8; CONFIG_ENCRYPTION_K
     })
 }
 
-fn load_config_encryption_key(
-    keychain: &Keychain,
-) -> Result<Option<[u8; CONFIG_ENCRYPTION_KEY_LEN]>, String> {
+fn load_config_encryption_key(keychain: &Keychain) -> Result<ConfigEncryptionKeyLookup, String> {
     match keychain.get(CONFIG_KEYCHAIN_ID) {
-        Ok(secret) => decode_config_encryption_key(&secret).map(Some),
-        Err(KeychainError::NotFound(_)) => Ok(None),
+        Ok(secret) => decode_config_encryption_key(&secret).map(ConfigEncryptionKeyLookup::Found),
+        Err(KeychainError::NotFound(_)) => Ok(ConfigEncryptionKeyLookup::Missing),
+        Err(KeychainError::PortableLocked) => Ok(ConfigEncryptionKeyLookup::Locked),
         Err(err) => Err(err.to_string()),
     }
 }
@@ -68,8 +73,12 @@ fn create_config_encryption_key(
 fn get_or_create_config_encryption_key(
     keychain: &Keychain,
 ) -> Result<([u8; CONFIG_ENCRYPTION_KEY_LEN], bool), String> {
-    if let Some(existing) = load_config_encryption_key(keychain)? {
-        return Ok((existing, false));
+    match load_config_encryption_key(keychain)? {
+        ConfigEncryptionKeyLookup::Found(existing) => return Ok((existing, false)),
+        ConfigEncryptionKeyLookup::Locked => {
+            return Err("Portable mode is locked. Unlock the portable keystore first".to_string());
+        }
+        ConfigEncryptionKeyLookup::Missing => {}
     }
 
     Ok((create_config_encryption_key(keychain)?, true))
@@ -100,6 +109,7 @@ pub struct AiProviderConfig {
 pub struct ConfigState {
     storage: ConfigStorage,
     config: RwLock<ConfigFile>,
+    bootstrap_status: RwLock<PortableBootstrapStatus>,
     config_keychain: Keychain,
     keychain: Keychain,
     pub(crate) ai_keychain: Keychain,
@@ -114,26 +124,46 @@ pub struct ConfigState {
 }
 
 impl ConfigState {
-    /// Create new config state, loading from disk
-    pub async fn new() -> Result<Self, String> {
-        let storage = ConfigStorage::new().map_err(|e| e.to_string())?;
-        let config_keychain = Keychain::with_service(CONFIG_KEYCHAIN_SERVICE);
-        let loaded = match storage.load_with_key(None).await {
+    fn new_bootstrap_state(initial_status: PortableBootstrapStatus) -> Result<Self, String> {
+        Ok(Self {
+            storage: ConfigStorage::new().map_err(|e| e.to_string())?,
+            config: RwLock::new(ConfigFile::default()),
+            bootstrap_status: RwLock::new(initial_status),
+            config_keychain: Keychain::with_service(CONFIG_KEYCHAIN_SERVICE),
+            keychain: Keychain::new(),
+            ai_keychain: Keychain::with_biometrics(AI_KEYCHAIN_SERVICE),
+            api_key_cache: RwLock::new(HashMap::new()),
+            ai_providers: RwLock::new((Vec::new(), None)),
+        })
+    }
+
+    async fn initialize_ready_state(&self) -> Result<(), String> {
+        let loaded = match self.storage.load_with_key(None).await {
             Ok(loaded) => loaded,
             Err(crate::config::StorageError::MissingEncryptionKey) => {
-                let existing_config_key = load_config_encryption_key(&config_keychain)
+                let existing_config_key = match load_config_encryption_key(&self.config_keychain)
                     .map_err(|err| {
                         format!(
-                            "Unable to unlock encrypted local config because the OS keychain is unavailable: {}",
+                            "Unable to unlock encrypted local config because the local secret backend is unavailable: {}",
                             err
                         )
-                    })?
-                    .ok_or_else(|| {
-                        "Encrypted local config found but the OS keychain entry is missing. Restore the keychain entry or recover from backup."
-                            .to_string()
-                    })?;
+                    })? {
+                    ConfigEncryptionKeyLookup::Found(key) => key,
+                    ConfigEncryptionKeyLookup::Locked => {
+                        return Err(
+                            "Portable mode is locked. Unlock the portable keystore before loading encrypted local config."
+                                .to_string(),
+                        )
+                    }
+                    ConfigEncryptionKeyLookup::Missing => {
+                        return Err(
+                            "Encrypted local config found but the local config master key is missing. Restore the portable keystore/keychain entry or recover from backup."
+                                .to_string(),
+                        )
+                    }
+                };
 
-                storage
+                self.storage
                     .load_with_key(Some(&existing_config_key))
                     .await
                     .map_err(|e| e.to_string())?
@@ -142,17 +172,21 @@ impl ConfigState {
         };
 
         if loaded.format == ConfigStorageFormat::Plaintext {
-            let (config_key, created_key) = get_or_create_config_encryption_key(&config_keychain)
-                .map_err(|err| {
+            let (config_key, created_key) =
+                get_or_create_config_encryption_key(&self.config_keychain).map_err(|err| {
                     format!(
-                        "Unable to migrate plaintext local config to encrypted storage because the OS keychain is unavailable: {}",
+                        "Unable to migrate plaintext local config to encrypted storage because the local secret backend is unavailable: {}",
                         err
                     )
                 })?;
 
-            if let Err(err) = storage.save_encrypted(&loaded.config, &config_key).await {
+            if let Err(err) = self
+                .storage
+                .save_encrypted(&loaded.config, &config_key)
+                .await
+            {
                 if created_key {
-                    rollback_new_config_key(&config_keychain);
+                    rollback_new_config_key(&self.config_keychain);
                 }
 
                 return Err(format!(
@@ -166,19 +200,116 @@ impl ConfigState {
             );
         }
 
-        Ok(Self {
-            storage,
-            config: RwLock::new(loaded.config),
-            config_keychain,
-            keychain: Keychain::new(),
-            ai_keychain: Keychain::with_biometrics(AI_KEYCHAIN_SERVICE),
-            api_key_cache: RwLock::new(HashMap::new()),
-            ai_providers: RwLock::new((Vec::new(), None)),
+        *self.config.write() = loaded.config;
+        let next_status = if crate::config::is_portable_mode().map_err(|e| e.to_string())? {
+            PortableBootstrapStatus::Unlocked
+        } else {
+            PortableBootstrapStatus::Disabled
+        };
+        *self.bootstrap_status.write() = next_status;
+        crate::config::set_portable_bootstrap_status(next_status).map_err(|e| e.to_string())?;
+
+        Ok(())
+    }
+
+    /// Create new config state, loading from disk
+    pub async fn new() -> Result<Self, String> {
+        let initial_status =
+            crate::config::portable_bootstrap_status().map_err(|e| e.to_string())?;
+        Self::new_with_bootstrap_status(initial_status).await
+    }
+
+    pub async fn new_with_bootstrap_status(
+        initial_status: PortableBootstrapStatus,
+    ) -> Result<Self, String> {
+        let state = Self::new_bootstrap_state(initial_status)?;
+        if initial_status.can_launch_full_app() {
+            state.initialize_ready_state().await?;
+        }
+        Ok(state)
+    }
+
+    pub fn portable_status(&self) -> PortableBootstrapStatus {
+        *self.bootstrap_status.read()
+    }
+
+    pub fn ensure_ready(&self) -> Result<(), String> {
+        let status = self.portable_status();
+        if status.can_launch_full_app() {
+            return Ok(());
+        }
+
+        Err(match status {
+            PortableBootstrapStatus::NeedsSetup => {
+                "Portable mode has not been initialized yet".to_string()
+            }
+            PortableBootstrapStatus::Locked => {
+                "Portable mode is locked. Unlock the portable keystore first".to_string()
+            }
+            PortableBootstrapStatus::Disabled | PortableBootstrapStatus::Unlocked => unreachable!(),
         })
+    }
+
+    pub async fn setup_portable_keystore(&self, password: &str) -> Result<(), String> {
+        if !crate::config::is_portable_mode().map_err(|e| e.to_string())? {
+            return Err("Portable setup is only available in portable mode".to_string());
+        }
+
+        crate::config::portable_keystore::create_portable_keystore(password)
+            .map_err(|e| e.to_string())?;
+
+        if let Err(err) = self.initialize_ready_state().await {
+            crate::config::portable_keystore::lock_portable_keystore();
+            *self.bootstrap_status.write() = PortableBootstrapStatus::Locked;
+            let _ = crate::config::set_portable_bootstrap_status(PortableBootstrapStatus::Locked);
+            return Err(err);
+        }
+
+        Ok(())
+    }
+
+    pub async fn unlock_portable_keystore(&self, password: &str) -> Result<(), String> {
+        if !crate::config::is_portable_mode().map_err(|e| e.to_string())? {
+            return Err("Portable unlock is only available in portable mode".to_string());
+        }
+
+        crate::config::portable_keystore::unlock_portable_keystore(password)
+            .map_err(|e| e.to_string())?;
+
+        if let Err(err) = self.initialize_ready_state().await {
+            crate::config::portable_keystore::lock_portable_keystore();
+            *self.bootstrap_status.write() = PortableBootstrapStatus::Locked;
+            let _ = crate::config::set_portable_bootstrap_status(PortableBootstrapStatus::Locked);
+            return Err(err);
+        }
+
+        Ok(())
+    }
+
+    pub async fn reset_portable_keystore(&self) -> Result<(), String> {
+        if !crate::config::is_portable_mode().map_err(|e| e.to_string())? {
+            return Err("Portable reset is only available in portable mode".to_string());
+        }
+
+        crate::config::portable_keystore::delete_portable_keystore().map_err(|e| e.to_string())?;
+        let config_path = crate::config::connections_file().map_err(|e| e.to_string())?;
+        if config_path.exists() {
+            std::fs::remove_file(&config_path).map_err(|e| e.to_string())?;
+        }
+
+        *self.config.write() = ConfigFile::default();
+        self.api_key_cache.write().clear();
+        self.ai_providers.write().0.clear();
+        self.ai_providers.write().1 = None;
+        *self.bootstrap_status.write() = PortableBootstrapStatus::NeedsSetup;
+        crate::config::set_portable_bootstrap_status(PortableBootstrapStatus::NeedsSetup)
+            .map_err(|e| e.to_string())?;
+        Ok(())
     }
 
     /// Save config to disk
     async fn save(&self) -> Result<(), String> {
+        self.ensure_ready()?;
         let config = self.config.read().clone();
         let (config_key, created_key) = get_or_create_config_encryption_key(&self.config_keychain)?;
 
@@ -211,16 +342,19 @@ impl ConfigState {
 
     /// Public API: Get value from keychain
     pub fn get_keychain_value(&self, key: &str) -> Result<String, String> {
+        self.ensure_ready()?;
         self.keychain.get(key).map_err(|e| e.to_string())
     }
 
     /// Public API: Store value in keychain
     pub fn set_keychain_value(&self, key: &str, value: &str) -> Result<(), String> {
+        self.ensure_ready()?;
         self.keychain.store(key, value).map_err(|e| e.to_string())
     }
 
     /// Public API: Delete value from keychain
     pub fn delete_keychain_value(&self, key: &str) -> Result<(), String> {
+        self.ensure_ready()?;
         self.keychain.delete(key).map_err(|e| e.to_string())
     }
 

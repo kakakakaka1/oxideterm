@@ -3,12 +3,32 @@
 
 //! Portable mode detection and path helpers.
 
+use parking_lot::RwLock;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::{LazyLock, OnceLock};
 use tauri::Manager;
 
 const PORTABLE_MARKER_FILENAME: &str = "portable";
 const PORTABLE_DATA_DIRNAME: &str = "data";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PortableBootstrapStatus {
+    Disabled,
+    NeedsSetup,
+    Locked,
+    Unlocked,
+}
+
+impl PortableBootstrapStatus {
+    pub fn can_launch_full_app(self) -> bool {
+        matches!(self, Self::Disabled | Self::Unlocked)
+    }
+
+    pub fn has_keystore(self) -> bool {
+        matches!(self, Self::Locked | Self::Unlocked)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PortableInfo {
@@ -28,9 +48,14 @@ pub enum PortableError {
 
     #[error("Failed to get app data dir: {0}")]
     AppDataDir(String),
+
+    #[error("Portable keystore error: {0}")]
+    Keystore(String),
 }
 
 static PORTABLE_INFO: OnceLock<PortableInfo> = OnceLock::new();
+static PORTABLE_BOOTSTRAP_STATUS: LazyLock<RwLock<Option<PortableBootstrapStatus>>> =
+    LazyLock::new(|| RwLock::new(None));
 
 pub fn detect_portable_info_from_exe(exe_path: &Path) -> Result<PortableInfo, PortableError> {
     let exe_dir = exe_path
@@ -69,6 +94,44 @@ pub fn is_portable_mode() -> Result<bool, PortableError> {
 pub fn portable_data_dir() -> Result<Option<PathBuf>, PortableError> {
     let info = portable_info()?;
     Ok(info.is_portable.then(|| info.data_dir.clone()))
+}
+
+fn detect_portable_bootstrap_status() -> Result<PortableBootstrapStatus, PortableError> {
+    let info = portable_info()?;
+    if !info.is_portable {
+        return Ok(PortableBootstrapStatus::Disabled);
+    }
+
+    let has_keystore = crate::config::portable_keystore::portable_keystore_exists()
+        .map_err(|e| PortableError::Keystore(e.to_string()))?;
+
+    Ok(if has_keystore {
+        PortableBootstrapStatus::Locked
+    } else {
+        PortableBootstrapStatus::NeedsSetup
+    })
+}
+
+pub fn initialize_portable_runtime() -> Result<PortableBootstrapStatus, PortableError> {
+    let status = detect_portable_bootstrap_status()?;
+    *PORTABLE_BOOTSTRAP_STATUS.write() = Some(status);
+    Ok(status)
+}
+
+pub fn portable_bootstrap_status() -> Result<PortableBootstrapStatus, PortableError> {
+    if let Some(status) = *PORTABLE_BOOTSTRAP_STATUS.read() {
+        return Ok(status);
+    }
+    initialize_portable_runtime()
+}
+
+pub fn set_portable_bootstrap_status(status: PortableBootstrapStatus) -> Result<(), PortableError> {
+    *PORTABLE_BOOTSTRAP_STATUS.write() = Some(status);
+    Ok(())
+}
+
+pub fn portable_can_launch_full_app() -> Result<bool, PortableError> {
+    Ok(portable_bootstrap_status()?.can_launch_full_app())
 }
 
 pub fn portable_aware_app_data_dir(app: &tauri::AppHandle) -> Result<PathBuf, PortableError> {
@@ -115,5 +178,15 @@ mod tests {
         assert!(!info.is_portable);
         assert_eq!(info.marker_path, temp.path().join(PORTABLE_MARKER_FILENAME));
         assert_eq!(info.data_dir, temp.path().join(PORTABLE_DATA_DIRNAME));
+    }
+
+    #[test]
+    fn portable_bootstrap_status_helpers_match_expectations() {
+        assert!(PortableBootstrapStatus::Disabled.can_launch_full_app());
+        assert!(!PortableBootstrapStatus::NeedsSetup.can_launch_full_app());
+        assert!(!PortableBootstrapStatus::Locked.can_launch_full_app());
+        assert!(PortableBootstrapStatus::Unlocked.can_launch_full_app());
+        assert!(!PortableBootstrapStatus::NeedsSetup.has_keystore());
+        assert!(PortableBootstrapStatus::Locked.has_keystore());
     }
 }

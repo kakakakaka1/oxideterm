@@ -23,6 +23,8 @@
 use keyring::Entry;
 use uuid::Uuid;
 
+use super::portable_keystore;
+
 /// Service name for keychain entries
 const SERVICE_NAME: &str = "com.oxideterm.ssh";
 
@@ -115,6 +117,15 @@ pub enum KeychainError {
 
     #[error("Secret not found for ID: {0}")]
     NotFound(String),
+
+    #[error("Portable keystore is locked")]
+    PortableLocked,
+
+    #[error("Portable keystore error: {0}")]
+    Portable(String),
+
+    #[error("Portable mode state error: {0}")]
+    PortableState(String),
 }
 
 /// Keychain manager for storing SSH credentials.
@@ -132,6 +143,24 @@ pub struct Keychain {
 }
 
 impl Keychain {
+    fn uses_portable_backend(&self) -> Result<bool, KeychainError> {
+        super::portable::is_portable_mode().map_err(|e| KeychainError::PortableState(e.to_string()))
+    }
+
+    fn map_portable_error(
+        &self,
+        id: &str,
+        error: portable_keystore::PortableKeystoreError,
+    ) -> KeychainError {
+        match error {
+            portable_keystore::PortableKeystoreError::NotFound(_) => {
+                KeychainError::NotFound(id.to_string())
+            }
+            portable_keystore::PortableKeystoreError::Locked => KeychainError::PortableLocked,
+            other => KeychainError::Portable(other.to_string()),
+        }
+    }
+
     /// Create a new keychain manager (SSH passwords — no biometric).
     pub fn new() -> Self {
         Self {
@@ -177,6 +206,11 @@ impl Keychain {
     /// avoid per-binary keychain password dialogs.
     /// Otherwise: uses the cross-platform `keyring` crate.
     pub fn store(&self, id: &str, secret: &str) -> Result<(), KeychainError> {
+        if self.uses_portable_backend()? {
+            return portable_keystore::store_secret(&self.service, id, secret)
+                .map_err(|e| self.map_portable_error(id, e));
+        }
+
         tracing::info!("Keychain store: service={}, id={}", self.service, id);
 
         #[cfg(target_os = "macos")]
@@ -234,6 +268,11 @@ impl Keychain {
     /// If an older entry exists with restrictive ACL, it is automatically
     /// migrated to the permissive format after a successful read.
     pub fn get(&self, id: &str) -> Result<String, KeychainError> {
+        if self.uses_portable_backend()? {
+            return portable_keystore::get_secret(&self.service, id)
+                .map_err(|e| self.map_portable_error(id, e));
+        }
+
         #[cfg(target_os = "macos")]
         if self.use_biometrics {
             // Touch ID gate
@@ -332,6 +371,11 @@ impl Keychain {
     /// falling back to the `keyring` crate. No Touch ID gate.
     /// On other platforms or non-biometric mode: identical to [`Self::get`].
     pub fn get_without_biometrics(&self, id: &str) -> Result<String, KeychainError> {
+        if self.uses_portable_backend()? {
+            return portable_keystore::get_secret(&self.service, id)
+                .map_err(|e| self.map_portable_error(id, e));
+        }
+
         #[cfg(target_os = "macos")]
         if self.use_biometrics {
             let username = whoami::username();
@@ -390,6 +434,12 @@ impl Keychain {
     /// authentication up front, then reads each secret without repeating the
     /// prompt. Missing entries are returned as `None`.
     pub fn get_many(&self, ids: &[String]) -> Result<Vec<Option<String>>, KeychainError> {
+        if self.uses_portable_backend()? {
+            return portable_keystore::get_many_secrets(&self.service, ids).map_err(|e| {
+                self.map_portable_error(ids.first().map(String::as_str).unwrap_or(""), e)
+            });
+        }
+
         #[cfg(target_os = "macos")]
         if self.use_biometrics {
             if super::touch_id::is_biometric_available() {
@@ -427,6 +477,11 @@ impl Keychain {
     ///
     /// No Touch ID prompt — deletion is always allowed.
     pub fn delete(&self, id: &str) -> Result<(), KeychainError> {
+        if self.uses_portable_backend()? {
+            return portable_keystore::delete_secret(&self.service, id)
+                .map_err(|e| self.map_portable_error(id, e));
+        }
+
         let username = whoami::username();
         let account = format!("{}@{}", username, id);
 
@@ -452,6 +507,11 @@ impl Keychain {
     ///
     /// No Touch ID prompt — existence check only.
     pub fn exists(&self, id: &str) -> Result<bool, KeychainError> {
+        if self.uses_portable_backend()? {
+            return portable_keystore::secret_exists(&self.service, id)
+                .map_err(|e| self.map_portable_error(id, e));
+        }
+
         let username = whoami::username();
         let account = format!("{}@{}", username, id);
 

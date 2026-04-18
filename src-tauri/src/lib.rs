@@ -180,6 +180,22 @@ pub fn run() {
     tracing::info!("Starting OxideTerm...");
     write_startup_log("Logging initialized");
 
+    let portable_bootstrap_status = match config::initialize_portable_runtime() {
+        Ok(status) => status,
+        Err(e) => {
+            let msg = format!("Failed to initialize portable mode runtime: {}", e);
+            tracing::error!("{}", msg);
+            write_startup_log(&msg);
+            show_startup_error("OxideTerm Startup Error", &msg);
+            return;
+        }
+    };
+
+    write_startup_log(&format!(
+        "Portable bootstrap status: {:?}",
+        portable_bootstrap_status
+    ));
+
     // Initialize state store
     let state_db_path = match config::storage::config_dir() {
         Ok(dir) => dir.join("state.redb"),
@@ -381,7 +397,6 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .manage(BridgeManager::new())
         .manage(registry.clone())
@@ -400,6 +415,12 @@ pub fn run() {
         .manage(update_manager::UpdateManagerState::default())
         .manage(Arc::new(commands::McpProcessRegistry::new()))
         .manage(commands::AiStreamCancelRegistry::default());
+
+    let builder = if portable_bootstrap_status == config::PortableBootstrapStatus::Disabled {
+        builder.plugin(tauri_plugin_updater::Builder::new().build())
+    } else {
+        builder
+    };
 
     // Always manage AI chat store wrapper to avoid "state not managed" errors
     let builder = builder.manage(ai_chat_store);
@@ -423,7 +444,9 @@ pub fn run() {
         tracing::info!("Initializing config state...");
         write_startup_log("Initializing config state...");
 
-        match tauri::async_runtime::block_on(ConfigState::new()) {
+        match tauri::async_runtime::block_on(ConfigState::new_with_bootstrap_status(
+            portable_bootstrap_status,
+        )) {
             Ok(config_state) => {
                 app.manage(Arc::new(config_state));
                 tracing::info!("Config state initialized successfully");
@@ -608,6 +631,10 @@ pub fn run() {
         commands::config::import_ssh_host,
         commands::config::import_ssh_hosts,
         commands::get_portable_info,
+        commands::get_portable_status,
+        commands::setup_portable_keystore,
+        commands::unlock_portable_keystore,
+        commands::reset_portable_keystore,
         commands::config::get_data_directory,
         commands::config::set_data_directory,
         commands::config::reset_data_directory,
@@ -966,6 +993,10 @@ pub fn run() {
         commands::config::import_ssh_host,
         commands::config::import_ssh_hosts,
         commands::get_portable_info,
+        commands::get_portable_status,
+        commands::setup_portable_keystore,
+        commands::unlock_portable_keystore,
+        commands::reset_portable_keystore,
         commands::config::get_data_directory,
         commands::config::set_data_directory,
         commands::config::reset_data_directory,
