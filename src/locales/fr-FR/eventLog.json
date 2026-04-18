@@ -1,6 +1,12 @@
 {
   "event_log": {
     "title": "Journal d'événements",
+    "dnd": {
+      "on": "Ne pas déranger",
+      "enable": "Activer Ne pas déranger",
+      "disable": "Désactiver Ne pas déranger",
+      "description": "Les nouveaux événements sont toujours enregistrés, mais les badges non lus et les compteurs d'erreurs sont masqués tant que Ne pas déranger est activé."
+    },
     "empty": "Aucun événement",
     "clear": "Tout effacer",
     "close": "Fermer le panneau",

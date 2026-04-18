@@ -19,6 +19,7 @@ function resetNotificationCenterStore() {
   useNotificationCenterStore.setState({
     items: [],
     filter: { status: 'all', severity: 'all', kind: 'all' },
+    dndEnabled: false,
     unreadCount: 0,
     unreadCriticalCount: 0,
   });
@@ -136,5 +137,18 @@ describe('NotificationsPanel', () => {
 
     // Single-item group (update) renders inline without group header
     expect(screen.getByText('Update available')).toBeInTheDocument();
+  });
+
+  it('toggles do not disturb from the toolbar', async () => {
+    seedNotifications();
+
+    render(<NotificationsPanel />);
+
+    fireEvent.click(screen.getByLabelText('notifications.dnd.enable'));
+
+    await waitFor(() => {
+      expect(useNotificationCenterStore.getState().dndEnabled).toBe(true);
+      expect(screen.getByText('notifications.dnd.on')).toBeInTheDocument();
+    });
   });
 });

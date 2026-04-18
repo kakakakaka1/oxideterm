@@ -1,6 +1,12 @@
 {
   "notifications": {
     "title": "Notificaciones",
+    "dnd": {
+      "on": "No molestar",
+      "enable": "Activar No molestar",
+      "disable": "Desactivar No molestar",
+      "description": "Las notificaciones nuevas se siguen registrando, pero los indicadores de no leídas y de interrupción se ocultan mientras No molestar está activado."
+    },
     "filter": {
       "all": "Todas",
       "unread": "No leídas"

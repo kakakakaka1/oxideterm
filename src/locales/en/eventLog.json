@@ -1,6 +1,12 @@
 {
   "event_log": {
     "title": "Event Log",
+    "dnd": {
+      "on": "Do Not Disturb",
+      "enable": "Enable Do Not Disturb",
+      "disable": "Disable Do Not Disturb",
+      "description": "New events are still recorded, but unread badges and error counters are suppressed while Do Not Disturb is enabled."
+    },
     "empty": "No events",
     "clear": "Clear All",
     "close": "Close Panel",

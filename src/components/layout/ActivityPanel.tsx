@@ -39,10 +39,16 @@ export const ActivityPanel = () => {
   const { t } = useTranslation();
   const activeView = useActivityStore((s) => s.activeView);
   const setActiveView = useActivityStore((s) => s.setActiveView);
+  const notificationDndEnabled = useNotificationCenterStore((s) => s.dndEnabled);
   const notificationUnreadCount = useNotificationCenterStore((s) => s.unreadCount);
   const notificationUnreadCriticalCount = useNotificationCenterStore((s) => s.unreadCriticalCount);
+  const eventLogDndEnabled = useEventLogStore((s) => s.dndEnabled);
   const eventLogUnreadCount = useEventLogStore((s) => s.unreadCount);
   const eventLogUnreadErrors = useEventLogStore((s) => s.unreadErrors);
+  const displayedNotificationUnreadCount = notificationDndEnabled ? 0 : notificationUnreadCount;
+  const displayedNotificationUnreadCriticalCount = notificationDndEnabled ? 0 : notificationUnreadCriticalCount;
+  const displayedEventLogUnreadCount = eventLogDndEnabled ? 0 : eventLogUnreadCount;
+  const displayedEventLogUnreadErrors = eventLogDndEnabled ? 0 : eventLogUnreadErrors;
 
   const handleViewChange = (value: string) => {
     setActiveView(value as ActivityView);
@@ -59,16 +65,16 @@ export const ActivityPanel = () => {
             <Bell className="h-3.5 w-3.5" />
             <span>{t('tabs.notifications')}</span>
             <ActivityTabBadge
-              count={notificationUnreadCount}
-              tone={notificationUnreadCriticalCount > 0 ? 'critical' : 'default'}
+              count={displayedNotificationUnreadCount}
+              tone={displayedNotificationUnreadCriticalCount > 0 ? 'critical' : 'default'}
             />
           </TabsTrigger>
           <TabsTrigger value="event_log" className="gap-2 px-3 text-xs">
             <ScrollText className="h-3.5 w-3.5" />
             <span>{t('tabs.event_log')}</span>
             <ActivityTabBadge
-              count={eventLogUnreadErrors > 0 ? eventLogUnreadErrors : eventLogUnreadCount}
-              tone={eventLogUnreadErrors > 0 ? 'critical' : 'default'}
+              count={displayedEventLogUnreadErrors > 0 ? displayedEventLogUnreadErrors : displayedEventLogUnreadCount}
+              tone={displayedEventLogUnreadErrors > 0 ? 'critical' : 'default'}
             />
           </TabsTrigger>
         </TabsList>

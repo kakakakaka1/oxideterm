@@ -1,6 +1,12 @@
 {
   "event_log": {
     "title": "Ereignisprotokoll",
+    "dnd": {
+      "on": "Nicht stören",
+      "enable": "Nicht stören aktivieren",
+      "disable": "Nicht stören deaktivieren",
+      "description": "Neue Ereignisse werden weiterhin protokolliert, aber Ungelesen-Badges und Fehlerzähler werden unterdrückt, solange Nicht stören aktiviert ist."
+    },
     "empty": "Keine Ereignisse",
     "clear": "Alle löschen",
     "close": "Panel schließen",

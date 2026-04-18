@@ -13,6 +13,7 @@ function resetNotificationCenterStore() {
   useNotificationCenterStore.setState({
     items: [],
     filter: { status: 'all', severity: 'all', kind: 'all' },
+    dndEnabled: false,
     unreadCount: 0,
     unreadCriticalCount: 0,
   });
@@ -248,5 +249,29 @@ describe('notificationCenterStore', () => {
       variant: 'primary',
     });
     expect(getStore().items[0].actions[0].handler).toBe(handler);
+  });
+
+  it('preserves unread semantics while do not disturb is enabled', () => {
+    getStore().setDndEnabled(true);
+
+    getStore().push(makeNotification({
+      severity: 'critical',
+      title: 'Muted critical',
+    }));
+
+    expect(getStore().dndEnabled).toBe(true);
+    expect(getStore().items[0].status).toBe('unread');
+    expect(getStore().unreadCount).toBe(1);
+    expect(getStore().unreadCriticalCount).toBe(1);
+  });
+
+  it('enabling do not disturb does not rewrite existing unread notifications', () => {
+    getStore().push(makeNotification({ severity: 'error', title: 'Unread error' }));
+
+    getStore().setDndEnabled(true);
+
+    expect(getStore().items[0].status).toBe('unread');
+    expect(getStore().unreadCount).toBe(1);
+    expect(getStore().unreadCriticalCount).toBe(1);
   });
 });

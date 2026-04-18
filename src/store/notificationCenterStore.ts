@@ -91,6 +91,7 @@ export type NotificationPush = Omit<NotificationItem, 'id' | 'createdAtMs' | 'st
 type NotificationCenterState = {
   items: NotificationItem[];
   filter: NotificationFilter;
+  dndEnabled: boolean;
 
   // Derived counts (computed in actions for performance)
   unreadCount: number;
@@ -106,12 +107,15 @@ type NotificationCenterState = {
   dismissByScope: (scope: NotificationScope) => void;
   dismissByDedupePrefix: (prefix: string) => void;
   setFilter: (filter: Partial<NotificationFilter>) => void;
+  setDndEnabled: (enabled: boolean) => void;
+  toggleDnd: () => void;
   clear: () => void;
 };
 
 export const useNotificationCenterStore = create<NotificationCenterState>((set) => ({
   items: [],
   filter: { status: 'all', severity: 'all', kind: 'all' },
+  dndEnabled: false,
   unreadCount: 0,
   unreadCriticalCount: 0,
 
@@ -225,6 +229,18 @@ export const useNotificationCenterStore = create<NotificationCenterState>((set) 
 
   setFilter: (partial) => set((state) => ({
     filter: { ...state.filter, ...partial },
+  })),
+
+  setDndEnabled: (enabled) => set((state) => {
+    if (state.dndEnabled === enabled) {
+      return state;
+    }
+
+    return { dndEnabled: enabled };
+  }),
+
+  toggleDnd: () => set((state) => ({
+    dndEnabled: !state.dndEnabled,
   })),
 
   clear: () => set({ items: [], unreadCount: 0, unreadCriticalCount: 0 }),

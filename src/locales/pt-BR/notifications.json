@@ -1,6 +1,12 @@
 {
   "notifications": {
     "title": "Notificações",
+    "dnd": {
+      "on": "Não perturbe",
+      "enable": "Ativar Não perturbe",
+      "disable": "Desativar Não perturbe",
+      "description": "Novas notificações continuam sendo registradas, mas os badges de não lidas e os indicadores de perturbação são suprimidos enquanto Não perturbe estiver ativado."
+    },
     "filter": {
       "all": "Todas",
       "unread": "Não lidas"

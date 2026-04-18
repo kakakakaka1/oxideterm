@@ -1,6 +1,12 @@
 {
   "notifications": {
     "title": "Thông báo",
+    "dnd": {
+      "on": "Không làm phiền",
+      "enable": "Bật Không làm phiền",
+      "disable": "Tắt Không làm phiền",
+      "description": "Thông báo mới vẫn được ghi lại, nhưng huy hiệu chưa đọc và chỉ báo làm phiền sẽ bị ẩn trong khi Không làm phiền được bật."
+    },
     "filter": {
       "all": "Tất cả",
       "unread": "Chưa đọc"

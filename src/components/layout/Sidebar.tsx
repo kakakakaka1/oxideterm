@@ -127,12 +127,18 @@ export const Sidebar = () => {
   const backgroundSessions = useLocalTerminalStore((s) => s.backgroundSessions);
 
   // Notification center
+  const notificationDndEnabled = useNotificationCenterStore((s) => s.dndEnabled);
   const notificationUnreadCount = useNotificationCenterStore((s) => s.unreadCount);
   const notificationUnreadCriticalCount = useNotificationCenterStore((s) => s.unreadCriticalCount);
 
   // Event log
+  const eventLogDndEnabled = useEventLogStore((s) => s.dndEnabled);
   const eventLogUnreadCount = useEventLogStore((s) => s.unreadCount);
   const eventLogUnreadErrors = useEventLogStore((s) => s.unreadErrors);
+  const displayedNotificationUnreadCount = notificationDndEnabled ? 0 : notificationUnreadCount;
+  const displayedNotificationUnreadCriticalCount = notificationDndEnabled ? 0 : notificationUnreadCriticalCount;
+  const displayedEventLogUnreadCount = eventLogDndEnabled ? 0 : eventLogUnreadCount;
+  const displayedEventLogUnreadErrors = eventLogDndEnabled ? 0 : eventLogUnreadErrors;
 
   // Toast hook (需要在所有使用 toast 的 useCallback 之前声明)
   const { toast } = useToast();
@@ -766,8 +772,8 @@ export const Sidebar = () => {
       key: 'activity',
       icon: Bell,
       titleKey: 'sidebar.panels.activity',
-      badge: (notificationUnreadCount + eventLogUnreadCount) > 0 ? (notificationUnreadCount + eventLogUnreadCount) : undefined,
-      badgeColor: notificationUnreadCriticalCount > 0 || eventLogUnreadErrors > 0 ? 'bg-red-500' : 'bg-blue-500',
+      badge: (displayedNotificationUnreadCount + displayedEventLogUnreadCount) > 0 ? (displayedNotificationUnreadCount + displayedEventLogUnreadCount) : undefined,
+      badgeColor: displayedNotificationUnreadCriticalCount > 0 || displayedEventLogUnreadErrors > 0 ? 'bg-red-500' : 'bg-blue-500',
     },
     { kind: 'tab', key: 'settings', icon: Settings, titleKey: 'sidebar.tooltips.settings' },
   ];

@@ -1,6 +1,12 @@
 {
   "notifications": {
     "title": "通知",
+    "dnd": {
+      "on": "勿擾模式",
+      "enable": "開啟勿擾模式",
+      "disable": "關閉勿擾模式",
+      "description": "新通知仍會被記錄，但在啟用勿擾模式期間，未讀徽章與打擾提示會被隱藏。"
+    },
     "filter": {
       "all": "全部",
       "unread": "未讀"

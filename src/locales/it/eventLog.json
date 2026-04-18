@@ -1,6 +1,12 @@
 {
   "event_log": {
     "title": "Registro eventi",
+    "dnd": {
+      "on": "Non disturbare",
+      "enable": "Attiva Non disturbare",
+      "disable": "Disattiva Non disturbare",
+      "description": "I nuovi eventi vengono comunque registrati, ma i badge di non letto e i contatori di errore vengono soppressi finché Non disturbare è attivo."
+    },
     "empty": "Nessun evento",
     "clear": "Cancella tutto",
     "close": "Chiudi pannello",

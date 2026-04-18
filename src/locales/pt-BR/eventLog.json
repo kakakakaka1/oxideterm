@@ -1,6 +1,12 @@
 {
   "event_log": {
     "title": "Registro de eventos",
+    "dnd": {
+      "on": "Não perturbe",
+      "enable": "Ativar Não perturbe",
+      "disable": "Desativar Não perturbe",
+      "description": "Novos eventos continuam sendo registrados, mas os badges de não lidos e os contadores de erro são suprimidos enquanto Não perturbe estiver ativado."
+    },
     "empty": "Nenhum evento",
     "clear": "Limpar tudo",
     "close": "Fechar painel",

@@ -1,6 +1,12 @@
 {
   "notifications": {
     "title": "Notifiche",
+    "dnd": {
+      "on": "Non disturbare",
+      "enable": "Attiva Non disturbare",
+      "disable": "Disattiva Non disturbare",
+      "description": "Le nuove notifiche vengono comunque registrate, ma i badge di non letto e gli indicatori di disturbo vengono soppressi finché Non disturbare è attivo."
+    },
     "filter": {
       "all": "Tutte",
       "unread": "Non lette"

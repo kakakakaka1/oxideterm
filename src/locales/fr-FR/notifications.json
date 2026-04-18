@@ -1,6 +1,12 @@
 {
   "notifications": {
     "title": "Notifications",
+    "dnd": {
+      "on": "Ne pas déranger",
+      "enable": "Activer Ne pas déranger",
+      "disable": "Désactiver Ne pas déranger",
+      "description": "Les nouvelles notifications sont toujours enregistrées, mais les badges non lus et les indicateurs de perturbation sont masqués tant que Ne pas déranger est activé."
+    },
     "filter": {
       "all": "Toutes",
       "unread": "Non lues"

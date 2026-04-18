@@ -63,6 +63,8 @@ interface EventLogState {
   panelSize: number;
   /** Active filter */
   filter: EventFilter;
+  /** Suppress unread badges while still retaining entries */
+  dndEnabled: boolean;
   /** Monotonic counter for entry IDs */
   _nextId: number;
   /** Number of unread entries since panel was last opened/focused */
@@ -79,6 +81,8 @@ interface EventLogState {
   setPanelSize: (size: number) => void;
   setFilter: (filter: Partial<EventFilter>) => void;
   markRead: () => void;
+  setDndEnabled: (enabled: boolean) => void;
+  toggleDnd: () => void;
 }
 
 // ============================================================================
@@ -90,6 +94,7 @@ export const useEventLogStore = create<EventLogState>((set) => ({
   isOpen: false,
   panelSize: 25,
   filter: { severity: 'all', category: 'all', search: '' },
+  dndEnabled: false,
   _nextId: 1,
   unreadCount: 0,
   unreadErrors: 0,
@@ -109,7 +114,7 @@ export const useEventLogStore = create<EventLogState>((set) => ({
       entries: newEntries,
       _nextId: state._nextId + 1,
       unreadCount: state.isOpen ? state.unreadCount : state.unreadCount + 1,
-      unreadErrors: partial.severity === 'error'
+      unreadErrors: partial.severity === 'error' && !state.isOpen
         ? state.unreadErrors + 1
         : state.unreadErrors,
     };
@@ -139,4 +144,16 @@ export const useEventLogStore = create<EventLogState>((set) => ({
   })),
 
   markRead: () => set({ unreadCount: 0, unreadErrors: 0 }),
+
+  setDndEnabled: (enabled) => set((state) => {
+    if (state.dndEnabled === enabled) {
+      return state;
+    }
+
+    return { dndEnabled: enabled };
+  }),
+
+  toggleDnd: () => set((state) => ({
+    dndEnabled: !state.dndEnabled,
+  })),
 }));

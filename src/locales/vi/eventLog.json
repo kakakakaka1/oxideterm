@@ -1,6 +1,12 @@
 {
   "event_log": {
     "title": "Nhật ký sự kiện",
+    "dnd": {
+      "on": "Không làm phiền",
+      "enable": "Bật Không làm phiền",
+      "disable": "Tắt Không làm phiền",
+      "description": "Sự kiện mới vẫn được ghi lại, nhưng huy hiệu chưa đọc và bộ đếm lỗi sẽ bị ẩn trong khi Không làm phiền được bật."
+    },
     "empty": "Không có sự kiện",
     "clear": "Xóa tất cả",
     "close": "Đóng bảng",

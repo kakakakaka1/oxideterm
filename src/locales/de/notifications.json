@@ -1,6 +1,12 @@
 {
   "notifications": {
     "title": "Benachrichtigungen",
+    "dnd": {
+      "on": "Nicht stören",
+      "enable": "Nicht stören aktivieren",
+      "disable": "Nicht stören deaktivieren",
+      "description": "Neue Benachrichtigungen werden weiterhin erfasst, aber Ungelesen-Badges und Störungshinweise werden unterdrückt, solange Nicht stören aktiviert ist."
+    },
     "filter": {
       "all": "Alle",
       "unread": "Ungelesen"

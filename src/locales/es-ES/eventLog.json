@@ -1,6 +1,12 @@
 {
   "event_log": {
     "title": "Registro de eventos",
+    "dnd": {
+      "on": "No molestar",
+      "enable": "Activar No molestar",
+      "disable": "Desactivar No molestar",
+      "description": "Los eventos nuevos se siguen registrando, pero los indicadores de no leídos y los contadores de errores se ocultan mientras No molestar está activado."
+    },
     "empty": "Sin eventos",
     "clear": "Limpiar todo",
     "close": "Cerrar panel",

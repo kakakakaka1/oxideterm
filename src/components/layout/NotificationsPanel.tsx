@@ -19,6 +19,7 @@ import {
   XCircle,
   ShieldAlert,
   CheckCheck,
+  BellOff,
   Trash2,
   X,
   ChevronDown,
@@ -132,6 +133,7 @@ const NotificationRow = ({ item }: { item: NotificationItem }) => {
   const { t } = useTranslation();
   const markRead = useNotificationCenterStore((s) => s.markRead);
   const dismiss = useNotificationCenterStore((s) => s.dismiss);
+  const dndEnabled = useNotificationCenterStore((s) => s.dndEnabled);
   const relativeTime = useRelativeTime(item.createdAtMs);
 
   const handleClick = useCallback(() => {
@@ -163,7 +165,7 @@ const NotificationRow = ({ item }: { item: NotificationItem }) => {
           )}>
             {item.title}
           </span>
-          {item.status === 'unread' && (
+          {item.status === 'unread' && !dndEnabled && (
             <span className="w-1.5 h-1.5 rounded-full bg-theme-accent shrink-0" />
           )}
         </div>
@@ -256,6 +258,7 @@ const NotificationGroupRow = ({ group }: { group: NotificationGroup }) => {
   const { t } = useTranslation();
   const [collapsed, setCollapsed] = useState(false);
   const dismissByIds = useNotificationCenterStore((s) => s.dismissByIds);
+  const dndEnabled = useNotificationCenterStore((s) => s.dndEnabled);
 
   const dismissGroup = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -283,7 +286,7 @@ const NotificationGroupRow = ({ group }: { group: NotificationGroup }) => {
         <span className="text-[10px] text-theme-text-muted">
           {group.items.length}
         </span>
-        {group.unreadCount > 0 && (
+        {group.unreadCount > 0 && !dndEnabled && (
           <span className="w-1.5 h-1.5 rounded-full bg-theme-accent shrink-0" />
         )}
         <Tooltip>
@@ -317,10 +320,13 @@ export const NotificationsPanel = () => {
   const { t } = useTranslation();
   const items = useNotificationCenterStore((s) => s.items);
   const filter = useNotificationCenterStore((s) => s.filter);
+  const dndEnabled = useNotificationCenterStore((s) => s.dndEnabled);
   const unreadCount = useNotificationCenterStore((s) => s.unreadCount);
   const setFilter = useNotificationCenterStore((s) => s.setFilter);
   const markAllRead = useNotificationCenterStore((s) => s.markAllRead);
   const dismissAll = useNotificationCenterStore((s) => s.dismissAll);
+  const toggleDnd = useNotificationCenterStore((s) => s.toggleDnd);
+  const displayedUnreadCount = dndEnabled ? 0 : unreadCount;
 
   const filteredItems = useMemo(() => {
     let result = [...items];
@@ -368,9 +374,14 @@ export const NotificationsPanel = () => {
         <span className="text-xs font-semibold text-theme-text mr-1">
           {t('notifications.title')}
         </span>
-        {unreadCount > 0 && (
+        {displayedUnreadCount > 0 && (
           <span className="text-[10px] text-theme-accent">
-            {unreadCount}
+            {displayedUnreadCount}
+          </span>
+        )}
+        {dndEnabled && (
+          <span className="rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-400">
+            {t('notifications.dnd.on')}
           </span>
         )}
 
@@ -394,6 +405,22 @@ export const NotificationsPanel = () => {
         <div className="flex-1" />
 
         <div className="flex items-center gap-1">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant={dndEnabled ? 'secondary' : 'ghost'}
+                size="icon"
+                className="h-6 w-6"
+                onClick={toggleDnd}
+                aria-label={t(dndEnabled ? 'notifications.dnd.disable' : 'notifications.dnd.enable')}
+              >
+                <BellOff className="h-3 w-3" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {t(dndEnabled ? 'notifications.dnd.disable' : 'notifications.dnd.enable')}
+            </TooltipContent>
+          </Tooltip>
           {unreadCount > 0 && (
             <Button
               variant="ghost"
@@ -422,6 +449,12 @@ export const NotificationsPanel = () => {
           )}
         </div>
       </div>
+
+      {dndEnabled && (
+        <div className="border-b border-theme-border bg-amber-500/10 px-3 py-2 text-[11px] text-amber-300">
+          {t('notifications.dnd.description')}
+        </div>
+      )}
 
       <div className="flex-1 overflow-y-auto overflow-x-hidden px-1 py-1">
         {filteredItems.length === 0 ? (

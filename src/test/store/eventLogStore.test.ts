@@ -11,6 +11,7 @@ function reset() {
     isOpen: false,
     panelSize: 25,
     filter: { severity: 'all', category: 'all', search: '' },
+    dndEnabled: false,
     _nextId: 1,
     unreadCount: 0,
     unreadErrors: 0,
@@ -61,11 +62,27 @@ describe('eventLogStore', () => {
       expect(getStore().unreadCount).toBe(0);
     });
 
+    it('does not increment unreadErrors when panel is open', () => {
+      getStore().openPanel();
+      getStore().addEntry({ ...baseEntry, severity: 'error' });
+
+      expect(getStore().unreadErrors).toBe(0);
+    });
+
     it('tracks unreadErrors for error severity', () => {
       getStore().addEntry({ ...baseEntry, severity: 'error' });
       getStore().addEntry({ ...baseEntry, severity: 'info' });
 
       expect(getStore().unreadErrors).toBe(1);
+    });
+
+    it('keeps accumulating unread counters while do not disturb is enabled', () => {
+      getStore().setDndEnabled(true);
+      getStore().addEntry({ ...baseEntry, severity: 'error' });
+
+      expect(getStore().unreadCount).toBe(1);
+      expect(getStore().unreadErrors).toBe(1);
+      expect(getStore().entries).toHaveLength(1);
     });
 
     it('caps at MAX_ENTRIES (500)', () => {
@@ -166,6 +183,19 @@ describe('eventLogStore', () => {
 
       expect(getStore().unreadCount).toBe(0);
       expect(getStore().unreadErrors).toBe(0);
+    });
+  });
+
+  describe('do not disturb', () => {
+    it('enabling do not disturb leaves existing unread counters intact', () => {
+      getStore().addEntry(baseEntry);
+      getStore().addEntry({ ...baseEntry, severity: 'error' });
+
+      getStore().setDndEnabled(true);
+
+      expect(getStore().dndEnabled).toBe(true);
+      expect(getStore().unreadCount).toBe(2);
+      expect(getStore().unreadErrors).toBe(1);
     });
   });
 });

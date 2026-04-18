@@ -1,6 +1,12 @@
 {
   "notifications": {
     "title": "알림",
+    "dnd": {
+      "on": "방해 금지",
+      "enable": "방해 금지 켜기",
+      "disable": "방해 금지 끄기",
+      "description": "새 알림은 계속 기록되지만, 방해 금지가 켜져 있는 동안에는 읽지 않음 배지와 방해 표시가 숨겨집니다."
+    },
     "filter": {
       "all": "전체",
       "unread": "읽지 않음"

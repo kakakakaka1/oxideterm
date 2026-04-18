@@ -14,6 +14,7 @@ import {
   Info,
   AlertTriangle,
   XCircle,
+  BellOff,
   Trash2,
   Filter,
   Search,
@@ -21,7 +22,9 @@ import {
 import { cn } from '../../lib/utils';
 import { Button } from '../ui/button';
 import { Tooltip, TooltipTrigger, TooltipContent } from '../ui/tooltip';
+import { useAppStore } from '../../store/appStore';
 import { useEventLogStore, type EventLogEntry, type EventSeverity, type EventCategory } from '../../store/eventLogStore';
+import { useActivityStore } from '../../store/activityStore';
 import { useSessionTreeStore } from '../../store/sessionTreeStore';
 
 // ============================================================================
@@ -147,19 +150,37 @@ const EventRow = ({ entry }: { entry: EventLogEntry }) => {
 
 export const EventLogPanel = () => {
   const { t } = useTranslation();
+  const activeView = useActivityStore((s) => s.activeView);
+  const tabs = useAppStore((s) => s.tabs);
+  const activeTabId = useAppStore((s) => s.activeTabId);
   const entries = useEventLogStore((s) => s.entries);
   const filter = useEventLogStore((s) => s.filter);
+  const dndEnabled = useEventLogStore((s) => s.dndEnabled);
   const setFilter = useEventLogStore((s) => s.setFilter);
   const clear = useEventLogStore((s) => s.clear);
-  const markRead = useEventLogStore((s) => s.markRead);
+  const openPanel = useEventLogStore((s) => s.openPanel);
+  const closePanel = useEventLogStore((s) => s.closePanel);
+  const toggleDnd = useEventLogStore((s) => s.toggleDnd);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const shouldAutoScroll = useRef(true);
+  const activeTab = useMemo(
+    () => tabs.find((tab) => tab.id === activeTabId),
+    [tabs, activeTabId],
+  );
+  const isVisible = activeView === 'event_log' && activeTab?.type === 'activity';
 
-  // Mark read on mount
+  // Sync panel visibility with store so unread counters stop growing while visible.
   useEffect(() => {
-    markRead();
-  }, [markRead]);
+    if (isVisible) {
+      openPanel();
+      return () => {
+        closePanel();
+      };
+    }
+
+    closePanel();
+  }, [isVisible, openPanel, closePanel]);
 
   // Filtered entries
   const filteredEntries = useMemo(() => {
@@ -224,6 +245,11 @@ export const EventLogPanel = () => {
         <span className="text-xs font-semibold text-theme-text mr-1">
           {t('event_log.title')}
         </span>
+        {dndEnabled && (
+          <span className="rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-400">
+            {t('event_log.dnd.on')}
+          </span>
+        )}
 
         {/* Severity counts */}
         <div className="flex items-center gap-1.5 text-[10px] mr-2">
@@ -243,6 +269,23 @@ export const EventLogPanel = () => {
 
         {/* Spacer */}
         <div className="flex-1" />
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant={dndEnabled ? 'secondary' : 'ghost'}
+              size="icon"
+              className="h-5 w-5"
+              onClick={toggleDnd}
+              aria-label={t(dndEnabled ? 'event_log.dnd.disable' : 'event_log.dnd.enable')}
+            >
+              <BellOff className="h-3 w-3" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            {t(dndEnabled ? 'event_log.dnd.disable' : 'event_log.dnd.enable')}
+          </TooltipContent>
+        </Tooltip>
 
         {/* Filter: severity */}
         <Tooltip>
@@ -305,6 +348,12 @@ export const EventLogPanel = () => {
         </Tooltip>
 
       </div>
+
+      {dndEnabled && (
+        <div className="border-b border-theme-border bg-amber-500/10 px-3 py-2 text-[11px] text-amber-300">
+          {t('event_log.dnd.description')}
+        </div>
+      )}
 
       {/* Event list */}
       <div
