@@ -173,10 +173,24 @@ impl AgentHistoryStore {
                 info!("Agent history database opened at {:?}", path);
                 db
             }
-            Err(e) => {
+            Err(redb::DatabaseError::DatabaseAlreadyOpen) => {
+                error!(
+                    "Agent history database is locked by another process: {:?}",
+                    path
+                );
+                return Err(redb::DatabaseError::DatabaseAlreadyOpen.into());
+            }
+            Err(redb::DatabaseError::UpgradeRequired(v)) => {
+                error!(
+                    "Agent history database at {:?} requires format upgrade (version {})",
+                    path, v
+                );
+                return Err(redb::DatabaseError::UpgradeRequired(v).into());
+            }
+            Err(redb::DatabaseError::Storage(redb::StorageError::Corrupted(message))) => {
                 warn!(
-                    "Failed to open agent history database: {:?}, attempting recovery",
-                    e
+                    "Agent history database at {:?} is corrupted ({}), attempting recovery",
+                    path, message
                 );
                 let backup_path = path.with_extension("redb.backup");
                 if let Err(e) = std::fs::rename(&path, &backup_path) {
@@ -188,6 +202,13 @@ impl AgentHistoryStore {
                     );
                 }
                 Database::create(&path)?
+            }
+            Err(e) => {
+                error!(
+                    "Failed to open agent history database at {:?}: {:?}",
+                    path, e
+                );
+                return Err(e.into());
             }
         };
 

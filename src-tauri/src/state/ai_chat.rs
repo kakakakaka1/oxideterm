@@ -384,10 +384,21 @@ impl AiChatStore {
                 info!("AI chat database opened at {:?}", path);
                 db
             }
-            Err(e) => {
+            Err(redb::DatabaseError::DatabaseAlreadyOpen) => {
+                error!("AI chat database is locked by another process: {:?}", path);
+                return Err(redb::DatabaseError::DatabaseAlreadyOpen.into());
+            }
+            Err(redb::DatabaseError::UpgradeRequired(v)) => {
+                error!(
+                    "AI chat database at {:?} requires format upgrade (version {})",
+                    path, v
+                );
+                return Err(redb::DatabaseError::UpgradeRequired(v).into());
+            }
+            Err(redb::DatabaseError::Storage(redb::StorageError::Corrupted(message))) => {
                 warn!(
-                    "Failed to open AI chat database: {:?}, attempting recovery",
-                    e
+                    "AI chat database at {:?} is corrupted ({}), attempting recovery",
+                    path, message
                 );
 
                 // Backup corrupted file
@@ -399,6 +410,10 @@ impl AiChatStore {
                 }
 
                 Database::create(&path)?
+            }
+            Err(e) => {
+                error!("Failed to open AI chat database at {:?}: {:?}", path, e);
+                return Err(e.into());
             }
         };
 
@@ -591,12 +606,44 @@ impl AiChatStore {
         let conv_table = read_txn.open_table(CONVERSATIONS_TABLE)?;
 
         let mut conversations: Vec<ConversationMeta> = Vec::new();
+        let mut total_rows = 0usize;
+        let mut failed_rows = 0usize;
 
         for result in conv_table.iter()? {
-            let (_, value) = result?;
-            let meta: ConversationMeta = rmp_serde::from_slice(value.value())?;
-            conversations.push(meta);
+            total_rows += 1;
+            let (key, value) = result?;
+            match rmp_serde::from_slice::<ConversationMeta>(value.value()) {
+                Ok(meta) => conversations.push(meta),
+                Err(e) => {
+                    failed_rows += 1;
+                    warn!(
+                        "Failed to deserialize conversation '{}': {}",
+                        key.value(),
+                        e
+                    );
+                }
+            }
         }
+
+        if failed_rows > 0 {
+            warn!(
+                "list_conversations: {}/{} rows failed to deserialize",
+                failed_rows, total_rows
+            );
+        }
+
+        if total_rows > 0 && failed_rows == total_rows {
+            return Err(AiChatError::Serialization(
+                "all conversations failed to deserialize".to_string(),
+            ));
+        }
+
+        debug!(
+            "list_conversations: returning {} conversations (total_rows={}, failed={})",
+            conversations.len(),
+            total_rows,
+            failed_rows
+        );
 
         // Sort by updated_at descending (newest first)
         conversations.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));

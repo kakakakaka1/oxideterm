@@ -89,10 +89,21 @@ impl StateStore {
                 info!("State database opened at {:?}", path);
                 db
             }
-            Err(e) => {
+            Err(redb::DatabaseError::DatabaseAlreadyOpen) => {
+                error!("State database is locked by another process: {:?}", path);
+                return Err(redb::DatabaseError::DatabaseAlreadyOpen.into());
+            }
+            Err(redb::DatabaseError::UpgradeRequired(v)) => {
+                error!(
+                    "State database at {:?} requires format upgrade (version {})",
+                    path, v
+                );
+                return Err(redb::DatabaseError::UpgradeRequired(v).into());
+            }
+            Err(redb::DatabaseError::Storage(redb::StorageError::Corrupted(message))) => {
                 warn!(
-                    "Failed to open state database: {:?}, attempting recovery",
-                    e
+                    "State database at {:?} is corrupted ({}), attempting recovery",
+                    path, message
                 );
 
                 // Backup corrupted file
@@ -105,6 +116,10 @@ impl StateStore {
 
                 // Create new database
                 Database::create(&path)?
+            }
+            Err(e) => {
+                error!("Failed to open state database at {:?}: {:?}", path, e);
+                return Err(e.into());
             }
         };
 

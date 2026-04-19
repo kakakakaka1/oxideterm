@@ -3,7 +3,7 @@
 
 import { useEffect, useRef, useCallback, useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Plus, Trash2, MessageSquare, MoreVertical, Settings, Terminal, HelpCircle, FileCode, Zap, AlertTriangle, Shrink, Scissors } from 'lucide-react';
+import { Plus, Trash2, MessageSquare, MoreVertical, Settings, Terminal, HelpCircle, FileCode, Zap, AlertTriangle, Shrink, Scissors, Loader2 } from 'lucide-react';
 import { useAiChatStore } from '../../store/aiChatStore';
 import { useSettingsStore } from '../../store/settingsStore';
 import { useAppStore } from '../../store/appStore';
@@ -25,8 +25,11 @@ export function AiChatPanel() {
     activeConversationId,
     isLoading,
     isInitialized,
+    isInitializing,
+    initializationError,
     error,
     init,
+    retryInit,
     createConversation,
     deleteConversation,
     setActiveConversation,
@@ -74,6 +77,10 @@ export function AiChatPanel() {
   }, [trimInfo?.timestamp]);
 
   const activeConversation = getActiveConversation();
+  const hasInitializationError = Boolean(isInitialized && initializationError && conversations.length === 0 && !activeConversation);
+  const isInitializationPending = Boolean((!isInitialized || isInitializing) && conversations.length === 0 && !activeConversation);
+  const isInitializationBlocked = hasInitializationError || isInitializationPending;
+  const initializationErrorMessage = initializationError ? t(initializationError.messageKey) : null;
   const activeSilentCompaction = useMemo(() => {
     if (
       !compactionInfo
@@ -174,10 +181,10 @@ export function AiChatPanel() {
 
   // Initialize store on mount
   useEffect(() => {
-    if (!isInitialized) {
+    if (!isInitialized && !error) {
       init();
     }
-  }, [init, isInitialized]);
+  }, [error, init, isInitialized]);
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -185,9 +192,14 @@ export function AiChatPanel() {
   }, [activeConversation?.messages]);
 
   const handleNewChat = useCallback(() => {
+    if (isInitializationBlocked) return;
     createConversation();
     setShowConversations(false);
-  }, [createConversation]);
+  }, [createConversation, isInitializationBlocked]);
+
+  const handleRetryInit = useCallback(() => {
+    retryInit();
+  }, [retryInit]);
 
   const handleSend = useCallback(
     (content: string, context?: string, sidebarContext?: SidebarContext | null) => {
@@ -318,7 +330,8 @@ export function AiChatPanel() {
         <div className="flex items-center gap-0.5 shrink-0">
           <button
             onClick={handleNewChat}
-            className="p-1 rounded-md hover:bg-theme-border/10 text-theme-text-muted hover:text-theme-text"
+            disabled={isInitializationBlocked}
+            className="p-1 rounded-md hover:bg-theme-border/10 text-theme-text-muted hover:text-theme-text disabled:opacity-40 disabled:cursor-not-allowed"
             title={t('ai.chat.new_chat_tooltip')}
           >
             <Plus className="w-3.5 h-3.5" />
@@ -404,7 +417,40 @@ export function AiChatPanel() {
 
       {/* Messages Area */}
       <div className="flex-1 overflow-y-auto selection:bg-theme-accent/20">
-        {!activeConversation || activeConversation.messages.length === 0 ? (
+        {isInitializationPending ? (
+          <div className="h-full flex flex-col items-center justify-center p-6 text-center bg-theme-bg gap-3">
+            <div className="w-12 h-12 bg-theme-accent/10 rounded-md flex items-center justify-center">
+              <Loader2 className="w-5 h-5 text-theme-accent animate-spin" />
+            </div>
+            <div className="space-y-1 max-w-[260px]">
+              <h3 className="text-[13px] font-bold text-theme-text">
+                {t('layout.loading')}
+              </h3>
+            </div>
+          </div>
+        ) : hasInitializationError ? (
+          <div className="h-full flex flex-col items-center justify-center p-6 text-center bg-theme-bg gap-3">
+            <div className="w-12 h-12 bg-red-500/10 rounded-md flex items-center justify-center">
+              <AlertTriangle className="w-5 h-5 text-red-400" />
+            </div>
+            <div className="space-y-1 max-w-[260px]">
+              <h3 className="text-[13px] font-bold text-theme-text">
+                {t('ai.chat.load_failed_title')}
+              </h3>
+              <p className="text-[12px] leading-relaxed text-theme-text-muted">
+                {initializationErrorMessage}
+              </p>
+            </div>
+            {initializationError?.canRetry && (
+              <button
+                onClick={handleRetryInit}
+                className="px-4 py-1.5 rounded-md bg-theme-accent hover:opacity-90 text-theme-bg text-[12px] font-bold"
+              >
+                {t('common.retry')}
+              </button>
+            )}
+          </div>
+        ) : !activeConversation || activeConversation.messages.length === 0 ? (
           <div className="h-full flex flex-col p-6 pt-12">
             <h3 className="text-[13px] font-bold text-theme-text mb-6 tracking-tight">
               {t('ai.chat.get_started')}
@@ -468,9 +514,9 @@ export function AiChatPanel() {
       </div>
 
       {/* Error display */}
-      {error && (
+      {error && !hasInitializationError && (
         <div className="flex-shrink-0 px-3 py-2 bg-red-500/10 border-t border-theme-border">
-          <p className="text-xs text-red-400 font-mono">{error}</p>
+          <p className="text-xs text-red-400">{error}</p>
         </div>
       )}
 
@@ -553,7 +599,7 @@ export function AiChatPanel() {
         onSend={handleSend}
         onStop={stopGeneration}
         isLoading={isLoading}
-        disabled={!aiEnabled}
+        disabled={!aiEnabled || isInitializationBlocked}
         externalValue={inputValue}
         onExternalValueChange={setInputValue}
       />

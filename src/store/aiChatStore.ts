@@ -96,6 +96,11 @@ interface ConversationListResponseDto {
   conversations: ConversationMetaDto[];
 }
 
+type AiChatInitializationError = {
+  messageKey: string;
+  canRetry: boolean;
+};
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Store Interface
 // ═══════════════════════════════════════════════════════════════════════════
@@ -107,6 +112,8 @@ interface AiChatStore {
   activeGenerationId: string | null;
   isLoading: boolean;
   isInitialized: boolean;
+  isInitializing: boolean;
+  initializationError: AiChatInitializationError | null;
   error: string | null;
   abortController: AbortController | null;
   /** Set when messages are trimmed from API context — UI shows notification */
@@ -128,6 +135,7 @@ interface AiChatStore {
 
   // Initialization
   init: () => Promise<void>;
+  retryInit: () => void;
 
   // Actions
   createConversation: (title?: string) => Promise<string>;
@@ -212,6 +220,49 @@ function metaToConversation(meta: ConversationMetaDto): AiConversation {
       origin: meta.origin || 'sidebar',
     },
   };
+}
+
+function normalizeAiChatError(error: unknown): string {
+  if (typeof error === 'string') {
+    return error;
+  }
+
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  if (typeof error === 'object' && error && 'message' in error && typeof error.message === 'string') {
+    return error.message;
+  }
+
+  return String(error);
+}
+
+function getAiChatInitializationError(error: unknown): AiChatInitializationError | null {
+  const message = normalizeAiChatError(error);
+
+  if (/Database already open/i.test(message)) {
+    return {
+      messageKey: 'ai.chat.database_locked',
+      canRetry: true,
+    };
+  }
+
+  if (/(requires format upgrade|upgrade required|manual upgrade required)/i.test(message)) {
+    return {
+      messageKey: 'ai.chat.database_upgrade_required',
+      canRetry: false,
+    };
+  }
+
+  if (/all conversations failed to deserialize/i.test(message)) {
+    return {
+      messageKey: 'ai.chat.load_failed_generic',
+      canRetry: false,
+    };
+  }
+
+  return null;
 }
 
 function buildPersistedMessageRequest(
@@ -512,6 +563,8 @@ export const useAiChatStore = create<AiChatStore>()((set, get) => ({
   activeGenerationId: null,
   isLoading: false,
   isInitialized: false,
+  isInitializing: false,
+  initializationError: null,
   error: null,
   abortController: null,
   trimInfo: null,
@@ -520,7 +573,9 @@ export const useAiChatStore = create<AiChatStore>()((set, get) => ({
 
   // Initialize store from backend
   init: async () => {
-    if (get().isInitialized) return;
+    if (get().isInitialized || get().isInitializing) return;
+
+    set({ isInitializing: true });
 
     try {
       // Load conversation list (metadata only)
@@ -531,6 +586,9 @@ export const useAiChatStore = create<AiChatStore>()((set, get) => ({
         conversations,
         activeConversationId: conversations[0]?.id ?? null,
         isInitialized: true,
+        isInitializing: false,
+        initializationError: null,
+        error: null,
       });
 
       // Load first conversation's messages if exists
@@ -540,9 +598,38 @@ export const useAiChatStore = create<AiChatStore>()((set, get) => ({
 
       console.log(`[AiChatStore] Initialized with ${conversations.length} conversations`);
     } catch (e) {
-      console.warn('[AiChatStore] Backend not available, using memory-only mode:', e);
-      set({ isInitialized: true });
+      const initializationError = getAiChatInitializationError(e);
+      console.warn('[AiChatStore] Failed to initialize from backend:', e);
+      if (initializationError) {
+        set({
+          conversations: [],
+          activeConversationId: null,
+          isInitialized: true,
+          isInitializing: false,
+          initializationError,
+          error: null,
+        });
+        return;
+      }
+
+      set({
+        isInitialized: true,
+        isInitializing: false,
+        initializationError: null,
+      });
     }
+  },
+
+  retryInit: () => {
+    set({
+      conversations: [],
+      activeConversationId: null,
+      isInitialized: false,
+      isInitializing: false,
+      initializationError: null,
+      error: null,
+    });
+    void get().init();
   },
 
   // Load full conversation with messages

@@ -347,6 +347,86 @@ describe('aiChatStore helpers', () => {
     });
   });
 
+  it('surfaces a database lock initialization error instead of falling back silently', async () => {
+    vi.mocked(invoke).mockRejectedValueOnce(
+      'Failed to initialize AI chat store at /tmp/chat_history.redb: Database error: Database already open. Cannot acquire lock.'
+    );
+
+    useAiChatStore.setState({
+      conversations: [],
+      activeConversationId: null,
+      isInitialized: false,
+      isInitializing: false,
+      initializationError: null,
+      error: null,
+    });
+
+    await useAiChatStore.getState().init();
+
+    expect(useAiChatStore.getState().isInitialized).toBe(true);
+    expect(useAiChatStore.getState().conversations).toEqual([]);
+    expect(useAiChatStore.getState().activeConversationId).toBeNull();
+    expect(useAiChatStore.getState().error).toBeNull();
+    expect(useAiChatStore.getState().initializationError).toEqual({
+      messageKey: 'ai.chat.database_locked',
+      canRetry: true,
+    });
+  });
+
+  it('allows retrying initialization after a recoverable failure', async () => {
+    vi.mocked(invoke)
+      .mockRejectedValueOnce(
+        'Failed to initialize AI chat store at /tmp/chat_history.redb: Database error: Database already open. Cannot acquire lock.'
+      )
+      .mockResolvedValueOnce({
+        conversations: [],
+      });
+
+    useAiChatStore.setState({
+      conversations: [],
+      activeConversationId: null,
+      isInitialized: false,
+      isInitializing: false,
+      initializationError: null,
+      error: null,
+    });
+
+    await useAiChatStore.getState().init();
+    useAiChatStore.getState().retryInit();
+
+    expect(useAiChatStore.getState().isInitialized).toBe(false);
+    expect(useAiChatStore.getState().isInitializing).toBe(true);
+    expect(useAiChatStore.getState().initializationError).toBeNull();
+    expect(useAiChatStore.getState().error).toBeNull();
+
+    await useAiChatStore.getState().init();
+
+    expect(useAiChatStore.getState().isInitialized).toBe(true);
+    expect(useAiChatStore.getState().error).toBeNull();
+    expect(useAiChatStore.getState().conversations).toEqual([]);
+    expect(invoke).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps the memory-only fallback for non-fatal init failures', async () => {
+    vi.mocked(invoke).mockRejectedValueOnce('transport temporarily unavailable');
+
+    useAiChatStore.setState({
+      conversations: [],
+      activeConversationId: null,
+      isInitialized: false,
+      isInitializing: false,
+      initializationError: null,
+      error: null,
+    });
+
+    await useAiChatStore.getState().init();
+
+    expect(useAiChatStore.getState().isInitialized).toBe(true);
+    expect(useAiChatStore.getState().initializationError).toBeNull();
+    expect(useAiChatStore.getState().error).toBeNull();
+    expect(useAiChatStore.getState().conversations).toEqual([]);
+  });
+
   it('prefers transcript-rebuilt assistant content during initialization', async () => {
     vi.mocked(invoke)
       .mockResolvedValueOnce({

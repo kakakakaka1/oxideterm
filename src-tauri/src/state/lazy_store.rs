@@ -23,6 +23,10 @@ impl<T> LazyManagedStore<T>
 where
     T: Send + Sync + 'static,
 {
+    fn is_retryable_error(error: &str) -> bool {
+        error.contains("Database already open")
+    }
+
     fn panic_message(payload: Box<dyn std::any::Any + Send>) -> String {
         if let Some(message) = payload.downcast_ref::<&str>() {
             (*message).to_string()
@@ -54,7 +58,19 @@ where
         loop {
             match &*state {
                 LazyManagedStoreState::Ready(store) => return Ok(store.clone()),
-                LazyManagedStoreState::Failed(error) => return Err(error.clone()),
+                LazyManagedStoreState::Failed(error) => {
+                    let error = error.clone();
+                    if Self::is_retryable_error(&error) {
+                        tracing::info!(
+                            "Retrying {} initialization after recoverable failure: {}",
+                            self.label,
+                            error
+                        );
+                        *state = LazyManagedStoreState::Initializing;
+                        break;
+                    }
+                    return Err(error);
+                }
                 LazyManagedStoreState::Initializing => {
                     state = self
                         .ready
@@ -144,6 +160,29 @@ mod tests {
         assert_eq!(store.resolve().unwrap_err(), "boom");
         assert_eq!(store.resolve().unwrap_err(), "boom");
         assert_eq!(init_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn retries_database_lock_failures() {
+        let init_calls = Arc::new(AtomicUsize::new(0));
+        let counter = init_calls.clone();
+        let store = LazyManagedStore::<usize>::new("retryable store", move || {
+            let call_index = counter.fetch_add(1, Ordering::SeqCst);
+            if call_index == 0 {
+                Err("Database error: Database already open. Cannot acquire lock.".to_string())
+            } else {
+                Ok(42)
+            }
+        });
+
+        assert_eq!(
+            store.resolve().unwrap_err(),
+            "Database error: Database already open. Cannot acquire lock."
+        );
+
+        let resolved = store.resolve().unwrap();
+        assert_eq!(*resolved, 42);
+        assert_eq!(init_calls.load(Ordering::SeqCst), 2);
     }
 
     #[test]

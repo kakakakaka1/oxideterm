@@ -291,7 +291,17 @@ pub async fn ai_chat_list_conversations(
     store: State<'_, LazyManagedStore<AiChatStore>>,
 ) -> Result<ConversationListResponse, String> {
     let store = require_ai_chat_store(&store)?;
-    let conversations = store.list_conversations().map_err(|e| e.to_string())?;
+    let conversations = store.list_conversations().map_err(|e| {
+        tracing::error!(
+            "[ai_chat_list_conversations] list_conversations failed: {}",
+            e
+        );
+        e.to_string()
+    })?;
+    tracing::debug!(
+        "[ai_chat_list_conversations] returning {} conversations",
+        conversations.len()
+    );
 
     let response = ConversationListResponse {
         conversations: conversations
