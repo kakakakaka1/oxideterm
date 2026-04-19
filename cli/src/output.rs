@@ -179,6 +179,18 @@ impl OutputMode {
         }
     }
 
+    /// Print active SSH connections in the pool.
+    pub fn print_active_connections(&self, value: &Value) {
+        match self {
+            Self::Json => {
+                println!("{}", serde_json::to_string(value).unwrap_or_default());
+            }
+            Self::Human => {
+                print!("{}", render_active_connections_human(value));
+            }
+        }
+    }
+
     /// Print local terminals list.
     pub fn print_local_terminals(&self, value: &Value) {
         match self {
@@ -367,6 +379,18 @@ impl OutputMode {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    /// Print aggregated session inspection details.
+    pub fn print_session_inspect(&self, value: &Value) {
+        match self {
+            Self::Json => {
+                println!("{}", serde_json::to_string(value).unwrap_or_default());
+            }
+            Self::Human => {
+                print!("{}", render_session_inspect_human(value));
             }
         }
     }
@@ -876,10 +900,218 @@ fn render_doctor_human(report: &DoctorReport) -> String {
     out
 }
 
+fn render_active_connections_human(value: &Value) -> String {
+    use std::fmt::Write;
+
+    let mut out = String::new();
+    let items = value
+        .as_array()
+        .map(|array| array.as_slice())
+        .unwrap_or(&[]);
+    if items.is_empty() {
+        let _ = writeln!(out, "No active SSH connections");
+        return out;
+    }
+
+    let _ = writeln!(
+        out,
+        "  {:<14} {:<24} {:<6} {:<10} {:<10} {:<4} {}",
+        "ID", "HOST", "PORT", "USER", "STATE", "REFS", "KEEPALIVE"
+    );
+    for item in items {
+        let id = item.get("id").and_then(|v| v.as_str()).unwrap_or("-");
+        let short_id = if id.len() > 12 { &id[..12] } else { id };
+        let host = item.get("host").and_then(|v| v.as_str()).unwrap_or("-");
+        let port = item.get("port").and_then(|v| v.as_u64()).unwrap_or(22);
+        let user = item.get("username").and_then(|v| v.as_str()).unwrap_or("-");
+        let state = item.get("state").and_then(|v| v.as_str()).unwrap_or("-");
+        let refs = item.get("refCount").and_then(|v| v.as_u64()).unwrap_or(0);
+        let keep_alive = item
+            .get("keepAlive")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let _ = writeln!(
+            out,
+            "  {:<14} {:<24} {:<6} {:<10} {:<10} {:<4} {}",
+            short_id,
+            sanitize_display(host),
+            port,
+            sanitize_display(user),
+            state,
+            refs,
+            if keep_alive { "yes" } else { "no" }
+        );
+    }
+
+    out
+}
+
+fn render_session_inspect_human(value: &Value) -> String {
+    use std::fmt::Write;
+
+    let mut out = String::new();
+    let session = value.get("session").unwrap_or(&Value::Null);
+    let name = session.get("name").and_then(|v| v.as_str()).unwrap_or("-");
+    let session_id = session.get("id").and_then(|v| v.as_str()).unwrap_or("-");
+    let host = session.get("host").and_then(|v| v.as_str()).unwrap_or("-");
+    let port = session.get("port").and_then(|v| v.as_u64()).unwrap_or(22);
+    let user = session
+        .get("username")
+        .and_then(|v| v.as_str())
+        .unwrap_or("-");
+    let state = session.get("state").and_then(|v| v.as_str()).unwrap_or("-");
+    let uptime = session
+        .get("uptime_secs")
+        .and_then(|v| v.as_u64())
+        .map(format_duration)
+        .unwrap_or_else(|| "-".to_string());
+    let connection_id = session
+        .get("connection_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("-");
+
+    let _ = writeln!(out, "{}", sanitize_display(name));
+    let _ = writeln!(out, "  Session:    {session_id}");
+    let _ = writeln!(out, "  Host:       {}:{port}", sanitize_display(host));
+    let _ = writeln!(out, "  User:       {}", sanitize_display(user));
+    let _ = writeln!(out, "  State:      {state}");
+    let _ = writeln!(out, "  Uptime:     {uptime}");
+    let _ = writeln!(out, "  Connection: {connection_id}");
+
+    match value.get("connection") {
+        Some(Value::Object(connection)) => {
+            let pool_id = connection.get("id").and_then(|v| v.as_str()).unwrap_or("-");
+            let pool_state = connection
+                .get("state")
+                .and_then(|v| v.as_str())
+                .unwrap_or("-");
+            let ref_count = connection
+                .get("refCount")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
+            let keep_alive = connection
+                .get("keepAlive")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let last_active = connection
+                .get("lastActive")
+                .and_then(|v| v.as_str())
+                .unwrap_or("-");
+            let _ = writeln!(
+                out,
+                "  Pool:       {} ({}, refs {}, keep-alive {})",
+                pool_id,
+                pool_state,
+                ref_count,
+                if keep_alive { "on" } else { "off" }
+            );
+            let _ = writeln!(out, "  Last seen:  {last_active}");
+        }
+        _ if connection_id != "-" => {
+            let _ = writeln!(
+                out,
+                "  Pool:       not currently present in active connection list"
+            );
+        }
+        _ => {}
+    }
+
+    match value.get("health") {
+        Some(Value::Object(health)) => {
+            let status = health
+                .get("status")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
+            let latency = health
+                .get("latency_ms")
+                .and_then(|v| v.as_u64())
+                .map(|ms| format!("{ms}ms"))
+                .unwrap_or_else(|| "-".to_string());
+            let message = health
+                .get("message")
+                .and_then(|v| v.as_str())
+                .unwrap_or("-");
+            let _ = writeln!(out, "  Health:     {status} ({latency})");
+            let _ = writeln!(out, "  Message:    {}", sanitize_display(message));
+        }
+        _ => {
+            if let Some(error) = value.get("health_error").and_then(|v| v.as_str()) {
+                let _ = writeln!(out, "  Health:     unavailable");
+                let _ = writeln!(out, "  Message:    {}", sanitize_display(error));
+            } else {
+                let _ = writeln!(out, "  Health:     unavailable");
+            }
+        }
+    }
+
+    let forwards = value
+        .get("forwards")
+        .and_then(|v| v.as_array())
+        .map(|array| array.as_slice())
+        .unwrap_or(&[]);
+    if forwards.is_empty() {
+        let _ = writeln!(out, "  Forwards:   none");
+    } else {
+        let _ = writeln!(out, "  Forwards:   {}", forwards.len());
+        for forward in forwards {
+            let bind_address = forward
+                .get("bind_address")
+                .and_then(|v| v.as_str())
+                .unwrap_or("0.0.0.0");
+            let bind_port = forward
+                .get("bind_port")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
+            let forward_type = forward
+                .get("forward_type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("-");
+            let target = if forward_type == "dynamic" {
+                "SOCKS5".to_string()
+            } else {
+                format!(
+                    "{}:{}",
+                    forward
+                        .get("target_host")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("-"),
+                    forward
+                        .get("target_port")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0)
+                )
+            };
+            let status = forward
+                .get("status")
+                .and_then(|v| v.as_str())
+                .unwrap_or("-");
+            let description = forward
+                .get("description")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let _ = writeln!(
+                out,
+                "    - {} {}:{} → {} [{}] {}",
+                forward_type,
+                bind_address,
+                bind_port,
+                target,
+                status,
+                sanitize_display(description)
+            );
+        }
+    }
+
+    out
+}
+
 #[cfg(test)]
 mod tests {
-    use super::render_doctor_human;
+    use super::{
+        render_active_connections_human, render_doctor_human, render_session_inspect_human,
+    };
     use crate::{DoctorCheck, DoctorEndpoint, DoctorReport, DoctorStatus};
+    use serde_json::json;
 
     #[test]
     fn doctor_renderer_includes_summary_and_details() {
@@ -920,5 +1152,70 @@ mod tests {
             rendered.contains("[fail] GUI connectivity: Failed to connect to the OxideTerm GUI")
         );
         assert!(rendered.contains("Expected install path"));
+    }
+
+    #[test]
+    fn active_connections_renderer_includes_ref_count_and_keepalive() {
+        let rendered = render_active_connections_human(&json!([
+            {
+                "id": "conn-1234567890ab",
+                "host": "example.com",
+                "port": 22,
+                "username": "deploy",
+                "state": "active",
+                "refCount": 2,
+                "keepAlive": true
+            }
+        ]));
+
+        assert!(rendered.contains("example.com"));
+        assert!(rendered.contains("deploy"));
+        assert!(rendered.contains("2"));
+        assert!(rendered.contains("yes"));
+    }
+
+    #[test]
+    fn session_inspect_renderer_includes_session_pool_health_and_forwards() {
+        let rendered = render_session_inspect_human(&json!({
+            "session": {
+                "id": "session-1",
+                "connection_id": "conn-1",
+                "name": "prod",
+                "host": "example.com",
+                "port": 22,
+                "username": "deploy",
+                "state": "active",
+                "uptime_secs": 125
+            },
+            "connection": {
+                "id": "conn-1",
+                "state": "active",
+                "refCount": 2,
+                "keepAlive": true,
+                "lastActive": "2026-04-19T12:00:00Z"
+            },
+            "health": {
+                "status": "healthy",
+                "latency_ms": 42,
+                "message": "Connected • 42ms"
+            },
+            "forwards": [
+                {
+                    "forward_type": "local",
+                    "bind_address": "127.0.0.1",
+                    "bind_port": 8080,
+                    "target_host": "localhost",
+                    "target_port": 80,
+                    "status": "active",
+                    "description": "Web"
+                }
+            ]
+        }));
+
+        assert!(rendered.contains("prod"));
+        assert!(rendered.contains("Pool:       conn-1 (active, refs 2, keep-alive on)"));
+        assert!(rendered.contains("Health:     healthy (42ms)"));
+        assert!(rendered.contains("Forwards:   1"));
+        assert!(rendered.contains("127.0.0.1:8080"));
     }
 }

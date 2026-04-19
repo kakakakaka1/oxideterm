@@ -237,6 +237,12 @@ enum Commands {
         what: ListTarget,
     },
 
+    /// Inspect active SSH sessions
+    Session {
+        #[command(subcommand)]
+        action: SessionAction,
+    },
+
     /// Show connection health
     Health {
         /// Session ID (omit to show all)
@@ -389,10 +395,23 @@ enum ListTarget {
     Connections,
     /// List active sessions
     Sessions,
+    /// List active SSH connections in the pool
+    ActiveConnections,
+    /// List active local terminal tabs
+    LocalTerminals,
     /// List active port forwards
     Forwards {
         /// Session ID (omit to show all sessions)
         session_id: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum SessionAction {
+    /// Inspect an active SSH session
+    Inspect {
+        /// Session ID, exact name, or unique ID prefix
+        target: String,
     },
 }
 
@@ -578,6 +597,16 @@ fn run(cli: &Cli, out: &output::OutputMode) -> Result<ExitCode, CliError> {
                 let resp = conn.call("list_sessions", serde_json::json!({}))?;
                 out.print_sessions(&resp);
             }
+            ListTarget::ActiveConnections => {
+                emit_compatibility_notice(out, cli.quiet, compatibility.warning.as_deref());
+                let resp = conn.call("list_active_connections", serde_json::json!({}))?;
+                out.print_active_connections(&resp);
+            }
+            ListTarget::LocalTerminals => {
+                emit_compatibility_notice(out, cli.quiet, compatibility.warning.as_deref());
+                let resp = conn.call("list_local_terminals", serde_json::json!({}))?;
+                out.print_local_terminals(&resp);
+            }
             ListTarget::Forwards { session_id } => {
                 emit_compatibility_notice(out, cli.quiet, compatibility.warning.as_deref());
                 let params = match session_id {
@@ -586,6 +615,14 @@ fn run(cli: &Cli, out: &output::OutputMode) -> Result<ExitCode, CliError> {
                 };
                 let resp = conn.call("list_forwards", params)?;
                 out.print_forwards(&resp);
+            }
+        },
+        Commands::Session { action } => match action {
+            SessionAction::Inspect { target } => {
+                return_if_incompatible(&compatibility)?;
+                emit_compatibility_notice(out, cli.quiet, compatibility.warning.as_deref());
+                let resp = build_session_inspect(&mut conn, target)?;
+                out.print_session_inspect(&resp);
             }
         },
         Commands::Health {
@@ -1832,6 +1869,106 @@ fn wait_for_connected_session(
     }
 }
 
+fn build_session_inspect(
+    conn: &mut connect::IpcConnection,
+    target: &str,
+) -> Result<serde_json::Value, CliError> {
+    let sessions = conn.call("list_sessions", serde_json::json!({}))?;
+    let items = sessions
+        .as_array()
+        .ok_or_else(|| CliError::runtime("Invalid session list from server"))?;
+    let session = select_session_for_inspect(items, target)?;
+    let session_id = session
+        .get("id")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| CliError::runtime("Session entry is missing id"))?;
+
+    let forwards = conn.call(
+        "list_forwards",
+        serde_json::json!({ "session_id": session_id }),
+    )?;
+
+    let health_result = match conn.call("health", serde_json::json!({ "session_id": session_id })) {
+        Ok(health) => (health, None),
+        Err(error) if error.contains("No health tracker for session:") => {
+            (serde_json::Value::Null, Some(error))
+        }
+        Err(error) => return Err(error.into()),
+    };
+
+    let connection = if let Some(connection_id) = session
+        .get("connection_id")
+        .and_then(|value| value.as_str())
+    {
+        let connections = conn.call("list_active_connections", serde_json::json!({}))?;
+        let items = connections
+            .as_array()
+            .ok_or_else(|| CliError::runtime("Invalid active connection list from server"))?;
+
+        items
+            .iter()
+            .find(|entry| entry.get("id").and_then(|value| value.as_str()) == Some(connection_id))
+            .cloned()
+            .unwrap_or(serde_json::Value::Null)
+    } else {
+        serde_json::Value::Null
+    };
+
+    Ok(serde_json::json!({
+        "session": session,
+        "connection": connection,
+        "health": health_result.0,
+        "health_error": health_result.1,
+        "forwards": forwards,
+    }))
+}
+
+fn select_session_for_inspect(
+    sessions: &[serde_json::Value],
+    target: &str,
+) -> Result<serde_json::Value, CliError> {
+    if let Some(session) = sessions
+        .iter()
+        .find(|session| session.get("id").and_then(|value| value.as_str()) == Some(target))
+    {
+        return Ok(session.clone());
+    }
+
+    let name_matches: Vec<&serde_json::Value> = sessions
+        .iter()
+        .filter(|session| session.get("name").and_then(|value| value.as_str()) == Some(target))
+        .collect();
+    if name_matches.len() == 1 {
+        return Ok(name_matches[0].clone());
+    }
+    if name_matches.len() > 1 {
+        return Err(CliError::usage(format!(
+            "Multiple active sessions match name: {target}. Use the full session ID."
+        )));
+    }
+
+    let prefix_matches: Vec<&serde_json::Value> = sessions
+        .iter()
+        .filter(|session| {
+            session
+                .get("id")
+                .and_then(|value| value.as_str())
+                .map(|id| id.starts_with(target))
+                .unwrap_or(false)
+        })
+        .collect();
+    if prefix_matches.len() == 1 {
+        return Ok(prefix_matches[0].clone());
+    }
+    if prefix_matches.len() > 1 {
+        return Err(CliError::usage(format!(
+            "Multiple active sessions match ID prefix: {target}. Use a longer prefix or the full session ID."
+        )));
+    }
+
+    Err(CliError::not_found(format!("Session not found: {target}")))
+}
+
 /// Parse a forward spec like `8080:localhost:80` or `0.0.0.0:8080:localhost:80`
 /// Also supports IPv6 addresses in brackets: `[::1]:8080:localhost:80`
 /// For dynamic forwards, spec is just `[bind_addr:]bind_port`
@@ -2511,8 +2648,8 @@ mod tests {
     use super::{
         build_compatibility_check, build_endpoint_ownership_check, build_path_check,
         check_compatibility, classify_error_message, compatibility_notice_text,
-        protocol_ranges_overlap, read_stdin_from_reader, should_emit_human_guidance, Cli,
-        DoctorStatus, ExitCode,
+        protocol_ranges_overlap, read_stdin_from_reader, select_session_for_inspect,
+        should_emit_human_guidance, Cli, DoctorStatus, ExitCode,
     };
     use crate::{connect, output::OutputMode};
     use clap::CommandFactory;
@@ -2603,6 +2740,14 @@ mod tests {
         assert_eq!(
             normalize_help(&render_help(&["connect"])),
             normalize_help(include_str!("../tests/snapshots/oxt-connect-help.txt"))
+        );
+    }
+
+    #[test]
+    fn session_help_matches_snapshot() {
+        assert_eq!(
+            normalize_help(&render_help(&["session"])),
+            normalize_help(include_str!("../tests/snapshots/oxt-session-help.txt"))
         );
     }
 
@@ -2797,6 +2942,31 @@ mod tests {
         let not_found = classify_error_message("Connection not found: prod".to_string());
         assert_eq!(not_found.code, "not_found");
         assert_eq!(not_found.exit_code, ExitCode::NotFound);
+    }
+
+    #[test]
+    fn select_session_for_inspect_rejects_ambiguous_name_matches() {
+        let sessions = vec![
+            serde_json::json!({ "id": "session-1", "name": "prod" }),
+            serde_json::json!({ "id": "session-2", "name": "prod" }),
+        ];
+
+        let error = select_session_for_inspect(&sessions, "prod").unwrap_err();
+
+        assert_eq!(error.code, "usage_error");
+        assert_eq!(error.exit_code, ExitCode::Usage);
+    }
+
+    #[test]
+    fn select_session_for_inspect_prefers_exact_id_before_prefix() {
+        let sessions = vec![
+            serde_json::json!({ "id": "abc123", "name": "one" }),
+            serde_json::json!({ "id": "abc1234", "name": "two" }),
+        ];
+
+        let selected = select_session_for_inspect(&sessions, "abc123").unwrap();
+
+        assert_eq!(selected["id"], "abc123");
     }
 
     #[test]

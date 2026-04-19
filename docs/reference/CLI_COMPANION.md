@@ -8,7 +8,8 @@
 
 - 查询 OxideTerm 状态与健康信息
 - 运行 `oxt doctor` 诊断安装、PATH、endpoint 与 CLI API 兼容性
-- 列出连接、会话、本地终端与端口转发
+- 列出连接、会话、活跃连接池、本地终端与端口转发
+- 使用 `oxt session inspect` 聚合查看单个 SSH 会话、连接池、健康状态与转发
 - 执行连接、断开、聚焦、附着（mirror）等会话操作
 - 创建/删除端口转发规则
 - 读取配置（分组、连接详情）
@@ -202,7 +203,9 @@
     "port": 22,
     "username": "deploy",
     "state": "active",
-    "ref_count": 2
+    "refCount": 2,
+    "keepAlive": true,
+    "lastActive": "2026-04-19T12:00:00Z"
   }
 ]
 ```
@@ -305,10 +308,73 @@
   {
     "id": "local-123...",
     "shell_name": "zsh",
-    "cwd": "/Users/name/project"
+    "shell_id": "shell-zsh",
+    "running": true,
+    "detached": false
   }
 ]
 ```
+
+### `session inspect`（CLI 聚合命令）
+
+`session inspect` 不是独立的服务端 RPC，而是 CLI 侧对多个现有 RPC 的聚合视图。它会按顺序调用：
+
+1. `list_sessions` 解析目标会话
+2. `list_active_connections` 关联连接池条目
+3. `list_forwards` 拉取该会话的端口转发
+4. `health` 获取单会话健康信息
+
+**目标解析规则**：
+
+1. 优先精确匹配 session ID。
+2. 其次精确匹配 session name。
+3. 最后允许唯一的 session ID 前缀匹配。
+4. 若名称重名或前缀歧义，返回 `usage_error`（退出码 `2`），而不是任意选择一个会话。
+
+**聚合响应示例**：
+```json
+{
+  "session": {
+    "id": "session-1",
+    "connection_id": "conn-1",
+    "name": "prod",
+    "host": "example.com",
+    "port": 22,
+    "username": "deploy",
+    "state": "active",
+    "uptime_secs": 125
+  },
+  "connection": {
+    "id": "conn-1",
+    "host": "example.com",
+    "port": 22,
+    "username": "deploy",
+    "state": "active",
+    "refCount": 2,
+    "keepAlive": true,
+    "lastActive": "2026-04-19T12:00:00Z"
+  },
+  "health": {
+    "session_id": "session-1",
+    "status": "healthy",
+    "latency_ms": 42,
+    "message": "Connected • 42ms"
+  },
+  "forwards": [
+    {
+      "id": "fwd-1",
+      "forward_type": "local",
+      "bind_address": "127.0.0.1",
+      "bind_port": 8080,
+      "target_host": "localhost",
+      "target_port": 80,
+      "status": "active"
+    }
+  ]
+}
+```
+
+如果健康跟踪器暂时不存在，命令仍然成功返回，并将 `health` 置为 `null`，同时附带 `health_error` 字段，避免因为单个子视图缺失而丢掉整个聚合结果。
 
 ### `connect`
 
@@ -475,11 +541,20 @@ oxt list connections
 # 列出活跃会话
 oxt list sessions
 
+# 列出 SSH 连接池中的活跃连接
+oxt list active-connections
+
+# 列出活跃本地终端标签
+oxt list local-terminals
+
 # 列出所有端口转发
 oxt list forwards
 
 # 列出指定会话的端口转发
 oxt list forwards <session-id>
+
+# 聚合查看单个 SSH 会话
+oxt session inspect <session-id-or-name>
 
 # 查看所有会话健康状态
 oxt health
@@ -567,7 +642,7 @@ Phase 2 起，`oxt` 的退出码固定为下面 6 类：
 | `1` | 一般运行期失败 | IPC 失败、doctor 发现失败项、未分类 RPC 错误 |
 | `2` | CLI 参数或用法错误 | Clap 参数解析失败、未知子命令、缺少必需参数、多目标但未指定 |
 | `3` | 超时 | `connect --wait` 等等待型命令超时、服务端超时信号 |
-| `4` | 目标不存在 | 连接/会话不存在、找不到健康跟踪器、无可附着目标 |
+| `4` | 目标不存在 | 连接/会话不存在、无可附着目标 |
 | `5` | CLI API 兼容性失败 | GUI 未暴露兼容元数据、协议范围不重叠 |
 
 说明：
@@ -651,6 +726,16 @@ $ oxt list connections --json | jq '.[].host'
 "10.0.1.5"
 "192.168.1.100"
 
+# 查看 SSH 连接池
+$ oxt list active-connections
+  ID             HOST                     PORT   USER       STATE      REFS KEEP
+  conn-1         example.com              22     deploy     active     2    yes
+
+# 查看本地终端标签
+$ oxt list local-terminals
+  ID             SHELL            RUNNING    DETACHED
+  local-1        zsh              yes        no
+
 # 查看所有会话健康状态
 $ oxt health
   SESSION        STATUS         LATENCY    MESSAGE
@@ -697,6 +782,22 @@ $ oxt status --timeout 5000
 # 连接并等待新会话真正出现
 $ oxt connect prod-server --json --wait --wait-timeout 30000
 {"success":true,"connection_id":"conn-456...","name":"prod-server","waited":true,"session_id":"abc123...","session_state":"active"}
+
+# 聚合排查单个会话
+$ oxt session inspect prod
+prod
+  Session:    session-1
+  Host:       example.com:22
+  User:       deploy
+  State:      active
+  Uptime:     2m 5s
+  Connection: conn-1
+  Pool:       conn-1 (active, refs 2, keep-alive on)
+  Last seen:  2026-04-19T12:00:00Z
+  Health:     healthy (42ms)
+  Message:    Connected • 42ms
+  Forwards:   1
+    - local 127.0.0.1:8080 → localhost:80 [active] Web
 
 # 静默模式适合脚本，避免兼容性提示污染 stderr
 $ oxt --quiet status --json

@@ -5,6 +5,7 @@ Usage: oxt [OPTIONS] <COMMAND>
 Commands:
   status       Show OxideTerm status
   list         List resources
+  session      Inspect active SSH sessions
   health       Show connection health
   disconnect   Disconnect a session
   forward      Manage port forwarding
