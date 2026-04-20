@@ -1426,9 +1426,9 @@ describe('aiChatStore workflows', () => {
       expect.objectContaining({ role: 'system', content: expect.stringContaining('CONTEXT BLOCK') }),
       expect.objectContaining({ role: 'system', content: 'REMINDER' }),
     ]));
-    const firstNonSystemIndex = providerMessages.findIndex((message) => message.role !== 'system');
+    const firstNonSystemIndex = providerMessages.findIndex((message: { role: string; content: string }) => message.role !== 'system');
     const reminderIndex = providerMessages.findIndex(
-      (message) => message.role === 'system' && message.content === 'REMINDER',
+      (message: { role: string; content: string }) => message.role === 'system' && message.content === 'REMINDER',
     );
     expect(reminderIndex).toBeGreaterThanOrEqual(0);
     expect(firstNonSystemIndex).toBeGreaterThan(reminderIndex);
@@ -1505,9 +1505,9 @@ describe('aiChatStore workflows', () => {
       expect.objectContaining({ role: 'system', content: expect.stringContaining('EXPLICIT BUFFER') }),
       expect.objectContaining({ role: 'system', content: 'PRE-SAMPLED REMINDER' }),
     ]));
-    const firstNonSystemIndex = providerMessages.findIndex((message) => message.role !== 'system');
+    const firstNonSystemIndex = providerMessages.findIndex((message: { role: string; content: string }) => message.role !== 'system');
     const reminderIndex = providerMessages.findIndex(
-      (message) => message.role === 'system' && message.content === 'PRE-SAMPLED REMINDER',
+      (message: { role: string; content: string }) => message.role === 'system' && message.content === 'PRE-SAMPLED REMINDER',
     );
     expect(reminderIndex).toBeGreaterThanOrEqual(0);
     expect(firstNonSystemIndex).toBeGreaterThan(reminderIndex);
