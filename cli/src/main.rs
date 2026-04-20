@@ -2479,6 +2479,38 @@ fn read_stdin_from_reader<R: std::io::Read>(
     Ok(buf)
 }
 
+#[cfg(any(windows, test))]
+enum StdinCoalesceEvent {
+    Bytes(Vec<u8>),
+    Closed,
+}
+
+#[cfg(any(windows, test))]
+fn coalesce_stdin_chunks<F, E>(
+    mut raw_input: Vec<u8>,
+    max_size: usize,
+    idle_window: std::time::Duration,
+    mut recv_next: F,
+) -> Result<(Vec<u8>, bool), E>
+where
+    F: FnMut(std::time::Duration) -> Result<Option<StdinCoalesceEvent>, E>,
+{
+    let mut stdin_closed = false;
+
+    while raw_input.len() < max_size {
+        match recv_next(idle_window)? {
+            Some(StdinCoalesceEvent::Bytes(more)) => raw_input.extend(more),
+            Some(StdinCoalesceEvent::Closed) => {
+                stdin_closed = true;
+                break;
+            }
+            None => break,
+        }
+    }
+
+    Ok((raw_input, stdin_closed))
+}
+
 /// Render markdown text to the terminal using termimad.
 fn render_markdown(text: &str) {
     let skin = termimad::MadSkin::default();
@@ -2933,16 +2965,45 @@ fn run_attach(
 
             // ── stdin ──
             if pollfds[0].revents & libc::POLLIN != 0 {
-                let mut buf = [0u8; 4096];
-                let n = unsafe {
-                    libc::read(stdin_fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len())
-                };
-                if n <= 0 {
-                    break;
+                // Drain all immediately-available data so that large pastes
+                // (including bracket-paste markers from the outer terminal)
+                // are forwarded as a single wire frame.
+                const MAX_PASTE: usize = 256 * 1024;
+                let mut raw_input = Vec::new();
+                loop {
+                    let mut buf = [0u8; 4096];
+                    let n = unsafe {
+                        libc::read(
+                            stdin_fd,
+                            buf.as_mut_ptr() as *mut libc::c_void,
+                            buf.len(),
+                        )
+                    };
+                    if n <= 0 {
+                        if raw_input.is_empty() {
+                            break 'event_loop;
+                        }
+                        break;
+                    }
+                    raw_input.extend_from_slice(&buf[..n as usize]);
+                    if raw_input.len() >= MAX_PASTE {
+                        break;
+                    }
+                    // Poll with timeout 0 to check for more buffered data.
+                    let mut peek = libc::pollfd {
+                        fd: stdin_fd,
+                        events: libc::POLLIN,
+                        revents: 0,
+                    };
+                    if unsafe { libc::poll(&mut peek, 1, 0) } <= 0
+                        || peek.revents & libc::POLLIN == 0
+                    {
+                        break;
+                    }
                 }
 
                 let mut to_send = Vec::new();
-                for &byte in &buf[..n as usize] {
+                for &byte in &raw_input {
                     match escape.feed(byte) {
                         escape::EscapeAction::Forward(b) => to_send.push(b),
                         escape::EscapeAction::ForwardTwo(a, b) => {
@@ -3082,8 +3143,32 @@ fn run_attach(
                 Ok(WindowsStdinEvent::Closed) => break,
                 Ok(WindowsStdinEvent::Error(err)) => return Err(err.into()),
                 Ok(WindowsStdinEvent::Bytes(buf)) => {
+                    // Keep a short idle window open so Windows paste bursts that
+                    // arrive across multiple stdin reads still ship as one frame.
+                    const MAX_PASTE: usize = 256 * 1024;
+                    const COALESCE_IDLE_WINDOW: std::time::Duration =
+                        std::time::Duration::from_millis(5);
+                    let (raw_input, stdin_closed) = coalesce_stdin_chunks(
+                        buf,
+                        MAX_PASTE,
+                        COALESCE_IDLE_WINDOW,
+                        |idle_window| match stdin_rx.recv_timeout(idle_window) {
+                            Ok(WindowsStdinEvent::Bytes(more)) => {
+                                Ok(Some(StdinCoalesceEvent::Bytes(more)))
+                            }
+                            Ok(WindowsStdinEvent::Closed) => {
+                                Ok(Some(StdinCoalesceEvent::Closed))
+                            }
+                            Ok(WindowsStdinEvent::Error(err)) => Err(err),
+                            Err(RecvTimeoutError::Timeout) => Ok(None),
+                            Err(RecvTimeoutError::Disconnected) => {
+                                Ok(Some(StdinCoalesceEvent::Closed))
+                            }
+                        },
+                    )?;
+
                     let mut to_send = Vec::new();
-                    for byte in buf {
+                    for byte in raw_input {
                         match escape.feed(byte) {
                             escape::EscapeAction::Forward(b) => to_send.push(b),
                             escape::EscapeAction::ForwardTwo(a, b) => {
@@ -3110,6 +3195,9 @@ fn run_attach(
                             break;
                         }
                     }
+                    if stdin_closed {
+                        break;
+                    }
                 }
                 Err(RecvTimeoutError::Timeout) => {}
                 Err(RecvTimeoutError::Disconnected) => break,
@@ -3126,16 +3214,17 @@ fn run_attach(
 mod tests {
     use super::{
         build_compatibility_check, build_endpoint_ownership_check, build_path_check,
-        check_compatibility, classify_error_message, compatibility_notice_text,
-        protocol_ranges_overlap, read_stdin_from_reader, resolve_focusable_target_from_targets,
-        select_latest_focusable_target, select_session_for_inspect, should_emit_human_guidance,
-        should_render_ai_markdown, Cli, Commands, DoctorStatus, ExecShell, ExitCode, FocusableKind,
-        FocusableTarget,
+        check_compatibility, classify_error_message, coalesce_stdin_chunks,
+        compatibility_notice_text, protocol_ranges_overlap, read_stdin_from_reader,
+        resolve_focusable_target_from_targets, select_latest_focusable_target,
+        select_session_for_inspect, should_emit_human_guidance, should_render_ai_markdown,
+        Cli, Commands, DoctorStatus, ExecShell, ExitCode, FocusableKind, FocusableTarget,
+        StdinCoalesceEvent,
     };
     use crate::{connect, output::OutputMode};
     use clap::{CommandFactory, Parser};
     use std::io::Cursor;
-    use std::sync::Mutex;
+    use std::sync::{mpsc, Mutex};
 
     static PATH_TEST_LOCK: Mutex<()> = Mutex::new(());
 
@@ -3274,6 +3363,58 @@ mod tests {
         let err = read_stdin_from_reader(&mut reader, 8).unwrap_err();
 
         assert!(err.contains("exceeds"));
+    }
+
+    #[test]
+    fn stdin_chunk_coalescing_waits_for_delayed_chunk() {
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(1));
+            tx.send(StdinCoalesceEvent::Bytes(vec![b'b'; 4])).unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        });
+
+        let (raw_input, stdin_closed) = coalesce_stdin_chunks(
+            vec![b'a'; 4],
+            256,
+            std::time::Duration::from_millis(10),
+            |idle_window| match rx.recv_timeout(idle_window) {
+                Ok(event) => Ok::<Option<StdinCoalesceEvent>, String>(Some(event)),
+                Err(mpsc::RecvTimeoutError::Timeout) => Ok::<Option<StdinCoalesceEvent>, String>(None),
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    Ok::<Option<StdinCoalesceEvent>, String>(Some(StdinCoalesceEvent::Closed))
+                }
+            },
+        )
+        .unwrap();
+
+        assert_eq!(raw_input, b"aaaabbbb");
+        assert!(!stdin_closed);
+    }
+
+    #[test]
+    fn stdin_chunk_coalescing_preserves_closed_signal_after_buffered_bytes() {
+        let (tx, rx) = mpsc::channel();
+        tx.send(StdinCoalesceEvent::Bytes(vec![b'b'; 4])).unwrap();
+        tx.send(StdinCoalesceEvent::Closed).unwrap();
+        drop(tx);
+
+        let (raw_input, stdin_closed) = coalesce_stdin_chunks(
+            vec![b'a'; 4],
+            256,
+            std::time::Duration::from_millis(10),
+            |idle_window| match rx.recv_timeout(idle_window) {
+                Ok(event) => Ok::<Option<StdinCoalesceEvent>, String>(Some(event)),
+                Err(mpsc::RecvTimeoutError::Timeout) => Ok::<Option<StdinCoalesceEvent>, String>(None),
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    Ok::<Option<StdinCoalesceEvent>, String>(Some(StdinCoalesceEvent::Closed))
+                }
+            },
+        )
+        .unwrap();
+
+        assert_eq!(raw_input, b"aaaabbbb");
+        assert!(stdin_closed);
     }
 
     #[test]
