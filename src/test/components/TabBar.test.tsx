@@ -141,6 +141,11 @@ describe('TabBar', () => {
       value: vi.fn(),
     });
 
+    Object.defineProperty(HTMLElement.prototype, 'setPointerCapture', {
+      configurable: true,
+      value: vi.fn(),
+    });
+
     (globalThis as typeof globalThis & { ResizeObserver?: typeof ResizeObserver }).ResizeObserver = class {
       observe() {}
       disconnect() {}
@@ -223,5 +228,67 @@ describe('TabBar', () => {
 
     expect(sessionTreeStoreState.closeTerminalForNode).not.toHaveBeenCalled();
     expect(appStoreState.closeTab).not.toHaveBeenCalled();
+  });
+
+  it('treats a quick small pointer movement as a click instead of a reorder', () => {
+    appStoreState.tabs = [
+      { id: 'tab-1', type: 'terminal', title: 'SSH 1', sessionId: 'session-1' },
+      { id: 'tab-2', type: 'terminal', title: 'SSH 2', sessionId: 'session-2' },
+    ];
+    appStoreState.activeTabId = 'tab-2';
+    appStoreState.sessions = new Map([
+      ['session-1', { id: 'session-1', name: 'SSH 1', connectionId: 'conn-1' }],
+      ['session-2', { id: 'session-2', name: 'SSH 2', connectionId: 'conn-2' }],
+    ]);
+    appStoreState.connections = new Map([
+      ['conn-1', { id: 'conn-1', state: 'active' }],
+      ['conn-2', { id: 'conn-2', state: 'active' }],
+    ]);
+
+    render(<TabBar />);
+
+    const firstTab = screen.getByText('SSH 1').parentElement!;
+    const secondTab = screen.getByText('SSH 2').parentElement!;
+    vi.spyOn(firstTab, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 100, 36));
+    vi.spyOn(secondTab, 'getBoundingClientRect').mockReturnValue(new DOMRect(100, 0, 100, 36));
+
+    fireEvent.pointerDown(firstTab, { button: 0, clientX: 60, pointerId: 1 });
+    fireEvent.pointerMove(firstTab, { clientX: 64, pointerId: 1 });
+    fireEvent.pointerUp(firstTab, { pointerId: 1 });
+    fireEvent.click(firstTab);
+
+    expect(appStoreState.moveTab).not.toHaveBeenCalled();
+    expect(appStoreState.setActiveTab).toHaveBeenCalledWith('tab-1');
+  });
+
+  it('reorders tabs only after the drag threshold is crossed', () => {
+    appStoreState.tabs = [
+      { id: 'tab-1', type: 'terminal', title: 'SSH 1', sessionId: 'session-1' },
+      { id: 'tab-2', type: 'terminal', title: 'SSH 2', sessionId: 'session-2' },
+    ];
+    appStoreState.activeTabId = 'tab-2';
+    appStoreState.sessions = new Map([
+      ['session-1', { id: 'session-1', name: 'SSH 1', connectionId: 'conn-1' }],
+      ['session-2', { id: 'session-2', name: 'SSH 2', connectionId: 'conn-2' }],
+    ]);
+    appStoreState.connections = new Map([
+      ['conn-1', { id: 'conn-1', state: 'active' }],
+      ['conn-2', { id: 'conn-2', state: 'active' }],
+    ]);
+
+    render(<TabBar />);
+
+    const firstTab = screen.getByText('SSH 1').parentElement!;
+    const secondTab = screen.getByText('SSH 2').parentElement!;
+    vi.spyOn(firstTab, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 100, 36));
+    vi.spyOn(secondTab, 'getBoundingClientRect').mockReturnValue(new DOMRect(100, 0, 100, 36));
+
+    fireEvent.pointerDown(firstTab, { button: 0, clientX: 20, pointerId: 1 });
+    fireEvent.pointerMove(firstTab, { clientX: 80, pointerId: 1 });
+    fireEvent.pointerUp(firstTab, { pointerId: 1 });
+    fireEvent.click(firstTab);
+
+    expect(appStoreState.moveTab).toHaveBeenCalledWith(0, 1);
+    expect(appStoreState.setActiveTab).not.toHaveBeenCalledWith('tab-1');
   });
 });

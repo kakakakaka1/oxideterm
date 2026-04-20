@@ -184,6 +184,8 @@ const getTabTitle = (
 
 import type { ReconnectJob } from '../../store/reconnectOrchestratorStore';
 
+const TAB_DRAG_THRESHOLD_PX = 10;
+
 // ─── TabItem (memoized individual tab) ───────────────────────────────────────
 
 type TabItemProps = {
@@ -212,7 +214,7 @@ type TabItemProps = {
   onCloseTabsToRight: (fromIndex: number) => void;
   onCloseAllTabs: () => void;
   onDetachTab: (tabId: string, sessionId: string) => void;
-  onSetActiveTab: (tabId: string) => void;
+  onTabClick: (tabId: string) => void;
 };
 
 const TabItem = React.memo<TabItemProps>(({
@@ -220,7 +222,7 @@ const TabItem = React.memo<TabItemProps>(({
   closing, tabCount, tabRefsMap,
   onPointerDown, onPointerMove, onPointerUp, onPointerCancel,
   onCloseTab, onReconnect, onCancelReconnect, onCloseOtherTabs,
-  onCloseTabsToRight, onCloseAllTabs, onDetachTab, onSetActiveTab,
+  onCloseTabsToRight, onCloseAllTabs, onDetachTab, onTabClick,
 }) => {
   const { t } = useTranslation();
   const pluginContextMenuRegistry = usePluginStore((state) => state.contextMenuItems);
@@ -262,9 +264,7 @@ const TabItem = React.memo<TabItemProps>(({
           void onCloseTab(e, tab.id, tab.sessionId, tab.type);
         }
       }}
-      onClick={() => {
-        if (!isActuallyDragging) onSetActiveTab(tab.id);
-      }}
+      onClick={() => onTabClick(tab.id)}
       className={cn(
         "flex-shrink-0 group flex items-center gap-2 px-3 h-full min-w-[120px] max-w-[240px] border-r border-theme-border cursor-pointer select-none text-sm transition-[color,background-color,border-color,box-shadow] duration-150",
         isActive
@@ -478,15 +478,20 @@ export const TabBar = () => {
   } | null>(null);
   const tabRefsMap = useRef<Map<string, HTMLDivElement>>(new Map());
   const dropTargetIndex = useRef<number | null>(null);
+  const suppressNextClickRef = useRef(false);
+
+  const isDragGesture = useCallback((state: NonNullable<typeof dragState>) => {
+    return Math.abs(state.currentX - state.startX) > TAB_DRAG_THRESHOLD_PX;
+  }, []);
 
   // Compute drop target from current pointer X
   const computeDropTarget = useCallback((clientX: number, state: NonNullable<typeof dragState>) => {
-    const { tabRects, fromIndex } = state;
+    const { tabRects } = state;
     for (let i = 0; i < tabRects.length; i++) {
       const rect = tabRects[i];
       const mid = rect.left + rect.width / 2;
       if (clientX < mid) {
-        return i <= fromIndex ? i : i;
+        return i;
       }
     }
     return tabRects.length - 1;
@@ -497,6 +502,8 @@ export const TabBar = () => {
     if (e.button !== 0) return;
     const target = e.target as HTMLElement;
     if (target.closest('button')) return;
+
+    suppressNextClickRef.current = false;
 
     // Capture pointer for tracking
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
@@ -521,25 +528,35 @@ export const TabBar = () => {
 
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
     if (!dragState) return;
-    e.preventDefault();
     const newX = e.clientX;
-    const target = computeDropTarget(newX, dragState);
-    dropTargetIndex.current = target;
-    setDragState(prev => prev ? { ...prev, currentX: newX } : null);
-  }, [dragState, computeDropTarget]);
+    const nextState = { ...dragState, currentX: newX };
+    setDragState(nextState);
+
+    if (!isDragGesture(nextState)) {
+      dropTargetIndex.current = dragState.fromIndex;
+      return;
+    }
+
+    e.preventDefault();
+    dropTargetIndex.current = computeDropTarget(newX, nextState);
+  }, [computeDropTarget, dragState, isDragGesture]);
 
   const handlePointerUp = useCallback(() => {
     if (!dragState) return;
-    const toIndex = dropTargetIndex.current;
-    if (toIndex !== null && toIndex !== dragState.fromIndex) {
+    const didDrag = isDragGesture(dragState);
+    suppressNextClickRef.current = didDrag;
+
+    const toIndex = didDrag ? dropTargetIndex.current : dragState.fromIndex;
+    if (didDrag && toIndex !== null && toIndex !== dragState.fromIndex) {
       moveTab(dragState.fromIndex, toIndex);
     }
     setDragState(null);
     dropTargetIndex.current = null;
-  }, [dragState, moveTab]);
+  }, [dragState, isDragGesture, moveTab]);
 
   // Also reset on pointer cancel
   const handlePointerCancel = useCallback(() => {
+    suppressNextClickRef.current = false;
     setDragState(null);
     dropTargetIndex.current = null;
   }, []);
@@ -547,7 +564,7 @@ export const TabBar = () => {
   // Is a given tab the current drop target (but not the source)?
   const isDragging = dragState !== null;
   const dragDelta = dragState ? dragState.currentX - dragState.startX : 0;
-  const isActuallyDragging = isDragging && Math.abs(dragDelta) > 4;
+  const isActuallyDragging = isDragging && Math.abs(dragDelta) > TAB_DRAG_THRESHOLD_PX;
 
   // Scroll container ref
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -791,6 +808,14 @@ export const TabBar = () => {
     }
   };
 
+  const handleTabClick = useCallback((tabId: string) => {
+    if (suppressNextClickRef.current) {
+      suppressNextClickRef.current = false;
+      return;
+    }
+    setActiveTab(tabId);
+  }, [setActiveTab]);
+
   return (
     // 最外层（限制层）：w-full + overflow-hidden 限制总宽度
     <div
@@ -846,7 +871,7 @@ export const TabBar = () => {
                 onCloseTabsToRight={handleCloseTabsToRight}
                 onCloseAllTabs={handleCloseAllTabs}
                 onDetachTab={handleDetachTab}
-                onSetActiveTab={setActiveTab}
+                onTabClick={handleTabClick}
               />
             );
           })}
