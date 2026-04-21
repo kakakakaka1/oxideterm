@@ -10,8 +10,8 @@ use super::TRZSZ_API_VERSION;
 use super::error::TrzszError;
 
 const WINDOWS_RESERVED_NAMES: &[&str] = &[
-    "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7",
-    "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+    "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
+    "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
 ];
 const WINDOWS_ILLEGAL_CHARS: [char; 8] = ['<', '>', ':', '"', '|', '?', '*', '\0'];
 
@@ -100,14 +100,18 @@ pub fn build_download_target_path(
         }
     }
 
-    let final_path = rel_components.iter().fold(root.to_path_buf(), |mut path, component| {
-        path.push(component);
-        path
-    });
+    let final_path = rel_components
+        .iter()
+        .fold(root.to_path_buf(), |mut path, component| {
+            path.push(component);
+            path
+        });
 
     if let Ok(metadata) = fs::symlink_metadata(&final_path) {
         if metadata.file_type().is_symlink() {
-            return Err(TrzszError::SymlinkNotAllowed(final_path.display().to_string()));
+            return Err(TrzszError::SymlinkNotAllowed(
+                final_path.display().to_string(),
+            ));
         }
     }
 
@@ -118,12 +122,18 @@ pub fn validate_download_target_path(root: &Path, final_path: &Path) -> Result<(
     ensure_within_root(root, final_path)?;
 
     let parent = final_path.parent().ok_or_else(|| {
-        TrzszError::InvalidPath(format!("Final path has no parent: {}", final_path.display()))
+        TrzszError::InvalidPath(format!(
+            "Final path has no parent: {}",
+            final_path.display()
+        ))
     })?;
     ensure_within_root(root, parent)?;
 
     let relative_parent = parent.strip_prefix(root).map_err(|_| {
-        TrzszError::InvalidPath(format!("Target escapes prepared root: {}", final_path.display()))
+        TrzszError::InvalidPath(format!(
+            "Target escapes prepared root: {}",
+            final_path.display()
+        ))
     })?;
 
     let mut current = root.to_path_buf();
@@ -150,7 +160,9 @@ pub fn validate_download_target_path(root: &Path, final_path: &Path) -> Result<(
 
     if let Ok(metadata) = fs::symlink_metadata(final_path) {
         if metadata.file_type().is_symlink() {
-            return Err(TrzszError::SymlinkNotAllowed(final_path.display().to_string()));
+            return Err(TrzszError::SymlinkNotAllowed(
+                final_path.display().to_string(),
+            ));
         }
         if metadata.is_dir() {
             return Err(TrzszError::InvalidPath(format!(
@@ -190,7 +202,10 @@ fn sanitize_component(component: &str) -> Result<String, TrzszError> {
         )));
     }
 
-    if normalized.chars().any(|ch| ch == '/' || ch == '\\' || ch.is_control()) {
+    if normalized
+        .chars()
+        .any(|ch| ch == '/' || ch == '\\' || ch.is_control())
+    {
         return Err(TrzszError::InvalidPath(format!(
             "Illegal path component: {normalized}"
         )));
@@ -232,13 +247,20 @@ mod tests {
     #[test]
     fn rejects_traversal_components() {
         let error = sanitize_download_rel_path("../evil").expect_err("path should be rejected");
-        assert!(error.to_string().contains("Relative path component is not allowed"));
+        assert!(
+            error
+                .to_string()
+                .contains("Relative path component is not allowed")
+        );
     }
 
     #[test]
     fn normalizes_valid_nested_download_path() {
         let components = sanitize_download_rel_path("demo/hello.txt").expect("path should pass");
-        assert_eq!(components, vec!["demo".to_string(), "hello.txt".to_string()]);
+        assert_eq!(
+            components,
+            vec!["demo".to_string(), "hello.txt".to_string()]
+        );
     }
 
     #[test]
@@ -264,11 +286,9 @@ mod tests {
         fs::create_dir_all(&real_parent).expect("mkdir");
         symlink(&real_parent, temp.path().join("alias")).expect("symlink");
 
-        let error = build_download_target_path(
-            temp.path(),
-            &["alias".to_string(), "file.txt".to_string()],
-        )
-        .expect_err("symlink parent should be rejected");
+        let error =
+            build_download_target_path(temp.path(), &["alias".to_string(), "file.txt".to_string()])
+                .expect_err("symlink parent should be rejected");
 
         assert!(error.to_string().contains("Symlink is not allowed"));
     }

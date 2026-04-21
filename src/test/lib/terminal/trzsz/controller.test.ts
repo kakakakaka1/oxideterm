@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   createUnavailableTrzszCapabilities,
@@ -6,6 +6,17 @@ import {
 } from '@/lib/terminal/trzsz/capabilities';
 import { TrzszController } from '@/lib/terminal/trzsz/controller';
 import type { RemoteTerminalTransport } from '@/lib/terminal/trzsz/transport';
+
+vi.mock('@/lib/terminal/trzsz/dialogs', () => ({
+  chooseSendEntries: vi.fn(),
+  chooseSaveRoot: vi.fn(),
+}));
+
+vi.mock('@/lib/api', () => ({
+  api: {
+    trzszPrepareDownloadRoot: vi.fn(async (_ownerId: string, rootPath: string) => ({ rootPath })),
+  },
+}));
 
 function createTransportMock(): RemoteTerminalTransport {
   return {
@@ -24,9 +35,14 @@ async function flushMicrotasks() {
 }
 
 describe('TrzszController', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('passes server output to the writer and forwards input while active', () => {
     const writeServerOutput = vi.fn();
     const transport = createTransportMock();
+    const cleanupOwner = vi.fn(async () => undefined);
     const controller = new TrzszController({
       sessionId: 'session-1',
       connectionId: 'conn-1',
@@ -35,6 +51,7 @@ describe('TrzszController', () => {
       transport,
       writeServerOutput,
       loadCapabilities: async () => createUnavailableTrzszCapabilities('command-missing'),
+      cleanupOwner,
     });
 
     controller.processServerOutput(new Uint8Array([0x61, 0x62]));
@@ -46,16 +63,18 @@ describe('TrzszController', () => {
 
     expect(writeServerOutput).toHaveBeenCalledWith(new Uint8Array([0x61, 0x62]));
     expect(transport.sendRawInput).toHaveBeenCalledWith('ls');
-    expect(transport.sendBinaryInput).toHaveBeenCalledWith('\u001bOA');
     expect(transport.sendTextInput).toHaveBeenCalledWith('echo hello');
     expect(transport.sendExecuteInput).toHaveBeenCalledWith('pwd');
+    expect(transport.sendEncodedPayload).toHaveBeenCalledWith(new Uint8Array([0x1b, 0x4f, 0x41]));
     expect(controller.getTerminalColumns()).toBe(132);
     expect(controller.matchesRuntime('conn-1', 'ws://localhost:1234')).toBe(true);
+    expect(cleanupOwner).not.toHaveBeenCalled();
   });
 
-  it('stops processing IO once draining or disposed', () => {
+  it('stops processing IO once draining or disposed', async () => {
     const writeServerOutput = vi.fn();
     const transport = createTransportMock();
+    const cleanupOwner = vi.fn(async () => undefined);
     const controller = new TrzszController({
       sessionId: 'session-1',
       connectionId: 'conn-1',
@@ -64,6 +83,7 @@ describe('TrzszController', () => {
       transport,
       writeServerOutput,
       loadCapabilities: async () => createUnavailableTrzszCapabilities('command-missing'),
+      cleanupOwner,
     });
 
     controller.stop();
@@ -74,19 +94,41 @@ describe('TrzszController', () => {
     controller.processServerOutput(new Uint8Array([0x63]));
 
     controller.dispose();
+    await flushMicrotasks();
 
     expect(controller.isDisposed()).toBe(true);
     expect(controller.processBinaryInput('\u001bOB')).toBe(false);
     expect(writeServerOutput).not.toHaveBeenCalled();
     expect(transport.sendRawInput).not.toHaveBeenCalled();
-    expect(transport.sendBinaryInput).not.toHaveBeenCalled();
-    expect(transport.sendTextInput).not.toHaveBeenCalled();
-    expect(transport.sendExecuteInput).not.toHaveBeenCalled();
+    expect(transport.sendEncodedPayload).not.toHaveBeenCalled();
+    expect(cleanupOwner).toHaveBeenCalledTimes(1);
+  });
+
+  it('still allows cleanup protocol frames while draining', () => {
+    const writeServerOutput = vi.fn();
+    const transport = createTransportMock();
+    const cleanupOwner = vi.fn(async () => undefined);
+    const controller = new TrzszController({
+      sessionId: 'session-cleanup',
+      connectionId: 'conn-cleanup',
+      wsUrl: 'ws://localhost:1357',
+      ownerId: 'trzsz:session-cleanup:conn-cleanup:owner',
+      transport,
+      writeServerOutput,
+      loadCapabilities: async () => createUnavailableTrzszCapabilities('command-missing'),
+      cleanupOwner,
+    });
+
+    controller.stop();
+    (controller as unknown as { filter: { sendToServer: (input: string) => void } }).filter.sendToServer('#FAIL:cleanup\n');
+
+    expect(transport.sendRawInput).toHaveBeenCalledWith('#FAIL:cleanup\n');
   });
 
   it('stores capability probe results without breaking passthrough mode', async () => {
     const writeServerOutput = vi.fn();
     const transport = createTransportMock();
+    const cleanupOwner = vi.fn(async () => undefined);
     const available: TrzszCapabilitiesProbeResult = {
       status: 'available',
       capabilities: {
@@ -106,6 +148,7 @@ describe('TrzszController', () => {
       transport,
       writeServerOutput,
       loadCapabilities: async () => available,
+      cleanupOwner,
     });
 
     await flushMicrotasks();
@@ -113,5 +156,88 @@ describe('TrzszController', () => {
     expect(controller.getCapabilities()).toEqual(available);
     controller.processTerminalInput('echo ready');
     expect(transport.sendRawInput).toHaveBeenCalledWith('echo ready');
+  });
+
+  it('does not start delayed trzsz detection after disposal', async () => {
+    vi.useFakeTimers();
+
+    const writeServerOutput = vi.fn();
+    const transport = createTransportMock();
+    const cleanupOwner = vi.fn(async () => undefined);
+    const controller = new TrzszController({
+      sessionId: 'session-3',
+      connectionId: 'conn-3',
+      wsUrl: 'ws://localhost:2468',
+      ownerId: 'trzsz:session-3:conn-3:owner',
+      transport,
+      writeServerOutput,
+      loadCapabilities: async () => createUnavailableTrzszCapabilities('command-missing'),
+      cleanupOwner,
+    });
+
+    controller.processServerOutput(
+      new TextEncoder().encode('::TRZSZ:TRANSFER:S:1.1.6:12345678'),
+    );
+    controller.dispose();
+
+    await vi.runAllTimersAsync();
+    await flushMicrotasks();
+
+    expect(transport.sendRawInput).not.toHaveBeenCalled();
+    expect(transport.sendEncodedPayload).not.toHaveBeenCalled();
+  });
+
+  it('detects a trzsz handshake split across multiple server chunks', async () => {
+    vi.useFakeTimers();
+
+    const writeServerOutput = vi.fn();
+    const transport = createTransportMock();
+    const cleanupOwner = vi.fn(async () => undefined);
+    const controller = new TrzszController({
+      sessionId: 'session-4',
+      connectionId: 'conn-4',
+      wsUrl: 'ws://localhost:9999',
+      ownerId: 'trzsz:session-4:conn-4:owner',
+      transport,
+      writeServerOutput,
+      loadCapabilities: async () => createUnavailableTrzszCapabilities('command-missing'),
+      cleanupOwner,
+    });
+
+    controller.processServerOutput(new TextEncoder().encode('::TRZSZ:TRANS'));
+    controller.processServerOutput(new TextEncoder().encode('FER:S:1.1.6:12345678'));
+    controller.processServerOutput(new TextEncoder().encode('\r\n'));
+
+    await vi.runAllTimersAsync();
+    await flushMicrotasks();
+
+    expect(transport.sendRawInput).toHaveBeenCalled();
+  });
+
+  it('deduplicates Windows-style short unique ids across follow-up chunks', async () => {
+    vi.useFakeTimers();
+
+    const writeServerOutput = vi.fn();
+    const transport = createTransportMock();
+    const cleanupOwner = vi.fn(async () => undefined);
+    const controller = new TrzszController({
+      sessionId: 'session-5',
+      connectionId: 'conn-5',
+      wsUrl: 'ws://localhost:8888',
+      ownerId: 'trzsz:session-5:conn-5:owner',
+      transport,
+      writeServerOutput,
+      loadCapabilities: async () => createUnavailableTrzszCapabilities('command-missing'),
+      cleanupOwner,
+    });
+
+    controller.processServerOutput(new TextEncoder().encode('::TRZSZ:TRANS'));
+    controller.processServerOutput(new TextEncoder().encode('FER:S:1.1.6:1'));
+    controller.processServerOutput(new TextEncoder().encode('\r\n'));
+
+    await vi.runAllTimersAsync();
+    await flushMicrotasks();
+
+    expect(transport.sendRawInput).toHaveBeenCalledTimes(1);
   });
 });

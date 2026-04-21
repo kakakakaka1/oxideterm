@@ -8,6 +8,15 @@ import {
   type TrzszCapabilitiesProbeResult,
 } from './terminal/trzsz/capabilities';
 import {
+  TRZSZ_API_VERSION,
+  type TrzszCreateDownloadDirectoryDto,
+  type TrzszDownloadOpenDto,
+  type TrzszOwnerCleanupDto,
+  type TrzszPreparedDownloadRootDto,
+  type TrzszUploadEntryDto,
+  type TrzszUploadHandleDto,
+} from './terminal/trzsz/types';
+import {
   SessionInfo,
   ConnectRequest,
   ConnectionInfo,
@@ -1250,6 +1259,197 @@ export const api = {
         : 'invoke-failed';
       return createUnavailableTrzszCapabilities(reason, errorMessage);
     }
+  },
+
+  trzszBuildUploadEntries: async (
+    ownerId: string,
+    paths: string[],
+    allowDirectory: boolean,
+  ): Promise<TrzszUploadEntryDto[]> => {
+    if (USE_MOCK) return [];
+    return invoke('trzsz_build_upload_entries', {
+      ownerId,
+      apiVersion: TRZSZ_API_VERSION,
+      paths,
+      allowDirectory,
+    });
+  },
+
+  trzszOpenUploadFile: async (
+    ownerId: string,
+    path: string,
+  ): Promise<TrzszUploadHandleDto> => {
+    if (USE_MOCK) return { handleId: 'mock-handle', size: 0 };
+    return invoke('trzsz_open_upload_file', {
+      ownerId,
+      apiVersion: TRZSZ_API_VERSION,
+      path,
+    });
+  },
+
+  trzszReadUploadChunk: async (
+    ownerId: string,
+    handleId: string,
+    offset: number,
+    length: number,
+  ): Promise<Uint8Array> => {
+    if (USE_MOCK) return new Uint8Array(0);
+    const data = await invoke<number[]>('trzsz_read_upload_chunk', {
+      ownerId,
+      apiVersion: TRZSZ_API_VERSION,
+      handleId,
+      offset,
+      length,
+    });
+    return Uint8Array.from(data);
+  },
+
+  trzszCloseUploadFile: async (ownerId: string, handleId: string): Promise<void> => {
+    if (USE_MOCK) return;
+    return invoke('trzsz_close_upload_file', {
+      ownerId,
+      apiVersion: TRZSZ_API_VERSION,
+      handleId,
+    });
+  },
+
+  trzszPrepareDownloadRoot: async (
+    ownerId: string,
+    rootPath: string,
+  ): Promise<TrzszPreparedDownloadRootDto> => {
+    if (USE_MOCK) return { rootPath };
+    return invoke('trzsz_prepare_download_root', {
+      ownerId,
+      apiVersion: TRZSZ_API_VERSION,
+      rootPath,
+    });
+  },
+
+  trzszOpenSaveFile: async (
+    ownerId: string,
+    rootPath: string,
+    fileName: string,
+    directory: boolean,
+    overwrite: boolean,
+  ): Promise<TrzszDownloadOpenDto> => {
+    if (USE_MOCK) {
+      return {
+        writerId: 'mock-writer',
+        localName: fileName,
+        displayName: fileName,
+        tempPath: fileName,
+        finalPath: fileName,
+      };
+    }
+    return invoke('trzsz_open_save_file', {
+      ownerId,
+      apiVersion: TRZSZ_API_VERSION,
+      rootPath,
+      fileName,
+      directory,
+      overwrite,
+    });
+  },
+
+  trzszCreateDownloadDirectory: async (
+    ownerId: string,
+    rootPath: string,
+    directoryPath: string,
+    mustCreate = false,
+  ): Promise<TrzszCreateDownloadDirectoryDto> => {
+    if (USE_MOCK) return { created: true };
+    return invoke('trzsz_create_download_directory', {
+      ownerId,
+      apiVersion: TRZSZ_API_VERSION,
+      rootPath,
+      directoryPath,
+      mustCreate,
+    });
+  },
+
+  trzszCommitDownloadDirectory: async (
+    ownerId: string,
+    rootPath: string,
+    directoryPath: string,
+  ): Promise<void> => {
+    if (USE_MOCK) return;
+    return invoke('trzsz_commit_download_directory', {
+      ownerId,
+      apiVersion: TRZSZ_API_VERSION,
+      rootPath,
+      directoryPath,
+    });
+  },
+
+  trzszRemoveDownloadDirectory: async (
+    ownerId: string,
+    rootPath: string,
+    directoryPath: string,
+  ): Promise<void> => {
+    if (USE_MOCK) return;
+    return invoke('trzsz_remove_download_directory', {
+      ownerId,
+      apiVersion: TRZSZ_API_VERSION,
+      rootPath,
+      directoryPath,
+    });
+  },
+
+  trzszRemoveDownloadFile: async (
+    ownerId: string,
+    rootPath: string,
+    filePath: string,
+  ): Promise<void> => {
+    if (USE_MOCK) return;
+    return invoke('trzsz_remove_download_file', {
+      ownerId,
+      apiVersion: TRZSZ_API_VERSION,
+      rootPath,
+      filePath,
+    });
+  },
+
+  trzszWriteDownloadChunk: async (
+    ownerId: string,
+    writerId: string,
+    data: Uint8Array,
+  ): Promise<void> => {
+    if (USE_MOCK) return;
+    return invoke('trzsz_write_download_chunk', {
+      ownerId,
+      apiVersion: TRZSZ_API_VERSION,
+      writerId,
+      data: Array.from(data),
+    });
+  },
+
+  trzszFinishDownloadFile: async (ownerId: string, writerId: string): Promise<void> => {
+    if (USE_MOCK) return;
+    return invoke('trzsz_finish_download_file', {
+      ownerId,
+      apiVersion: TRZSZ_API_VERSION,
+      writerId,
+    });
+  },
+
+  trzszAbortDownloadFile: async (ownerId: string, writerId: string): Promise<void> => {
+    if (USE_MOCK) return;
+    return invoke('trzsz_abort_download_file', {
+      ownerId,
+      apiVersion: TRZSZ_API_VERSION,
+      writerId,
+    });
+  },
+
+  cleanupTrzszOwner: async (ownerId: string): Promise<TrzszOwnerCleanupDto> => {
+    if (USE_MOCK) {
+      return {
+        ownerId,
+        uploadHandles: 0,
+        downloadHandles: 0,
+      };
+    }
+    return invoke('trzsz_cleanup_owner', { ownerId });
   },
 
   // --- Scroll Buffer APIs ---

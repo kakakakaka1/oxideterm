@@ -500,14 +500,18 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
 
     disposeTrzszController();
 
+    const ownerId = `trzsz:${sessionId}:${connectionId}:${crypto.randomUUID()}`;
     const controller = new TrzszController({
       sessionId,
       connectionId,
       wsUrl,
-      ownerId: `trzsz:${sessionId}:${connectionId}:${crypto.randomUUID()}`,
+      ownerId,
       transport: transportRef.current!,
       writeServerOutput: writeServerOutputToTerminal,
       loadCapabilities: () => api.getTrzszCapabilities(),
+      cleanupOwner: async () => {
+        await api.cleanupTrzszOwner(ownerId);
+      },
     });
     controller.setTerminalColumns(term.cols);
     trzszControllerRef.current = controller;

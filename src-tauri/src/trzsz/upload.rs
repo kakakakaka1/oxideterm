@@ -83,7 +83,11 @@ pub fn build_upload_entries(
                 path_id: (index + 1) as u64,
                 path: entry.path().to_string_lossy().to_string(),
                 rel_path,
-                size: if metadata.is_file() { metadata.len() } else { 0 },
+                size: if metadata.is_file() {
+                    metadata.len()
+                } else {
+                    0
+                },
                 is_dir: metadata.is_dir(),
                 is_symlink: false,
             });

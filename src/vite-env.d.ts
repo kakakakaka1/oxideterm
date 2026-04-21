@@ -14,3 +14,5 @@ declare module '@xterm/addon-canvas/lib/xterm-addon-canvas.mjs' {
     dispose(): void;
   }
 }
+
+declare module 'pako';

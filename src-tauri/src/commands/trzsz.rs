@@ -10,8 +10,9 @@ use crate::trzsz::error::TrzszError;
 use crate::trzsz::path_guard::validate_owner_id;
 use crate::trzsz::upload;
 use crate::trzsz::{
-    TrzszCapabilitiesDto, TrzszDownloadOpenDto, TrzszOwnerCleanupDto,
-    TrzszPreparedDownloadRootDto, TrzszState, TrzszUploadEntryDto, TrzszUploadHandleDto,
+    TrzszCapabilitiesDto, TrzszCreateDownloadDirectoryDto, TrzszDownloadOpenDto,
+    TrzszOwnerCleanupDto, TrzszPreparedDownloadRootDto, TrzszState, TrzszUploadEntryDto,
+    TrzszUploadHandleDto,
 };
 
 #[tauri::command]
@@ -27,7 +28,13 @@ pub async fn trzsz_build_upload_entries(
     allow_directory: bool,
     state: State<'_, Arc<TrzszState>>,
 ) -> Result<Vec<TrzszUploadEntryDto>, TrzszError> {
-    upload::build_upload_entries(state.inner().as_ref(), &owner_id, api_version, paths, allow_directory)
+    upload::build_upload_entries(
+        state.inner().as_ref(),
+        &owner_id,
+        api_version,
+        paths,
+        allow_directory,
+    )
 }
 
 #[tauri::command]
@@ -97,6 +104,76 @@ pub async fn trzsz_open_save_file(
         file_name,
         directory,
         overwrite,
+    )
+}
+
+#[tauri::command]
+pub async fn trzsz_create_download_directory(
+    owner_id: String,
+    api_version: u32,
+    root_path: String,
+    directory_path: String,
+    must_create: bool,
+    state: State<'_, Arc<TrzszState>>,
+) -> Result<TrzszCreateDownloadDirectoryDto, TrzszError> {
+    download::create_download_directory(
+        state.inner().as_ref(),
+        &owner_id,
+        api_version,
+        root_path,
+        directory_path,
+        must_create,
+    )
+}
+
+#[tauri::command]
+pub async fn trzsz_commit_download_directory(
+    owner_id: String,
+    api_version: u32,
+    root_path: String,
+    directory_path: String,
+    state: State<'_, Arc<TrzszState>>,
+) -> Result<(), TrzszError> {
+    download::commit_download_directory(
+        state.inner().as_ref(),
+        &owner_id,
+        api_version,
+        root_path,
+        directory_path,
+    )
+}
+
+#[tauri::command]
+pub async fn trzsz_remove_download_directory(
+    owner_id: String,
+    api_version: u32,
+    root_path: String,
+    directory_path: String,
+    state: State<'_, Arc<TrzszState>>,
+) -> Result<(), TrzszError> {
+    download::remove_download_directory(
+        state.inner().as_ref(),
+        &owner_id,
+        api_version,
+        root_path,
+        directory_path,
+    )
+}
+
+#[tauri::command]
+pub async fn trzsz_remove_download_file(
+    owner_id: String,
+    api_version: u32,
+    root_path: String,
+    file_path: String,
+    state: State<'_, Arc<TrzszState>>,
+) -> Result<(), TrzszError> {
+    download::remove_download_file(
+        state.inner().as_ref(),
+        &owner_id,
+        api_version,
+        root_path,
+        file_path,
     )
 }
 

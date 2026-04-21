@@ -1,6 +1,6 @@
 # trzsz Integration Baseline
 
-Status: Phase 2 completed on 2026-04-21
+Status: Phase 3 completed on 2026-04-21
 
 This directory is the OxideTerm-owned adapter boundary for trzsz integration. Phase 0 deliberately avoids runtime logic changes and only freezes upstream metadata, repository layout, and the future file map.
 
@@ -123,6 +123,8 @@ Implemented outputs:
 
 Modified files:
 
+- `src/components/terminal/TerminalView.tsx`
+- `src/lib/api.ts`
 - `src/lib/terminal/trzsz/controller.ts`
 - `src/lib/terminal/trzsz/upstream/` (vendored fork content)
 
@@ -132,6 +134,18 @@ New files:
 - `src/lib/terminal/trzsz/TauriFileReader.ts`
 - `src/lib/terminal/trzsz/TauriFileWriter.ts`
 - `src/lib/terminal/trzsz/dialogs.ts`
+
+Phase 3 completed on `2026-04-21`.
+
+Implemented outputs:
+
+1. `TerminalView` now instantiates a real `TrzszController` runtime with owner-scoped cleanup via `trzsz_cleanup_owner(ownerId)`.
+2. Frontend Tauri dialog adapters now handle upload file selection, upload directory selection, and download root selection with consistent cancel semantics.
+3. `TauriFileReader` now maps upstream reader semantics onto Phase 2 upload handles, including recursive directory entry hydration and explicit chunked reads.
+4. `TauriFileWriter` now maps upstream writer semantics onto Phase 2 download handles, including owner-scoped directory creation, temp-file writes, finish-after-MD5, abort cleanup, and frontend collision naming for top-level downloads.
+5. OxideTerm now vendors the trzsz `1.1.6` protocol core under `upstream/` and replaces stock browser/node file-system branches with injected Tauri capabilities.
+6. `TrzszController` now routes live server output, terminal input, binary input, upload selection, and download save requests through the vendored filter instead of the Phase 1 passthrough placeholder.
+7. Phase 3 validation passed with targeted `vitest` coverage for `src/test/lib/terminal/trzsz/controller.test.ts` plus `cargo check` and `cargo test trzsz:: --lib` on the Rust bridge.
 
 ### Phase 0.5
 

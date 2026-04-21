@@ -2,6 +2,10 @@ import {
   createUnavailableTrzszCapabilities,
   type TrzszCapabilitiesProbeResult,
 } from '@/lib/terminal/trzsz/capabilities';
+import { buildTauriFileReaders } from '@/lib/terminal/trzsz/TauriFileReader';
+import { createTauriOpenSaveFile } from '@/lib/terminal/trzsz/TauriFileWriter';
+import { chooseSaveRoot, chooseSendEntries } from '@/lib/terminal/trzsz/dialogs';
+import { TrzszFilter } from '@/lib/terminal/trzsz/upstream/filter';
 import type { RemoteTerminalTransport } from '@/lib/terminal/trzsz/transport';
 
 type TrzszControllerState = 'active' | 'draining' | 'disposed';
@@ -14,10 +18,15 @@ export type TrzszControllerParams = {
   transport: RemoteTerminalTransport;
   writeServerOutput: (output: Uint8Array) => void;
   loadCapabilities: () => Promise<TrzszCapabilitiesProbeResult>;
+  cleanupOwner: () => Promise<void>;
 };
 
 function toUint8Array(output: Uint8Array | ArrayBuffer): Uint8Array {
   return output instanceof Uint8Array ? output : new Uint8Array(output);
+}
+
+function encodeTextOutput(output: string): Uint8Array {
+  return new TextEncoder().encode(output);
 }
 
 export class TrzszController {
@@ -25,6 +34,8 @@ export class TrzszController {
   private terminalColumns: number | null = null;
   private capabilityRequestVersion = 0;
   private capabilities: TrzszCapabilitiesProbeResult = createUnavailableTrzszCapabilities('invoke-failed');
+  private allowCleanupProtocol = false;
+  private readonly filter: TrzszFilter;
 
   readonly sessionId: string;
   readonly connectionId: string;
@@ -36,11 +47,69 @@ export class TrzszController {
     this.connectionId = params.connectionId;
     this.wsUrl = params.wsUrl;
     this.ownerId = params.ownerId;
+    this.filter = new TrzszFilter({
+      writeToTerminal: (output) => {
+        if (!this.canProcessIo()) {
+          return;
+        }
+
+        if (typeof output === 'string') {
+          this.params.writeServerOutput(encodeTextOutput(output));
+          return;
+        }
+
+        if (output instanceof Blob) {
+          void output.arrayBuffer().then((buffer) => {
+            if (!this.canProcessIo()) {
+              return;
+            }
+            this.params.writeServerOutput(new Uint8Array(buffer));
+          });
+          return;
+        }
+
+        this.params.writeServerOutput(toUint8Array(output));
+      },
+      sendToServer: (input) => {
+        if (!this.canSendCleanupProtocol()) {
+          return;
+        }
+
+        if (typeof input === 'string') {
+          this.params.transport.sendRawInput(input);
+          return;
+        }
+
+        this.params.transport.sendEncodedPayload(input);
+      },
+      chooseSendFiles: chooseSendEntries,
+      buildFileReaders: (paths, directory) => buildTauriFileReaders(this.ownerId, paths, directory),
+      chooseSaveDirectory: async () => {
+        const saveRoot = await chooseSaveRoot();
+        if (!saveRoot) {
+          return undefined;
+        }
+
+        const prepared = await import('@/lib/api').then(({ api }) => api.trzszPrepareDownloadRoot(this.ownerId, saveRoot.rootPath));
+        return {
+          ...saveRoot,
+          rootPath: prepared.rootPath,
+        };
+      },
+      openSaveFile: createTauriOpenSaveFile(this.ownerId),
+      terminalColumns: this.terminalColumns ?? 80,
+      isWindowsShell: false,
+      maxDataChunkSize: 1024 * 1024,
+    });
     void this.refreshCapabilities();
   }
 
   private canProcessIo(): boolean {
     return this.state === 'active';
+  }
+
+  private canSendCleanupProtocol(): boolean {
+    return this.state === 'active' || this.allowCleanupProtocol;
   }
 
   private async refreshCapabilities(): Promise<void> {
@@ -71,7 +140,7 @@ export class TrzszController {
       return;
     }
 
-    this.params.writeServerOutput(toUint8Array(output));
+    this.filter.processServerOutput(toUint8Array(output));
   }
 
   processTerminalInput(input: string): boolean {
@@ -79,7 +148,8 @@ export class TrzszController {
       return false;
     }
 
-    return this.params.transport.sendRawInput(input);
+    this.filter.processTerminalInput(input);
+    return true;
   }
 
   processBinaryInput(input: string): boolean {
@@ -87,7 +157,8 @@ export class TrzszController {
       return false;
     }
 
-    return this.params.transport.sendBinaryInput(input);
+    this.filter.processBinaryInput(input);
+    return true;
   }
 
   sendTextInput(input: string): boolean {
@@ -112,6 +183,7 @@ export class TrzszController {
     }
 
     this.terminalColumns = Math.floor(cols);
+    this.filter.setTerminalColumns(this.terminalColumns);
   }
 
   getTerminalColumns(): number | null {
@@ -136,6 +208,10 @@ export class TrzszController {
     }
 
     this.state = 'draining';
+    this.allowCleanupProtocol = true;
+    void this.filter.dispose().finally(() => {
+      this.allowCleanupProtocol = false;
+    });
   }
 
   dispose(): void {
@@ -145,5 +221,16 @@ export class TrzszController {
 
     this.state = 'disposed';
     this.capabilityRequestVersion += 1;
+    this.allowCleanupProtocol = true;
+    void this.filter.dispose()
+      .catch(() => {
+        // Filter cleanup is best-effort during reconnect or unmount.
+      })
+      .finally(() => {
+        this.allowCleanupProtocol = false;
+        void this.params.cleanupOwner().catch(() => {
+          // Owner cleanup is best-effort during reconnect or unmount.
+        });
+      });
   }
 }

@@ -80,6 +80,12 @@ pub struct TrzszPreparedDownloadRootDto {
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+pub struct TrzszCreateDownloadDirectoryDto {
+    pub created: bool,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct TrzszDownloadOpenDto {
     pub writer_id: String,
     pub local_name: String,
@@ -112,6 +118,7 @@ struct OwnerState {
     prepared_download_root: Option<PathBuf>,
     upload_handles: HashSet<String>,
     download_handles: HashSet<String>,
+    download_directories: HashSet<PathBuf>,
     touched_at: Instant,
 }
 
@@ -134,6 +141,7 @@ struct DownloadHandle {
 
 struct CleanupPlan {
     temp_paths: Vec<PathBuf>,
+    directory_paths: Vec<PathBuf>,
 }
 
 impl TrzszState {
@@ -350,6 +358,27 @@ impl TrzszState {
         })
     }
 
+    pub fn register_download_directory(&self, owner_id: &str, directory_path: PathBuf) {
+        self.purge_expired();
+        let now = Instant::now();
+        let mut inner = self.inner.lock();
+        let owner = inner
+            .owners
+            .entry(owner_id.to_string())
+            .or_insert_with(|| OwnerState::new(now));
+        owner.download_directories.insert(directory_path);
+        owner.touched_at = now;
+    }
+
+    pub fn commit_download_directory(&self, owner_id: &str, directory_path: &PathBuf) {
+        self.purge_expired();
+        let mut inner = self.inner.lock();
+        if let Some(owner) = inner.owners.get_mut(owner_id) {
+            owner.download_directories.remove(directory_path);
+            owner.touched_at = Instant::now();
+        }
+    }
+
     pub fn write_download_chunk(
         &self,
         owner_id: &str,
@@ -436,11 +465,7 @@ impl TrzszState {
         result
     }
 
-    pub fn abort_download_handle(
-        &self,
-        owner_id: &str,
-        writer_id: &str,
-    ) -> Result<(), TrzszError> {
+    pub fn abort_download_handle(&self, owner_id: &str, writer_id: &str) -> Result<(), TrzszError> {
         let handle = {
             let mut inner = self.inner.lock();
             let Some(handle) = inner.download_handles.remove(writer_id) else {
@@ -471,7 +496,10 @@ impl TrzszState {
                 };
             };
 
-            let mut cleanup_plan = CleanupPlan { temp_paths: Vec::new() };
+            let mut cleanup_plan = CleanupPlan {
+                temp_paths: Vec::new(),
+                directory_paths: Vec::new(),
+            };
             for handle_id in &owner.upload_handles {
                 inner.upload_handles.remove(handle_id);
             }
@@ -480,6 +508,9 @@ impl TrzszState {
                     cleanup_plan.temp_paths.push(handle.temp_path);
                 }
             }
+            cleanup_plan
+                .directory_paths
+                .extend(owner.download_directories.iter().cloned());
 
             (
                 owner.upload_handles.len(),
@@ -512,15 +543,27 @@ impl OwnerState {
             prepared_download_root: None,
             upload_handles: HashSet::new(),
             download_handles: HashSet::new(),
+            download_directories: HashSet::new(),
             touched_at: now,
         }
     }
 }
 
 impl CleanupPlan {
-    fn execute(self) {
+    fn execute(mut self) {
         for temp_path in self.temp_paths {
             let _ = std::fs::remove_file(temp_path);
+        }
+
+        self.directory_paths.sort_by(|left, right| {
+            right
+                .components()
+                .count()
+                .cmp(&left.components().count())
+                .then_with(|| right.cmp(left))
+        });
+        for directory_path in self.directory_paths {
+            let _ = std::fs::remove_dir(directory_path);
         }
     }
 }
@@ -534,7 +577,10 @@ fn janitor_loop(state: Weak<TrzszState>) {
 
 fn collect_expired_cleanup(inner: &mut TrzszStateInner, ttl: Duration) -> CleanupPlan {
     let now = Instant::now();
-    let mut cleanup = CleanupPlan { temp_paths: Vec::new() };
+    let mut cleanup = CleanupPlan {
+        temp_paths: Vec::new(),
+        directory_paths: Vec::new(),
+    };
 
     let expired_uploads = inner
         .upload_handles
@@ -571,7 +617,11 @@ fn collect_expired_cleanup(inner: &mut TrzszStateInner, ttl: Duration) -> Cleanu
         .map(|(owner_id, _)| owner_id.clone())
         .collect::<Vec<_>>();
     for owner_id in expired_owners {
-        inner.owners.remove(&owner_id);
+        if let Some(owner) = inner.owners.remove(&owner_id) {
+            cleanup
+                .directory_paths
+                .extend(owner.download_directories.into_iter());
+        }
     }
 
     cleanup

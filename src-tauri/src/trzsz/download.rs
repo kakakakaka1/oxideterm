@@ -6,10 +6,13 @@ use std::path::PathBuf;
 
 use super::error::TrzszError;
 use super::path_guard::{
-    build_download_target_path, canonicalize_existing_root, ensure_within_root, sanitize_download_rel_path,
-    validate_api_version, validate_owner_id,
+    build_download_target_path, canonicalize_existing_root, ensure_within_root,
+    sanitize_download_rel_path, validate_api_version, validate_owner_id,
 };
-use super::{MAX_TRANSFER_CHUNK_SIZE, TrzszDownloadOpenDto, TrzszPreparedDownloadRootDto, TrzszState};
+use super::{
+    MAX_TRANSFER_CHUNK_SIZE, TrzszCreateDownloadDirectoryDto, TrzszDownloadOpenDto,
+    TrzszPreparedDownloadRootDto, TrzszState,
+};
 
 pub fn prepare_download_root(
     state: &TrzszState,
@@ -49,7 +52,9 @@ pub fn open_save_file(
 
     if let Ok(metadata) = fs::symlink_metadata(&final_path) {
         if metadata.file_type().is_symlink() {
-            return Err(TrzszError::SymlinkNotAllowed(final_path.display().to_string()));
+            return Err(TrzszError::SymlinkNotAllowed(
+                final_path.display().to_string(),
+            ));
         }
         if metadata.is_dir() {
             return Err(TrzszError::InvalidPath(format!(
@@ -82,6 +87,209 @@ pub fn open_save_file(
         overwrite,
         file,
     )
+}
+
+pub fn create_download_directory(
+    state: &TrzszState,
+    owner_id: &str,
+    api_version: u32,
+    root_path: String,
+    directory_path: String,
+    must_create: bool,
+) -> Result<TrzszCreateDownloadDirectoryDto, TrzszError> {
+    validate_api_version(api_version)?;
+    validate_owner_id(owner_id)?;
+
+    let prepared_root = state
+        .prepared_download_root(owner_id)
+        .ok_or(TrzszError::RootNotPrepared)?;
+    let requested_root = canonicalize_existing_root(&root_path)?;
+    if prepared_root != requested_root {
+        return Err(TrzszError::RootMismatch);
+    }
+
+    let rel_components = sanitize_download_rel_path(&directory_path)?;
+    if rel_components.len() > 1 {
+        let mut parent_path = prepared_root.clone();
+        for component in &rel_components[..rel_components.len() - 1] {
+            parent_path.push(component);
+            match fs::symlink_metadata(&parent_path) {
+                Ok(metadata) => {
+                    if metadata.file_type().is_symlink() {
+                        return Err(TrzszError::SymlinkNotAllowed(parent_path.display().to_string()));
+                    }
+                    if !metadata.is_dir() {
+                        return Err(TrzszError::InvalidPath(format!(
+                            "Parent path is not a directory: {}",
+                            parent_path.display()
+                        )));
+                    }
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    return Err(TrzszError::InvalidPath(format!(
+                        "Parent directory does not exist: {}",
+                        parent_path.display()
+                    )));
+                }
+                Err(error) => return Err(TrzszError::Io(error)),
+            }
+        }
+    }
+    let final_path = build_download_target_path(&prepared_root, &rel_components)?;
+    ensure_within_root(&prepared_root, &final_path)?;
+
+    match fs::symlink_metadata(&final_path) {
+        Ok(metadata) => {
+            if metadata.file_type().is_symlink() {
+                return Err(TrzszError::SymlinkNotAllowed(
+                    final_path.display().to_string(),
+                ));
+            }
+            if metadata.is_dir() {
+                if must_create {
+                    return Err(TrzszError::AlreadyExists(final_path.display().to_string()));
+                }
+                return Ok(TrzszCreateDownloadDirectoryDto { created: false });
+            }
+            return Err(TrzszError::InvalidPath(format!(
+                "Target path resolves to a file: {}",
+                final_path.display()
+            )));
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(TrzszError::Io(error)),
+    }
+
+    fs::create_dir(&final_path)?;
+    state.register_download_directory(owner_id, final_path);
+    Ok(TrzszCreateDownloadDirectoryDto { created: true })
+}
+
+pub fn commit_download_directory(
+    state: &TrzszState,
+    owner_id: &str,
+    api_version: u32,
+    root_path: String,
+    directory_path: String,
+) -> Result<(), TrzszError> {
+    validate_api_version(api_version)?;
+    validate_owner_id(owner_id)?;
+
+    let prepared_root = state
+        .prepared_download_root(owner_id)
+        .ok_or(TrzszError::RootNotPrepared)?;
+    let requested_root = canonicalize_existing_root(&root_path)?;
+    if prepared_root != requested_root {
+        return Err(TrzszError::RootMismatch);
+    }
+
+    let rel_components = sanitize_download_rel_path(&directory_path)?;
+    let final_path = build_download_target_path(&prepared_root, &rel_components)?;
+    ensure_within_root(&prepared_root, &final_path)?;
+    state.commit_download_directory(owner_id, &final_path);
+    Ok(())
+}
+
+pub fn remove_download_directory(
+    state: &TrzszState,
+    owner_id: &str,
+    api_version: u32,
+    root_path: String,
+    directory_path: String,
+) -> Result<(), TrzszError> {
+    validate_api_version(api_version)?;
+    validate_owner_id(owner_id)?;
+
+    let prepared_root = state
+        .prepared_download_root(owner_id)
+        .ok_or(TrzszError::RootNotPrepared)?;
+    let requested_root = canonicalize_existing_root(&root_path)?;
+    if prepared_root != requested_root {
+        return Err(TrzszError::RootMismatch);
+    }
+
+    let rel_components = sanitize_download_rel_path(&directory_path)?;
+    let final_path = build_download_target_path(&prepared_root, &rel_components)?;
+    ensure_within_root(&prepared_root, &final_path)?;
+
+    match fs::symlink_metadata(&final_path) {
+        Ok(metadata) => {
+            if metadata.file_type().is_symlink() {
+                return Err(TrzszError::SymlinkNotAllowed(
+                    final_path.display().to_string(),
+                ));
+            }
+            if !metadata.is_dir() {
+                return Err(TrzszError::InvalidPath(format!(
+                    "Target path is not a directory: {}",
+                    final_path.display()
+                )));
+            }
+            match fs::remove_dir(&final_path) {
+                Ok(()) => {
+                    state.commit_download_directory(owner_id, &final_path);
+                    Ok(())
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::DirectoryNotEmpty => Ok(()),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    state.commit_download_directory(owner_id, &final_path);
+                    Ok(())
+                }
+                Err(error) => Err(TrzszError::Io(error)),
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            state.commit_download_directory(owner_id, &final_path);
+            Ok(())
+        }
+        Err(error) => Err(TrzszError::Io(error)),
+    }
+}
+
+pub fn remove_download_file(
+    state: &TrzszState,
+    owner_id: &str,
+    api_version: u32,
+    root_path: String,
+    file_path: String,
+) -> Result<(), TrzszError> {
+    validate_api_version(api_version)?;
+    validate_owner_id(owner_id)?;
+
+    let prepared_root = state
+        .prepared_download_root(owner_id)
+        .ok_or(TrzszError::RootNotPrepared)?;
+    let requested_root = canonicalize_existing_root(&root_path)?;
+    if prepared_root != requested_root {
+        return Err(TrzszError::RootMismatch);
+    }
+
+    let rel_components = sanitize_download_rel_path(&file_path)?;
+    let final_path = build_download_target_path(&prepared_root, &rel_components)?;
+    ensure_within_root(&prepared_root, &final_path)?;
+
+    match fs::symlink_metadata(&final_path) {
+        Ok(metadata) => {
+            if metadata.file_type().is_symlink() {
+                return Err(TrzszError::SymlinkNotAllowed(
+                    final_path.display().to_string(),
+                ));
+            }
+            if metadata.is_dir() {
+                return Err(TrzszError::InvalidPath(format!(
+                    "Target path is a directory: {}",
+                    final_path.display()
+                )));
+            }
+            match fs::remove_file(&final_path) {
+                Ok(()) => Ok(()),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                Err(error) => Err(TrzszError::Io(error)),
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(TrzszError::Io(error)),
+    }
 }
 
 pub fn write_download_chunk(
@@ -126,7 +334,10 @@ pub fn abort_download_file(
 
 fn build_temp_path(final_path: &PathBuf, local_name: &str) -> Result<PathBuf, TrzszError> {
     let parent = final_path.parent().ok_or_else(|| {
-        TrzszError::InvalidPath(format!("Final path has no parent: {}", final_path.display()))
+        TrzszError::InvalidPath(format!(
+            "Final path has no parent: {}",
+            final_path.display()
+        ))
     })?;
     let stem = format!(".{local_name}.oxide-trzsz-{}.part", uuid::Uuid::new_v4());
     Ok(parent.join(stem))
@@ -143,8 +354,9 @@ mod tests {
     use crate::trzsz::{MAX_HANDLES_PER_OWNER, TRZSZ_API_VERSION};
 
     use super::{
-        abort_download_file, finish_download_file, open_save_file, prepare_download_root,
-        write_download_chunk,
+        abort_download_file, commit_download_directory, create_download_directory,
+        finish_download_file, open_save_file, prepare_download_root, remove_download_directory,
+        remove_download_file, write_download_chunk,
     };
     use crate::trzsz::TrzszState;
 
@@ -264,6 +476,179 @@ mod tests {
         assert!(error.to_string().contains("does not match"));
     }
 
+    #[test]
+    fn creates_empty_directory_inside_prepared_root() {
+        let temp = tempdir().expect("tempdir");
+        let state = TrzszState::new_for_tests(Duration::from_secs(60));
+        prepare_download_root(
+            state.as_ref(),
+            "owner-1",
+            TRZSZ_API_VERSION,
+            temp.path().to_string_lossy().to_string(),
+        )
+        .expect("prepare root");
+
+        create_download_directory(
+            state.as_ref(),
+            "owner-1",
+            TRZSZ_API_VERSION,
+            temp.path().to_string_lossy().to_string(),
+            "empty".to_string(),
+            false,
+        )
+        .expect("create parent directory");
+
+        create_download_directory(
+            state.as_ref(),
+            "owner-1",
+            TRZSZ_API_VERSION,
+            temp.path().to_string_lossy().to_string(),
+            "empty/nested".to_string(),
+            false,
+        )
+        .expect("create directory");
+
+        assert!(temp.path().join("empty").join("nested").is_dir());
+    }
+
+    #[test]
+    fn rejects_nested_directory_creation_when_parent_is_missing() {
+        let temp = tempdir().expect("tempdir");
+        let state = TrzszState::new_for_tests(Duration::from_secs(60));
+        prepare_download_root(
+            state.as_ref(),
+            "owner-1",
+            TRZSZ_API_VERSION,
+            temp.path().to_string_lossy().to_string(),
+        )
+        .expect("prepare root");
+
+        let error = create_download_directory(
+            state.as_ref(),
+            "owner-1",
+            TRZSZ_API_VERSION,
+            temp.path().to_string_lossy().to_string(),
+            "missing/nested".to_string(),
+            false,
+        )
+        .expect_err("missing parent should be rejected");
+
+        assert!(error.to_string().contains("Parent directory does not exist"));
+    }
+
+    #[test]
+    fn rejects_reusing_existing_directory_when_creation_must_be_exclusive() {
+        let temp = tempdir().expect("tempdir");
+        fs::create_dir(temp.path().join("existing")).expect("mkdir existing");
+        let state = TrzszState::new_for_tests(Duration::from_secs(60));
+        prepare_download_root(
+            state.as_ref(),
+            "owner-1",
+            TRZSZ_API_VERSION,
+            temp.path().to_string_lossy().to_string(),
+        )
+        .expect("prepare root");
+
+        let error = create_download_directory(
+            state.as_ref(),
+            "owner-1",
+            TRZSZ_API_VERSION,
+            temp.path().to_string_lossy().to_string(),
+            "existing".to_string(),
+            true,
+        )
+        .expect_err("must_create should reject existing directory");
+
+        assert!(error.to_string().contains("already exists"));
+    }
+
+    #[test]
+    fn removes_empty_directory_inside_prepared_root() {
+        let temp = tempdir().expect("tempdir");
+        fs::create_dir_all(temp.path().join("nested").join("leaf")).expect("mkdir nested leaf");
+        let state = TrzszState::new_for_tests(Duration::from_secs(60));
+        prepare_download_root(
+            state.as_ref(),
+            "owner-1",
+            TRZSZ_API_VERSION,
+            temp.path().to_string_lossy().to_string(),
+        )
+        .expect("prepare root");
+
+        remove_download_directory(
+            state.as_ref(),
+            "owner-1",
+            TRZSZ_API_VERSION,
+            temp.path().to_string_lossy().to_string(),
+            "nested/leaf".to_string(),
+        )
+        .expect("remove directory");
+
+        assert!(!temp.path().join("nested").join("leaf").exists());
+        assert!(temp.path().join("nested").exists());
+    }
+
+    #[test]
+    fn removes_download_file_inside_prepared_root() {
+        let temp = tempdir().expect("tempdir");
+        fs::create_dir_all(temp.path().join("nested")).expect("mkdir nested");
+        fs::write(temp.path().join("nested").join("file.txt"), b"hello").expect("write file");
+        let state = TrzszState::new_for_tests(Duration::from_secs(60));
+        prepare_download_root(
+            state.as_ref(),
+            "owner-1",
+            TRZSZ_API_VERSION,
+            temp.path().to_string_lossy().to_string(),
+        )
+        .expect("prepare root");
+
+        remove_download_file(
+            state.as_ref(),
+            "owner-1",
+            TRZSZ_API_VERSION,
+            temp.path().to_string_lossy().to_string(),
+            "nested/file.txt".to_string(),
+        )
+        .expect("remove file");
+
+        assert!(!temp.path().join("nested").join("file.txt").exists());
+    }
+
+    #[test]
+    fn commit_download_directory_keeps_created_directory_out_of_owner_cleanup() {
+        let temp = tempdir().expect("tempdir");
+        let state = TrzszState::new_for_tests(Duration::from_secs(60));
+        prepare_download_root(
+            state.as_ref(),
+            "owner-1",
+            TRZSZ_API_VERSION,
+            temp.path().to_string_lossy().to_string(),
+        )
+        .expect("prepare root");
+
+        create_download_directory(
+            state.as_ref(),
+            "owner-1",
+            TRZSZ_API_VERSION,
+            temp.path().to_string_lossy().to_string(),
+            "kept".to_string(),
+            false,
+        )
+        .expect("create directory");
+        commit_download_directory(
+            state.as_ref(),
+            "owner-1",
+            TRZSZ_API_VERSION,
+            temp.path().to_string_lossy().to_string(),
+            "kept".to_string(),
+        )
+        .expect("commit directory");
+
+        state.cleanup_owner("owner-1");
+
+        assert!(temp.path().join("kept").is_dir());
+    }
+
     #[cfg(unix)]
     #[test]
     fn finish_rejects_target_replaced_with_symlink() {
@@ -353,7 +738,11 @@ mod tests {
         )
         .expect_err("opening one more writer should fail");
 
-        assert!(error.to_string().contains("Too many active download handles"));
+        assert!(
+            error
+                .to_string()
+                .contains("Too many active download handles")
+        );
 
         for writer_id in writer_ids {
             abort_download_file(state.as_ref(), "owner-1", TRZSZ_API_VERSION, &writer_id)
