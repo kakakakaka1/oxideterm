@@ -30,6 +30,7 @@ pub mod sftp;
 pub mod ssh;
 pub mod state;
 pub mod terminal_bg;
+pub mod trzsz;
 pub mod update_manager;
 
 // Windows: 高精度系统定时器
@@ -347,6 +348,9 @@ pub fn run() {
     // Create transfer manager for concurrent transfer control
     let transfer_manager = Arc::new(TransferManager::new());
 
+    // Create trzsz file bridge state for owner-scoped upload/download handles
+    let trzsz_state = trzsz::TrzszState::new();
+
     // Create session tree state for dynamic jump host support
     let session_tree_state = Arc::new(SessionTreeState::new());
 
@@ -414,6 +418,7 @@ pub fn run() {
         .manage(sftp_registry)
         .manage(transfer_manager)
         .manage(progress_store)
+        .manage(trzsz_state)
         .manage(ssh_connection_registry.clone())
         .manage(agent_registry.clone())
         .manage(session_tree_state)
@@ -571,6 +576,17 @@ pub fn run() {
         commands::create_terminal,
         commands::close_terminal,
         commands::recreate_terminal_pty,
+        commands::trzsz_get_capabilities,
+        commands::trzsz_build_upload_entries,
+        commands::trzsz_open_upload_file,
+        commands::trzsz_read_upload_chunk,
+        commands::trzsz_close_upload_file,
+        commands::trzsz_prepare_download_root,
+        commands::trzsz_open_save_file,
+        commands::trzsz_write_download_chunk,
+        commands::trzsz_finish_download_file,
+        commands::trzsz_abort_download_file,
+        commands::trzsz_cleanup_owner,
         // SSH host key preflight (TOFU)
         commands::ssh_preflight,
         commands::ssh_accept_host_key,
@@ -938,6 +954,17 @@ pub fn run() {
         commands::create_terminal,
         commands::close_terminal,
         commands::recreate_terminal_pty,
+        commands::trzsz_get_capabilities,
+        commands::trzsz_build_upload_entries,
+        commands::trzsz_open_upload_file,
+        commands::trzsz_read_upload_chunk,
+        commands::trzsz_close_upload_file,
+        commands::trzsz_prepare_download_root,
+        commands::trzsz_open_save_file,
+        commands::trzsz_write_download_chunk,
+        commands::trzsz_finish_download_file,
+        commands::trzsz_abort_download_file,
+        commands::trzsz_cleanup_owner,
         // SSH host key preflight (TOFU)
         commands::ssh_preflight,
         commands::ssh_accept_host_key,

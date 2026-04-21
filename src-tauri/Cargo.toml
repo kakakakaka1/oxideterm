@@ -144,6 +144,7 @@ vte = "0.14"
 regex = "1.10"
 strip-ansi-escapes = "0.2"
 flate2 = "1.1.9"
+unicode-normalization = "0.1"
 
 # macOS Touch ID authentication (LAContext via LocalAuthentication.framework)
 [target.'cfg(target_os = "macos")'.dependencies]

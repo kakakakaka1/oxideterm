@@ -1,6 +1,6 @@
 # trzsz Integration Baseline
 
-Status: Phase 1 completed on 2026-04-21
+Status: Phase 2 completed on 2026-04-21
 
 This directory is the OxideTerm-owned adapter boundary for trzsz integration. Phase 0 deliberately avoids runtime logic changes and only freezes upstream metadata, repository layout, and the future file map.
 
@@ -107,6 +107,17 @@ New files:
 - `src-tauri/src/trzsz/path_guard.rs`
 - `src-tauri/src/trzsz/upload.rs`
 - `src-tauri/src/trzsz/download.rs`
+
+Phase 2 completed on `2026-04-21`.
+
+Implemented outputs:
+
+1. `trzsz_get_capabilities()` now provides an explicit backend handshake with `apiVersion` and feature flags.
+2. Upload-side commands now scan selected files/directories, reject unsafe paths and symlink escapes, open owner-scoped reader handles, stream chunk reads, and close handles explicitly.
+3. Download-side commands now prepare a canonical root, create parent directories safely, write through temp files, flush and rename on finish, and remove temp artifacts on abort.
+4. All local path validation is centralized in `path_guard.rs`, including NFC normalization, traversal rejection, Windows reserved-name filtering, canonical root enforcement, per-segment symlink rejection, and finish-time target revalidation before final rename.
+5. Rust-side `TrzszState` now tracks owner-scoped upload/download handles with a default 15-minute TTL, a hard cap of 256 active handles per owner, and forced reclamation through `trzsz_cleanup_owner(ownerId)`.
+6. Phase 2 backend coverage now includes path-guard, upload, and download tests, and the module passes `cargo check` plus targeted `cargo test trzsz:: --lib`.
 
 ### Phase 3
 
