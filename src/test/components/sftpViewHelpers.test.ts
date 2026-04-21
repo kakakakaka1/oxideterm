@@ -1,9 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  buildExternalUploadCandidates,
   cleanupPreviewResource,
   findTransferForProgressEvent,
+  getSftpPaneTargetFromPhysicalPosition,
   getTransferCompletionRefreshPlan,
   normalizeSftpTransferPath,
+  parseSftpInternalDragDropData,
 } from '@/components/sftp/sftpViewHelpers';
 import type { TransferItem } from '@/store/transferStore';
 
@@ -27,6 +30,89 @@ describe('sftpViewHelpers', () => {
   it('normalizes repeated separators and preserves root paths', () => {
     expect(normalizeSftpTransferPath('/foo//bar/')).toBe('/foo/bar');
     expect(normalizeSftpTransferPath('/')).toBe('/');
+  });
+
+  it('parses valid internal drag payloads and ignores invalid drops', () => {
+    expect(parseSftpInternalDragDropData(JSON.stringify({
+      files: ['a.txt', 'b.txt'],
+      source: 'local',
+      basePath: '/tmp',
+    }))).toEqual({
+      files: ['a.txt', 'b.txt'],
+      source: 'local',
+      basePath: '/tmp',
+    });
+
+    expect(parseSftpInternalDragDropData('')).toBeNull();
+    expect(parseSftpInternalDragDropData('{bad json')).toBeNull();
+    expect(parseSftpInternalDragDropData(JSON.stringify({ files: [], source: 'remote', basePath: '/' }))).toBeNull();
+  });
+
+  it('maps physical drop positions onto the correct pane', () => {
+    expect(getSftpPaneTargetFromPhysicalPosition(
+      { x: 900, y: 120 },
+      {
+        local: { left: 0, right: 300, top: 0, bottom: 400 },
+        remote: { left: 301, right: 600, top: 0, bottom: 400 },
+      },
+      2,
+    )).toBe('remote');
+
+    expect(getSftpPaneTargetFromPhysicalPosition(
+      { x: 120, y: 120 },
+      {
+        local: { left: 0, right: 300, top: 0, bottom: 400 },
+        remote: { left: 301, right: 600, top: 0, bottom: 400 },
+      },
+    )).toBe('local');
+
+    expect(getSftpPaneTargetFromPhysicalPosition(
+      { x: 1000, y: 1000 },
+      {
+        local: { left: 0, right: 300, top: 0, bottom: 400 },
+        remote: { left: 301, right: 600, top: 0, bottom: 400 },
+      },
+    )).toBeNull();
+  });
+
+  it('builds upload candidates from dropped local paths and deduplicates them', async () => {
+    const statPath = vi.fn(async (path: string) => ({
+      isDirectory: path.endsWith('photos'),
+      isSymlink: false,
+      size: path.endsWith('photos') ? 0 : 128,
+      mtime: new Date('2026-04-21T00:00:00Z'),
+    }));
+
+    await expect(buildExternalUploadCandidates([
+      '/tmp/report.txt',
+      '/tmp/report.txt/',
+      'C:\\Users\\dom\\photos',
+    ], statPath)).resolves.toEqual([
+      {
+        file: 'report.txt',
+        sourcePath: '/tmp/report.txt',
+        fileInfo: {
+          name: 'report.txt',
+          path: '/tmp/report.txt',
+          file_type: 'File',
+          size: 128,
+          modified: 1776729600,
+          permissions: null,
+        },
+      },
+      {
+        file: 'photos',
+        sourcePath: 'C:\\Users\\dom\\photos',
+        fileInfo: {
+          name: 'photos',
+          path: 'C:\\Users\\dom\\photos',
+          file_type: 'Directory',
+          size: 0,
+          modified: 1776729600,
+          permissions: null,
+        },
+      },
+    ]);
   });
 
   it('matches transfer progress by exact id first', () => {

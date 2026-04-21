@@ -48,10 +48,9 @@ import {
   isTerminalContainerRenderable,
   resolveTerminalDimensions,
 } from '../../lib/terminalHelpers';
-import { encodeTerminalExecuteInput, encodeTerminalTextInput } from '../../lib/terminalInput';
 import {
   MSG_TYPE_DATA, MSG_TYPE_HEARTBEAT, MSG_TYPE_ERROR,
-  HEADER_SIZE, encodeHeartbeatFrame, encodeDataFrame, encodeResizeFrame,
+  HEADER_SIZE, encodeHeartbeatFrame,
 } from '../../lib/wireProtocol';
 import { installTerminalClipboardSupport, readSystemClipboardText } from '../../lib/clipboardSupport';
 import {
@@ -77,8 +76,14 @@ import { installShiftSelectionGuard, type SelectionGestureController } from '../
 import { useBroadcastStore } from '../../store/broadcastStore';
 import { broadcastToTargets } from '../../lib/terminalRegistry';
 import { HistorySearchMatch, TerminalHistorySearchProgress, type HighlightRule } from '../../types';
+import { TrzszController } from '../../lib/terminal/trzsz/controller';
+import { createRemoteTerminalTransport, type RemoteTerminalTransport } from '../../lib/terminal/trzsz/transport';
 
 const PREFILL_REPLAY_LINE_COUNT = 50; // Keep aligned with backend replay count
+
+function normalizeWebSocketUrl(value: string): string {
+  return value.endsWith('/') ? value.slice(0, -1) : value;
+}
 
 function historyMatchKey(match: HistorySearchMatch): string {
   return [
@@ -143,9 +148,11 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
   const pasteShortcutSuppressionRef = useRef(createTerminalPasteShortcutSuppressionState());
   // xterm.js event listener disposables - must be explicitly disposed to prevent memory leaks
   const onDataDisposableRef = useRef<{ dispose: () => void } | null>(null);
+  const onBinaryDisposableRef = useRef<{ dispose: () => void } | null>(null);
   const onResizeDisposableRef = useRef<{ dispose: () => void } | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const smartCopyDisposableRef = useRef<{ dispose: () => void } | null>(null);
+  const trzszControllerRef = useRef<TrzszController | null>(null);
   const highlightEngineRef = useRef<HighlightEngine | null>(null);
   const runtimeDisabledHighlightRulesRef = useRef<Map<string, string>>(new Map());
   const runtimeDisabledHighlightRulesSourceRef = useRef<string | null>(null);
@@ -293,6 +300,8 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
     terminalRef,
     mode: terminalSettings.adaptiveRenderer ?? 'auto',
   });
+  const adaptiveRendererRef = useRef(adaptiveRenderer);
+  adaptiveRendererRef.current = adaptiveRenderer;
 
   // Track last connected ws_url for reconnection detection
   const lastWsUrlRef = useRef<string | null>(null);
@@ -338,6 +347,15 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
   const [connectionStatus, setConnectionStatus] = useState<'connected' | 'link_down' | 'reconnecting' | 'disconnected'>('connected');
   const inputLockedRef = useRef(false); // For synchronous check in onData callback
   const connectionStatusRef = useRef<'connected' | 'link_down' | 'reconnecting' | 'disconnected'>('connected');
+  const controllerRuntimePendingRef = useRef(false);
+  const blockedRuntimeWebSocketRef = useRef<WebSocket | null>(null);
+  const transportRef = useRef<RemoteTerminalTransport | null>(null);
+  if (!transportRef.current) {
+    transportRef.current = createRemoteTerminalTransport({
+      getWebSocket: () => wsRef.current,
+      isInputLocked: () => inputLockedRef.current,
+    });
+  }
 
   const ensureSearchAddon = useCallback(() => {
     const term = terminalRef.current;
@@ -416,14 +434,94 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
     }
   }, []);
 
-  const syncRemotePtySize = useCallback(() => {
-    const ws = wsRef.current;
-    if (!ws || ws.readyState !== WebSocket.OPEN || inputLockedRef.current) return;
+  const writeServerOutputToTerminal = useCallback((payload: Uint8Array) => {
+    adaptiveRendererRef.current.scheduleWrite(payload);
+  }, []);
 
+  const unlockRuntimeGateIfReady = useCallback(() => {
+    if (controllerRuntimePendingRef.current || connectionStatusRef.current !== 'connected' || !inputLockedRef.current) {
+      return;
+    }
+
+    inputLockedRef.current = false;
+    setInputLocked(false);
+
+    const term = terminalRef.current;
+    if (term) {
+      term.write(`\r\n\x1b[32m${i18n.t('terminal.ssh.link_restored')}\x1b[0m\r\n`);
+      lastWsUrlRef.current = null;
+    }
+  }, []);
+
+  const disposeTrzszController = useCallback(() => {
+    const controller = trzszControllerRef.current;
+    if (!controller) return;
+
+    controller.stop();
+    controller.dispose();
+    trzszControllerRef.current = null;
+  }, []);
+
+  const syncTrzszController = useCallback(() => {
+    const term = terminalRef.current;
+    const currentSession = sessionRef.current;
+    const connectionId = currentSession?.connectionId ?? null;
+    const wsUrl = currentSession?.ws_url ?? null;
+    const activeWs = wsRef.current;
+    const activeWsUrl = activeWs?.url ? normalizeWebSocketUrl(activeWs.url) : null;
+
+    if (
+      !term
+      || !connectionId
+      || !wsUrl
+      || connectionStatusRef.current !== 'connected'
+      || !activeWs
+      || activeWs.readyState !== WebSocket.OPEN
+      || (controllerRuntimePendingRef.current && blockedRuntimeWebSocketRef.current === activeWs)
+      || activeWsUrl !== normalizeWebSocketUrl(wsUrl)
+    ) {
+      disposeTrzszController();
+      return;
+    }
+
+    const currentController = trzszControllerRef.current;
+    if (
+      currentController
+      && !currentController.isDisposed()
+      && !currentController.isDraining()
+      && currentController.matchesRuntime(connectionId, wsUrl)
+    ) {
+      currentController.setTerminalColumns(term.cols);
+      controllerRuntimePendingRef.current = false;
+      blockedRuntimeWebSocketRef.current = null;
+      unlockRuntimeGateIfReady();
+      return;
+    }
+
+    disposeTrzszController();
+
+    const controller = new TrzszController({
+      sessionId,
+      connectionId,
+      wsUrl,
+      ownerId: `trzsz:${sessionId}:${connectionId}:${crypto.randomUUID()}`,
+      transport: transportRef.current!,
+      writeServerOutput: writeServerOutputToTerminal,
+      loadCapabilities: () => api.getTrzszCapabilities(),
+    });
+    controller.setTerminalColumns(term.cols);
+    trzszControllerRef.current = controller;
+    controllerRuntimePendingRef.current = false;
+    blockedRuntimeWebSocketRef.current = null;
+    unlockRuntimeGateIfReady();
+  }, [disposeTrzszController, sessionId, unlockRuntimeGateIfReady, writeServerOutputToTerminal]);
+
+  const syncRemotePtySize = useCallback(() => {
     const dims = resolveTerminalDimensions(containerRef.current, terminalRef.current, fitAddonRef.current);
     if (!dims) return;
 
-    ws.send(encodeResizeFrame(dims.cols, dims.rows));
+    trzszControllerRef.current?.setTerminalColumns(dims.cols);
+    transportRef.current?.sendResize(dims.cols, dims.rows);
   }, []);
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -457,8 +555,12 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
         // Feed recording (after plugin pipeline, before terminal write)
         feedOutput(payloadCopy);
 
-        // Adaptive renderer handles RAF batching + tier switching on all platforms
-        adaptiveRenderer.scheduleWrite(payloadCopy);
+        const controller = trzszControllerRef.current;
+        if (controller && !controller.isDisposed()) {
+          controller.processServerOutput(payloadCopy);
+        } else if (!controllerRuntimePendingRef.current) {
+          writeServerOutputToTerminal(payloadCopy);
+        }
         break;
       }
       case MSG_TYPE_HEARTBEAT:
@@ -474,7 +576,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
         break;
       }
     }
-  }, [maybeLoadImageAddon, sessionId, nodeId, adaptiveRenderer]);
+  }, [maybeLoadImageAddon, sessionId, nodeId, writeServerOutputToTerminal]);
 
   // Keep a stable ref to handleWsMessage so WebSocket onmessage handlers
   // (bound once in the init effect) always call the latest version.
@@ -494,6 +596,10 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
   useEffect(() => {
     connectionStatusRef.current = connectionStatus;
   }, [connectionStatus]);
+
+  useEffect(() => {
+    syncTrzszController();
+  }, [session?.connectionId, session?.ws_url, connectionStatus, syncTrzszController]);
 
   const recoverWebSocket = useCallback((reason: string) => {
     if (wsRecoveryInFlightRef.current) return;
@@ -667,11 +773,18 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
       
       console.log(`[TerminalView ${sessionId}] Connection status: ${status}`);
       setConnectionStatus(status);
+      connectionStatusRef.current = status;
       
       const term = terminalRef.current;
       const shouldLock = status === 'link_down' || status === 'reconnecting';
+      const shouldHoldRuntimeGate = shouldLock || status === 'disconnected';
+
+      if (shouldHoldRuntimeGate) {
+        controllerRuntimePendingRef.current = true;
+        blockedRuntimeWebSocketRef.current = wsRef.current;
+      }
       
-      if (shouldLock && !inputLockedRef.current) {
+      if (shouldHoldRuntimeGate && !inputLockedRef.current) {
         // Entering Standby mode
         inputLockedRef.current = true;
         setInputLocked(true);
@@ -682,21 +795,14 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
             term.write(`\r\n\x1b[33m${i18n.t('terminal.ssh.connection_lost')}\x1b[0m\r\n`);
           } else if (status === 'reconnecting') {
             term.write(`\r\n\x1b[33m${i18n.t('terminal.ssh.attempting_reconnect')}\x1b[0m\r\n`);
+          } else if (status === 'disconnected') {
+            term.write(`\r\n\x1b[31m${i18n.t('terminal.ssh.connection_failed')}\x1b[0m\r\n`);
           }
         }
-      } else if (!shouldLock && inputLockedRef.current) {
-        // Exiting Standby mode
-        inputLockedRef.current = false;
-        setInputLocked(false);
-        
-        if (term && status === 'connected') {
-          term.write(`\r\n\x1b[32m${i18n.t('terminal.ssh.link_restored')}\x1b[0m\r\n`);
-          // 🔴 关键修复：清除 lastWsUrlRef，让重连 effect 检查是否需要连接新的 ws_url
-          // 这解决了 connection_reconnected 和 connection_status_changed 事件顺序导致的竞态问题
-          lastWsUrlRef.current = null;
-        } else if (term && status === 'disconnected') {
-          term.write(`\r\n\x1b[31m${i18n.t('terminal.ssh.connection_failed')}\x1b[0m\r\n`);
-        }
+      }
+
+      if (shouldHoldRuntimeGate) {
+        disposeTrzszController();
       }
 
       if (status === 'disconnected') {
@@ -949,10 +1055,14 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
     // Skip if terminal not initialized or no ws_url
     if (!terminalRef.current || !wsUrl) return;
     if (connectionStatusRef.current !== 'connected') return;
+    const normalizedWsUrl = normalizeWebSocketUrl(wsUrl);
+    const existingWs = wsRef.current;
+    const existingWsUrl = existingWs?.url
+      ? normalizeWebSocketUrl(existingWs.url)
+      : (lastWsUrlRef.current ? normalizeWebSocketUrl(lastWsUrlRef.current) : null);
     
     // Skip if this is the same URL we're already connected to
-    if (wsUrl === lastWsUrlRef.current) {
-      const existingWs = wsRef.current;
+    if (normalizedWsUrl === existingWsUrl) {
       if (existingWs && existingWs.readyState <= WebSocket.OPEN) {
         return;
       }
@@ -960,15 +1070,17 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
     }
     
     // Skip if WebSocket is already open/connecting to same URL
-    if (wsRef.current && wsRef.current.readyState <= WebSocket.OPEN) {
+    if (existingWs && existingWs.readyState <= WebSocket.OPEN) {
       // If old connection exists but URL changed, close it
-      if (lastWsUrlRef.current !== null && wsUrl !== lastWsUrlRef.current) {
+      if (existingWsUrl !== null && normalizedWsUrl !== existingWsUrl) {
         console.log('[Terminal] Session reconnected, closing old WebSocket and reconnecting...');
         reconnectingRef.current = true;
-        const oldWs = wsRef.current;
+        controllerRuntimePendingRef.current = true;
+        blockedRuntimeWebSocketRef.current = existingWs;
+        disposeTrzszController();
         wsRef.current = null;
         manualCloseRef.current = true;
-        cleanupWebSocket(oldWs, 'Reconnect');
+        cleanupWebSocket(existingWs, 'Reconnect');
       } else {
         return; // Same URL, already connected
       }
@@ -1007,6 +1119,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
         
         // Re-send current terminal size
         syncRemotePtySize();
+        syncTrzszController();
       };
 
       ws.onmessage = (e) => handleWsMessageRef.current(e, ws);
@@ -1038,7 +1151,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
       console.error('Failed to reconnect WebSocket:', e);
       term.writeln(`\r\n\x1b[31m${i18n.t('terminal.ssh.ws_establish_failed', { error: e })}\x1b[0m`);
     }
-  }, [session?.ws_url, recoverWebSocket, cleanupWebSocket, connectionStatus, syncRemotePtySize]);
+  }, [session?.ws_url, recoverWebSocket, cleanupWebSocket, connectionStatus, syncRemotePtySize, disposeTrzszController, syncTrzszController]);
 
   // Font family resolver — see src/lib/fontFamily.ts
 
@@ -1242,6 +1355,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
 
     terminalRef.current = term;
     fitAddonRef.current = fitAddon;
+    syncTrzszController();
     
     const prefillHistory = async (): Promise<boolean> => {
       if (prefillHistoryRef.current) return false;
@@ -1342,12 +1456,11 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
       // Writer function: encode and send via WebSocket
       (data: string) => {
         if (inputLockedRef.current) return; // Respect standby mode
-        const ws = wsRef.current;
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          const encoder = new TextEncoder();
-          const payload = encoder.encode(data);
-          const frame = encodeDataFrame(payload);
-          ws.send(frame);
+        const controller = trzszControllerRef.current;
+        if (controller && !controller.isDisposed()) {
+          controller.processTerminalInput(data);
+        } else if (!controllerRuntimePendingRef.current) {
+          transportRef.current?.sendRawInput(data);
         }
       },
       getScreenSnapshot,  // Screen reader for TUI interaction
@@ -1432,6 +1545,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
                   term.writeln(i18n.t('terminal.ssh.connected') + "\r\n");
                   // Initial resize using the current visible or last stable size.
                   syncRemotePtySize();
+                  syncTrzszController();
                   // Focus terminal after connection
                   term.focus();
                   resolve();
@@ -1582,32 +1696,46 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
         // Feed recording (user input)
         feedInput(processed);
 
-        const ws = wsRef.current;
-        if (ws && ws.readyState === WebSocket.OPEN) {
-            // Encode as Wire Protocol v1 Data frame
-            const encoder = new TextEncoder();
-            const payload = encoder.encode(processed);
-            const frame = encodeDataFrame(payload);
-            ws.send(frame);
+        const controller = trzszControllerRef.current;
+        if (controller && !controller.isDisposed()) {
+            controller.processTerminalInput(processed);
+        } else if (!controllerRuntimePendingRef.current) {
+            transportRef.current?.sendRawInput(processed);
+        }
 
-            // Broadcast input to targets (empty target set = all other terminals)
-            const bc = useBroadcastStore.getState();
-            if (bc.enabled) {
-              broadcastToTargets(effectivePaneId, processed, bc.targets);
-            }
-            
-            // IDE Terminal: 检测回车键触发 Git 刷新
-            // 仅当 sessionId 以 'ide-terminal-' 开头时触发（区分普通终端和 IDE 终端）
-            if (sessionId.startsWith('ide-terminal-') && (data === '\r' || data === '\n')) {
-              // 延迟 500ms 触发，给 git 命令执行时间
-              if (gitRefreshTimerRef.current !== null) {
-                clearTimeout(gitRefreshTimerRef.current);
-              }
-              gitRefreshTimerRef.current = setTimeout(() => {
-                gitRefreshTimerRef.current = null;
-                triggerGitRefresh();
-              }, 500);
-            }
+        // Broadcast input to targets (empty target set = all other terminals)
+        const bc = useBroadcastStore.getState();
+        if (bc.enabled) {
+          broadcastToTargets(effectivePaneId, processed, bc.targets);
+        }
+        
+        // IDE Terminal: 检测回车键触发 Git 刷新
+        // 仅当 sessionId 以 'ide-terminal-' 开头时触发（区分普通终端和 IDE 终端）
+        if (sessionId.startsWith('ide-terminal-') && (data === '\r' || data === '\n')) {
+          // 延迟 500ms 触发，给 git 命令执行时间
+          if (gitRefreshTimerRef.current !== null) {
+            clearTimeout(gitRefreshTimerRef.current);
+          }
+          gitRefreshTimerRef.current = setTimeout(() => {
+            gitRefreshTimerRef.current = null;
+            triggerGitRefresh();
+          }, 500);
+        }
+    });
+
+    // IMPORTANT: Save IDisposable for cleanup to prevent memory leaks
+    onBinaryDisposableRef.current = term.onBinary((data) => {
+        if (inputLockedRef.current) {
+          return;
+        }
+
+        adaptiveRendererRef.current.notifyUserInput();
+
+        const controller = trzszControllerRef.current;
+        if (controller && !controller.isDisposed()) {
+          controller.processBinaryInput(data);
+        } else if (!controllerRuntimePendingRef.current) {
+          transportRef.current?.sendBinaryInput(data);
         }
     });
 
@@ -1618,13 +1746,9 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
 
         // Feed recording (resize)
         feedResize(size.cols, size.rows);
-        
-        const ws = wsRef.current;
-        if (ws && ws.readyState === WebSocket.OPEN) {
-            // Send resize frame using Wire Protocol v1
-            const frame = encodeResizeFrame(size.cols, size.rows);
-            ws.send(frame);
-        }
+
+      trzszControllerRef.current?.setTerminalColumns(size.cols);
+      transportRef.current?.sendResize(size.cols, size.rows);
     });
 
     // Track focus for split pane support
@@ -1827,6 +1951,15 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
           onDataDisposableRef.current = null;
         }
 
+        if (onBinaryDisposableRef.current) {
+          try {
+            onBinaryDisposableRef.current.dispose();
+          } catch (e) {
+            // Ignore errors during disposal
+          }
+          onBinaryDisposableRef.current = null;
+        }
+
         if (onResizeDisposableRef.current) {
           try {
             onResizeDisposableRef.current.dispose();
@@ -1836,15 +1969,39 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
           onResizeDisposableRef.current = null;
         }
 
+        disposeTrzszController();
+
         // Finally dispose terminal
         term.dispose();
         terminalRef.current = null;
     };
-  }, [sessionId, syncRemotePtySize]); // Only remount on session change — bg image is handled dynamically
+  }, [sessionId, syncRemotePtySize, syncTrzszController, disposeTrzszController]); // Only remount on session change — bg image is handled dynamically
 
   useEffect(() => {
     selectionGestureRef.current?.refresh();
   }, [terminalSettings.selectionRequiresShift]);
+
+  const sendProgrammaticTerminalInput = useCallback((input: string, mode: 'text' | 'execute' = 'text'): boolean => {
+    const controller = trzszControllerRef.current;
+    if (controller) {
+      return mode === 'execute'
+        ? controller.sendExecuteInput(input)
+        : controller.sendTextInput(input);
+    }
+
+    if (controllerRuntimePendingRef.current) {
+      return false;
+    }
+
+    const transport = transportRef.current;
+    if (!transport) {
+      return false;
+    }
+
+    return mode === 'execute'
+      ? transport.sendExecuteInput(input)
+      : transport.sendTextInput(input);
+  }, []);
 
   // Listen for AI insert command events (only when this terminal is active and connected)
   useEffect(() => {
@@ -1858,14 +2015,9 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
     listen<{ command: string }>('ai-insert-command', (event) => {
       if (!mounted || !isMountedRef.current) return;
       if (inputLockedRef.current) return; // Don't insert during standby mode
-      
-      const ws = wsRef.current;
-      if (!ws || ws.readyState !== WebSocket.OPEN) return;
-      
+
       const { command } = event.payload;
-      const payload = encodeTerminalTextInput(command);
-      const frame = encodeDataFrame(payload);
-      ws.send(frame);
+      sendProgrammaticTerminalInput(command);
     }).then((fn) => {
       if (mounted) {
         unlistenFn = fn;
@@ -1878,7 +2030,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
       mounted = false;
       unlistenFn?.();
     };
-  }, [isActive, session?.state]);
+  }, [isActive, sendProgrammaticTerminalInput, session?.state]);
 
   /**
    * Handle container click - focus terminal and update active pane
@@ -2221,28 +2373,18 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
       containerRect,
     };
   }, []);
-  
+
   // Insert text at cursor
   const handleAiInsert = useCallback((text: string) => {
     if (inputLockedRef.current) return; // Respect standby mode
-    const ws = wsRef.current;
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    
-    const payload = encodeTerminalTextInput(text);
-    const frame = encodeDataFrame(payload);
-    ws.send(frame);
-  }, []);
+    sendProgrammaticTerminalInput(text);
+  }, [sendProgrammaticTerminalInput]);
   
   // Execute command (insert + enter)
   const handleAiExecute = useCallback((command: string) => {
     if (inputLockedRef.current) return; // Respect standby mode
-    const ws = wsRef.current;
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    
-    const payload = encodeTerminalExecuteInput(command);
-    const frame = encodeDataFrame(payload);
-    ws.send(frame);
-  }, []);
+    sendProgrammaticTerminalInput(command, 'execute');
+  }, [sendProgrammaticTerminalInput]);
   
   const handleCloseAiPanel = useCallback(() => {
     setAiPanelOpen(false);
@@ -2254,16 +2396,11 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
   const handlePasteConfirm = useCallback(() => {
     if (inputLockedRef.current) return; // Respect standby mode
     if (pendingPaste) {
-      const ws = wsRef.current;
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        const payload = encodeTerminalTextInput(pendingPaste);
-        const frame = encodeDataFrame(payload);
-        ws.send(frame);
-      }
+      sendProgrammaticTerminalInput(pendingPaste);
     }
     setPendingPaste(null);
     terminalRef.current?.focus();
-  }, [pendingPaste]);
+  }, [pendingPaste, sendProgrammaticTerminalInput]);
 
   const handlePasteCancel = useCallback(() => {
     setPendingPaste(null);
@@ -2290,16 +2427,8 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
       return false;
     }
 
-    const ws = wsRef.current;
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
-      return true;
-    }
-
-    const payload = encodeTerminalTextInput(text);
-    const frame = encodeDataFrame(payload);
-    ws.send(frame);
-    return true;
-  }, []);
+    return sendProgrammaticTerminalInput(text);
+  }, [sendProgrammaticTerminalInput]);
 
   const handlePasteShortcut = useCallback(() => {
     armTerminalPasteShortcutSuppression(pasteShortcutSuppressionRef);

@@ -3,6 +3,11 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import {
+  createUnavailableTrzszCapabilities,
+  type TrzszCapabilitiesDto,
+  type TrzszCapabilitiesProbeResult,
+} from './terminal/trzsz/capabilities';
+import {
   SessionInfo,
   ConnectRequest,
   ConnectionInfo,
@@ -83,6 +88,17 @@ function hasTauriRuntime(): boolean {
 
   return typeof candidate.__TAURI_INTERNALS__?.invoke === 'function'
     || typeof candidate.__TAURI_INTERNALS__?.transformCallback === 'function';
+}
+
+function isMissingTauriCommandError(error: unknown, commandName: string): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  const normalized = message.toLowerCase();
+  const command = commandName.toLowerCase();
+  return normalized.includes(command)
+    || normalized.includes('not found')
+    || normalized.includes('unknown')
+    || normalized.includes('does not exist')
+    || normalized.includes('invalid args');
 }
 
 type TestConnectionRequestOptions = {
@@ -1210,6 +1226,30 @@ export const api = {
   isReconnecting: async (sessionId: string): Promise<boolean> => {
     if (USE_MOCK) return false;
     return invoke('is_reconnecting', { sessionId });
+  },
+
+  getTrzszCapabilities: async (): Promise<TrzszCapabilitiesProbeResult> => {
+    if (USE_MOCK) {
+      return createUnavailableTrzszCapabilities('mock');
+    }
+
+    if (!hasTauriRuntime()) {
+      return createUnavailableTrzszCapabilities('no-tauri');
+    }
+
+    try {
+      const capabilities = await invoke<TrzszCapabilitiesDto>('trzsz_get_capabilities');
+      return {
+        status: 'available',
+        capabilities,
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const reason = isMissingTauriCommandError(error, 'trzsz_get_capabilities')
+        ? 'command-missing'
+        : 'invoke-failed';
+      return createUnavailableTrzszCapabilities(reason, errorMessage);
+    }
   },
 
   // --- Scroll Buffer APIs ---

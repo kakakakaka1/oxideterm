@@ -1,6 +1,6 @@
 # trzsz Integration Baseline
 
-Status: Phase 0 completed on 2026-04-15
+Status: Phase 1 completed on 2026-04-21
 
 This directory is the OxideTerm-owned adapter boundary for trzsz integration. Phase 0 deliberately avoids runtime logic changes and only freezes upstream metadata, repository layout, and the future file map.
 
@@ -79,6 +79,18 @@ New files:
 - `src/lib/terminal/trzsz/controller.ts`
 - `src/lib/terminal/trzsz/transport.ts`
 - `src/lib/terminal/trzsz/capabilities.ts`
+
+Phase 1 completed on `2026-04-21`.
+
+Implemented outputs:
+
+1. `TerminalView` now owns a per-runtime `TrzszController` placeholder bound to `sessionId + connectionId + wsUrl`.
+2. Remote terminals now register `onBinary` and dispose it on teardown.
+3. Server output flows through `processServerOutput(...)` before renderer write scheduling.
+4. Interactive input flows through `processTerminalInput(...)` / `processBinaryInput(...)` before WebSocket send.
+5. Resize now updates controller columns and uses the shared transport adapter.
+6. `api.getTrzszCapabilities()` exists as a safe placeholder probe that degrades to `unavailable` when the backend command does not exist yet.
+7. Controller teardown is wired into disconnect, reconnect, and unmount cleanup paths.
 
 ### Phase 2
 

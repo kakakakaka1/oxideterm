@@ -50,6 +50,7 @@ import { PdfViewer } from '../fileManager/PdfViewer';
 import { ImageViewer } from '../fileManager/ImageViewer';
 import { api, nodeSftpInit, nodeSftpListDir, nodeSftpPreview, nodeSftpPreviewHex, nodeSftpDownload, nodeSftpUpload, nodeSftpDownloadDir, nodeSftpUploadDir, nodeSftpTarProbe, nodeSftpTarCompressionProbe, nodeSftpTarUpload, nodeSftpTarDownload, nodeSftpDelete, nodeSftpDeleteRecursive, nodeSftpMkdir, nodeSftpRename, cleanupSftpPreviewTemp } from '../../lib/api';
 import { convertFileSrc } from '@tauri-apps/api/core';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useSettingsStore } from '../../store/settingsStore';
 import { useSessionTreeStore } from '../../store/sessionTreeStore';
 import { FileInfo } from '../../types';
@@ -61,9 +62,12 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { registerSftpContext, unregisterSftpContext } from '../../lib/sftpContextRegistry';
 import { normalizeTransferFailure, resolveTransferCompletionUpdate } from './transferCompletion';
 import {
+  buildExternalUploadCandidates,
   cleanupPreviewResource,
   findTransferForProgressEvent,
+  getSftpPaneTargetFromPhysicalPosition,
   getTransferCompletionRefreshPlan,
+  parseSftpInternalDragDropData,
 } from './sftpViewHelpers';
 
 // 🔴 Key-Driven: 全局路径记忆 Map — keyed by nodeId (stable across reconnects)
@@ -542,7 +546,7 @@ const FileList = ({
               onDragStart={(e) => {
                   e.dataTransfer.setData('application/json', JSON.stringify({
                       files: Array.from(selected.size > 0 ? selected : [file.name]),
-                      source: title.includes('Remote') ? 'remote' : 'local',
+                    source: isRemote ? 'remote' : 'local',
                       basePath: path
                   }));
               }}
@@ -744,6 +748,14 @@ const tarCompressionCache = new Map<string, TarCompressionKind>();
 const tarProbePromises = new Map<string, Promise<boolean>>();
 const tarCompressionProbePromises = new Map<string, Promise<TarCompressionKind>>();
 
+type PendingTransfer = {
+  file: string;
+  direction: 'upload' | 'download';
+  basePath: string;
+  fileInfo: FileInfo | undefined;
+  sourcePath?: string;
+};
+
 export const SFTPView = ({ nodeId }: { nodeId: string }) => {
   const { t } = useTranslation();
   const bgActive = useTabBgActive('sftp');
@@ -805,12 +817,7 @@ export const SFTPView = ({ nodeId }: { nodeId: string }) => {
   const [conflictDialog, setConflictDialog] = useState<{
     conflicts: ConflictInfo[];
     currentIndex: number;
-    pendingTransfers: Array<{
-      file: string;
-      direction: 'upload' | 'download';
-      basePath: string;
-      fileInfo: FileInfo | undefined;
-    }>;
+    pendingTransfers: PendingTransfer[];
     resolvedActions: Map<string, ConflictResolution>;
   } | null>(null);
 
@@ -831,6 +838,9 @@ export const SFTPView = ({ nodeId }: { nodeId: string }) => {
   // Drag and Drop state
   const [localDragOver, setLocalDragOver] = useState(false);
   const [remoteDragOver, setRemoteDragOver] = useState(false);
+  const localPaneRef = useRef<HTMLDivElement>(null);
+  const remotePaneRef = useRef<HTMLDivElement>(null);
+  const externalDropHandlerRef = useRef<(paths: string[]) => Promise<void>>(async () => undefined);
 
   // Filter and Sort state
   const [localFilter, setLocalFilter] = useState('');
@@ -1498,13 +1508,14 @@ export const SFTPView = ({ nodeId }: { nodeId: string }) => {
     direction: 'upload' | 'download',
     basePath: string,
     fileInfo: FileInfo | undefined,
-    targetFileName?: string  // For rename option
+    targetFileName?: string,  // For rename option
+    sourcePath?: string,
   ): Promise<boolean> => {
     const isDirectory = fileInfo?.file_type === 'Directory';
     const actualFileName = targetFileName || file;
     
     const localFilePath = direction === 'upload' 
-      ? `${basePath}/${file}` 
+      ? (sourcePath ?? `${basePath}/${file}`)
       : `${localPath}/${actualFileName}`;
     const remoteFilePath = direction === 'upload'
       ? `${remotePath}/${actualFileName}`
@@ -1584,12 +1595,7 @@ export const SFTPView = ({ nodeId }: { nodeId: string }) => {
 
   // Execute transfers with resolved conflict actions
   const executeResolvedTransfers = async (
-    pendingTransfers: Array<{
-      file: string;
-      direction: 'upload' | 'download';
-      basePath: string;
-      fileInfo: FileInfo | undefined;
-    }>,
+    pendingTransfers: PendingTransfer[],
     resolvedActions: Map<string, ConflictResolution>
   ) => {
     let successCount = 0;
@@ -1627,7 +1633,8 @@ export const SFTPView = ({ nodeId }: { nodeId: string }) => {
         transfer.direction,
         transfer.basePath,
         transfer.fileInfo,
-        targetFileName
+        targetFileName,
+        transfer.sourcePath,
       );
       
       if (success) {
@@ -1658,20 +1665,14 @@ export const SFTPView = ({ nodeId }: { nodeId: string }) => {
     }
   };
 
-  // Transfer handler (upload/download) - supports both files and directories
-  const handleTransfer = async (files: string[], direction: 'upload' | 'download', basePath: string) => {
-    const sourceFiles = direction === 'upload' ? localFiles : remoteFiles;
-    const targetFiles = direction === 'upload' ? remoteFiles : localFiles;
+  const queueTransfers = async (pendingTransfers: PendingTransfer[]) => {
+    const targetFiles = pendingTransfers[0]?.direction === 'upload' ? remoteFiles : localFiles;
     const conflictAction = sftpSettings?.conflictAction || 'ask';
-    
-    // Build pending transfers list
-    const pendingTransfers = files.map(file => ({
-      file,
-      direction,
-      basePath,
-      fileInfo: sourceFiles.find(f => f.name === file),
-    }));
-    
+
+    if (pendingTransfers.length === 0) {
+      return;
+    }
+
     // Check for conflicts (only for files, not directories)
     const conflicts: ConflictInfo[] = [];
     for (const transfer of pendingTransfers) {
@@ -1689,7 +1690,7 @@ export const SFTPView = ({ nodeId }: { nodeId: string }) => {
             size: targetFile.size,
             modified: targetFile.modified,
           },
-          direction,
+          direction: transfer.direction,
         });
       }
     }
@@ -1715,6 +1716,46 @@ export const SFTPView = ({ nodeId }: { nodeId: string }) => {
     // Execute transfers
     await executeResolvedTransfers(pendingTransfers, resolvedActions);
   };
+
+  // Transfer handler (upload/download) - supports both files and directories
+  const handleTransfer = async (files: string[], direction: 'upload' | 'download', basePath: string) => {
+    const sourceFiles = direction === 'upload' ? localFiles : remoteFiles;
+
+    const pendingTransfers: PendingTransfer[] = files.map(file => ({
+      file,
+      direction,
+      basePath,
+      fileInfo: sourceFiles.find(f => f.name === file),
+    }));
+
+    await queueTransfers(pendingTransfers);
+  };
+
+  const handleExternalUploadDrop = useCallback(async (paths: string[]) => {
+    const candidates = await buildExternalUploadCandidates(paths, async (path) => {
+      const info = await stat(path);
+      return {
+        isDirectory: info.isDirectory,
+        isSymlink: info.isSymlink,
+        size: info.size,
+        mtime: info.mtime,
+      };
+    });
+
+    const pendingTransfers: PendingTransfer[] = candidates.map((candidate) => ({
+      file: candidate.file,
+      direction: 'upload',
+      basePath: '',
+      fileInfo: candidate.fileInfo,
+      sourcePath: candidate.sourcePath,
+    }));
+
+    await queueTransfers(pendingTransfers);
+  }, [queueTransfers]);
+
+  useEffect(() => {
+    externalDropHandlerRef.current = handleExternalUploadDrop;
+  }, [handleExternalUploadDrop]);
 
   // Delete handler - uses recursive delete for directories
   const handleDelete = async () => {
@@ -1808,12 +1849,15 @@ export const SFTPView = ({ nodeId }: { nodeId: string }) => {
 
   const handleDrop = async (e: React.DragEvent, target: 'local' | 'remote') => {
       e.preventDefault();
-      try {
-          const data = JSON.parse(e.dataTransfer.getData('application/json'));
-          const { files, source, basePath } = data;
-          
-          if (source === target) return; // Ignore self-drop
+      const data = parseSftpInternalDragDropData(e.dataTransfer.getData('application/json'));
+      if (!data) {
+        return;
+      }
 
+      const { files, source, basePath } = data;
+      if (source === target) return; // Ignore self-drop
+
+      try {
           if (source === 'local' && target === 'remote') {
               await handleTransfer(files, 'upload', basePath);
           } else if (source === 'remote' && target === 'local') {
@@ -1823,6 +1867,63 @@ export const SFTPView = ({ nodeId }: { nodeId: string }) => {
           console.error("Drop failed:", err);
       }
   };
+
+  const resolveDropTargetFromPosition = useCallback((position: { x: number; y: number }) => {
+    return getSftpPaneTargetFromPhysicalPosition(
+      position,
+      {
+        local: localPaneRef.current?.getBoundingClientRect() ?? null,
+        remote: remotePaneRef.current?.getBoundingClientRect() ?? null,
+      },
+      window.devicePixelRatio || 1,
+    );
+  }, []);
+
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+
+    getCurrentWindow().onDragDropEvent(async (event) => {
+      const payload = event.payload;
+
+      if (payload.type === 'leave') {
+        setLocalDragOver(false);
+        setRemoteDragOver(false);
+        return;
+      }
+
+      const target = resolveDropTargetFromPosition(payload.position);
+      setLocalDragOver(target === 'local');
+      setRemoteDragOver(target === 'remote');
+
+      if (payload.type === 'drop') {
+        setLocalDragOver(false);
+        setRemoteDragOver(false);
+
+        if (target !== 'remote' || payload.paths.length === 0) {
+          return;
+        }
+
+        try {
+          await externalDropHandlerRef.current(payload.paths);
+        } catch (err) {
+          console.error('External upload drop failed:', err);
+          toastError(t('sftp.toast.upload_failed'), String(err));
+        }
+      }
+    }).then((dispose) => {
+      if (disposed) {
+        dispose();
+        return;
+      }
+      unlisten = dispose;
+    }).catch(() => undefined);
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [resolveDropTargetFromPosition, t, toastError]);
 
   const handlePreview = async (file: FileInfo) => {
       setPreviewLoading(true);
@@ -1994,11 +2095,12 @@ export const SFTPView = ({ nodeId }: { nodeId: string }) => {
       )}
       <div className="flex-1 flex gap-2 min-h-0">
         {/* Local Pane */}
-        <div className="flex-1 min-w-0" style={{ contain: 'layout style' }}>
+        <div ref={localPaneRef} className="flex-1 min-w-0" style={{ contain: 'layout style' }}>
            <FileList 
              title={t('sftp.file_list.local')} 
              path={localPath} 
              files={displayLocalFiles}
+             isRemote={false}
              onNavigate={handleLocalNavigate}
              onRefresh={refreshLocalFiles}
              active={activePane === 'local'}
@@ -2033,11 +2135,12 @@ export const SFTPView = ({ nodeId }: { nodeId: string }) => {
         </div>
 
         {/* Remote Pane */}
-        <div className="flex-1 min-w-0" style={{ contain: 'layout style' }}>
+          <div ref={remotePaneRef} className="flex-1 min-w-0" style={{ contain: 'layout style' }}>
            <FileList 
              title={t('sftp.file_list.remote', { host: session?.host })}
              path={remotePath}
              files={displayRemoteFiles}
+             isRemote={true}
              onNavigate={handleRemoteNavigate}
              onRefresh={() => nodeSftpListDir(nodeId, remotePath).then(setRemoteFiles)}
              active={activePane === 'remote'}
