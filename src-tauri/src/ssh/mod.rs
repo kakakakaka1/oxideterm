@@ -36,8 +36,8 @@ pub use agent::{SshAgentClient, is_agent_available};
 pub use client::{ClientHandler, SshClient};
 pub use config::{AuthMethod, ProxyHopConfig, SshConfig};
 pub use connection_registry::{
-    ConnectionEntry, ConnectionInfo, ConnectionPoolConfig, ConnectionPoolStats,
-    ConnectionRegistryError, ConnectionState, SshConnectionRegistry,
+    AcquiredSftpMeta, ConnectionEntry, ConnectionInfo, ConnectionPoolConfig, ConnectionPoolStats,
+    ConnectionRegistryError, ConnectionState, ConnectionSummary, SshConnectionRegistry,
 };
 pub use error::SshError;
 pub use handle_owner::{HandleCommand, HandleController, spawn_handle_owner_task};

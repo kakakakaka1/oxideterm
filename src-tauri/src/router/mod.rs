@@ -30,7 +30,7 @@ use tracing::{debug, info};
 use crate::commands::SessionTreeState;
 use crate::session::SessionRegistry;
 use crate::sftp::session::SftpSession;
-use crate::ssh::{ConnectionState, SshConnectionRegistry};
+use crate::ssh::{AcquiredSftpMeta, ConnectionState, SshConnectionRegistry};
 
 /// 节点路由器：将 nodeId 解析为具体的后端资源。
 ///
@@ -84,38 +84,29 @@ impl NodeRouter {
         &self,
         node_id: &str,
     ) -> Result<ResolvedConnection, RouteError> {
-        // Step 1: nodeId → SessionNode
         let tree = self.session_tree.tree.read().await;
-        let node = tree
-            .get_node(node_id)
+        let runtime = tree
+            .get_runtime_snapshot(node_id)
             .ok_or_else(|| RouteError::NodeNotFound(node_id.into()))?;
-
-        let conn_id = node
+        let conn_id = runtime
             .ssh_connection_id
             .as_ref()
             .ok_or_else(|| RouteError::NotConnected(node_id.into()))?
             .clone();
-
-        let terminal_session_id = node.terminal_session_id.clone();
-        let sftp_session_id = node.sftp_session_id.clone();
-
-        // 释放 tree read lock
         drop(tree);
 
-        // Step 2: connectionId → ConnectionEntry
         let entry = self
             .connection_registry
             .get_connection(&conn_id)
             .ok_or_else(|| RouteError::NotConnected(node_id.into()))?;
 
-        // Step 3: 状态门禁
         let state = entry.state().await;
         match state {
             ConnectionState::Active | ConnectionState::Idle => Ok(ResolvedConnection {
                 connection_id: conn_id,
                 handle_controller: entry.handle_controller.clone(),
-                terminal_session_id,
-                sftp_session_id,
+                terminal_session_id: runtime.terminal_session_id,
+                sftp_session_id: runtime.sftp_session_id,
             }),
             ConnectionState::Reconnecting | ConnectionState::Connecting => {
                 // 等待连接就绪（带超时）
@@ -135,8 +126,8 @@ impl NodeRouter {
                 Ok(ResolvedConnection {
                     connection_id: conn_id,
                     handle_controller: entry.handle_controller.clone(),
-                    terminal_session_id,
-                    sftp_session_id,
+                    terminal_session_id: runtime.terminal_session_id,
+                    sftp_session_id: runtime.sftp_session_id,
                 })
             }
             ConnectionState::Error(msg) => Err(RouteError::ConnectionError(msg)),
@@ -160,23 +151,21 @@ impl NodeRouter {
         node_id: &str,
     ) -> Result<Arc<tokio::sync::Mutex<SftpSession>>, RouteError> {
         let resolved = self.resolve_connection(node_id).await?;
-
-        // 查询 SFTP 是否已存在（用于判断是否新建）
         let entry = self
             .connection_registry
             .get_connection(&resolved.connection_id)
             .ok_or_else(|| RouteError::NotConnected(node_id.into()))?;
 
-        let was_new = !entry.has_sftp().await;
-
-        let sftp = entry
-            .acquire_sftp()
+        let AcquiredSftpMeta {
+            session: sftp,
+            was_new,
+            cwd,
+        } = entry
+            .acquire_sftp_with_meta()
             .await
             .map_err(|e| RouteError::CapabilityUnavailable(format!("SFTP init failed: {}", e)))?;
 
-        // Phase 2: 如果是新建的 SFTP，发射 SftpReady 事件
         if was_new {
-            let cwd = entry.sftp_cwd().await;
             self.emitter
                 .emit_sftp_ready(&resolved.connection_id, true, cwd);
         }
@@ -246,12 +235,12 @@ impl NodeRouter {
         }
 
         // 2. 重新获取（会创建新的 SFTP session）
-        let sftp = entry.acquire_sftp().await.map_err(|e| {
+        let AcquiredSftpMeta {
+            session: sftp, cwd, ..
+        } = entry.acquire_sftp_with_meta().await.map_err(|e| {
             RouteError::CapabilityUnavailable(format!("SFTP rebuild failed: {}", e))
         })?;
 
-        // 3. 获取 cwd 并发送 SftpReady(true)
-        let cwd = entry.sftp_cwd().await;
         self.emitter
             .emit_sftp_ready(&resolved.connection_id, true, cwd.clone());
 

@@ -171,6 +171,23 @@ export interface SshConnectionInfo {
   remoteEnv?: RemoteEnvInfo;
 }
 
+export interface SshConnectionSummary {
+  id: string;
+  host: string;
+  port: number;
+  username: string;
+  state: SshConnectionState;
+  refCount: number;
+  keepAlive: boolean;
+  createdAt: string;
+  lastActive: string;
+  terminalCount: number;
+  hasSftpSession: boolean;
+  forwardCount: number;
+  parentConnectionId?: string;
+  remoteEnv?: RemoteEnvInfo;
+}
+
 /**
  * Connection pool configuration
  */

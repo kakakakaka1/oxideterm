@@ -51,6 +51,8 @@ import {
   clearViewportTransparent,
   isTerminalContainerRenderable,
   resolveTerminalDimensions,
+  shouldAutoFocusTerminal,
+  shouldFocusTerminalFromClick,
 } from '../../lib/terminalHelpers';
 import {
   MSG_TYPE_DATA, MSG_TYPE_HEARTBEAT, MSG_TYPE_ERROR,
@@ -463,6 +465,18 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
     }
     return outputTextDecoderRef.current.decode(payload);
   }, []);
+
+  const focusTerminal = useCallback((mode: 'soft' | 'strong' = 'soft') => {
+    const term = terminalRef.current;
+    if (!term || searchOpen || aiPanelOpen || !isTerminalContainerRenderable(containerRef.current)) {
+      return false;
+    }
+    if (mode === 'soft' && !shouldAutoFocusTerminal(containerRef.current)) {
+      return false;
+    }
+    term.focus();
+    return true;
+  }, [searchOpen, aiPanelOpen]);
 
   const unlockRuntimeGateIfReady = useCallback(() => {
     if (controllerRuntimePendingRef.current || connectionStatusRef.current !== 'connected' || !inputLockedRef.current) {
@@ -1012,16 +1026,14 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
     if (isActive && terminalRef.current && !searchOpen && !aiPanelOpen) {
       // Small delay to ensure DOM is ready
       const focusTimeout = setTimeout(() => {
-        if (!searchOpen && !aiPanelOpen) { // Double-check before focusing
-          terminalRef.current?.focus();
-        }
+        focusTerminal('soft');
         if (!isTerminalContainerRenderable(containerRef.current)) return;
         fitAddonRef.current?.fit();
         syncRemotePtySize();
       }, 50);
       return () => clearTimeout(focusTimeout);
     }
-  }, [isActive, searchOpen, aiPanelOpen, syncRemotePtySize]);
+  }, [focusTerminal, isActive, searchOpen, aiPanelOpen, syncRemotePtySize]);
 
   // Suspend heavy renderer while tab is inactive, and restore on activation.
   useEffect(() => {
@@ -1486,7 +1498,9 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
     if (isTerminalContainerRenderable(containerRef.current)) {
       fitAddon.fit();
     }
-    term.focus(); // Focus immediately after opening
+    if (isActiveRef.current) {
+      focusTerminal('soft');
+    }
 
     terminalRef.current = term;
     fitAddonRef.current = fitAddon;
@@ -1681,8 +1695,8 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
                   // Initial resize using the current visible or last stable size.
                   syncRemotePtySize();
                   syncTrzszController();
-                  // Focus terminal after connection
-                  term.focus();
+                  // Focus terminal after connection only when it is appropriate
+                  focusTerminal('soft');
                   resolve();
               };
 
@@ -2170,14 +2184,14 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
   /**
    * Handle container click - focus terminal and update active pane
    */
-  const handleContainerClick = () => {
-    if (!searchOpen && !aiPanelOpen) {
-      terminalRef.current?.focus();
-      
-      // Update active pane in Registry and notify parent
-      setRegistryActivePaneId(effectivePaneId);
-      touchTerminalEntry(effectivePaneId);
-      onFocus?.(effectivePaneId);
+  const handleContainerClick = (event: React.MouseEvent) => {
+    // Update active pane in Registry and notify parent
+    setRegistryActivePaneId(effectivePaneId);
+    touchTerminalEntry(effectivePaneId);
+    onFocus?.(effectivePaneId);
+
+    if (!searchOpen && !aiPanelOpen && shouldFocusTerminalFromClick(event.target)) {
+      focusTerminal('strong');
     }
   };
 
@@ -2264,8 +2278,10 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
     setSearchResults({ resultIndex: -1, resultCount: 0 });
     setDeepSearchState({ loading: false, matches: [], totalMatches: 0, durationMs: 0 });
     currentSearchQueryRef.current = '';
-    terminalRef.current?.focus();
-  }, []);
+    requestAnimationFrame(() => {
+      focusTerminal('strong');
+    });
+  }, [focusTerminal]);
   
   // === Deep History Search ===
   const handleDeepSearch = useCallback(async (query: string, options: { caseSensitive?: boolean; regex?: boolean; wholeWord?: boolean }) => {
@@ -2524,8 +2540,10 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
   const handleCloseAiPanel = useCallback(() => {
     setAiPanelOpen(false);
     setAiCursorPosition(null);
-    terminalRef.current?.focus();
-  }, []);
+    requestAnimationFrame(() => {
+      focusTerminal('strong');
+    });
+  }, [focusTerminal]);
 
   // Paste protection: handle pending paste confirm
   const handlePasteConfirm = useCallback(() => {
@@ -2534,13 +2552,17 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
       sendProgrammaticTerminalInput(pendingPaste);
     }
     setPendingPaste(null);
-    terminalRef.current?.focus();
-  }, [pendingPaste, sendProgrammaticTerminalInput]);
+    requestAnimationFrame(() => {
+      focusTerminal('strong');
+    });
+  }, [focusTerminal, pendingPaste, sendProgrammaticTerminalInput]);
 
   const handlePasteCancel = useCallback(() => {
     setPendingPaste(null);
-    terminalRef.current?.focus();
-  }, []);
+    requestAnimationFrame(() => {
+      focusTerminal('strong');
+    });
+  }, [focusTerminal]);
 
   const processTerminalPaste = useCallback((text: string | null | undefined, allowNativePassthrough: boolean): boolean => {
     const decision = getProtectedPasteDecision(text, !inputLockedRef.current);
@@ -2652,7 +2674,9 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
         }
         // Stop is handled by RecordingControls overlay
       },
-      onFocusTerminal: () => terminalRef.current?.focus(),
+      onFocusTerminal: () => {
+        focusTerminal('strong');
+      },
       searchOpen,
       aiPanelOpen,
     }

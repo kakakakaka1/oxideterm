@@ -34,6 +34,8 @@ import {
   clearViewportTransparent,
   isTerminalContainerRenderable,
   resolveTerminalDimensions,
+  shouldAutoFocusTerminal,
+  shouldFocusTerminalFromClick,
 } from '../../lib/terminalHelpers';
 import { encodeTerminalExecuteInput, encodeTerminalTextInput } from '../../lib/terminalInput';
 import { 
@@ -169,6 +171,18 @@ export const LocalTerminalView: React.FC<LocalTerminalViewProps> = ({
   // Callbacks read .current at call-time, making the effect deps truly stable.
   const adaptiveRendererRef = useRef(adaptiveRenderer);
   adaptiveRendererRef.current = adaptiveRenderer;
+
+  const focusTerminal = useCallback((mode: 'soft' | 'strong' = 'soft') => {
+    const term = terminalRef.current;
+    if (!term || searchOpen || aiPanelOpen || !isTerminalContainerRenderable(containerRef.current)) {
+      return false;
+    }
+    if (mode === 'soft' && !shouldAutoFocusTerminal(containerRef.current)) {
+      return false;
+    }
+    term.focus();
+    return true;
+  }, [searchOpen, aiPanelOpen]);
 
   const { writeTerminal, resizeTerminal, getTerminal, updateTerminalState } = useLocalTerminalStore();
   const terminalInfo = getTerminal(sessionId);
@@ -367,16 +381,14 @@ export const LocalTerminalView: React.FC<LocalTerminalViewProps> = ({
   useEffect(() => {
     if (isActive && terminalRef.current && !searchOpen && !aiPanelOpen) {
       const focusTimeout = setTimeout(() => {
-        if (!searchOpen && !aiPanelOpen) {
-          terminalRef.current?.focus();
-        }
+        focusTerminal('soft');
         if (!isTerminalContainerRenderable(containerRef.current)) return;
         fitAddonRef.current?.fit();
         syncLocalPtySize();
       }, 50);
       return () => clearTimeout(focusTimeout);
     }
-  }, [isActive, searchOpen, aiPanelOpen, syncLocalPtySize]);
+  }, [focusTerminal, isActive, searchOpen, aiPanelOpen, syncLocalPtySize]);
 
   // Suspend heavy renderer while tab is inactive, and restore on activation.
   useEffect(() => {
@@ -1172,8 +1184,10 @@ export const LocalTerminalView: React.FC<LocalTerminalViewProps> = ({
       outputThrottleRef.current = null;
     }
     setSearchResults({ resultIndex: -1, resultCount: 0 });
-    terminalRef.current?.focus();
-  }, []);
+    requestAnimationFrame(() => {
+      focusTerminal('strong');
+    });
+  }, [focusTerminal]);
 
   // Get cursor position for AI inline panel positioning
   const getCursorPosition = useCallback((): CursorPosition | null => {
@@ -1221,8 +1235,10 @@ export const LocalTerminalView: React.FC<LocalTerminalViewProps> = ({
   const handleCloseAiPanel = useCallback(() => {
     setAiPanelOpen(false);
     setAiCursorPosition(null);
-    terminalRef.current?.focus();
-  }, []);
+    requestAnimationFrame(() => {
+      focusTerminal('strong');
+    });
+  }, [focusTerminal]);
 
   // Search handlers
   const handleSearch = useCallback((query: string, options: { caseSensitive?: boolean; regex?: boolean; wholeWord?: boolean }) => {
@@ -1319,13 +1335,17 @@ export const LocalTerminalView: React.FC<LocalTerminalViewProps> = ({
       writeTerminal(sessionId, bytes);
     }
     setPendingPaste(null);
-    terminalRef.current?.focus();
-  }, [pendingPaste, sessionId, isRunning, writeTerminal]);
+    requestAnimationFrame(() => {
+      focusTerminal('strong');
+    });
+  }, [focusTerminal, pendingPaste, sessionId, isRunning, writeTerminal]);
 
   const handlePasteCancel = useCallback(() => {
     setPendingPaste(null);
-    terminalRef.current?.focus();
-  }, []);
+    requestAnimationFrame(() => {
+      focusTerminal('strong');
+    });
+  }, [focusTerminal]);
 
   const processTerminalPaste = useCallback((text: string | null | undefined, allowNativePassthrough: boolean): boolean => {
     const decision = getProtectedPasteDecision(text, isRunningRef.current);
@@ -1437,7 +1457,9 @@ export const LocalTerminalView: React.FC<LocalTerminalViewProps> = ({
           }
         }
       },
-      onFocusTerminal: () => terminalRef.current?.focus(),
+      onFocusTerminal: () => {
+        focusTerminal('strong');
+      },
       searchOpen,
       aiPanelOpen,
     }
@@ -1446,16 +1468,16 @@ export const LocalTerminalView: React.FC<LocalTerminalViewProps> = ({
   /**
    * Handle container click - focus terminal and update active pane
    */
-  const handleContainerClick = useCallback(() => {
-    if (!searchOpen && !aiPanelOpen) {
-      terminalRef.current?.focus();
-      
-      // Update active pane in Registry and notify parent
-      setRegistryActivePaneId(effectivePaneId);
-      touchTerminalEntry(effectivePaneId);
-      onFocus?.(effectivePaneId);
+  const handleContainerClick = useCallback((event: React.MouseEvent) => {
+    // Update active pane in Registry and notify parent
+    setRegistryActivePaneId(effectivePaneId);
+    touchTerminalEntry(effectivePaneId);
+    onFocus?.(effectivePaneId);
+
+    if (!searchOpen && !aiPanelOpen && shouldFocusTerminalFromClick(event.target)) {
+      focusTerminal('strong');
     }
-  }, [searchOpen, aiPanelOpen, effectivePaneId, onFocus]);
+  }, [searchOpen, aiPanelOpen, effectivePaneId, focusTerminal, onFocus]);
 
   // ── Background Image ──────────────────────────────────────────────────────────
   const currentTheme = getTerminalTheme(terminalSettings.theme);

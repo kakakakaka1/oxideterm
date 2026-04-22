@@ -76,6 +76,13 @@ pub struct SessionNode {
     pub created_at: chrono::DateTime<Utc>,
 }
 
+#[derive(Debug, Clone)]
+pub struct NodeRuntimeSnapshot {
+    pub terminal_session_id: Option<String>,
+    pub sftp_session_id: Option<String>,
+    pub ssh_connection_id: Option<String>,
+}
+
 /// 节点连接信息
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NodeConnection {
@@ -282,6 +289,16 @@ impl SessionTree {
     /// 获取节点
     pub fn get_node(&self, id: &str) -> Option<&SessionNode> {
         self.nodes.get(id)
+    }
+
+    /// 获取节点运行时快照，避免调用方反复拆字段。
+    pub fn get_runtime_snapshot(&self, id: &str) -> Option<NodeRuntimeSnapshot> {
+        let node = self.nodes.get(id)?;
+        Some(NodeRuntimeSnapshot {
+            terminal_session_id: node.terminal_session_id.clone(),
+            sftp_session_id: node.sftp_session_id.clone(),
+            ssh_connection_id: node.ssh_connection_id.clone(),
+        })
     }
 
     /// 获取节点（可变）
@@ -839,6 +856,23 @@ mod tests {
         // 未连接时尝试钻入
         let result = tree.drill_down(&root_id, make_connection("server-b"));
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_get_runtime_snapshot_returns_runtime_ids() {
+        let mut tree = SessionTree::new();
+        let node_id = tree.add_root_node(make_connection("server-a"), NodeOrigin::Direct);
+        tree.set_ssh_connection_id(&node_id, "conn-1".to_string())
+            .unwrap();
+        tree.set_terminal_session_id(&node_id, "term-1".to_string())
+            .unwrap();
+        tree.set_sftp_session_id(&node_id, "sftp-1".to_string())
+            .unwrap();
+
+        let snapshot = tree.get_runtime_snapshot(&node_id).unwrap();
+        assert_eq!(snapshot.ssh_connection_id.as_deref(), Some("conn-1"));
+        assert_eq!(snapshot.terminal_session_id.as_deref(), Some("term-1"));
+        assert_eq!(snapshot.sftp_session_id.as_deref(), Some("sftp-1"));
     }
 
     #[test]

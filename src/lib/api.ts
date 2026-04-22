@@ -52,6 +52,7 @@ import {
   IncompleteTransferInfo,
   // Connection pool types
   SshConnectionInfo,
+  SshConnectionSummary,
   CreateTerminalRequest,
   CreateTerminalResponse,
   ConnectionPoolConfig,
@@ -343,6 +344,11 @@ export const api = {
   sshListConnections: async (): Promise<SshConnectionInfo[]> => {
     if (USE_MOCK) return [];
     return invoke('ssh_list_connections');
+  },
+
+  sshListConnectionSummaries: async (): Promise<SshConnectionSummary[]> => {
+    if (USE_MOCK) return [];
+    return invoke('ssh_list_connection_summaries');
   },
 
   /**

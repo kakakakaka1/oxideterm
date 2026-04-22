@@ -190,6 +190,32 @@ pub struct ConnectionInfo {
     pub remote_env: Option<RemoteEnvInfo>,
 }
 
+#[derive(Clone)]
+pub struct AcquiredSftpMeta {
+    pub session: Arc<tokio::sync::Mutex<SftpSession>>,
+    pub was_new: bool,
+    pub cwd: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectionSummary {
+    pub id: String,
+    pub host: String,
+    pub port: u16,
+    pub username: String,
+    pub state: ConnectionState,
+    pub ref_count: u32,
+    pub keep_alive: bool,
+    pub created_at: String,
+    pub last_active: String,
+    pub terminal_count: usize,
+    pub has_sftp_session: bool,
+    pub forward_count: usize,
+    pub parent_connection_id: Option<String>,
+    pub remote_env: Option<RemoteEnvInfo>,
+}
+
 #[derive(Debug, Clone, Copy, Default)]
 struct ConnectionResourceSummary {
     terminal_count: usize,
@@ -478,12 +504,28 @@ impl ConnectionEntry {
     ///
     /// 参考: docs/reference/OXIDE_NEXT_ARCHITECTURE.md §3.3
     pub async fn acquire_sftp(&self) -> Result<Arc<tokio::sync::Mutex<SftpSession>>, SftpError> {
+        Ok(self.acquire_sftp_with_meta().await?.session)
+    }
+
+    pub async fn acquire_sftp_with_meta(&self) -> Result<AcquiredSftpMeta, SftpError> {
         loop {
             let init_notify = {
                 let mut guard =
                     lock_mutex_with_diagnostics(&self.sftp, "entry.acquire_sftp.state").await;
                 match &*guard {
-                    SharedSftpState::Ready(sftp) => return Ok(Arc::clone(sftp)),
+                    SharedSftpState::Ready(sftp) => {
+                        let session = Arc::clone(sftp);
+                        drop(guard);
+                        let cwd = {
+                            let sftp = session.lock().await;
+                            Some(sftp.cwd().to_string())
+                        };
+                        return Ok(AcquiredSftpMeta {
+                            session,
+                            was_new: false,
+                            cwd,
+                        });
+                    }
                     SharedSftpState::Initializing { notify, .. } => Some(notify.clone()),
                     SharedSftpState::Empty => {
                         let generation = self.sftp_generation.load(Ordering::Acquire);
@@ -508,9 +550,22 @@ impl ConnectionEntry {
 
             match created {
                 Ok(new_sftp) => {
+                    let cwd = Some(new_sftp.cwd().to_string());
                     let arc = Arc::new(tokio::sync::Mutex::new(new_sftp));
                     match &*guard {
-                        SharedSftpState::Ready(existing) => return Ok(existing.clone()),
+                        SharedSftpState::Ready(existing) => {
+                            let session = existing.clone();
+                            drop(guard);
+                            let cwd = {
+                                let sftp = session.lock().await;
+                                Some(sftp.cwd().to_string())
+                            };
+                            return Ok(AcquiredSftpMeta {
+                                session,
+                                was_new: false,
+                                cwd,
+                            });
+                        }
                         SharedSftpState::Initializing { notify, generation }
                             if *generation == self.sftp_generation.load(Ordering::Acquire) =>
                         {
@@ -518,7 +573,11 @@ impl ConnectionEntry {
                             *guard = SharedSftpState::Ready(Arc::clone(&arc));
                             notify.notify_waiters();
                             info!("Created SFTP session for connection {}", self.id);
-                            return Ok(arc);
+                            return Ok(AcquiredSftpMeta {
+                                session: arc,
+                                was_new: true,
+                                cwd,
+                            });
                         }
                         SharedSftpState::Initializing { notify, .. } => {
                             notify.clone().notify_waiters();
@@ -704,6 +763,28 @@ impl ConnectionEntry {
             terminal_ids: self.terminal_ids().await,
             sftp_session_id: self.sftp_session_id().await,
             forward_ids: self.forward_ids().await,
+            parent_connection_id: self.parent_connection_id.clone(),
+            remote_env: self.remote_env(),
+        }
+    }
+
+    pub async fn to_summary(&self) -> ConnectionSummary {
+        let resources = self.resource_summary();
+        ConnectionSummary {
+            id: self.id.clone(),
+            host: self.config.host.clone(),
+            port: self.config.port,
+            username: self.config.username.clone(),
+            state: self.state().await,
+            ref_count: self.ref_count(),
+            keep_alive: self.is_keep_alive(),
+            created_at: self.created_at.to_rfc3339(),
+            last_active: chrono::DateTime::from_timestamp(self.last_active(), 0)
+                .unwrap_or_default()
+                .to_rfc3339(),
+            terminal_count: resources.terminal_count,
+            has_sftp_session: resources.has_sftp_session,
+            forward_count: resources.forward_count,
             parent_connection_id: self.parent_connection_id.clone(),
             remote_env: self.remote_env(),
         }
@@ -2205,11 +2286,24 @@ impl SshConnectionRegistry {
         Some(entry.value().to_info().await)
     }
 
+    pub async fn get_summary(&self, connection_id: &str) -> Option<ConnectionSummary> {
+        let entry = self.connections.get(connection_id)?;
+        Some(entry.value().to_summary().await)
+    }
+
     /// 列出所有连接
     pub async fn list_connections(&self) -> Vec<ConnectionInfo> {
         let mut result = Vec::with_capacity(self.connections.len());
         for entry in self.connections.iter() {
             result.push(entry.value().to_info().await);
+        }
+        result
+    }
+
+    pub async fn list_connection_summaries(&self) -> Vec<ConnectionSummary> {
+        let mut result = Vec::with_capacity(self.connections.len());
+        for entry in self.connections.iter() {
+            result.push(entry.value().to_summary().await);
         }
         result
     }
@@ -3446,6 +3540,25 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_to_summary_reflects_resource_counts() {
+        let entry = create_test_entry("summary-test");
+        entry.add_terminal("term-1".to_string()).await;
+        entry.add_terminal("term-2".to_string()).await;
+        entry.set_sftp_session(Some("sftp-1".to_string())).await;
+        entry.add_forward("fwd-1".to_string()).await;
+        entry.set_keep_alive(true);
+        entry.set_state(ConnectionState::Idle).await;
+
+        let summary = entry.to_summary().await;
+        assert_eq!(summary.id, "summary-test");
+        assert_eq!(summary.state, ConnectionState::Idle);
+        assert_eq!(summary.terminal_count, 2);
+        assert!(summary.has_sftp_session);
+        assert_eq!(summary.forward_count, 1);
+        assert!(summary.keep_alive);
+    }
+
+    #[tokio::test]
     async fn test_resource_summary_tracks_runtime_counts() {
         let entry = create_test_entry("resource-summary-test");
 
@@ -3529,6 +3642,25 @@ mod tests {
         assert_eq!(stats.total_ref_count, 3);
         assert_eq!(stats.pool_capacity, 9);
         assert_eq!(stats.idle_timeout_secs, 120);
+    }
+
+    #[tokio::test]
+    async fn test_list_connection_summaries_uses_summary_shape() {
+        let registry = SshConnectionRegistry::new();
+
+        let active = Arc::new(create_test_entry("active-summary"));
+        active.add_terminal("term-1".to_string()).await;
+        active.set_sftp_session(Some("sftp-1".to_string())).await;
+        active.add_forward("fwd-1".to_string()).await;
+        registry.connections.insert("active-summary".into(), active);
+
+        let summaries = registry.list_connection_summaries().await;
+        assert_eq!(summaries.len(), 1);
+        let summary = &summaries[0];
+        assert_eq!(summary.id, "active-summary");
+        assert_eq!(summary.terminal_count, 1);
+        assert!(summary.has_sftp_session);
+        assert_eq!(summary.forward_count, 1);
     }
 
     #[tokio::test]

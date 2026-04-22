@@ -13,10 +13,14 @@
 //! - `create_terminal` - 为已有连接创建终端
 //! - `close_terminal` - 关闭终端（不断开连接）
 
+use russh::Channel;
+use russh::ChannelMsg;
+use russh::client::Msg;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::{AppHandle, State};
+use tokio::sync::{broadcast, mpsc};
 use tracing::{debug, info, warn};
 
 use super::{ForwardingRegistry, HealthRegistry, ProfilerRegistry};
@@ -28,8 +32,8 @@ use crate::session::{
 };
 use crate::sftp::session::SftpRegistry;
 use crate::ssh::{
-    ConnectionInfo, ConnectionPoolConfig, HostKeyStatus, SshConnectionRegistry, accept_host_key,
-    check_host_key, get_host_key_cache, get_known_hosts,
+    ConnectionInfo, ConnectionPoolConfig, ConnectionSummary, HostKeyStatus, SshConnectionRegistry,
+    accept_host_key, check_host_key, get_host_key_cache, get_known_hosts,
 };
 use crate::state::BufferConfig;
 
@@ -61,6 +65,203 @@ fn next_output_flush_delay(interactive_until: tokio::time::Instant) -> Duration 
     } else {
         Duration::from_millis(OUTPUT_BATCH_FLUSH_MS)
     }
+}
+
+struct DeferredPtyConfig {
+    agent_forwarding: bool,
+    fallback_cols: u16,
+    fallback_rows: u16,
+    timeout: Duration,
+}
+
+struct TerminalPumpConfig {
+    deferred_pty: Option<DeferredPtyConfig>,
+    resize_debounce: Option<Duration>,
+}
+
+async fn run_terminal_channel_pump(
+    mut channel: Channel<Msg>,
+    mut cmd_rx: mpsc::Receiver<crate::ssh::SessionCommand>,
+    scroll_buffer: Arc<ScrollBuffer>,
+    output_tx: broadcast::Sender<Vec<u8>>,
+    session_id: String,
+    pump_config: TerminalPumpConfig,
+) {
+    tracing::debug!("Channel handler started for session {}", session_id);
+
+    if let Some(deferred) = pump_config.deferred_pty {
+        let (pty_cols, pty_rows) = tokio::select! {
+            cmd = cmd_rx.recv() => {
+                match cmd {
+                    Some(crate::ssh::SessionCommand::Resize(cols, rows)) => {
+                        (cols.clamp(1, 500), rows.clamp(1, 200))
+                    }
+                    Some(crate::ssh::SessionCommand::Close) => {
+                        info!("Close command before PTY allocated for session {}", session_id);
+                        let _ = channel.eof().await;
+                        return;
+                    }
+                    Some(crate::ssh::SessionCommand::Data(_)) => {
+                        warn!("Data before resize for deferred PTY {}, using fallback", session_id);
+                        (deferred.fallback_cols, deferred.fallback_rows)
+                    }
+                    None => {
+                        info!("Command channel closed before PTY allocated for session {}", session_id);
+                        let _ = channel.eof().await;
+                        return;
+                    }
+                }
+            }
+            _ = tokio::time::sleep(deferred.timeout) => {
+                warn!(
+                    "Deferred PTY timeout for session {}, using fallback {}x{}",
+                    session_id, deferred.fallback_cols, deferred.fallback_rows
+                );
+                (deferred.fallback_cols, deferred.fallback_rows)
+            }
+        };
+
+        if let Err(e) = channel
+            .request_pty(
+                false,
+                "xterm-256color",
+                pty_cols as u32,
+                pty_rows as u32,
+                0,
+                0,
+                crate::ssh::DEFAULT_PTY_MODES,
+            )
+            .await
+        {
+            tracing::error!(
+                "Failed to request deferred PTY for session {}: {}",
+                session_id,
+                e
+            );
+            let _ = channel.eof().await;
+            return;
+        }
+        if deferred.agent_forwarding {
+            debug!(
+                "Requesting SSH agent forwarding on deferred PTY channel for session {}",
+                session_id
+            );
+            if let Err(e) = channel.agent_forward(true).await {
+                warn!("Agent forwarding request failed (non-fatal): {}", e);
+            }
+        }
+        if let Err(e) = channel.request_shell(false).await {
+            tracing::error!("Failed to request shell for session {}: {}", session_id, e);
+            let _ = channel.eof().await;
+            return;
+        }
+        info!(
+            "Deferred PTY allocated at {}x{} for session {}",
+            pty_cols, pty_rows, session_id
+        );
+    }
+
+    let mut pending_resize: Option<(u16, u16)> = None;
+    let mut resize_deadline = std::pin::pin!(tokio::time::sleep(tokio::time::Duration::MAX));
+    let mut pending_output = Vec::new();
+    let mut output_flush_deadline = std::pin::pin!(tokio::time::sleep(tokio::time::Duration::MAX));
+    let mut interactive_until = tokio::time::Instant::now();
+
+    loop {
+        tokio::select! {
+            Some(cmd) = cmd_rx.recv() => {
+                match cmd {
+                    crate::ssh::SessionCommand::Data(data) => {
+                        interactive_until = tokio::time::Instant::now()
+                            + tokio::time::Duration::from_millis(OUTPUT_INTERACTIVE_WINDOW_MS);
+                        if let Err(e) = channel.data(&data[..]).await {
+                            tracing::error!("Failed to send data to SSH channel: {}", e);
+                            break;
+                        }
+                    }
+                    crate::ssh::SessionCommand::Resize(cols, rows) => {
+                        interactive_until = tokio::time::Instant::now()
+                            + tokio::time::Duration::from_millis(OUTPUT_INTERACTIVE_WINDOW_MS);
+                        let cols = cols.clamp(1, 500);
+                        let rows = rows.clamp(1, 200);
+                        if let Some(delay) = pump_config.resize_debounce {
+                            pending_resize = Some((cols, rows));
+                            resize_deadline.as_mut().reset(tokio::time::Instant::now() + delay);
+                        } else if let Err(e) = channel.window_change(cols as u32, rows as u32, 0, 0).await {
+                            tracing::error!("Failed to resize PTY: {}", e);
+                        }
+                    }
+                    crate::ssh::SessionCommand::Close => {
+                        info!("Close command received for session {}", session_id);
+                        let _ = channel.eof().await;
+                        break;
+                    }
+                }
+            }
+
+            () = &mut resize_deadline, if pending_resize.is_some() => {
+                if let Some((cols, rows)) = pending_resize.take() {
+                    tracing::debug!("Sending debounced window_change: {}x{}", cols, rows);
+                    if let Err(e) = channel.window_change(cols as u32, rows as u32, 0, 0).await {
+                        tracing::error!("Failed to resize PTY: {}", e);
+                    }
+                }
+                resize_deadline.as_mut().reset(
+                    tokio::time::Instant::now() + tokio::time::Duration::from_secs(86400)
+                );
+            }
+
+            () = &mut output_flush_deadline, if !pending_output.is_empty() => {
+                flush_pending_terminal_output(&mut pending_output, &scroll_buffer, &output_tx).await;
+                output_flush_deadline
+                    .as_mut()
+                    .reset(tokio::time::Instant::now() + tokio::time::Duration::from_secs(86400));
+            }
+
+            Some(msg) = channel.wait() => {
+                match msg {
+                    ChannelMsg::Data { data } => {
+                        pending_output.extend_from_slice(&data);
+                        if pending_output.len() >= OUTPUT_BATCH_MAX_BYTES {
+                            flush_pending_terminal_output(&mut pending_output, &scroll_buffer, &output_tx).await;
+                            output_flush_deadline
+                                .as_mut()
+                                .reset(tokio::time::Instant::now() + tokio::time::Duration::from_secs(86400));
+                        } else {
+                            output_flush_deadline.as_mut().reset(
+                                tokio::time::Instant::now() + next_output_flush_delay(interactive_until)
+                            );
+                        }
+                    }
+                    ChannelMsg::ExtendedData { data, ext } => {
+                        if ext == 1 {
+                            pending_output.extend_from_slice(&data);
+                            if pending_output.len() >= OUTPUT_BATCH_MAX_BYTES {
+                                flush_pending_terminal_output(&mut pending_output, &scroll_buffer, &output_tx).await;
+                                output_flush_deadline
+                                    .as_mut()
+                                    .reset(tokio::time::Instant::now() + tokio::time::Duration::from_secs(86400));
+                            } else {
+                                output_flush_deadline.as_mut().reset(
+                                    tokio::time::Instant::now() + next_output_flush_delay(interactive_until)
+                                );
+                            }
+                        }
+                    }
+                    ChannelMsg::Eof | ChannelMsg::Close => {
+                        info!("SSH channel closed for session {}", session_id);
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+
+            else => break,
+        }
+    }
+
+    flush_pending_terminal_output(&mut pending_output, &scroll_buffer, &output_tx).await;
+    tracing::debug!("Channel handler terminated for session {}", session_id);
 }
 
 /// 断开 SSH 连接
@@ -129,6 +330,13 @@ pub async fn ssh_list_connections(
     connection_registry: State<'_, Arc<SshConnectionRegistry>>,
 ) -> Result<Vec<ConnectionInfo>, String> {
     Ok(connection_registry.list_connections().await)
+}
+
+#[tauri::command]
+pub async fn ssh_list_connection_summaries(
+    connection_registry: State<'_, Arc<SshConnectionRegistry>>,
+) -> Result<Vec<ConnectionSummary>, String> {
+    Ok(connection_registry.list_connection_summaries().await)
 }
 
 /// 设置连接保持
@@ -302,7 +510,7 @@ pub async fn create_terminal(
     }
 
     // 通过已有的 HandleController 打开新的 shell channel
-    let mut channel = match handle_controller.open_session_channel().await {
+    let channel = match handle_controller.open_session_channel().await {
         Ok(ch) => ch,
         Err(e) => {
             session_registry.remove(&session_id);
@@ -420,10 +628,8 @@ pub async fn create_terminal(
 
     // 创建 ExtendedSessionHandle（用于 WsBridge）
     use crate::ssh::{ExtendedSessionHandle, SessionCommand};
-    use russh::ChannelMsg;
-    use tokio::sync::mpsc;
 
-    let (cmd_tx, mut cmd_rx) = mpsc::channel::<SessionCommand>(1024);
+    let (cmd_tx, cmd_rx) = mpsc::channel::<SessionCommand>(1024);
 
     let scroll_buffer = session_registry
         .with_session(&session_id, |entry| entry.scroll_buffer.clone())
@@ -434,187 +640,22 @@ pub async fn create_terminal(
         .ok_or_else(|| "Session output channel not found".to_string())?;
 
     let output_rx = output_tx.subscribe();
-    let scroll_buffer_clone = scroll_buffer.clone();
-
-    // 启动 channel 处理任务
-    let sid = session_id.clone();
-    tokio::spawn(async move {
-        tracing::debug!("Channel handler started for session {}", sid);
-
-        // Deferred PTY: wait for first resize command before allocating PTY + shell.
-        // This ensures the shell starts with the correct terminal dimensions,
-        // preventing async prompt themes (spaceship-zsh) from caching wrong cursor positions.
-        if deferred_pty {
-            let fallback_cols: u16 = 120;
-            let fallback_rows: u16 = 40;
-            let pty_timeout = tokio::time::Duration::from_secs(15);
-
-            let (pty_cols, pty_rows) = tokio::select! {
-                cmd = cmd_rx.recv() => {
-                    match cmd {
-                        Some(SessionCommand::Resize(cols, rows)) => {
-                            // Clamp to sane limits to prevent resource abuse
-                            (cols.clamp(1, 500), rows.clamp(1, 200))
-                        }
-                        Some(SessionCommand::Close) => {
-                            info!("Close command before PTY allocated for session {}", sid);
-                            let _ = channel.eof().await;
-                            return;
-                        }
-                        // Data arrived before resize (unlikely) — use fallback
-                        Some(SessionCommand::Data(_)) => {
-                            warn!("Data before resize for deferred PTY {}, using fallback", sid);
-                            (fallback_cols, fallback_rows)
-                        }
-                        None => {
-                            info!("Command channel closed before PTY allocated for session {}", sid);
-                            let _ = channel.eof().await;
-                            return;
-                        }
-                    }
-                }
-                _ = tokio::time::sleep(pty_timeout) => {
-                    warn!(
-                        "Deferred PTY timeout for session {}, using fallback {}x{}",
-                        sid, fallback_cols, fallback_rows
-                    );
-                    (fallback_cols, fallback_rows)
-                }
-            };
-
-            if let Err(e) = channel
-                .request_pty(
-                    false,
-                    "xterm-256color",
-                    pty_cols as u32,
-                    pty_rows as u32,
-                    0,
-                    0,
-                    crate::ssh::DEFAULT_PTY_MODES,
-                )
-                .await
-            {
-                tracing::error!("Failed to request deferred PTY for session {}: {}", sid, e);
-                let _ = channel.eof().await;
-                return;
-            }
-            // Request agent forwarding if enabled (must be after PTY, before shell)
-            if agent_forwarding {
-                debug!("Requesting SSH agent forwarding on deferred PTY channel");
-                if let Err(e) = channel.agent_forward(true).await {
-                    warn!("Agent forwarding request failed (non-fatal): {}", e);
-                }
-            }
-            if let Err(e) = channel.request_shell(false).await {
-                tracing::error!("Failed to request shell for session {}: {}", sid, e);
-                let _ = channel.eof().await;
-                return;
-            }
-            info!(
-                "Deferred PTY allocated at {}x{} for session {}",
-                pty_cols, pty_rows, sid
-            );
-        }
-
-        let mut pending_resize: Option<(u16, u16)> = None;
-        let mut resize_deadline = std::pin::pin!(tokio::time::sleep(tokio::time::Duration::MAX));
-        let mut pending_output = Vec::new();
-        let mut output_flush_deadline =
-            std::pin::pin!(tokio::time::sleep(tokio::time::Duration::MAX));
-        let mut interactive_until = tokio::time::Instant::now();
-
-        loop {
-            tokio::select! {
-                Some(cmd) = cmd_rx.recv() => {
-                    match cmd {
-                        SessionCommand::Data(data) => {
-                            interactive_until = tokio::time::Instant::now()
-                                + tokio::time::Duration::from_millis(OUTPUT_INTERACTIVE_WINDOW_MS);
-                            if let Err(e) = channel.data(&data[..]).await {
-                                tracing::error!("Failed to send data to SSH channel: {}", e);
-                                break;
-                            }
-                        }
-                        SessionCommand::Resize(cols, rows) => {
-                            interactive_until = tokio::time::Instant::now()
-                                + tokio::time::Duration::from_millis(OUTPUT_INTERACTIVE_WINDOW_MS);
-                            let cols = cols.clamp(1, 500);
-                            let rows = rows.clamp(1, 200);
-                            pending_resize = Some((cols, rows));
-                            resize_deadline.as_mut().reset(tokio::time::Instant::now() + tokio::time::Duration::from_millis(100));
-                        }
-                        SessionCommand::Close => {
-                            info!("Close command received for session {}", sid);
-                            let _ = channel.eof().await;
-                            break;
-                        }
-                    }
-                }
-
-                () = &mut resize_deadline, if pending_resize.is_some() => {
-                    if let Some((cols, rows)) = pending_resize.take() {
-                        tracing::debug!("Sending debounced window_change: {}x{}", cols, rows);
-                        if let Err(e) = channel.window_change(cols as u32, rows as u32, 0, 0).await {
-                            tracing::error!("Failed to resize PTY: {}", e);
-                        }
-                    }
-                    // Reset to far future so this branch doesn't fire again
-                    resize_deadline.as_mut().reset(tokio::time::Instant::now() + tokio::time::Duration::from_secs(86400));
-                }
-
-                () = &mut output_flush_deadline, if !pending_output.is_empty() => {
-                    flush_pending_terminal_output(&mut pending_output, &scroll_buffer_clone, &output_tx).await;
-                    output_flush_deadline
-                        .as_mut()
-                        .reset(tokio::time::Instant::now() + tokio::time::Duration::from_secs(86400));
-                }
-
-                Some(msg) = channel.wait() => {
-                    match msg {
-                        ChannelMsg::Data { data } => {
-                            pending_output.extend_from_slice(&data);
-                            if pending_output.len() >= OUTPUT_BATCH_MAX_BYTES {
-                                flush_pending_terminal_output(&mut pending_output, &scroll_buffer_clone, &output_tx).await;
-                                output_flush_deadline
-                                    .as_mut()
-                                    .reset(tokio::time::Instant::now() + tokio::time::Duration::from_secs(86400));
-                            } else {
-                                output_flush_deadline.as_mut().reset(
-                                    tokio::time::Instant::now() + next_output_flush_delay(interactive_until)
-                                );
-                            }
-                        }
-                        ChannelMsg::ExtendedData { data, ext } => {
-                            if ext == 1 {
-                                pending_output.extend_from_slice(&data);
-                                if pending_output.len() >= OUTPUT_BATCH_MAX_BYTES {
-                                    flush_pending_terminal_output(&mut pending_output, &scroll_buffer_clone, &output_tx).await;
-                                    output_flush_deadline
-                                        .as_mut()
-                                        .reset(tokio::time::Instant::now() + tokio::time::Duration::from_secs(86400));
-                                } else {
-                                    output_flush_deadline.as_mut().reset(
-                                        tokio::time::Instant::now() + next_output_flush_delay(interactive_until)
-                                    );
-                                }
-                            }
-                        }
-                        ChannelMsg::Eof | ChannelMsg::Close => {
-                            info!("SSH channel closed for session {}", sid);
-                            break;
-                        }
-                        _ => {}
-                    }
-                }
-
-                else => break,
-            }
-        }
-
-        flush_pending_terminal_output(&mut pending_output, &scroll_buffer_clone, &output_tx).await;
-
-        tracing::debug!("Channel handler terminated for session {}", sid);
-    });
+    tokio::spawn(run_terminal_channel_pump(
+        channel,
+        cmd_rx,
+        scroll_buffer.clone(),
+        output_tx.clone(),
+        session_id.clone(),
+        TerminalPumpConfig {
+            deferred_pty: deferred_pty.then_some(DeferredPtyConfig {
+                agent_forwarding,
+                fallback_cols: 120,
+                fallback_rows: 40,
+                timeout: tokio::time::Duration::from_secs(15),
+            }),
+            resize_debounce: Some(tokio::time::Duration::from_millis(100)),
+        },
+    ));
 
     let extended_handle = ExtendedSessionHandle {
         id: session_id.clone(),
@@ -973,7 +1014,7 @@ pub async fn recreate_terminal_pty(
         .ok_or_else(|| "Session config not found".to_string())?;
 
     // 打开新的 shell channel
-    let mut channel = handle_controller
+    let channel = handle_controller
         .open_session_channel()
         .await
         .map_err(|e| format!("Failed to open channel: {}", e))?;
@@ -1000,10 +1041,8 @@ pub async fn recreate_terminal_pty(
 
     // 创建新的 channel handler
     use crate::ssh::{ExtendedSessionHandle, SessionCommand};
-    use russh::ChannelMsg;
-    use tokio::sync::mpsc;
 
-    let (cmd_tx, mut cmd_rx) = mpsc::channel::<SessionCommand>(1024);
+    let (cmd_tx, cmd_rx) = mpsc::channel::<SessionCommand>(1024);
 
     let scroll_buffer = session_registry
         .with_session(&session_id, |entry| entry.scroll_buffer.clone())
@@ -1014,94 +1053,17 @@ pub async fn recreate_terminal_pty(
         .ok_or_else(|| "Session output channel not found".to_string())?;
 
     let output_rx = output_tx.subscribe();
-    let scroll_buffer_clone = scroll_buffer.clone();
-
-    let sid = session_id.clone();
-    tokio::spawn(async move {
-        tracing::debug!("Recreated channel handler started for session {}", sid);
-        let mut pending_output = Vec::new();
-        let mut output_flush_deadline =
-            std::pin::pin!(tokio::time::sleep(tokio::time::Duration::MAX));
-        let mut interactive_until = tokio::time::Instant::now();
-
-        loop {
-            tokio::select! {
-                Some(cmd) = cmd_rx.recv() => {
-                    match cmd {
-                        SessionCommand::Data(data) => {
-                            interactive_until = tokio::time::Instant::now()
-                                + tokio::time::Duration::from_millis(OUTPUT_INTERACTIVE_WINDOW_MS);
-                            if let Err(e) = channel.data(&data[..]).await {
-                                tracing::error!("Failed to send data to SSH channel: {}", e);
-                                break;
-                            }
-                        }
-                        SessionCommand::Resize(cols, rows) => {
-                            interactive_until = tokio::time::Instant::now()
-                                + tokio::time::Duration::from_millis(OUTPUT_INTERACTIVE_WINDOW_MS);
-                            if let Err(e) = channel.window_change(cols as u32, rows as u32, 0, 0).await {
-                                tracing::error!("Failed to resize PTY: {}", e);
-                            }
-                        }
-                        SessionCommand::Close => {
-                            let _ = channel.eof().await;
-                            break;
-                        }
-                    }
-                }
-
-                () = &mut output_flush_deadline, if !pending_output.is_empty() => {
-                    flush_pending_terminal_output(&mut pending_output, &scroll_buffer_clone, &output_tx).await;
-                    output_flush_deadline
-                        .as_mut()
-                        .reset(tokio::time::Instant::now() + tokio::time::Duration::from_secs(86400));
-                }
-
-                Some(msg) = channel.wait() => {
-                    match msg {
-                        ChannelMsg::Data { data } => {
-                            pending_output.extend_from_slice(&data);
-                            if pending_output.len() >= OUTPUT_BATCH_MAX_BYTES {
-                                flush_pending_terminal_output(&mut pending_output, &scroll_buffer_clone, &output_tx).await;
-                                output_flush_deadline
-                                    .as_mut()
-                                    .reset(tokio::time::Instant::now() + tokio::time::Duration::from_secs(86400));
-                            } else {
-                                output_flush_deadline.as_mut().reset(
-                                    tokio::time::Instant::now() + next_output_flush_delay(interactive_until)
-                                );
-                            }
-                        }
-                        ChannelMsg::ExtendedData { data, ext } => {
-                            if ext == 1 {
-                                pending_output.extend_from_slice(&data);
-                                if pending_output.len() >= OUTPUT_BATCH_MAX_BYTES {
-                                    flush_pending_terminal_output(&mut pending_output, &scroll_buffer_clone, &output_tx).await;
-                                    output_flush_deadline
-                                        .as_mut()
-                                        .reset(tokio::time::Instant::now() + tokio::time::Duration::from_secs(86400));
-                                } else {
-                                    output_flush_deadline.as_mut().reset(
-                                        tokio::time::Instant::now() + next_output_flush_delay(interactive_until)
-                                    );
-                                }
-                            }
-                        }
-                        ChannelMsg::Eof | ChannelMsg::Close => {
-                            break;
-                        }
-                        _ => {}
-                    }
-                }
-
-                else => break,
-            }
-        }
-
-        flush_pending_terminal_output(&mut pending_output, &scroll_buffer_clone, &output_tx).await;
-
-        tracing::debug!("Recreated channel handler terminated for session {}", sid);
-    });
+    tokio::spawn(run_terminal_channel_pump(
+        channel,
+        cmd_rx,
+        scroll_buffer.clone(),
+        output_tx.clone(),
+        session_id.clone(),
+        TerminalPumpConfig {
+            deferred_pty: None,
+            resize_debounce: None,
+        },
+    ));
 
     let extended_handle = ExtendedSessionHandle {
         id: session_id.clone(),
@@ -1362,4 +1324,27 @@ pub async fn get_remote_env(
 
     let env = entry.remote_env();
     Ok(env)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn next_output_flush_delay_prefers_interactive_window() {
+        let interactive_until = tokio::time::Instant::now() + Duration::from_millis(50);
+        assert_eq!(
+            next_output_flush_delay(interactive_until),
+            Duration::from_millis(OUTPUT_BATCH_INTERACTIVE_FLUSH_MS)
+        );
+    }
+
+    #[test]
+    fn next_output_flush_delay_falls_back_after_interactive_window() {
+        let interactive_until = tokio::time::Instant::now() - Duration::from_millis(1);
+        assert_eq!(
+            next_output_flush_delay(interactive_until),
+            Duration::from_millis(OUTPUT_BATCH_FLUSH_MS)
+        );
+    }
 }

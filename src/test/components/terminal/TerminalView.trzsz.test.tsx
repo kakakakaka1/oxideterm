@@ -414,6 +414,8 @@ vi.mock('@/lib/terminalHelpers', () => ({
   clearViewportTransparent: vi.fn(),
   isTerminalContainerRenderable: vi.fn(() => true),
   resolveTerminalDimensions: vi.fn(() => ({ cols: 80, rows: 24 })),
+  shouldAutoFocusTerminal: vi.fn(() => true),
+  shouldFocusTerminalFromClick: vi.fn(() => true),
 }));
 
 vi.mock('@/lib/clipboardSupport', () => ({

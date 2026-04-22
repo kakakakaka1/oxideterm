@@ -16,9 +16,10 @@ import {
 import { useAppStore } from '../../store/appStore';
 import { Button } from '../ui/button';
 import { cn } from '../../lib/utils';
-import { SshConnectionInfo, SshConnectionState } from '../../types';
+import { SshConnectionState, SshConnectionSummary } from '../../types';
 import { useTabBgActive } from '../../hooks/useTabBackground';
 import { useSettingsStore } from '../../store/settingsStore';
+import { api } from '../../lib/api';
 
 // Format connection state
 const useFormatState = () => {
@@ -65,7 +66,7 @@ const useFormatTime = () => {
 
 // Single Connection Card
 const ConnectionCard: React.FC<{
-  connection: SshConnectionInfo;
+  connection: SshConnectionSummary;
   onToggleKeepAlive: (connectionId: string, keepAlive: boolean) => void;
   idleTimeoutSecs: number;
 }> = ({ connection, onToggleKeepAlive, idleTimeoutSecs }) => {
@@ -126,15 +127,15 @@ const ConnectionCard: React.FC<{
       <div className="grid grid-cols-3 gap-2 text-xs text-theme-text-muted">
         <div className="flex items-center gap-1">
           <Terminal className="h-3 w-3" />
-          <span>{t('connections.panel.terminals', { count: connection.terminalIds.length })}</span>
+          <span>{t('connections.panel.terminals', { count: connection.terminalCount })}</span>
         </div>
         <div className="flex items-center gap-1">
           <FolderOpen className="h-3 w-3" />
-          <span>{t('connections.panel.sftp', { count: connection.sftpSessionId ? 1 : 0 })}</span>
+          <span>{t('connections.panel.sftp', { count: connection.hasSftpSession ? 1 : 0 })}</span>
         </div>
         <div className="flex items-center gap-1">
           <GitFork className="h-3 w-3" />
-          <span>{t('connections.panel.forwards', { count: connection.forwardIds.length })}</span>
+          <span>{t('connections.panel.forwards', { count: connection.forwardCount })}</span>
         </div>
       </div>
       
@@ -162,24 +163,25 @@ const ConnectionCard: React.FC<{
 export const ConnectionsPanel: React.FC = () => {
   const { t } = useTranslation();
   const bgActive = useTabBgActive('connection_pool');
-  const { 
-    connections, 
-    refreshConnections, 
-    setConnectionKeepAlive
-  } = useAppStore();
+  const { setConnectionKeepAlive } = useAppStore();
   const idleTimeoutSecs = useSettingsStore((state) => state.settings.connectionPool?.idleTimeoutSecs ?? 1800);
   
   const [loading, setLoading] = React.useState(false);
+  const [connections, setConnections] = React.useState<SshConnectionSummary[]>([]);
   
   // Load connection list
   useEffect(() => {
-    refreshConnections();
-  }, [refreshConnections]);
+    void api.sshListConnectionSummaries()
+      .then(setConnections)
+      .catch((error) => {
+        console.error('Refresh connections failed:', error);
+      });
+  }, []);
 
   const handleRefresh = async () => {
     setLoading(true);
     try {
-      await refreshConnections();
+      setConnections(await api.sshListConnectionSummaries());
     } finally {
       setLoading(false);
     }
@@ -188,12 +190,15 @@ export const ConnectionsPanel: React.FC = () => {
   const handleToggleKeepAlive = async (connectionId: string, keepAlive: boolean) => {
     try {
       await setConnectionKeepAlive(connectionId, keepAlive);
+      setConnections((prev) => prev.map((connection) => (
+        connection.id === connectionId ? { ...connection, keepAlive } : connection
+      )));
     } catch (error) {
       console.error('Failed to set keep alive:', error);
     }
   };
   
-  const connectionList = Array.from(connections.values())
+  const connectionList = connections
     .filter(conn => conn.state !== 'disconnected');
   
   return (

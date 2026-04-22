@@ -163,6 +163,47 @@ export function clearViewportTransparent(container: HTMLElement | null): void {
   if (xtermEl) xtermEl.style.backgroundColor = '';
 }
 
+function isElementEditable(element: Element): boolean {
+  if (element instanceof HTMLInputElement) {
+    return !element.disabled && element.type !== 'button' && element.type !== 'checkbox' && element.type !== 'radio';
+  }
+  if (element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement) {
+    return !element.hasAttribute('disabled');
+  }
+  if (element instanceof HTMLElement) {
+    return element.isContentEditable || element.getAttribute('role') === 'textbox';
+  }
+  return false;
+}
+
+export function shouldAutoFocusTerminal(
+  container: HTMLElement | null,
+  activeElement: Element | null = typeof document !== 'undefined' ? document.activeElement : null,
+): boolean {
+  if (!isTerminalContainerRenderable(container)) return false;
+  if (!activeElement || activeElement === document.body) return true;
+  if (container?.contains(activeElement)) return true;
+  return !isElementEditable(activeElement);
+}
+
+export function shouldFocusTerminalFromClick(
+  target: EventTarget | null,
+  selection: Selection | null = typeof window !== 'undefined' ? window.getSelection() : null,
+): boolean {
+  const element = target instanceof Element ? target : null;
+  if (element?.closest(
+    'input, textarea, select, button, a, [contenteditable=""], [contenteditable="true"], [role="button"], [role="link"], [role="textbox"], [data-terminal-focus-ignore="true"]',
+  )) {
+    return false;
+  }
+
+  if (selection && !selection.isCollapsed && selection.toString().trim().length > 0) {
+    return false;
+  }
+
+  return true;
+}
+
 export interface TerminalDimensions {
   cols: number;
   rows: number;

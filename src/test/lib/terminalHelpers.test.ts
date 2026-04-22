@@ -6,6 +6,8 @@ import {
   isTerminalContainerRenderable,
   isSoftwareWebglRenderer,
   resolveTerminalDimensions,
+  shouldAutoFocusTerminal,
+  shouldFocusTerminalFromClick,
 } from '@/lib/terminalHelpers';
 
 describe('hexToRgba', () => {
@@ -186,5 +188,57 @@ describe('detectChunkedMarker', () => {
       matched: false,
       tail: 'abcdefghijklmnopqrstuvwxyz'.slice(-('::TRZSZ:TRANSFER:'.length - 1)),
     });
+  });
+});
+
+describe('shouldAutoFocusTerminal', () => {
+  it('returns true when nothing editable is focused outside the terminal', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    Object.defineProperty(container, 'getBoundingClientRect', {
+      value: () => ({ width: 800, height: 600 }),
+    });
+
+    const button = document.createElement('button');
+    document.body.appendChild(button);
+
+    expect(shouldAutoFocusTerminal(container, button)).toBe(true);
+
+    button.remove();
+    container.remove();
+  });
+
+  it('returns false when an external editable control owns focus', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    Object.defineProperty(container, 'getBoundingClientRect', {
+      value: () => ({ width: 800, height: 600 }),
+    });
+
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+
+    expect(shouldAutoFocusTerminal(container, input)).toBe(false);
+
+    input.remove();
+    container.remove();
+  });
+});
+
+describe('shouldFocusTerminalFromClick', () => {
+  it('returns false for interactive click targets', () => {
+    const button = document.createElement('button');
+    expect(shouldFocusTerminalFromClick(button, null)).toBe(false);
+  });
+
+  it('returns false when the user is selecting text', () => {
+    expect(shouldFocusTerminalFromClick(document.createElement('div'), {
+      isCollapsed: false,
+      toString: () => 'selected text',
+    } as Selection)).toBe(false);
+  });
+
+  it('returns true for plain terminal container clicks', () => {
+    expect(shouldFocusTerminalFromClick(document.createElement('div'), null)).toBe(true);
   });
 });
