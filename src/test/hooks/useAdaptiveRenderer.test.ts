@@ -1,6 +1,6 @@
 import { renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { findCursorControlBoundary, useAdaptiveRenderer } from '@/hooks/useAdaptiveRenderer';
+import { buildWriteBatches, findCursorControlBoundary, useAdaptiveRenderer } from '@/hooks/useAdaptiveRenderer';
 import { adaptiveRendererIssue26Fixtures } from '@/test/fixtures/adaptiveRendererIssue26Fixtures';
 
 function textEncoder(input: string): Uint8Array {
@@ -124,5 +124,42 @@ describe('useAdaptiveRenderer', () => {
       expect(writes).toEqual(fixture.finalWrites);
     });
 
+  });
+}); 
+
+describe('buildWriteBatches', () => {
+  it('merges small chunks into a single batch below the limit', () => {
+    const batches = buildWriteBatches([
+      textEncoder('hello '),
+      textEncoder('world'),
+    ], 64);
+
+    expect(batches).toHaveLength(1);
+    expect(new TextDecoder().decode(batches[0])).toBe('hello world');
+  });
+
+  it('splits oversized output into bounded batches', () => {
+    const large = textEncoder('a'.repeat(10));
+    const batches = buildWriteBatches([large], 4);
+
+    expect(batches.map(batch => batch.length)).toEqual([4, 4, 2]);
+    expect(batches.map(batch => new TextDecoder().decode(batch))).toEqual([
+      'aaaa',
+      'aaaa',
+      'aa',
+    ]);
+  });
+
+  it('preserves chunk order across batch boundaries', () => {
+    const batches = buildWriteBatches([
+      textEncoder('abc'),
+      textEncoder('defg'),
+      textEncoder('hij'),
+    ], 5);
+
+    expect(batches.map(batch => new TextDecoder().decode(batch))).toEqual([
+      'abcde',
+      'fghij',
+    ]);
   });
 });

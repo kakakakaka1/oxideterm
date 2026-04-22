@@ -261,6 +261,7 @@ export const LocalTerminalView: React.FC<LocalTerminalViewProps> = ({
     handleRecordingStop,
     handleRecordingDiscard,
     isRecording: isSessionRecording,
+    recorderRef,
   } = useTerminalRecording({
     sessionId,
     terminalType: 'local',
@@ -1013,8 +1014,10 @@ export const LocalTerminalView: React.FC<LocalTerminalViewProps> = ({
       const data = new Uint8Array(event.payload.data);
       
       maybeLoadImageAddon(data);
-      // Feed recording (terminal output)
-      feedOutput(data);
+      if (recorderRef.current) {
+        // Feed recording (terminal output)
+        feedOutput(data);
+      }
       // Delegate batching + tier management to adaptive renderer
       adaptiveRendererRef.current.scheduleWrite(data);
 
@@ -1083,7 +1086,7 @@ export const LocalTerminalView: React.FC<LocalTerminalViewProps> = ({
       unlistenDataFn?.();
       unlistenClosedFn?.();
     };
-  }, [sessionId, updateTerminalState, maybeLoadImageAddon]);
+  }, [feedOutput, maybeLoadImageAddon, recorderRef, sessionId, updateTerminalState]);
 
   // Listen for AI insert command events (only when this terminal is active)
   useEffect(() => {

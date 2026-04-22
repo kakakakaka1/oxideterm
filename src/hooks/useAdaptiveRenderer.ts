@@ -66,6 +66,8 @@ const IDLE_INTERVAL_MAX_MS = 1_000;
 
 /** Idle interval growth factor per tick */
 const IDLE_INTERVAL_GROWTH = 1.5;
+/** Maximum bytes to concatenate into a single xterm.write batch. */
+const MAX_WRITE_BATCH_BYTES = 256 * 1024;
 
 // ─── FlowControl Constants ────────────────────────────────────────────
 
@@ -164,6 +166,66 @@ function concatUint8Arrays(left: Uint8Array, right: Uint8Array): Uint8Array {
   return combined;
 }
 
+export function buildWriteBatches(
+  chunks: Uint8Array[],
+  maxBatchBytes: number = MAX_WRITE_BATCH_BYTES,
+): Uint8Array[] {
+  if (chunks.length === 0) return [];
+
+  const batches: Uint8Array[] = [];
+  let pendingChunks: Uint8Array[] = [];
+  let pendingBytes = 0;
+
+  const flushPending = () => {
+    if (pendingChunks.length === 0) return;
+    if (pendingChunks.length === 1) {
+      batches.push(pendingChunks[0]);
+    } else {
+      const combined = new Uint8Array(pendingBytes);
+      let offset = 0;
+      for (const chunk of pendingChunks) {
+        combined.set(chunk, offset);
+        offset += chunk.length;
+      }
+      batches.push(combined);
+    }
+    pendingChunks = [];
+    pendingBytes = 0;
+  };
+
+  for (const chunk of chunks) {
+    let offset = 0;
+
+    while (offset < chunk.length) {
+      const remainingChunkBytes = chunk.length - offset;
+
+      if (pendingBytes === 0 && remainingChunkBytes >= maxBatchBytes) {
+        batches.push(chunk.subarray(offset, offset + maxBatchBytes));
+        offset += maxBatchBytes;
+        continue;
+      }
+
+      const remainingBatchBytes = maxBatchBytes - pendingBytes;
+      if (remainingBatchBytes === 0) {
+        flushPending();
+        continue;
+      }
+
+      const sliceLength = Math.min(remainingChunkBytes, remainingBatchBytes);
+      pendingChunks.push(chunk.subarray(offset, offset + sliceLength));
+      pendingBytes += sliceLength;
+      offset += sliceLength;
+
+      if (pendingBytes >= maxBatchBytes) {
+        flushPending();
+      }
+    }
+  }
+
+  flushPending();
+  return batches;
+}
+
 function hasLineBreak(data: Uint8Array): boolean {
   for (const byte of data) {
     if (byte === 0x0a) return true;
@@ -236,38 +298,33 @@ export function useAdaptiveRenderer(opts: UseAdaptiveRendererOptions): AdaptiveR
     const term = terminalRef.current;
     const pending = pendingRef.current;
     if (!term || pending.length === 0) return;
-
-    const totalLength = pending.reduce((acc, arr) => acc + arr.length, 0);
-    const combined = new Uint8Array(totalLength);
-    let offset = 0;
-    for (const chunk of pending) {
-      combined.set(chunk, offset);
-      offset += chunk.length;
-    }
     pendingRef.current = [];
+    const batches = buildWriteBatches(pending);
 
-    // FlowControl: track pending xterm callbacks
-    pendingCallbacksRef.current++;
-    term.write(combined, () => {
-      pendingCallbacksRef.current--;
-      // If below low watermark and was blocked, drain backpressure queue
-      if (blockedRef.current && pendingCallbacksRef.current <= FLOW_LOW_WATERMARK) {
-        blockedRef.current = false;
-        // Move backpressure queue into pending and schedule a flush
-        if (backpressureQueueRef.current.length > 0) {
-          pendingRef.current.push(...backpressureQueueRef.current);
-          backpressureQueueRef.current = [];
-          backpressureBytesRef.current = 0;
-          if (rafIdRef.current === null && mountedRef.current) {
-            rafIdRef.current = requestAnimationFrame(() => {
-              rafIdRef.current = null;
-              if (!mountedRef.current) return;
-              flush();
-            });
+    for (const batch of batches) {
+      // FlowControl: track pending xterm callbacks
+      pendingCallbacksRef.current++;
+      term.write(batch, () => {
+        pendingCallbacksRef.current--;
+        // If below low watermark and was blocked, drain backpressure queue
+        if (blockedRef.current && pendingCallbacksRef.current <= FLOW_LOW_WATERMARK) {
+          blockedRef.current = false;
+          // Move backpressure queue into pending and schedule a flush
+          if (backpressureQueueRef.current.length > 0) {
+            pendingRef.current.push(...backpressureQueueRef.current);
+            backpressureQueueRef.current = [];
+            backpressureBytesRef.current = 0;
+            if (rafIdRef.current === null && mountedRef.current) {
+              rafIdRef.current = requestAnimationFrame(() => {
+                rafIdRef.current = null;
+                if (!mountedRef.current) return;
+                flush();
+              });
+            }
           }
         }
-      }
-    });
+      });
+    }
 
     // Enter blocked state if above high watermark
     if (pendingCallbacksRef.current >= FLOW_HIGH_WATERMARK) {

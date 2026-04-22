@@ -4,8 +4,8 @@
 //! WebSocket Server for SSH bridge with Wire Protocol support
 
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use bytes::Bytes;
-use futures_util::{SinkExt, StreamExt};
+use bytes::{Bytes, BytesMut};
+use futures_util::{Sink, SinkExt, StreamExt};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -50,6 +50,104 @@ const TOKEN_VALIDITY_SECS: u64 = 300;
 const FRAME_CHANNEL_CAPACITY: usize = 16384;
 #[cfg(not(target_os = "windows"))]
 const FRAME_CHANNEL_CAPACITY: usize = 4096;
+/// Maximum total payload bytes to coalesce into one outbound data frame.
+const DATA_BATCH_MAX_BYTES: usize = 256 * 1024;
+/// Maximum number of data frames to merge in one outbound websocket send.
+const DATA_BATCH_MAX_FRAMES: usize = 32;
+
+enum OutgoingFrame {
+    Data(Bytes),
+    Encoded(Bytes),
+}
+
+fn encode_outgoing_batch(
+    first: OutgoingFrame,
+    pending: &mut Option<OutgoingFrame>,
+    frame_rx: &mut mpsc::Receiver<OutgoingFrame>,
+) -> Bytes {
+    match first {
+        OutgoingFrame::Encoded(frame) => frame,
+        OutgoingFrame::Data(first_payload) => {
+            let mut payload =
+                BytesMut::with_capacity(first_payload.len().min(DATA_BATCH_MAX_BYTES));
+            payload.extend_from_slice(&first_payload);
+            let mut frame_count = 1usize;
+
+            loop {
+                if frame_count >= DATA_BATCH_MAX_FRAMES || payload.len() >= DATA_BATCH_MAX_BYTES {
+                    break;
+                }
+
+                match frame_rx.try_recv() {
+                    Ok(OutgoingFrame::Data(next_payload)) => {
+                        if payload.len() + next_payload.len() > DATA_BATCH_MAX_BYTES {
+                            *pending = Some(OutgoingFrame::Data(next_payload));
+                            break;
+                        }
+                        payload.extend_from_slice(&next_payload);
+                        frame_count += 1;
+                    }
+                    Ok(other) => {
+                        *pending = Some(other);
+                        break;
+                    }
+                    Err(tokio::sync::mpsc::error::TryRecvError::Empty)
+                    | Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => break,
+                }
+            }
+
+            data_frame(payload.freeze()).encode()
+        }
+    }
+}
+
+async fn recv_encoded_outgoing_frame(
+    pending: &mut Option<OutgoingFrame>,
+    frame_rx: &mut mpsc::Receiver<OutgoingFrame>,
+) -> Option<Bytes> {
+    let first = match pending.take() {
+        Some(frame) => frame,
+        None => frame_rx.recv().await?,
+    };
+    Some(encode_outgoing_batch(first, pending, frame_rx))
+}
+
+async fn run_ws_sender<S>(
+    ws_sender: &mut S,
+    frame_rx: &mut mpsc::Receiver<OutgoingFrame>,
+    session_id: &str,
+) -> &'static str
+where
+    S: Sink<Message> + Unpin,
+    S::Error: std::fmt::Debug,
+{
+    let mut pending = None;
+
+    while let Some(frame) = recv_encoded_outgoing_frame(&mut pending, frame_rx).await {
+        match tokio::time::timeout(
+            Duration::from_secs(WS_SEND_TIMEOUT_SECS),
+            ws_sender.send(Message::Binary(frame.to_vec().into())),
+        )
+        .await
+        {
+            Ok(Ok(_)) => {}
+            Ok(Err(e)) => {
+                debug!("WebSocket send failed for session {}: {:?}", session_id, e);
+                return "network_error";
+            }
+            Err(_) => {
+                warn!(
+                    "WebSocket send timeout after {}s for session {} - client unresponsive",
+                    WS_SEND_TIMEOUT_SECS, session_id
+                );
+                return "send_timeout";
+            }
+        }
+    }
+
+    debug!("Frame sender stopped for session {}", session_id);
+    "channel_closed"
+}
 
 async fn build_replay_frame(scroll_buffer: Arc<ScrollBuffer>) -> Result<Vec<u8>, String> {
     let lines = scroll_buffer.tail_lines(REPLAY_LINE_COUNT).await;
@@ -113,6 +211,75 @@ fn utf8_safe_split_point(data: &[u8]) -> usize {
         return len;
     }
     len
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::bridge::protocol::Frame;
+
+    fn decode_frame(bytes: Bytes) -> Frame {
+        let mut buf = BytesMut::from(bytes.as_ref());
+        Frame::decode(&mut buf)
+            .expect("frame should decode")
+            .expect("frame should be complete")
+    }
+
+    #[tokio::test]
+    async fn encode_outgoing_batch_preserves_non_data_frame_boundary() {
+        let (tx, mut rx) = mpsc::channel(8);
+        tx.send(OutgoingFrame::Data(Bytes::from_static(b"world")))
+            .await
+            .unwrap();
+        tx.send(OutgoingFrame::Encoded(heartbeat_frame(7).encode()))
+            .await
+            .unwrap();
+
+        let mut pending = None;
+        let encoded = encode_outgoing_batch(
+            OutgoingFrame::Data(Bytes::from_static(b"hello ")),
+            &mut pending,
+            &mut rx,
+        );
+
+        match decode_frame(encoded) {
+            Frame::Data(payload) => assert_eq!(payload.as_ref(), b"hello world"),
+            other => panic!("expected data frame, got {:?}", other),
+        }
+
+        let next = pending.expect("heartbeat frame should remain pending");
+        match next {
+            OutgoingFrame::Encoded(frame) => match decode_frame(frame) {
+                Frame::Heartbeat(seq) => assert_eq!(seq, 7),
+                other => panic!("expected heartbeat frame, got {:?}", other),
+            },
+            _ => panic!("expected encoded frame boundary to be preserved"),
+        }
+    }
+
+    #[tokio::test]
+    async fn encode_outgoing_batch_merges_data_frames_from_queue() {
+        let (tx, mut rx) = mpsc::channel(8);
+        tx.send(OutgoingFrame::Data(Bytes::from_static(b"world")))
+            .await
+            .unwrap();
+        tx.send(OutgoingFrame::Data(Bytes::from_static(b"!")))
+            .await
+            .unwrap();
+
+        let mut pending = None;
+        let encoded = encode_outgoing_batch(
+            OutgoingFrame::Data(Bytes::from_static(b"hello ")),
+            &mut pending,
+            &mut rx,
+        );
+
+        match decode_frame(encoded) {
+            Frame::Data(payload) => assert_eq!(payload.as_ref(), b"hello world!"),
+            other => panic!("expected data frame, got {:?}", other),
+        }
+        assert!(pending.is_none());
+    }
 }
 
 /// Get current unix timestamp in seconds
@@ -675,37 +842,14 @@ impl WsBridge {
         let state_hb = state.clone();
 
         // Channel for sending frames to WebSocket (increased capacity to prevent deadlock)
-        let (frame_tx, mut frame_rx) = mpsc::channel::<Bytes>(FRAME_CHANNEL_CAPACITY);
+        let (frame_tx, mut frame_rx) = mpsc::channel::<OutgoingFrame>(FRAME_CHANNEL_CAPACITY);
         let frame_tx_ssh = frame_tx.clone();
         let frame_tx_hb = frame_tx.clone();
 
         // Task: Frame sender - consolidates all outgoing frames
+        let sender_sid = id.clone();
         let mut sender_task = tokio::spawn(async move {
-            while let Some(data) = frame_rx.recv().await {
-                // Use timeout to detect dead clients (prevents deadlock)
-                match tokio::time::timeout(
-                    Duration::from_secs(WS_SEND_TIMEOUT_SECS),
-                    ws_sender.send(Message::Binary(data.to_vec())),
-                )
-                .await
-                {
-                    Ok(Ok(_)) => {
-                        // Send successful
-                    }
-                    Ok(Err(e)) => {
-                        debug!("WebSocket send failed: {:?}", e);
-                        break;
-                    }
-                    Err(_) => {
-                        warn!(
-                            "WebSocket send timeout after {}s - client unresponsive, disconnecting",
-                            WS_SEND_TIMEOUT_SECS
-                        );
-                        break;
-                    }
-                }
-            }
-            debug!("Frame sender stopped");
+            let _ = run_ws_sender(&mut ws_sender, &mut frame_rx, &sender_sid).await;
         });
 
         // Task: Forward SSH output to WebSocket as Data frames
@@ -750,8 +894,11 @@ impl WsBridge {
                 }
 
                 // Forward to WebSocket
-                let frame = data_frame(Bytes::from(data.to_vec()));
-                if frame_tx_ssh.send(frame.encode()).await.is_err() {
+                if frame_tx_ssh
+                    .send(OutgoingFrame::Data(Bytes::copy_from_slice(data)))
+                    .await
+                    .is_err()
+                {
                     debug!("Frame channel closed");
                     break;
                 }
@@ -782,14 +929,17 @@ impl WsBridge {
                     );
                     // Send error frame before closing
                     let err = error_frame("Connection timeout - no heartbeat response");
-                    let _ = frame_tx_hb.send(err.encode()).await;
+                    let _ = frame_tx_hb.send(OutgoingFrame::Encoded(err.encode())).await;
                     break;
                 }
 
                 // Send heartbeat (non-blocking to avoid backpressure)
                 let seq = state_hb.next_seq();
                 let frame = heartbeat_frame(seq);
-                if frame_tx_hb.try_send(frame.encode()).is_err() {
+                if frame_tx_hb
+                    .try_send(OutgoingFrame::Encoded(frame.encode()))
+                    .is_err()
+                {
                     // Channel full means frontend is overloaded - abort heartbeat
                     debug!(
                         "Heartbeat channel full, terminating heartbeat task for session {}",
@@ -1133,7 +1283,7 @@ impl WsBridge {
         let state_hb = state.clone();
 
         // Channel for sending frames to WebSocket (increased capacity to prevent deadlock)
-        let (frame_tx, mut frame_rx) = mpsc::channel::<Bytes>(FRAME_CHANNEL_CAPACITY);
+        let (frame_tx, mut frame_rx) = mpsc::channel::<OutgoingFrame>(FRAME_CHANNEL_CAPACITY);
         let frame_tx_ssh = frame_tx.clone();
         let frame_tx_hb = frame_tx.clone();
         let buffer_clone = scroll_buffer.clone();
@@ -1142,38 +1292,26 @@ impl WsBridge {
         let sid_out = id.clone();
 
         // Task: WebSocket sender (multiplexes frame_tx)
+        let sender_sid = id.clone();
         let mut sender_task = tokio::spawn(async move {
-            while let Some(frame) = frame_rx.recv().await {
-                // Use timeout to detect dead clients (prevents deadlock)
-                match tokio::time::timeout(
-                    Duration::from_secs(WS_SEND_TIMEOUT_SECS),
-                    ws_sender.send(Message::Binary(frame.to_vec())),
-                )
-                .await
-                {
-                    Ok(Ok(_)) => {
-                        // Send successful
-                    }
-                    Ok(Err(e)) => {
-                        debug!("WebSocket send failed: {:?}", e);
-                        break;
-                    }
-                    Err(_) => {
-                        warn!(
-                            "WebSocket send timeout after {}s - client unresponsive, disconnecting",
-                            WS_SEND_TIMEOUT_SECS
-                        );
-                        break;
-                    }
-                }
-            }
-            debug!("WebSocket sender task stopped");
+            let _ = run_ws_sender(&mut ws_sender, &mut frame_rx, &sender_sid).await;
         });
 
         // Task: SSH stdout -> WebSocket
         let mut ssh_out_task = tokio::spawn(async move {
             let mut utf8_tail: Vec<u8> = Vec::new();
-            while let Ok(raw) = stdout_rx.recv().await {
+            loop {
+                let raw = match stdout_rx.recv().await {
+                    Ok(raw) => raw,
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                        warn!(
+                            "SSH -> WS bridge lagged for session {}: dropped {} broadcast chunk(s)",
+                            sid_out, skipped
+                        );
+                        continue;
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                };
                 state_out.touch();
 
                 // Prepend any leftover bytes from the previous chunk
@@ -1213,8 +1351,11 @@ impl WsBridge {
                 }
 
                 // Forward to WebSocket
-                let frame = data_frame(Bytes::from(data.to_vec())).encode();
-                if frame_tx_ssh.send(frame).await.is_err() {
+                if frame_tx_ssh
+                    .send(OutgoingFrame::Data(Bytes::copy_from_slice(data)))
+                    .await
+                    .is_err()
+                {
                     break;
                 }
             }
@@ -1240,7 +1381,7 @@ impl WsBridge {
 
                 let seq = state_hb.next_seq();
                 let frame = heartbeat_frame(seq).encode();
-                if frame_tx_hb.try_send(frame).is_err() {
+                if frame_tx_hb.try_send(OutgoingFrame::Encoded(frame)).is_err() {
                     // Channel full means frontend is overloaded - abort heartbeat
                     debug!("Heartbeat channel full, terminating heartbeat task");
                     break;
@@ -1457,7 +1598,7 @@ impl WsBridge {
         let state_hb = state.clone();
 
         // Channel for sending frames to WebSocket
-        let (frame_tx, mut frame_rx) = mpsc::channel::<Bytes>(FRAME_CHANNEL_CAPACITY);
+        let (frame_tx, mut frame_rx) = mpsc::channel::<OutgoingFrame>(FRAME_CHANNEL_CAPACITY);
         let frame_tx_ssh = frame_tx.clone();
         let frame_tx_hb = frame_tx.clone();
         let buffer_clone = scroll_buffer.clone();
@@ -1466,32 +1607,27 @@ impl WsBridge {
         let sid_out = id.clone();
 
         // Task: WebSocket sender
-        let mut sender_task = tokio::spawn(async move {
-            while let Some(frame) = frame_rx.recv().await {
-                match tokio::time::timeout(
-                    Duration::from_secs(WS_SEND_TIMEOUT_SECS),
-                    ws_sender.send(Message::Binary(frame.to_vec())),
-                )
-                .await
-                {
-                    Ok(Ok(_)) => {}
-                    Ok(Err(e)) => {
-                        debug!("WebSocket send failed: {:?}", e);
-                        return "network_error";
-                    }
-                    Err(_) => {
-                        warn!("WebSocket send timeout - client unresponsive");
-                        return "send_timeout";
-                    }
-                }
-            }
-            "channel_closed"
-        });
+        let sender_sid = id.clone();
+        let mut sender_task =
+            tokio::spawn(
+                async move { run_ws_sender(&mut ws_sender, &mut frame_rx, &sender_sid).await },
+            );
 
         // Task: SSH stdout -> WebSocket
         let mut ssh_out_task = tokio::spawn(async move {
             let mut utf8_tail: Vec<u8> = Vec::new();
-            while let Ok(raw) = stdout_rx.recv().await {
+            loop {
+                let raw = match stdout_rx.recv().await {
+                    Ok(raw) => raw,
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                        warn!(
+                            "SSH -> WS bridge lagged for session {}: dropped {} broadcast chunk(s)",
+                            sid_out, skipped
+                        );
+                        continue;
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                };
                 state_out.touch();
 
                 // Prepend any leftover bytes from the previous chunk
@@ -1531,8 +1667,11 @@ impl WsBridge {
                 }
 
                 // Forward to WebSocket
-                let frame = data_frame(Bytes::from(data.to_vec())).encode();
-                if frame_tx_ssh.send(frame).await.is_err() {
+                if frame_tx_ssh
+                    .send(OutgoingFrame::Data(Bytes::copy_from_slice(data)))
+                    .await
+                    .is_err()
+                {
                     return "channel_closed";
                 }
             }
@@ -1558,7 +1697,7 @@ impl WsBridge {
 
                 let seq = state_hb.next_seq();
                 let frame = heartbeat_frame(seq).encode();
-                if frame_tx_hb.try_send(frame).is_err() {
+                if frame_tx_hb.try_send(OutgoingFrame::Encoded(frame)).is_err() {
                     debug!("Heartbeat channel full");
                     return "channel_full";
                 }

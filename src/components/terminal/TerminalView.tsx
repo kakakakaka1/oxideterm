@@ -39,6 +39,7 @@ import { onMapleRegularLoaded, ensureCJKFallback } from '../../lib/fontLoader';
 import { runInputPipeline, runOutputPipeline } from '../../lib/plugin/pluginTerminalHooks';
 import { useSessionTreeStore } from '../../store/sessionTreeStore';
 import { useReconnectOrchestratorStore } from '../../store/reconnectOrchestratorStore';
+import { usePluginStore } from '../../store/pluginStore';
 import {
   hexToRgba,
   getBackgroundFitStyles,
@@ -308,6 +309,13 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
   });
   const adaptiveRendererRef = useRef(adaptiveRenderer);
   adaptiveRendererRef.current = adaptiveRenderer;
+  const outputTextDecoderRef = useRef<TextDecoder | null>(null);
+  const hasOutputProcessors = usePluginStore((state) => state.outputProcessors.length > 0);
+  const hasOutputProcessorsRef = useRef(hasOutputProcessors);
+
+  useEffect(() => {
+    hasOutputProcessorsRef.current = hasOutputProcessors;
+  }, [hasOutputProcessors]);
 
   // Track last connected ws_url for reconnection detection
   const lastWsUrlRef = useRef<string | null>(null);
@@ -321,6 +329,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
     handleRecordingStop,
     handleRecordingDiscard,
     isRecording: isSessionRecording,
+    recorderRef,
   } = useTerminalRecording({
     sessionId,
     terminalType: 'ssh',
@@ -446,6 +455,13 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
 
   const writeServerOutputToTerminal = useCallback((payload: Uint8Array) => {
     adaptiveRendererRef.current.scheduleWrite(payload);
+  }, []);
+
+  const decodeTerminalBytes = useCallback((payload: Uint8Array) => {
+    if (!outputTextDecoderRef.current) {
+      outputTextDecoderRef.current = new TextDecoder();
+    }
+    return outputTextDecoderRef.current.decode(payload);
   }, []);
 
   const unlockRuntimeGateIfReady = useCallback(() => {
@@ -577,20 +593,46 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
         // CRITICAL: Use slice() to create a copy, not a view!
         // Views keep the entire original ArrayBuffer alive until GC
         let payloadCopy: Uint8Array = data.slice(HEADER_SIZE, HEADER_SIZE + length);
-
-        // Plugin output pipeline (fail-open: exceptions pass original data through)
-        payloadCopy = runOutputPipeline(payloadCopy, sessionId, nodeId);
-        maybeLoadImageAddon(payloadCopy);
-
-        // Feed recording (after plugin pipeline, before terminal write)
-        feedOutput(payloadCopy);
-
         const controller = trzszControllerRef.current;
-        if (controller && !controller.isDisposed()) {
-          controller.processServerOutput(payloadCopy);
-        } else if (!controllerRuntimePendingRef.current) {
-          if (!inBandTransferEnabledRef.current && !trzszDisabledToastShownRef.current) {
-            const text = new TextDecoder().decode(payloadCopy);
+        const controllerRuntimePending = controllerRuntimePendingRef.current;
+        const activeController = controller && !controller.isDisposed() ? controller : null;
+        const shouldCheckTrzszDisabled = !activeController
+          && !controllerRuntimePending
+          && !inBandTransferEnabledRef.current
+          && !trzszDisabledToastShownRef.current;
+        const shouldRunOutputPipeline = hasOutputProcessorsRef.current;
+        const shouldTryImageAddon = !imageAddonRef.current && Boolean(terminalRef.current);
+        const shouldRecordOutput = recorderRef.current !== null;
+
+        if (
+          !shouldRunOutputPipeline
+          && !shouldTryImageAddon
+          && !shouldRecordOutput
+          && !shouldCheckTrzszDisabled
+          && !controllerRuntimePending
+          && !activeController
+        ) {
+          writeServerOutputToTerminal(payloadCopy);
+          break;
+        }
+
+        if (shouldRunOutputPipeline) {
+          payloadCopy = runOutputPipeline(payloadCopy, sessionId, nodeId);
+        }
+
+        if (shouldTryImageAddon) {
+          maybeLoadImageAddon(payloadCopy);
+        }
+
+        if (shouldRecordOutput) {
+          feedOutput(payloadCopy);
+        }
+
+        if (activeController) {
+          activeController.processServerOutput(payloadCopy);
+        } else if (!controllerRuntimePending) {
+          if (shouldCheckTrzszDisabled) {
+            const text = decodeTerminalBytes(payloadCopy);
             const detection = detectChunkedMarker(
               trzszDisabledDetectTailRef.current,
               text,
@@ -620,12 +662,12 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
         break;
       case MSG_TYPE_ERROR: {
         const errorPayload = data.slice(HEADER_SIZE, HEADER_SIZE + length);
-        const errorMsg = new TextDecoder().decode(errorPayload);
+        const errorMsg = decodeTerminalBytes(errorPayload);
         terminalRef.current?.writeln(`\r\n\x1b[31m${i18n.t('terminal.ssh.server_error', { error: errorMsg })}\x1b[0m`);
         break;
       }
     }
-  }, [maybeLoadImageAddon, sessionId, nodeId, writeServerOutputToTerminal]);
+  }, [decodeTerminalBytes, feedOutput, maybeLoadImageAddon, nodeId, recorderRef, sessionId, writeServerOutputToTerminal]);
 
   // Keep a stable ref to handleWsMessage so WebSocket onmessage handlers
   // (bound once in the init effect) always call the latest version.

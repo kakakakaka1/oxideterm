@@ -96,6 +96,7 @@ const recordingMocks = vi.hoisted(() => ({
   feedResize: vi.fn(),
   handleRecordingStop: vi.fn(),
   handleRecordingDiscard: vi.fn(),
+  recorderRef: { current: null as null | { recordOutput: (data: Uint8Array) => void } },
 }));
 
 const adaptiveRendererMock = vi.hoisted(() => ({
