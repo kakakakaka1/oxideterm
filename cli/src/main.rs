@@ -2973,11 +2973,7 @@ fn run_attach(
                 loop {
                     let mut buf = [0u8; 4096];
                     let n = unsafe {
-                        libc::read(
-                            stdin_fd,
-                            buf.as_mut_ptr() as *mut libc::c_void,
-                            buf.len(),
-                        )
+                        libc::read(stdin_fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len())
                     };
                     if n <= 0 {
                         if raw_input.is_empty() {
@@ -3156,9 +3152,7 @@ fn run_attach(
                             Ok(WindowsStdinEvent::Bytes(more)) => {
                                 Ok(Some(StdinCoalesceEvent::Bytes(more)))
                             }
-                            Ok(WindowsStdinEvent::Closed) => {
-                                Ok(Some(StdinCoalesceEvent::Closed))
-                            }
+                            Ok(WindowsStdinEvent::Closed) => Ok(Some(StdinCoalesceEvent::Closed)),
                             Ok(WindowsStdinEvent::Error(err)) => Err(err),
                             Err(RecvTimeoutError::Timeout) => Ok(None),
                             Err(RecvTimeoutError::Disconnected) => {
@@ -3217,8 +3211,8 @@ mod tests {
         check_compatibility, classify_error_message, coalesce_stdin_chunks,
         compatibility_notice_text, protocol_ranges_overlap, read_stdin_from_reader,
         resolve_focusable_target_from_targets, select_latest_focusable_target,
-        select_session_for_inspect, should_emit_human_guidance, should_render_ai_markdown,
-        Cli, Commands, DoctorStatus, ExecShell, ExitCode, FocusableKind, FocusableTarget,
+        select_session_for_inspect, should_emit_human_guidance, should_render_ai_markdown, Cli,
+        Commands, DoctorStatus, ExecShell, ExitCode, FocusableKind, FocusableTarget,
         StdinCoalesceEvent,
     };
     use crate::{connect, output::OutputMode};
@@ -3380,7 +3374,9 @@ mod tests {
             std::time::Duration::from_millis(10),
             |idle_window| match rx.recv_timeout(idle_window) {
                 Ok(event) => Ok::<Option<StdinCoalesceEvent>, String>(Some(event)),
-                Err(mpsc::RecvTimeoutError::Timeout) => Ok::<Option<StdinCoalesceEvent>, String>(None),
+                Err(mpsc::RecvTimeoutError::Timeout) => {
+                    Ok::<Option<StdinCoalesceEvent>, String>(None)
+                }
                 Err(mpsc::RecvTimeoutError::Disconnected) => {
                     Ok::<Option<StdinCoalesceEvent>, String>(Some(StdinCoalesceEvent::Closed))
                 }
@@ -3405,7 +3401,9 @@ mod tests {
             std::time::Duration::from_millis(10),
             |idle_window| match rx.recv_timeout(idle_window) {
                 Ok(event) => Ok::<Option<StdinCoalesceEvent>, String>(Some(event)),
-                Err(mpsc::RecvTimeoutError::Timeout) => Ok::<Option<StdinCoalesceEvent>, String>(None),
+                Err(mpsc::RecvTimeoutError::Timeout) => {
+                    Ok::<Option<StdinCoalesceEvent>, String>(None)
+                }
                 Err(mpsc::RecvTimeoutError::Disconnected) => {
                     Ok::<Option<StdinCoalesceEvent>, String>(Some(StdinCoalesceEvent::Closed))
                 }

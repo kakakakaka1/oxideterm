@@ -6,6 +6,7 @@ const apiMocks = vi.hoisted(() => ({
   getGroups: vi.fn().mockResolvedValue([]),
   isAgentAvailable: vi.fn().mockResolvedValue(true),
   saveConnection: vi.fn(),
+  sshPreflight: vi.fn(),
 }));
 
 const appStoreState = vi.hoisted(() => ({
@@ -67,6 +68,7 @@ describe('NewConnectionModal terminal creation flow', () => {
     appStoreState.quickConnectData = null;
     apiMocks.getGroups.mockResolvedValue([]);
     apiMocks.isAgentAvailable.mockResolvedValue(true);
+    apiMocks.sshPreflight.mockResolvedValue({ status: 'verified' });
     sessionTreeState.addRootNode.mockResolvedValue('node-kbi');
     sessionTreeState.connectNode.mockResolvedValue(undefined);
     sessionTreeState.createTerminalForNode.mockResolvedValue('term-kbi');
@@ -103,7 +105,7 @@ describe('NewConnectionModal terminal creation flow', () => {
       }));
     });
     await waitFor(() => {
-      expect(sessionTreeState.connectNode).toHaveBeenCalledWith('node-kbi');
+      expect(sessionTreeState.connectNode).toHaveBeenCalledWith('node-kbi', undefined);
       expect(sessionTreeState.createTerminalForNode).toHaveBeenCalledWith('node-kbi', 120, 40);
       expect(appStoreState.createTab).toHaveBeenCalledWith('terminal', 'term-kbi');
       expect(appStoreState.toggleModal).toHaveBeenCalledWith('newConnection', false);
@@ -137,7 +139,7 @@ describe('NewConnectionModal terminal creation flow', () => {
         authType: 'password',
         password: 'secret',
       }));
-      expect(sessionTreeState.connectNode).toHaveBeenCalledWith('node-password');
+      expect(sessionTreeState.connectNode).toHaveBeenCalledWith('node-password', undefined);
       expect(sessionTreeState.createTerminalForNode).toHaveBeenCalledWith('node-password', 120, 40);
       expect(appStoreState.createTab).toHaveBeenCalledWith('terminal', 'term-password');
     });

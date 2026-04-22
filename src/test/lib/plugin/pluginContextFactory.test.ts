@@ -563,6 +563,7 @@ describe('pluginContextFactory', () => {
       selectedNames: null,
       conflictStrategy: 'skip',
       importForwards: null,
+      importPortableSecrets: null,
     });
     expect(appStoreState.loadSavedConnections).toHaveBeenCalledTimes(3);
   });
@@ -587,6 +588,7 @@ describe('pluginContextFactory', () => {
       password: 'StrongPass!123',
       description: null,
       embedKeys: null,
+      includePortableSecrets: null,
       selectedForwardIds: null,
       appSettingsJson: expect.any(String),
       pluginSettings: null,
@@ -814,6 +816,7 @@ describe('pluginContextFactory', () => {
       selectedNames: null,
       conflictStrategy: 'merge',
       importForwards: null,
+      importPortableSecrets: null,
     });
   });
 

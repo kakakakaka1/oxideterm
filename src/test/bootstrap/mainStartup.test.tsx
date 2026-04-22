@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const portableApiMocks = vi.hoisted(() => ({
   getPortableStatus: vi.fn(),
   getPortableInfo: vi.fn(),
+  frontendReady: vi.fn(),
 }));
 
 const initializeSettingsMock = vi.hoisted(() => vi.fn());
@@ -112,6 +113,7 @@ async function importMainWithMocks() {
     api: {
       getPortableStatus: portableApiMocks.getPortableStatus,
       getPortableInfo: portableApiMocks.getPortableInfo,
+      frontendReady: portableApiMocks.frontendReady,
     },
   }));
 
@@ -133,6 +135,8 @@ describe('main startup bootstrap', () => {
     initializeSettingsMock.mockReset();
     portableApiMocks.getPortableStatus.mockReset();
     portableApiMocks.getPortableInfo.mockReset();
+    portableApiMocks.frontendReady.mockReset();
+    portableApiMocks.frontendReady.mockResolvedValue(undefined);
     i18nState.ready = Promise.resolve();
     i18nState.tImpl.mockReset();
     i18nState.tImpl.mockImplementation((key: string, options?: { defaultValue?: string }) => options?.defaultValue ?? key);
