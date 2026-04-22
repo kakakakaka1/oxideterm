@@ -24,7 +24,7 @@ use crate::agent::AgentRegistry;
 use crate::bridge::{BridgeManager, WsBridge};
 use crate::forwarding::ForwardingManager;
 use crate::session::{
-    AuthMethod, SessionConfig, SessionInfo, SessionRegistry, parse_terminal_output,
+    AuthMethod, ScrollBuffer, SessionConfig, SessionInfo, SessionRegistry, parse_terminal_output,
 };
 use crate::sftp::session::SftpRegistry;
 use crate::ssh::{
@@ -32,6 +32,36 @@ use crate::ssh::{
     check_host_key, get_host_key_cache, get_known_hosts,
 };
 use crate::state::BufferConfig;
+
+const OUTPUT_BATCH_MAX_BYTES: usize = 64 * 1024;
+const OUTPUT_BATCH_FLUSH_MS: u64 = 4;
+const OUTPUT_BATCH_INTERACTIVE_FLUSH_MS: u64 = 1;
+const OUTPUT_INTERACTIVE_WINDOW_MS: u64 = 120;
+
+async fn flush_pending_terminal_output(
+    pending_output: &mut Vec<u8>,
+    scroll_buffer: &Arc<ScrollBuffer>,
+    output_tx: &tokio::sync::broadcast::Sender<Vec<u8>>,
+) {
+    if pending_output.is_empty() {
+        return;
+    }
+
+    let bytes = std::mem::take(pending_output);
+    let lines = parse_terminal_output(&bytes);
+    if !lines.is_empty() {
+        scroll_buffer.append_batch(lines).await;
+    }
+    let _ = output_tx.send(bytes);
+}
+
+fn next_output_flush_delay(interactive_until: tokio::time::Instant) -> Duration {
+    if tokio::time::Instant::now() < interactive_until {
+        Duration::from_millis(OUTPUT_BATCH_INTERACTIVE_FLUSH_MS)
+    } else {
+        Duration::from_millis(OUTPUT_BATCH_FLUSH_MS)
+    }
+}
 
 /// 断开 SSH 连接
 #[tauri::command]
@@ -488,18 +518,26 @@ pub async fn create_terminal(
 
         let mut pending_resize: Option<(u16, u16)> = None;
         let mut resize_deadline = std::pin::pin!(tokio::time::sleep(tokio::time::Duration::MAX));
+        let mut pending_output = Vec::new();
+        let mut output_flush_deadline =
+            std::pin::pin!(tokio::time::sleep(tokio::time::Duration::MAX));
+        let mut interactive_until = tokio::time::Instant::now();
 
         loop {
             tokio::select! {
                 Some(cmd) = cmd_rx.recv() => {
                     match cmd {
                         SessionCommand::Data(data) => {
+                            interactive_until = tokio::time::Instant::now()
+                                + tokio::time::Duration::from_millis(OUTPUT_INTERACTIVE_WINDOW_MS);
                             if let Err(e) = channel.data(&data[..]).await {
                                 tracing::error!("Failed to send data to SSH channel: {}", e);
                                 break;
                             }
                         }
                         SessionCommand::Resize(cols, rows) => {
+                            interactive_until = tokio::time::Instant::now()
+                                + tokio::time::Duration::from_millis(OUTPUT_INTERACTIVE_WINDOW_MS);
                             let cols = cols.clamp(1, 500);
                             let rows = rows.clamp(1, 200);
                             pending_resize = Some((cols, rows));
@@ -524,24 +562,41 @@ pub async fn create_terminal(
                     resize_deadline.as_mut().reset(tokio::time::Instant::now() + tokio::time::Duration::from_secs(86400));
                 }
 
+                () = &mut output_flush_deadline, if !pending_output.is_empty() => {
+                    flush_pending_terminal_output(&mut pending_output, &scroll_buffer_clone, &output_tx).await;
+                    output_flush_deadline
+                        .as_mut()
+                        .reset(tokio::time::Instant::now() + tokio::time::Duration::from_secs(86400));
+                }
+
                 Some(msg) = channel.wait() => {
                     match msg {
                         ChannelMsg::Data { data } => {
-                            let bytes = data.to_vec();
-                            let lines = parse_terminal_output(&bytes);
-                            if !lines.is_empty() {
-                                scroll_buffer_clone.append_batch(lines).await;
+                            pending_output.extend_from_slice(&data);
+                            if pending_output.len() >= OUTPUT_BATCH_MAX_BYTES {
+                                flush_pending_terminal_output(&mut pending_output, &scroll_buffer_clone, &output_tx).await;
+                                output_flush_deadline
+                                    .as_mut()
+                                    .reset(tokio::time::Instant::now() + tokio::time::Duration::from_secs(86400));
+                            } else {
+                                output_flush_deadline.as_mut().reset(
+                                    tokio::time::Instant::now() + next_output_flush_delay(interactive_until)
+                                );
                             }
-                            let _ = output_tx.send(bytes);
                         }
                         ChannelMsg::ExtendedData { data, ext } => {
                             if ext == 1 {
-                                let bytes = data.to_vec();
-                                let lines = parse_terminal_output(&bytes);
-                                if !lines.is_empty() {
-                                    scroll_buffer_clone.append_batch(lines).await;
+                                pending_output.extend_from_slice(&data);
+                                if pending_output.len() >= OUTPUT_BATCH_MAX_BYTES {
+                                    flush_pending_terminal_output(&mut pending_output, &scroll_buffer_clone, &output_tx).await;
+                                    output_flush_deadline
+                                        .as_mut()
+                                        .reset(tokio::time::Instant::now() + tokio::time::Duration::from_secs(86400));
+                                } else {
+                                    output_flush_deadline.as_mut().reset(
+                                        tokio::time::Instant::now() + next_output_flush_delay(interactive_until)
+                                    );
                                 }
-                                let _ = output_tx.send(bytes);
                             }
                         }
                         ChannelMsg::Eof | ChannelMsg::Close => {
@@ -555,6 +610,8 @@ pub async fn create_terminal(
                 else => break,
             }
         }
+
+        flush_pending_terminal_output(&mut pending_output, &scroll_buffer_clone, &output_tx).await;
 
         tracing::debug!("Channel handler terminated for session {}", sid);
     });
@@ -962,18 +1019,26 @@ pub async fn recreate_terminal_pty(
     let sid = session_id.clone();
     tokio::spawn(async move {
         tracing::debug!("Recreated channel handler started for session {}", sid);
+        let mut pending_output = Vec::new();
+        let mut output_flush_deadline =
+            std::pin::pin!(tokio::time::sleep(tokio::time::Duration::MAX));
+        let mut interactive_until = tokio::time::Instant::now();
 
         loop {
             tokio::select! {
                 Some(cmd) = cmd_rx.recv() => {
                     match cmd {
                         SessionCommand::Data(data) => {
+                            interactive_until = tokio::time::Instant::now()
+                                + tokio::time::Duration::from_millis(OUTPUT_INTERACTIVE_WINDOW_MS);
                             if let Err(e) = channel.data(&data[..]).await {
                                 tracing::error!("Failed to send data to SSH channel: {}", e);
                                 break;
                             }
                         }
                         SessionCommand::Resize(cols, rows) => {
+                            interactive_until = tokio::time::Instant::now()
+                                + tokio::time::Duration::from_millis(OUTPUT_INTERACTIVE_WINDOW_MS);
                             if let Err(e) = channel.window_change(cols as u32, rows as u32, 0, 0).await {
                                 tracing::error!("Failed to resize PTY: {}", e);
                             }
@@ -985,24 +1050,41 @@ pub async fn recreate_terminal_pty(
                     }
                 }
 
+                () = &mut output_flush_deadline, if !pending_output.is_empty() => {
+                    flush_pending_terminal_output(&mut pending_output, &scroll_buffer_clone, &output_tx).await;
+                    output_flush_deadline
+                        .as_mut()
+                        .reset(tokio::time::Instant::now() + tokio::time::Duration::from_secs(86400));
+                }
+
                 Some(msg) = channel.wait() => {
                     match msg {
                         ChannelMsg::Data { data } => {
-                            let bytes = data.to_vec();
-                            let lines = parse_terminal_output(&bytes);
-                            if !lines.is_empty() {
-                                scroll_buffer_clone.append_batch(lines).await;
+                            pending_output.extend_from_slice(&data);
+                            if pending_output.len() >= OUTPUT_BATCH_MAX_BYTES {
+                                flush_pending_terminal_output(&mut pending_output, &scroll_buffer_clone, &output_tx).await;
+                                output_flush_deadline
+                                    .as_mut()
+                                    .reset(tokio::time::Instant::now() + tokio::time::Duration::from_secs(86400));
+                            } else {
+                                output_flush_deadline.as_mut().reset(
+                                    tokio::time::Instant::now() + next_output_flush_delay(interactive_until)
+                                );
                             }
-                            let _ = output_tx.send(bytes);
                         }
                         ChannelMsg::ExtendedData { data, ext } => {
                             if ext == 1 {
-                                let bytes = data.to_vec();
-                                let lines = parse_terminal_output(&bytes);
-                                if !lines.is_empty() {
-                                    scroll_buffer_clone.append_batch(lines).await;
+                                pending_output.extend_from_slice(&data);
+                                if pending_output.len() >= OUTPUT_BATCH_MAX_BYTES {
+                                    flush_pending_terminal_output(&mut pending_output, &scroll_buffer_clone, &output_tx).await;
+                                    output_flush_deadline
+                                        .as_mut()
+                                        .reset(tokio::time::Instant::now() + tokio::time::Duration::from_secs(86400));
+                                } else {
+                                    output_flush_deadline.as_mut().reset(
+                                        tokio::time::Instant::now() + next_output_flush_delay(interactive_until)
+                                    );
                                 }
-                                let _ = output_tx.send(bytes);
                             }
                         }
                         ChannelMsg::Eof | ChannelMsg::Close => {
@@ -1015,6 +1097,8 @@ pub async fn recreate_terminal_pty(
                 else => break,
             }
         }
+
+        flush_pending_terminal_output(&mut pending_output, &scroll_buffer_clone, &output_tx).await;
 
         tracing::debug!("Recreated channel handler terminated for session {}", sid);
     });

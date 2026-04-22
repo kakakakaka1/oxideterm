@@ -3,6 +3,7 @@
 
 //! SSH Session management
 
+use bytes::BytesMut;
 use russh::client::Handle;
 use russh::{ChannelMsg, Pty};
 use tokio::sync::{broadcast, mpsc};
@@ -11,6 +12,27 @@ use tracing::{debug, error, info, warn};
 use super::client::ClientHandler;
 use super::error::SshError;
 use super::handle_owner::{HandleController, spawn_handle_owner_task};
+
+const OUTPUT_BATCH_MAX_BYTES: usize = 64 * 1024;
+const OUTPUT_BATCH_FLUSH_MS: u64 = 4;
+const OUTPUT_BATCH_INTERACTIVE_FLUSH_MS: u64 = 1;
+const OUTPUT_INTERACTIVE_WINDOW_MS: u64 = 120;
+
+fn next_output_flush_delay(interactive_until: tokio::time::Instant) -> tokio::time::Duration {
+    if tokio::time::Instant::now() < interactive_until {
+        tokio::time::Duration::from_millis(OUTPUT_BATCH_INTERACTIVE_FLUSH_MS)
+    } else {
+        tokio::time::Duration::from_millis(OUTPUT_BATCH_FLUSH_MS)
+    }
+}
+
+fn flush_pending_stdout(pending_output: &mut BytesMut, stdout_tx: &broadcast::Sender<Vec<u8>>) {
+    if pending_output.is_empty() {
+        return;
+    }
+    let bytes = pending_output.split().freeze();
+    let _ = stdout_tx.send(bytes.to_vec());
+}
 
 /// Standard PTY modes matching OpenSSH client defaults.
 /// Ensures the remote PTY is correctly configured for interactive use
@@ -252,6 +274,10 @@ impl SshSession {
         let sid = session_id.clone();
         tokio::spawn(async move {
             debug!("Extended channel handler started for session {}", sid);
+            let mut pending_output = BytesMut::new();
+            let mut output_flush_deadline =
+                std::pin::pin!(tokio::time::sleep(tokio::time::Duration::MAX));
+            let mut interactive_until = tokio::time::Instant::now();
 
             loop {
                 tokio::select! {
@@ -259,12 +285,16 @@ impl SshSession {
                     Some(cmd) = cmd_rx.recv() => {
                         match cmd {
                             SessionCommand::Data(data) => {
+                                interactive_until = tokio::time::Instant::now()
+                                    + tokio::time::Duration::from_millis(OUTPUT_INTERACTIVE_WINDOW_MS);
                                 if let Err(e) = channel.data(&data[..]).await {
                                     error!("Failed to send data to SSH channel: {}", e);
                                     break;
                                 }
                             }
                             SessionCommand::Resize(cols, rows) => {
+                                interactive_until = tokio::time::Instant::now()
+                                    + tokio::time::Duration::from_millis(OUTPUT_INTERACTIVE_WINDOW_MS);
                                 debug!("Sending window_change: {}x{} for session {}", cols, rows, sid);
                                 if let Err(e) = channel.window_change(cols as u32, rows as u32, 0, 0).await {
                                     error!("Failed to resize PTY: {}", e);
@@ -281,16 +311,43 @@ impl SshSession {
                         }
                     }
 
+                    () = &mut output_flush_deadline, if !pending_output.is_empty() => {
+                        flush_pending_stdout(&mut pending_output, &stdout_tx);
+                        output_flush_deadline
+                            .as_mut()
+                            .reset(tokio::time::Instant::now() + tokio::time::Duration::from_secs(86400));
+                    }
+
                     // Handle messages from SSH channel
                     Some(msg) = channel.wait() => {
                         match msg {
                             ChannelMsg::Data { data } => {
-                                let _ = stdout_tx.send(data.to_vec());
+                                pending_output.extend_from_slice(&data);
+                                if pending_output.len() >= OUTPUT_BATCH_MAX_BYTES {
+                                    flush_pending_stdout(&mut pending_output, &stdout_tx);
+                                    output_flush_deadline
+                                        .as_mut()
+                                        .reset(tokio::time::Instant::now() + tokio::time::Duration::from_secs(86400));
+                                } else {
+                                    output_flush_deadline.as_mut().reset(
+                                        tokio::time::Instant::now() + next_output_flush_delay(interactive_until)
+                                    );
+                                }
                             }
                             ChannelMsg::ExtendedData { data, ext } => {
                                 // Extended data (usually stderr)
                                 if ext == 1 {
-                                    let _ = stdout_tx.send(data.to_vec());
+                                    pending_output.extend_from_slice(&data);
+                                    if pending_output.len() >= OUTPUT_BATCH_MAX_BYTES {
+                                        flush_pending_stdout(&mut pending_output, &stdout_tx);
+                                        output_flush_deadline
+                                            .as_mut()
+                                            .reset(tokio::time::Instant::now() + tokio::time::Duration::from_secs(86400));
+                                    } else {
+                                        output_flush_deadline.as_mut().reset(
+                                            tokio::time::Instant::now() + next_output_flush_delay(interactive_until)
+                                        );
+                                    }
                                 }
                             }
                             ChannelMsg::Eof => {
@@ -322,6 +379,8 @@ impl SshSession {
                     }
                 }
             }
+
+            flush_pending_stdout(&mut pending_output, &stdout_tx);
 
             info!("Extended channel handler terminated for session {}", sid);
         });
