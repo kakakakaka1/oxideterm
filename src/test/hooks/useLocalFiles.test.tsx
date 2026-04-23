@@ -3,45 +3,45 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const apiMocks = vi.hoisted(() => ({
   localGetDrives: vi.fn().mockResolvedValue([]),
+  localListDir: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock('@/lib/api', () => ({ api: apiMocks }));
 vi.mock('@tauri-apps/api/path', () => ({ homeDir: vi.fn().mockResolvedValue('/Users/tester') }));
 
-import { mkdir, readDir, remove, rename, stat } from '@tauri-apps/plugin-fs';
+import { mkdir, remove, rename } from '@tauri-apps/plugin-fs';
 import { useLocalFiles } from '@/components/fileManager/hooks/useLocalFiles';
 
 describe('useLocalFiles', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(readDir).mockResolvedValue([]);
-    vi.mocked(stat).mockResolvedValue({ size: 0, mtime: new Date('2026-01-01T00:00:00Z') } as never);
+    apiMocks.localListDir.mockResolvedValue([]);
     vi.mocked(mkdir).mockResolvedValue(undefined as never);
     vi.mocked(remove).mockResolvedValue(undefined as never);
     vi.mocked(rename).mockResolvedValue(undefined as never);
   });
 
-  it('builds Windows child paths with backslashes during refresh', async () => {
-    vi.mocked(readDir).mockResolvedValue([
-      { name: 'notes.txt', isDirectory: false, isSymlink: false },
-    ] as never);
+  it('requests Windows directory listings using normalized paths', async () => {
+    apiMocks.localListDir.mockResolvedValue([
+      { name: 'notes.txt', path: 'C:\\Users\\tester\\notes.txt', file_type: 'File', size: 0, modified: 0, permissions: '' },
+    ]);
 
     renderHook(() => useLocalFiles({ initialPath: 'C:\\Users\\tester' }));
 
     await waitFor(() => {
-      expect(stat).toHaveBeenCalledWith('C:\\Users\\tester\\notes.txt');
+      expect(apiMocks.localListDir).toHaveBeenCalledWith('C:\\Users\\tester');
     });
   });
 
-  it('builds UNC child paths without corrupting the share prefix', async () => {
-    vi.mocked(readDir).mockResolvedValue([
-      { name: 'notes.txt', isDirectory: false, isSymlink: false },
-    ] as never);
+  it('requests UNC directory listings without corrupting the share prefix', async () => {
+    apiMocks.localListDir.mockResolvedValue([
+      { name: 'notes.txt', path: '\\\\server\\share\\docs\\notes.txt', file_type: 'File', size: 0, modified: 0, permissions: '' },
+    ]);
 
     renderHook(() => useLocalFiles({ initialPath: '\\\\server\\share\\docs' }));
 
     await waitFor(() => {
-      expect(stat).toHaveBeenCalledWith('\\\\server\\share\\docs\\notes.txt');
+      expect(apiMocks.localListDir).toHaveBeenCalledWith('\\\\server\\share\\docs');
     });
   });
 
@@ -65,15 +65,15 @@ describe('useLocalFiles', () => {
       rejectLocked = reject;
     });
 
-    vi.mocked(readDir).mockImplementation((targetPath: string | URL) => {
+    apiMocks.localListDir.mockImplementation((targetPath: string) => {
       const resolvedPath = String(targetPath);
       if (resolvedPath === 'C:\\locked') {
-        return lockedPromise as never;
+        return lockedPromise;
       }
       if (resolvedPath === 'C:\\allowed') {
-        return Promise.resolve([{ name: 'ok.txt', isDirectory: false, isSymlink: false }]) as never;
+        return Promise.resolve([{ name: 'ok.txt', path: 'C:\\allowed\\ok.txt', file_type: 'File', size: 0, modified: 0, permissions: '' }]);
       }
-      return Promise.resolve([]) as never;
+      return Promise.resolve([]);
     });
 
     const { result } = renderHook(() => useLocalFiles({ initialPath: 'C:\\locked' }));

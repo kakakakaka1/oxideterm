@@ -11,6 +11,7 @@ import type { FileInfo } from '../types';
 
 export interface UseFileSelectionOptions {
   files: FileInfo[];
+  scopeKey?: string;
 }
 
 export interface UseFileSelectionReturn {
@@ -30,11 +31,12 @@ export interface UseFileSelectionReturn {
   getSelectedNames: () => string[];
 }
 
-export function useFileSelection({ files }: UseFileSelectionOptions): UseFileSelectionReturn {
+export function useFileSelection({ files, scopeKey }: UseFileSelectionOptions): UseFileSelectionReturn {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [lastSelected, setLastSelected] = useState<string | null>(null);
   const selectedRef = useRef(selected);
   const lastSelectedRef = useRef(lastSelected);
+  const scopeKeyRef = useRef(scopeKey);
 
   useEffect(() => {
     selectedRef.current = selected;
@@ -43,6 +45,17 @@ export function useFileSelection({ files }: UseFileSelectionOptions): UseFileSel
   useEffect(() => {
     lastSelectedRef.current = lastSelected;
   }, [lastSelected]);
+
+  useEffect(() => {
+    if (scopeKeyRef.current === scopeKey) {
+      return;
+    }
+    scopeKeyRef.current = scopeKey;
+    selectedRef.current = new Set();
+    lastSelectedRef.current = null;
+    setSelected(new Set());
+    setLastSelected(null);
+  }, [scopeKey]);
 
   useEffect(() => {
     const available = new Set(files.map(file => file.name));

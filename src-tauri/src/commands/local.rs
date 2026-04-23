@@ -675,12 +675,73 @@ pub struct FileMetadata {
     pub mime_type: Option<String>,
 }
 
+/// Directory entry info returned by `local_list_dir`.
+#[derive(Debug, Serialize)]
+pub struct LocalDirEntry {
+    pub name: String,
+    pub path: String,
+    pub file_type: String,
+    pub size: u64,
+    pub modified: u64,
+    pub permissions: String,
+}
+
 /// File chunk response for streaming preview
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FileChunk {
     pub data: Vec<u8>,
     pub eof: bool,
+}
+
+/// Get detailed file metadata
+///
+/// Returns comprehensive file information including size, timestamps, and permissions.
+/// This is called only when entering preview mode, not during directory listing.
+#[tauri::command]
+pub async fn local_list_dir(path: String) -> Result<Vec<LocalDirEntry>, String> {
+    use std::fs;
+    use std::time::UNIX_EPOCH;
+
+    let mut entries = Vec::new();
+    let dir = fs::read_dir(&path).map_err(|e| format!("Failed to read directory: {}", e))?;
+
+    for entry in dir {
+        let entry = entry.map_err(|e| format!("Failed to read directory entry: {}", e))?;
+        let entry_path = entry.path();
+        let name = entry.file_name().to_string_lossy().to_string();
+
+        let symlink_metadata = fs::symlink_metadata(&entry_path)
+            .map_err(|e| format!("Failed to get symlink metadata for {}: {}", entry_path.display(), e))?;
+        let metadata = fs::metadata(&entry_path).unwrap_or_else(|_| symlink_metadata.clone());
+
+        let is_symlink = symlink_metadata.file_type().is_symlink();
+        let file_type = if metadata.is_dir() {
+            "Directory"
+        } else if is_symlink {
+            "Symlink"
+        } else {
+            "File"
+        };
+
+        let modified = metadata
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+
+        entries.push(LocalDirEntry {
+            name,
+            path: entry_path.to_string_lossy().to_string(),
+            file_type: file_type.to_string(),
+            size: metadata.len(),
+            modified,
+            permissions: String::new(),
+        });
+    }
+
+    Ok(entries)
 }
 
 /// Get detailed file metadata

@@ -531,6 +531,7 @@ pub fn run() {
         commands::local_list_background,
         commands::local_check_child_processes,
         commands::local_get_drives,
+        commands::local_list_dir,
         commands::local_get_file_metadata,
         commands::local_read_file_range,
         commands::local_calculate_checksum,

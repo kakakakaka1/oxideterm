@@ -35,6 +35,7 @@ export interface UseFileClipboardReturn {
   copy: (files: FileInfo[], sourcePath: string) => void;
   cut: (files: FileInfo[], sourcePath: string) => void;
   paste: (destPath: string) => Promise<void>;
+  duplicate: (files: FileInfo[], destPath: string) => Promise<void>;
   clear: () => void;
 }
 
@@ -65,46 +66,6 @@ export function useFileClipboard(options: UseFileClipboardOptions = {}): UseFile
     setClipboard(null);
   }, []);
 
-  // Count total files recursively (for progress tracking)
-  // MAX_COUNT_DEPTH prevents unbounded recursion; visited detects symlink cycles.
-  const MAX_COUNT_DEPTH = 20;
-
-  const countFiles = async (files: FileInfo[]): Promise<number> => {
-    const visited = new Set<string>();
-    let count = 0;
-    for (const file of files) {
-      if (file.file_type === 'Directory') {
-        count += await countDirFiles(file.path, 0, visited);
-      } else {
-        count++;
-      }
-    }
-    return count;
-  };
-
-  const countDirFiles = async (dirPath: string, depth: number, visited: Set<string>): Promise<number> => {
-    if (depth >= MAX_COUNT_DEPTH || visited.has(dirPath)) {
-      // Estimate 1 for directories too deep or already visited (symlink cycle)
-      return 1;
-    }
-    visited.add(dirPath);
-    let count = 0;
-    try {
-      const entries = await readDir(dirPath);
-      for (const entry of entries) {
-        if (entry.isDirectory && entry.isSymlink !== true) {
-          count += await countDirFiles(joinLocalPath(dirPath, entry.name), depth + 1, visited);
-        } else {
-          count++;
-        }
-      }
-    } catch {
-      // If we can't read, count as 1 to not block progress
-      count = 1;
-    }
-    return count;
-  };
-
   // Mutable progress tracker shared across a single paste operation.
   // emitProgress throttles onProgress calls to at most once per PROGRESS_THROTTLE_MS
   // to avoid a full-pane rerender on every copied file.
@@ -130,20 +91,26 @@ export function useFileClipboard(options: UseFileClipboardOptions = {}): UseFile
   const copyDirectory = async (
     srcPath: string,
     destPath: string,
+    dirName: string,
     tracker: { done: number; total: number; fileName: string; lastEmit: number },
   ): Promise<void> => {
     // Create destination directory
-    await mkdir(destPath, { recursive: true });
+    await mkdir(destPath);
+    tracker.done++;
+    tracker.fileName = dirName;
+    emitProgress(tracker);
     
     // Read source directory contents
     const entries = await readDir(srcPath);
+    tracker.total += entries.length;
+    emitProgress(tracker);
     
     for (const entry of entries) {
       const srcChildPath = joinLocalPath(srcPath, entry.name);
       const destChildPath = joinLocalPath(destPath, entry.name);
       
       if (entry.isDirectory && entry.isSymlink !== true) {
-        await copyDirectory(srcChildPath, destChildPath, tracker);
+        await copyDirectory(srcChildPath, destChildPath, entry.name, tracker);
       } else {
         await copyFile(srcChildPath, destChildPath);
         tracker.done++;
@@ -177,11 +144,11 @@ export function useFileClipboard(options: UseFileClipboardOptions = {}): UseFile
     let destName = name;
 
     while (attempt < MAX_COLLISION_RETRIES) {
-      const destFilePath = joinLocalPath(destDir, destName);
-      try {
+          const destFilePath = joinLocalPath(destDir, destName);
+          try {
         if (isDirectory) {
           if (mode === 'copy') {
-            await copyDirectory(srcPath, destFilePath, tracker);
+            await copyDirectory(srcPath, destFilePath, destName, tracker);
           } else {
             await rename(srcPath, destFilePath);
             tracker.done++;
@@ -217,6 +184,23 @@ export function useFileClipboard(options: UseFileClipboardOptions = {}): UseFile
     throw new Error(`Too many name collisions for ${name}`);
   };
 
+  const cloneWithCollisionHandling = useCallback(async (
+    files: FileInfo[],
+    destPath: string,
+    tracker: { done: number; total: number; fileName: string; lastEmit: number },
+  ): Promise<void> => {
+    for (const file of files) {
+      await copyOrMoveWithRetry(
+        file.path,
+        destPath,
+        file.name,
+        file.file_type === 'Directory',
+        'copy',
+        tracker,
+      );
+    }
+  }, []);
+
   // Paste files from clipboard
   const paste = useCallback(async (destPath: string) => {
     if (!clipboard) return;
@@ -226,11 +210,7 @@ export function useFileClipboard(options: UseFileClipboardOptions = {}): UseFile
     let errorCount = 0;
     let firstError: string | null = null;
 
-    // Count total files for progress (only for copy; move is atomic per top-level item)
-    const totalFiles = mode === 'copy'
-      ? await countFiles(files)
-      : files.length;
-    const tracker = { done: 0, total: totalFiles, fileName: '', lastEmit: 0 };
+    const tracker = { done: 0, total: files.length, fileName: '', lastEmit: 0 };
 
     // Signal progress start (force — always render the initial 0%)
     emitProgress(tracker, true);
@@ -276,7 +256,7 @@ export function useFileClipboard(options: UseFileClipboardOptions = {}): UseFile
     }
 
     // Signal progress end (force — always render the final 100% / dismiss)
-    onProgress?.({ current: totalFiles, total: totalFiles, fileName: '', active: false });
+    onProgress?.({ current: tracker.total, total: tracker.total, fileName: '', active: false });
 
     // Clear clipboard after cut operation
     if (mode === 'cut') {
@@ -295,6 +275,20 @@ export function useFileClipboard(options: UseFileClipboardOptions = {}): UseFile
     }
   }, [clipboard, onSuccess, onError]);
 
+  const duplicate = useCallback(async (files: FileInfo[], destPath: string) => {
+    if (files.length === 0) return;
+
+    const tracker = { done: 0, total: files.length, fileName: '', lastEmit: 0 };
+    emitProgress(tracker, true);
+    try {
+      await cloneWithCollisionHandling(files, destPath, tracker);
+      onProgress?.({ current: tracker.total, total: tracker.total, fileName: '', active: false });
+    } catch (error) {
+      onProgress?.({ current: tracker.done, total: tracker.total, fileName: '', active: false });
+      throw error;
+    }
+  }, [cloneWithCollisionHandling, onProgress]);
+
   return {
     clipboard,
     hasClipboard: clipboard !== null && clipboard.files.length > 0,
@@ -302,6 +296,7 @@ export function useFileClipboard(options: UseFileClipboardOptions = {}): UseFile
     copy,
     cut,
     paste,
+    duplicate,
     clear,
   };
 }

@@ -38,7 +38,7 @@ import type { PasteProgress } from './hooks/useFileClipboard';
 import type { FileInfo, FilePreview, PreviewType, FileMetadata, ArchiveInfo, ChecksumResult, DirStatsResult, DriveInfo } from './types';
 
 // Preview imports
-import { readFile, stat, writeTextFile, copyFile } from '@tauri-apps/plugin-fs';
+import { readFile, stat, writeTextFile } from '@tauri-apps/plugin-fs';
 import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import { platform } from '../../lib/platform';
 import { isWindowsDriveRoot, joinLocalPath, normalizeLocalPath, validateLocalFileName } from './pathUtils';
@@ -147,7 +147,7 @@ export const LocalFileManager: React.FC<LocalFileManagerProps> = ({ className })
   
   // Hooks
   const localFiles = useLocalFiles();
-  const selection = useFileSelection({ files: localFiles.displayFiles });
+  const selection = useFileSelection({ files: localFiles.displayFiles, scopeKey: localFiles.path });
   const bookmarksHook = useBookmarks();
   const [pasteProgress, setPasteProgress] = useState<PasteProgress | null>(null);
   const fileClipboard = useFileClipboard({
@@ -562,24 +562,14 @@ export const LocalFileManager: React.FC<LocalFileManagerProps> = ({ className })
   // Handle duplicate selected files
   const handleDuplicate = useCallback(async (fileNames: string[]) => {
     try {
-      for (const name of fileNames) {
-        const srcPath = joinLocalPath(localFiles.path, name);
-        const ext = name.lastIndexOf('.') > 0 ? name.slice(name.lastIndexOf('.')) : '';
-        const base = ext ? name.slice(0, name.lastIndexOf('.')) : name;
-        let suffix = 0;
-        let destPath = joinLocalPath(localFiles.path, `${base} copy${ext}`);
-        while (await stat(destPath).then(() => true).catch(() => false)) {
-          suffix += 1;
-          destPath = joinLocalPath(localFiles.path, `${base} copy (${suffix})${ext}`);
-        }
-        await copyFile(srcPath, destPath);
-      }
+      const files = localFiles.displayFiles.filter((file) => fileNames.includes(file.name));
+      await fileClipboard.duplicate(files, localFiles.path);
       await localFiles.refresh();
       toastSuccess(t('fileManager.duplicated'), `${fileNames.length}`);
     } catch (err) {
       toastError(t('fileManager.error'), String(err));
     }
-  }, [localFiles, toastSuccess, toastError, t]);
+  }, [fileClipboard, localFiles, toastSuccess, toastError, t]);
 
   // Handle properties dialog
   const handleProperties = useCallback(async (file: FileInfo) => {

@@ -7,7 +7,7 @@
  */
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { readDir, stat, remove, rename as fsRename, mkdir } from '@tauri-apps/plugin-fs';
+import { remove, rename as fsRename, mkdir } from '@tauri-apps/plugin-fs';
 import { homeDir } from '@tauri-apps/api/path';
 import { open } from '@tauri-apps/plugin-dialog';
 import { api } from '../../../lib/api';
@@ -109,53 +109,10 @@ export function useLocalFiles(options: UseLocalFilesOptions = {}): UseLocalFiles
     setError(null);
     
     try {
-      const entries = await readDir(path);
+      const fileList = await api.localListDir(path);
 
       if (refreshRequestId.current !== requestId) {
         return;
-      }
-
-      // Map entries to stat tasks, batched to limit concurrency
-      const BATCH_SIZE = entries.length >= 5000 ? 20 : entries.length >= 1000 ? 30 : 50;
-      const fileList: FileInfo[] = [];
-
-      for (let i = 0; i < entries.length; i += BATCH_SIZE) {
-        const batch = entries.slice(i, i + BATCH_SIZE);
-        const results = await Promise.all(
-          batch.map(async (entry) => {
-            const fullPath = joinLocalPath(path, entry.name);
-            const isDir = entry.isDirectory === true;
-            const isSymlink = entry.isSymlink === true;
-            // Symlinks to directories keep 'Directory' so navigation/sorting works;
-            // only non-directory symlinks get the 'Symlink' type.
-            const fileType: FileInfo['file_type'] = isDir ? 'Directory' : isSymlink ? 'Symlink' : 'File';
-            try {
-              const info = await stat(fullPath);
-              return {
-                name: entry.name,
-                path: fullPath,
-                file_type: fileType,
-                size: info.size || 0,
-                modified: info.mtime ? Math.floor(info.mtime.getTime() / 1000) : 0,
-                permissions: ''
-              } satisfies FileInfo;
-            } catch {
-              return {
-                name: entry.name,
-                path: fullPath,
-                file_type: fileType,
-                size: 0,
-                modified: 0,
-                permissions: ''
-              } satisfies FileInfo;
-            }
-          })
-        );
-        fileList.push(...results);
-
-        if (refreshRequestId.current !== requestId) {
-          return;
-        }
       }
       
       // Initial sort: directories first, then alphabetically

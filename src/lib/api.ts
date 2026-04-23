@@ -2122,6 +2122,14 @@ export const api = {
   },
 
   /**
+   * List local directory entries with metadata in a single backend roundtrip.
+   */
+  localListDir: async (path: string): Promise<import('../components/fileManager/types').FileInfo[]> => {
+    if (USE_MOCK) return [];
+    return invoke('local_list_dir', { path });
+  },
+
+  /**
    * Execute a command locally and capture stdout/stderr (AI tool use).
    */
   localExecCommand: async (command: string, cwd?: string, timeoutSecs?: number, dangerousCommandApproved?: boolean): Promise<import('../types').LocalExecResult> => {

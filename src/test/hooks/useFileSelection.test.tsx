@@ -63,4 +63,28 @@ describe('useFileSelection', () => {
     expect(Array.from(result.current.selected)).toEqual(['keep.txt']);
     expect(result.current.lastSelected).toBeNull();
   });
+
+  it('clears selection when the browsing scope changes even if names overlap', () => {
+    const { result, rerender } = renderHook(
+      ({ items, scopeKey }) => useFileSelection({ files: items, scopeKey }),
+      {
+        initialProps: {
+          items: makeFiles(['README.md', 'other.txt']),
+          scopeKey: '/tmp/project-a',
+        },
+      },
+    );
+
+    act(() => {
+      result.current.select('README.md', false, false);
+    });
+
+    rerender({
+      items: makeFiles(['README.md', 'notes.txt']),
+      scopeKey: '/tmp/project-b',
+    });
+
+    expect(Array.from(result.current.selected)).toEqual([]);
+    expect(result.current.lastSelected).toBeNull();
+  });
 });

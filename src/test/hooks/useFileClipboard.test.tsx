@@ -58,8 +58,30 @@ describe('useFileClipboard', () => {
       await result.current.paste('D:\\dest');
     });
 
-    expect(mkdir).toHaveBeenCalledWith('D:\\dest\\folder', { recursive: true });
+    expect(mkdir).toHaveBeenCalledWith('D:\\dest\\folder');
     expect(copyFile).toHaveBeenCalledWith('C:\\src\\folder\\nested.txt', 'D:\\dest\\folder\\nested.txt');
+  });
+
+  it('duplicates directories through the same recursive copy path used by paste', async () => {
+    const directory = makeFile({ name: 'folder', path: 'C:\\src\\folder', file_type: 'Directory' });
+    vi.mocked(mkdir)
+      .mockRejectedValueOnce(new Error('EEXIST: destination already exists'))
+      .mockResolvedValueOnce(undefined as never);
+    vi.mocked(readDir).mockImplementation(async (path: string | URL) => {
+      if (String(path) === 'C:\\src\\folder') {
+        return [{ name: 'nested.txt', isDirectory: false }] as never;
+      }
+      return [] as never;
+    });
+
+    const { result } = renderHook(() => useFileClipboard());
+
+    await act(async () => {
+      await result.current.duplicate([directory], 'C:\\src');
+    });
+
+    expect(mkdir).toHaveBeenNthCalledWith(2, 'C:\\src\\folder (1)');
+    expect(copyFile).toHaveBeenCalledWith('C:\\src\\folder\\nested.txt', 'C:\\src\\folder (1)\\nested.txt');
   });
 
   it('treats symlinked directories as leaf entries to avoid recursive loops', async () => {
@@ -81,7 +103,7 @@ describe('useFileClipboard', () => {
       await result.current.paste('D:\\dest');
     });
 
-    expect(readDir).toHaveBeenCalledTimes(2);
+    expect(readDir).toHaveBeenCalledTimes(1);
     expect(copyFile).toHaveBeenCalledWith('C:\\src\\folder\\linked-dir', 'D:\\dest\\folder\\linked-dir');
   });
 
