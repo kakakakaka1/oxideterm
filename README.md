@@ -301,6 +301,7 @@ Cross-platform local shell via `portable-pty 0.8`, feature-gated behind `local-t
 |---|---|---|
 | **Cloud Sync** | Encrypted self-hosted sync — upload and import `.oxide` snapshots via WebDAV, HTTP JSON, Dropbox, Git, or S3 | [oxideterm.cloud-sync](https://github.com/AnalyseDeCircuit/oxideterm.cloud-sync) |
 | **Quick Commands** | One-click command execution — save, organize, and run frequently used terminal commands with per-host filtering | [oxideterm.quick-commands](https://github.com/AnalyseDeCircuit/oxideterm.quick-commands) |
+| **Telnet Client** | Native Telnet client for routers, switches, and legacy devices — no external binary needed | [oxideterm.telnet](https://github.com/AnalyseDeCircuit/oxideterm.telnet) |
 
 <details>
 <summary>📸 11 languages in action</summary>

@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import { Slider } from '@/components/ui/slider';
+import { getFontFamily } from '@/lib/fontFamily';
 import { platform } from '@/lib/platform';
 import { TerminalHighlightRulesSection } from '@/components/settings/TerminalHighlightRulesSection';
 import type { AdaptiveRendererMode, CursorStyle, FontFamily, RendererType, TerminalSettings } from '@/store/settingsStore';
@@ -15,30 +16,6 @@ import type { AdaptiveRendererMode, CursorStyle, FontFamily, RendererType, Termi
 type TerminalTabProps = {
     terminal: TerminalSettings;
     updateTerminal: <K extends keyof TerminalSettings>(key: K, value: TerminalSettings[K]) => void;
-};
-
-const getPreviewFontFamily = (terminal: TerminalSettings) => {
-    if (terminal.fontFamily === 'custom' && terminal.customFontFamily) {
-        return terminal.customFontFamily.toLowerCase().includes('monospace')
-            ? terminal.customFontFamily.replace(/,?\s*monospace\s*$/, ', "Maple Mono NF CN (Subset)", monospace')
-            : `${terminal.customFontFamily}, "Maple Mono NF CN (Subset)", monospace`;
-    }
-    switch (terminal.fontFamily) {
-        case 'jetbrains':
-            return '"JetBrainsMono Nerd Font", "JetBrains Mono NF (Subset)", "Maple Mono NF CN (Subset)", monospace';
-        case 'meslo':
-            return '"MesloLGM Nerd Font", "MesloLGM NF (Subset)", "Maple Mono NF CN (Subset)", monospace';
-        case 'maple':
-            return '"Maple Mono NF CN (Subset)", "Maple Mono NF", monospace';
-        case 'cascadia':
-            return '"Cascadia Code NF", "Cascadia Code", "Maple Mono NF CN (Subset)", monospace';
-        case 'consolas':
-            return 'Consolas, "Maple Mono NF CN (Subset)", monospace';
-        case 'menlo':
-            return 'Menlo, Monaco, "Maple Mono NF CN (Subset)", monospace';
-        default:
-            return '"Maple Mono NF CN (Subset)", monospace';
-    }
 };
 
 export const TerminalTab = ({ terminal, updateTerminal }: TerminalTabProps) => {
@@ -111,12 +88,13 @@ export const TerminalTab = ({ terminal, updateTerminal }: TerminalTabProps) => {
                         <div
                             className="text-theme-text leading-relaxed"
                             style={{
-                                fontFamily: getPreviewFontFamily(terminal),
+                                fontFamily: getFontFamily(terminal.fontFamily, terminal.customFontFamily),
                                 fontSize: `${terminal.fontSize}px`,
                                 lineHeight: terminal.lineHeight,
                             }}
                         >
                             <div>ABCDEFG abcdefg 0123456789</div>
+                            <div>Thực thi lệnh chậm - lưu, tổ chức, chạy</div>
                             <div className="text-theme-text-muted">{'-> => == != <= >= {}'}</div>
                             <div className="text-emerald-400">天地玄黄 The quick brown fox</div>
                             <div className="text-amber-400" style={{ letterSpacing: '0.1em' }}>       󰊤  </div>
