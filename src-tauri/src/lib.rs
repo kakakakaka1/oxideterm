@@ -520,6 +520,7 @@ pub fn run() {
         commands::local_list_shells,
         commands::local_get_default_shell,
         commands::local_create_terminal,
+        commands::local_create_telnet_terminal,
         commands::local_close_terminal,
         commands::local_resize_terminal,
         commands::local_list_terminals,

@@ -25,9 +25,10 @@
   - [4.3 contributes.sidebarPanels](#43-contributessidebarpanels)
   - [4.4 contributes.settings](#44-contributessettings)
   - [4.5 contributes.terminalHooks](#45-contributesterminalhooks)
-  - [4.6 contributes.connectionHooks](#46-contributesconnectionhooks)
-  - [4.7 contributes.apiCommands](#47-contributesapicommands)
-  - [4.8 locales](#48-locales)
+  - [4.6 contributes.terminalTransports](#46-contributesterminaltransports)
+  - [4.7 contributes.connectionHooks](#47-contributesconnectionhooks)
+  - [4.8 contributes.apiCommands](#48-contributesapicommands)
+  - [4.9 locales](#49-locales)
 - [5. 插件生命周期](#5-插件生命周期)
   - [5.1 发现 (Discovery)](#51-发现-discovery)
   - [5.2 验证 (Validation)](#52-验证-validation)
@@ -401,6 +402,7 @@ v2 多文件包通过内置的本地 HTTP 文件服务器（`127.0.0.1`，OS 分
     "sidebarPanels": [...],
     "settings": [...],
     "terminalHooks": {...},
+    "terminalTransports": ["telnet"],
     "connectionHooks": [...],
     "apiCommands": [...]
   }
@@ -674,7 +676,23 @@ export function deactivate() {
 - 用 `+` 连接：`ctrl+shift+d`
 - 内部会对修饰键排序归一化
 
-### 4.6 contributes.connectionHooks
+### 4.6 contributes.terminalTransports
+
+声明插件需要打开的额外终端 transport。目前支持：
+
+```json
+"terminalTransports": ["telnet"]
+```
+
+| 值 | 说明 |
+|----|------|
+| `"telnet"` | 允许插件调用 `ctx.terminal.openTelnet()` 打开 Telnet 终端标签 |
+
+Telnet 是明文协议，适合老设备、交换机、串口服务器、实验环境等兼容性场景。插件应在自己的 UI 中向用户明确提示该连接不会提供 SSH 级别的加密和主机身份校验。
+
+未声明 `terminalTransports: ["telnet"]` 的插件调用 `ctx.terminal.openTelnet()` 会抛出异常。
+
+### 4.7 contributes.connectionHooks
 
 声明插件关注的连接生命周期事件。
 
@@ -686,7 +704,7 @@ export function deactivate() {
 
 > 注意：这个字段当前仅作为文档声明，实际事件订阅通过 `ctx.events.onConnect()` 等方法完成。
 
-### 4.7 contributes.apiCommands
+### 4.8 contributes.apiCommands
 
 声明插件需要调用的 Tauri 后端命令白名单。
 
@@ -739,7 +757,7 @@ export function deactivate() {
 
 > `plugin_http_request` 的请求体和响应体都使用 base64 传输，便于插件安全地处理非文本载荷。使用前仍需在 `contributes.apiCommands` 中显式声明该命令。
 
-### 4.8 locales
+### 4.9 locales
 
 指向 i18n 翻译文件目录的相对路径。
 
@@ -1553,6 +1571,39 @@ terminal.clearBuffer(nodeId: string): Promise<void>
 ```javascript
 await ctx.terminal.clearBuffer(nodeId);
 ```
+
+#### `openTelnet(options)` <small>v3</small>
+
+```typescript
+terminal.openTelnet(options: {
+  host: string;
+  port?: number;
+  cols?: number;
+  rows?: number;
+}): Promise<{
+  sessionId: string;
+  info: LocalTerminalInfo;
+}>
+```
+
+打开一个 Telnet 终端标签。插件必须先在 manifest 中声明 `contributes.terminalTransports: ["telnet"]`，否则调用会抛出异常。
+
+```json
+{
+  "contributes": {
+    "terminalTransports": ["telnet"]
+  }
+}
+```
+
+```javascript
+await ctx.terminal.openTelnet({
+  host: '192.168.1.1',
+  port: 23,
+});
+```
+
+Telnet transport 由 Rust core 负责 TCP 连接、Telnet IAC 协商、NAWS resize 和终端事件转发；插件只负责提供入口和 UI。Telnet 是明文协议，插件应在连接前明确提示用户它不提供 SSH 的加密和主机身份校验。
 
 ---
 
@@ -5241,6 +5292,10 @@ declare global {
               }
             }
           }
+        },
+        "terminalTransports": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["telnet"] }
         },
         "connectionHooks": {
           "type": "array",

@@ -2032,6 +2032,28 @@ export const api = {
   },
 
   /**
+   * Create a Telnet terminal session.
+   */
+  localCreateTelnetTerminal: async (request: import('../types').CreateTelnetTerminalRequest): Promise<import('../types').CreateLocalTerminalResponse> => {
+    if (USE_MOCK) {
+      const sessionId = crypto.randomUUID();
+      const port = request.port || 23;
+      return {
+        sessionId,
+        info: {
+          id: sessionId,
+          shell: { id: 'telnet', label: `Telnet ${request.host}:${port}`, path: 'telnet', args: [] },
+          cols: request.cols || 80,
+          rows: request.rows || 24,
+          running: true,
+          transport: { type: 'telnet', host: request.host, port },
+        },
+      };
+    }
+    return invoke('local_create_telnet_terminal', { request });
+  },
+
+  /**
    * Close a local terminal session
    */
   localCloseTerminal: async (sessionId: string): Promise<void> => {

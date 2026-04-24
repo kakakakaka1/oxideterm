@@ -10,6 +10,7 @@
 //! - `local_list_shells` - 列出可用的 shell
 //! - `local_get_default_shell` - 获取默认 shell
 //! - `local_create_terminal` - 创建本地终端会话
+//! - `local_create_telnet_terminal` - 创建 Telnet 终端会话
 //! - `local_close_terminal` - 关闭本地终端会话
 //! - `local_resize_terminal` - 调整终端大小
 //! - `local_list_terminals` - 列出所有本地终端
@@ -18,6 +19,7 @@
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
+use tokio::sync::mpsc;
 
 use crate::local::registry::LocalTerminalRegistry;
 use crate::local::session::{BackgroundSessionInfo, LocalTerminalInfo, SessionEvent};
@@ -78,6 +80,10 @@ fn default_load_profile() -> bool {
     true
 }
 
+fn default_telnet_port() -> u16 {
+    23
+}
+
 /// Response from creating a local terminal
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -86,6 +92,19 @@ pub struct CreateLocalTerminalResponse {
     pub session_id: String,
     /// Session info
     pub info: LocalTerminalInfo,
+}
+
+/// Request to create a Telnet terminal
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateTelnetTerminalRequest {
+    pub host: String,
+    #[serde(default = "default_telnet_port")]
+    pub port: u16,
+    #[serde(default = "default_cols")]
+    pub cols: u16,
+    #[serde(default = "default_rows")]
+    pub rows: u16,
 }
 
 /// Event emitted when local terminal outputs data
@@ -102,6 +121,40 @@ pub struct LocalTerminalDataEvent {
 pub struct LocalTerminalClosedEvent {
     pub session_id: String,
     pub exit_code: Option<i32>,
+}
+
+fn spawn_local_terminal_event_forwarder(
+    app: AppHandle,
+    session_id: String,
+    mut event_rx: mpsc::Receiver<SessionEvent>,
+) {
+    tokio::spawn(async move {
+        let sid = session_id;
+        while let Some(event) = event_rx.recv().await {
+            match event {
+                SessionEvent::Data(data) => {
+                    let event = LocalTerminalDataEvent {
+                        session_id: sid.clone(),
+                        data,
+                    };
+                    if let Err(e) = app.emit(&format!("local-terminal-data:{}", sid), &event) {
+                        tracing::error!("Failed to emit terminal data event: {}", e);
+                    }
+                }
+                SessionEvent::Closed(exit_code) => {
+                    let event = LocalTerminalClosedEvent {
+                        session_id: sid.clone(),
+                        exit_code,
+                    };
+                    if let Err(e) = app.emit(&format!("local-terminal-closed:{}", sid), &event) {
+                        tracing::error!("Failed to emit terminal closed event: {}", e);
+                    }
+                    break;
+                }
+            }
+        }
+        tracing::debug!("Event forwarder for session {} exited", sid);
+    });
 }
 
 /// List available shells on the system
@@ -183,7 +236,7 @@ pub async fn local_create_terminal(
     let cwd = request.cwd.map(std::path::PathBuf::from);
 
     // Create session through registry with options
-    let (session_id, mut event_rx) = state
+    let (session_id, event_rx) = state
         .registry
         .create_session_with_options(
             shell,
@@ -204,41 +257,46 @@ pub async fn local_create_terminal(
         .await
         .ok_or_else(|| "Session not found after creation".to_string())?;
 
-    // Spawn task to forward events to frontend
-    let app_handle = app.clone();
-    let sid = session_id.clone();
-    tokio::spawn(async move {
-        while let Some(event) = event_rx.recv().await {
-            match event {
-                SessionEvent::Data(data) => {
-                    let event = LocalTerminalDataEvent {
-                        session_id: sid.clone(),
-                        data,
-                    };
-                    if let Err(e) = app_handle.emit(&format!("local-terminal-data:{}", sid), &event)
-                    {
-                        tracing::error!("Failed to emit terminal data event: {}", e);
-                    }
-                }
-                SessionEvent::Closed(exit_code) => {
-                    let event = LocalTerminalClosedEvent {
-                        session_id: sid.clone(),
-                        exit_code,
-                    };
-                    if let Err(e) =
-                        app_handle.emit(&format!("local-terminal-closed:{}", sid), &event)
-                    {
-                        tracing::error!("Failed to emit terminal closed event: {}", e);
-                    }
-                    break;
-                }
-            }
-        }
-        tracing::debug!("Event forwarder for session {} exited", sid);
-    });
+    spawn_local_terminal_event_forwarder(app, session_id.clone(), event_rx);
 
     tracing::info!("Created local terminal session: {}", session_id);
 
+    Ok(CreateLocalTerminalResponse { session_id, info })
+}
+
+/// Create a new Telnet terminal session
+#[tauri::command]
+pub async fn local_create_telnet_terminal(
+    request: CreateTelnetTerminalRequest,
+    state: State<'_, Arc<LocalTerminalState>>,
+    app: AppHandle,
+) -> Result<CreateLocalTerminalResponse, String> {
+    let host = request.host.trim().to_string();
+    if host.is_empty() {
+        return Err("Telnet host cannot be empty".to_string());
+    }
+
+    tracing::info!(
+        "local_create_telnet_terminal called with target {}:{}",
+        host,
+        request.port
+    );
+
+    let (session_id, event_rx) = state
+        .registry
+        .create_telnet_session(host, request.port, request.cols, request.rows)
+        .await
+        .map_err(|e| format!("Failed to create Telnet terminal: {}", e))?;
+
+    let info = state
+        .registry
+        .get_session_info(&session_id)
+        .await
+        .ok_or_else(|| "Session not found after creation".to_string())?;
+
+    spawn_local_terminal_event_forwarder(app, session_id.clone(), event_rx);
+
+    tracing::info!("Created Telnet terminal session: {}", session_id);
     Ok(CreateLocalTerminalResponse { session_id, info })
 }
 
@@ -711,8 +769,13 @@ pub async fn local_list_dir(path: String) -> Result<Vec<LocalDirEntry>, String> 
         let entry_path = entry.path();
         let name = entry.file_name().to_string_lossy().to_string();
 
-        let symlink_metadata = fs::symlink_metadata(&entry_path)
-            .map_err(|e| format!("Failed to get symlink metadata for {}: {}", entry_path.display(), e))?;
+        let symlink_metadata = fs::symlink_metadata(&entry_path).map_err(|e| {
+            format!(
+                "Failed to get symlink metadata for {}: {}",
+                entry_path.display(),
+                e
+            )
+        })?;
         let metadata = fs::metadata(&entry_path).unwrap_or_else(|_| symlink_metadata.clone());
 
         let is_symlink = symlink_metadata.file_type().is_symlink();

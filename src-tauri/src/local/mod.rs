@@ -10,6 +10,7 @@ pub mod pty;
 pub mod registry;
 pub mod session;
 pub mod shell;
+pub mod telnet;
 
 pub use pty::{PtyConfig, PtyError, PtyHandle};
 pub use registry::LocalTerminalRegistry;

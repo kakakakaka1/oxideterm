@@ -69,6 +69,8 @@ export type PluginTerminalHooksDef = {
 
 export type ConnectionHookType = 'onConnect' | 'onDisconnect' | 'onReconnect' | 'onLinkDown';
 
+export type PluginTerminalTransportType = 'telnet';
+
 export type PluginManifest = {
   id: string;
   name: string;
@@ -89,6 +91,7 @@ export type PluginManifest = {
     sidebarPanels?: PluginSidebarDef[];
     settings?: PluginSettingDef[];
     terminalHooks?: PluginTerminalHooksDef;
+    terminalTransports?: PluginTerminalTransportType[];
     connectionHooks?: ConnectionHookType[];
     apiCommands?: string[];
   };
@@ -593,6 +596,18 @@ export type PluginContext = Readonly<{
     getScrollBuffer(nodeId: string, startLine: number, count: number): Promise<ReadonlyArray<Readonly<{ text: string; lineNumber: number }>>>;
     getBufferSize(nodeId: string): Promise<Readonly<{ currentLines: number; totalLines: number; maxLines: number }>>;
     clearBuffer(nodeId: string): Promise<void>;
+    openTelnet(options: { host: string; port?: number; cols?: number; rows?: number }): Promise<{
+      sessionId: string;
+      info: {
+        id: string;
+        shell: { id: string; label: string; path: string; args: string[] };
+        cols: number;
+        rows: number;
+        running: boolean;
+        detached?: boolean;
+        transport?: { type?: 'pty' } | { type: 'telnet'; host: string; port: number };
+      };
+    }>;
   };
 
   /** Plugin-scoped settings */

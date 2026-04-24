@@ -9,6 +9,7 @@
  */
 
 import type {
+  CreateLocalTerminalResponse,
   ConnectionInfo,
   ExportPreflightResult,
   ImportPreview,
@@ -57,6 +58,8 @@ export type PluginTerminalHooksDef = {
 /** Connection lifecycle hooks the plugin subscribes to */
 export type ConnectionHookType = 'onConnect' | 'onDisconnect' | 'onReconnect' | 'onLinkDown';
 
+export type PluginTerminalTransportType = 'telnet';
+
 /** The plugin.json manifest loaded from disk */
 export type PluginManifest = {
   id: string;
@@ -88,6 +91,7 @@ export type PluginManifest = {
     sidebarPanels?: PluginSidebarDef[];
     settings?: PluginSettingDef[];
     terminalHooks?: PluginTerminalHooksDef;
+    terminalTransports?: PluginTerminalTransportType[];
     connectionHooks?: ConnectionHookType[];
     apiCommands?: string[];               // Tauri command whitelist
   };
@@ -283,6 +287,8 @@ export type PluginTerminalAPI = {
   getBufferSize(nodeId: string): Promise<Readonly<{ currentLines: number; totalLines: number; maxLines: number }>>;
   /** v3: Clear terminal buffer */
   clearBuffer(nodeId: string): Promise<void>;
+  /** Open a Telnet terminal tab. Requires contributes.terminalTransports: ["telnet"]. */
+  openTelnet(options: { host: string; port?: number; cols?: number; rows?: number }): Promise<CreateLocalTerminalResponse>;
 };
 
 /** ctx.settings — plugin-scoped settings */

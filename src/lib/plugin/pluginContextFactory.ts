@@ -780,6 +780,7 @@ export function buildPluginContext(manifest: PluginManifest): PluginContext {
   const declaredShortcuts = new Map(
     (manifest.contributes?.terminalHooks?.shortcuts ?? []).map((s) => [s.command, s.key]),
   );
+  const declaredTerminalTransports = new Set(manifest.contributes?.terminalTransports ?? []);
 
   const terminal: PluginTerminalAPI = Object.freeze({
     registerInputInterceptor(handler: InputInterceptor) {
@@ -940,6 +941,27 @@ export function buildPluginContext(manifest: PluginManifest): PluginContext {
       const sessionId = resolveNodeToFirstSession(nodeId);
       if (!sessionId) return;
       await invoke('clear_buffer', { sessionId });
+    },
+    async openTelnet(options) {
+      if (!declaredTerminalTransports.has('telnet')) {
+        throw new Error('Telnet transport not declared in manifest contributes.terminalTransports');
+      }
+      const host = options.host.trim();
+      if (!host) {
+        throw new Error('Telnet host cannot be empty');
+      }
+      const response = await useLocalTerminalStore.getState().createTelnetTerminal({
+        host,
+        port: options.port,
+        cols: options.cols,
+        rows: options.rows,
+      });
+      useAppStore.getState().createTab('local_terminal', response.id);
+      const info = useLocalTerminalStore.getState().getTerminal(response.id);
+      return {
+        sessionId: response.id,
+        info: info ?? response,
+      };
     },
   });
 

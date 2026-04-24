@@ -11,6 +11,11 @@ const getTerminalSelectionMock = vi.hoisted(() => vi.fn(() => 'selected text'));
 const appStoreState = vi.hoisted(() => ({
   tabs: [] as Array<Record<string, unknown>>,
   activeTabId: null as string | null,
+  createTab: vi.fn((type: string, sessionId?: string) => {
+    const id = `tab-${appStoreState.tabs.length + 1}`;
+    appStoreState.tabs.push({ id, type, sessionId });
+    appStoreState.activeTabId = id;
+  }),
   sidebarCollapsed: false,
   connections: new Map([
     ['conn-1', { id: 'conn-1', host: 'host', port: 22, username: 'user', state: 'active', refCount: 1, keepAlive: false, createdAt: '1', lastActive: '2', terminalIds: ['sess-1'] }],
@@ -107,6 +112,29 @@ function createMockStore<T extends object>(state: T) {
 
 const appStoreMock = vi.hoisted(() => createMockStore(appStoreState));
 const sessionTreeStoreMock = vi.hoisted(() => createMockStore(sessionTreeState));
+const localTerminalState = vi.hoisted(() => ({
+  terminals: new Map<string, unknown>(),
+  createTelnetTerminal: vi.fn(async (request: { host: string; port?: number }) => {
+    const id = `telnet-${request.host}-${request.port ?? 23}`;
+    const info = {
+      id,
+      shell: {
+        id: 'telnet',
+        label: `Telnet ${request.host}:${request.port ?? 23}`,
+        path: 'telnet',
+        args: [],
+      },
+      cols: 80,
+      rows: 24,
+      running: true,
+      transport: { type: 'telnet', host: request.host, port: request.port ?? 23 },
+    };
+    localTerminalState.terminals.set(id, info);
+    return info;
+  }),
+  getTerminal: vi.fn((sessionId: string) => localTerminalState.terminals.get(sessionId)),
+}));
+const localTerminalStoreMock = vi.hoisted(() => createMockStore(localTerminalState));
 const settingsStoreState = vi.hoisted(() => ({
   settings: {
     terminal: { theme: 'default', fontSize: 14 },
@@ -168,6 +196,7 @@ const i18nManagerMock = vi.hoisted(() => ({ t: vi.fn((key: string) => key), getL
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: invokeMock }));
 vi.mock('@/store/appStore', () => ({ useAppStore: appStoreMock }));
+vi.mock('@/store/localTerminalStore', () => ({ useLocalTerminalStore: localTerminalStoreMock }));
 vi.mock('@/store/sessionTreeStore', () => ({ useSessionTreeStore: sessionTreeStoreMock }));
 vi.mock('@/lib/plugin/pluginStorage', () => ({ createPluginStorage: vi.fn(() => storageManagerMock) }));
 vi.mock('@/lib/plugin/pluginEventBridge', () => ({ pluginEventBridge: pluginEventBridgeMock }));
@@ -261,6 +290,10 @@ describe('pluginContextFactory', () => {
     resetPluginStore();
     appStoreState.tabs = [];
     appStoreState.activeTabId = null;
+    appStoreState.createTab.mockClear();
+    localTerminalState.terminals = new Map();
+    localTerminalState.createTelnetTerminal.mockClear();
+    localTerminalState.getTerminal.mockClear();
     appStoreState.savedConnections = [
       {
         id: 'saved-1',
@@ -315,6 +348,31 @@ describe('pluginContextFactory', () => {
 
     disposable.dispose();
     expect(usePluginStore.getState().tabViews.has('plugin.example:inspector')).toBe(false);
+  });
+
+  it('opens Telnet terminals only when the transport is declared', async () => {
+    const baseContext = buildPluginContext(manifest());
+
+    await expect(baseContext.terminal.openTelnet({ host: 'router.local' })).rejects.toThrow(
+      'Telnet transport not declared',
+    );
+
+    const telnetManifest = manifest();
+    telnetManifest.contributes = {
+      ...telnetManifest.contributes,
+      terminalTransports: ['telnet'],
+    };
+    const context = buildPluginContext(telnetManifest);
+    const response = await context.terminal.openTelnet({ host: 'router.local', port: 2323 });
+
+    expect(localTerminalState.createTelnetTerminal).toHaveBeenCalledWith({
+      host: 'router.local',
+      port: 2323,
+      cols: undefined,
+      rows: undefined,
+    });
+    expect(response.sessionId).toBe('telnet-router.local-2323');
+    expect(appStoreState.createTab).toHaveBeenCalledWith('local_terminal', 'telnet-router.local-2323');
   });
 
   it('namespaces custom events and stops receiving them after dispose', () => {

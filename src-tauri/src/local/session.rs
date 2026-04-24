@@ -21,6 +21,7 @@ use uuid::Uuid;
 
 use crate::local::pty::{PtyConfig, PtyError, PtyHandle};
 use crate::local::shell::ShellInfo;
+use crate::local::telnet::{self, TelnetSessionHandle};
 use crate::session::scroll_buffer::{ScrollBuffer, TerminalLine};
 
 /// Error type for session operations
@@ -46,6 +47,9 @@ pub enum SessionError {
 
     #[error("Channel send error")]
     ChannelError,
+
+    #[error("Telnet error: {0}")]
+    TelnetError(#[from] telnet::TelnetError),
 }
 
 /// Events emitted by a local terminal session
@@ -55,6 +59,14 @@ pub enum SessionEvent {
     Data(Vec<u8>),
     /// Session has closed
     Closed(Option<i32>), // exit code if available
+}
+
+/// Backing transport for a terminal session.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum LocalTerminalTransport {
+    Pty,
+    Telnet { host: String, port: u16 },
 }
 
 /// Maximum lines in the background scroll buffer (lightweight — not full 30K)
@@ -74,16 +86,22 @@ pub struct LocalTerminalSession {
     pub(crate) rows: u16,
     /// The PTY instance (wrapped for thread safety)
     pty: Option<Arc<PtyHandle>>,
+    /// Telnet transport handle, when this session is network-backed.
+    telnet: Option<TelnetSessionHandle>,
     /// Whether the session is running
     running: Arc<AtomicBool>,
     /// Channel to send data to the PTY
     pub(crate) input_tx: Option<mpsc::Sender<Vec<u8>>>,
+    /// Channel to notify network transports about terminal size changes.
+    pub(crate) resize_tx: Option<mpsc::Sender<(u16, u16)>>,
     /// Task handle for the data pump
     _data_pump_handle: Option<tokio::task::JoinHandle<()>>,
     /// Scroll buffer — stores recent output for replay on reattach
     pub scroll_buffer: Arc<ScrollBuffer>,
     /// Broadcast channel — all output bytes go here for any subscriber
     pub output_tx: broadcast::Sender<Vec<u8>>,
+    /// Backing transport metadata for UI and plugin consumers.
+    pub transport: LocalTerminalTransport,
     /// Creation timestamp for CLI/GUI ordering hints
     pub created_at: chrono::DateTime<chrono::Utc>,
     /// Whether this session is detached (running in background)
@@ -108,16 +126,34 @@ impl LocalTerminalSession {
             cols,
             rows,
             pty: None,
+            telnet: None,
             running: Arc::new(AtomicBool::new(false)),
             input_tx: None,
+            resize_tx: None,
             _data_pump_handle: None,
             scroll_buffer: Arc::new(ScrollBuffer::with_capacity(BACKGROUND_BUFFER_MAX_LINES)),
             output_tx,
+            transport: LocalTerminalTransport::Pty,
             created_at: chrono::Utc::now(),
             detached: AtomicBool::new(false),
             detached_at: std::sync::Mutex::new(None),
             detach_cancel: std::sync::Mutex::new(None),
         }
+    }
+
+    /// Create a network-backed Telnet terminal session.
+    pub fn new_telnet(host: String, port: u16, cols: u16, rows: u16) -> Self {
+        let mut session = Self::new(
+            ShellInfo::new(
+                "telnet".to_string(),
+                format!("Telnet {}:{}", host, port),
+                std::path::PathBuf::from("telnet"),
+            ),
+            cols,
+            rows,
+        );
+        session.transport = LocalTerminalTransport::Telnet { host, port };
+        session
     }
 
     /// Start the session with a PTY
@@ -292,6 +328,72 @@ impl LocalTerminalSession {
         Ok(())
     }
 
+    /// Start the session with a Telnet TCP transport.
+    pub async fn start_telnet(
+        &mut self,
+        host: String,
+        port: u16,
+        event_tx: mpsc::Sender<SessionEvent>,
+    ) -> Result<(), SessionError> {
+        let (telnet_output_tx, mut telnet_output_rx) = mpsc::channel::<Vec<u8>>(256);
+        let (telnet_closed_tx, mut telnet_closed_rx) = mpsc::channel::<()>(1);
+
+        let telnet = telnet::start_telnet_session(
+            host.clone(),
+            port,
+            self.cols,
+            self.rows,
+            telnet_output_tx,
+            telnet_closed_tx,
+        )
+        .await?;
+
+        self.input_tx = Some(telnet.input_tx.clone());
+        self.resize_tx = Some(telnet.resize_tx.clone());
+        self.running.store(true, Ordering::Release);
+
+        let running = self.running.clone();
+        let scroll_buffer = self.scroll_buffer.clone();
+        let output_tx = self.output_tx.clone();
+        let session_id = self.id.clone();
+        let frontend_event_tx = event_tx.clone();
+
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    maybe_data = telnet_output_rx.recv() => {
+                        let Some(data) = maybe_data else { break };
+                        if let Ok(text) = String::from_utf8(data.clone()) {
+                            for line in text.lines() {
+                                scroll_buffer.append(TerminalLine::new(line.to_string())).await;
+                            }
+                        }
+                        let _ = output_tx.send(data.clone());
+                        if frontend_event_tx.send(SessionEvent::Data(data)).await.is_err() {
+                            break;
+                        }
+                    }
+                    _ = telnet_closed_rx.recv() => {
+                        break;
+                    }
+                }
+            }
+
+            running.store(false, Ordering::Release);
+            let _ = event_tx.send(SessionEvent::Closed(None)).await;
+            tracing::info!("Telnet terminal session {} closed", session_id);
+        });
+
+        self.telnet = Some(telnet);
+        tracing::info!(
+            "Telnet terminal session {} connected to {}:{}",
+            self.id,
+            host,
+            port
+        );
+        Ok(())
+    }
+
     /// Write data to the session (input from frontend)
     pub async fn write(&self, data: &[u8]) -> Result<(), SessionError> {
         if !self.running.load(Ordering::Acquire) {
@@ -313,6 +415,8 @@ impl LocalTerminalSession {
 
         if let Some(pty) = &self.pty {
             pty.resize(cols, rows)?;
+        } else if let Some(tx) = &self.resize_tx {
+            let _ = tx.try_send((cols, rows));
         }
         Ok(())
     }
@@ -338,6 +442,7 @@ impl LocalTerminalSession {
             running: self.is_running(),
             created_at: self.created_at.to_rfc3339(),
             detached: self.is_detached(),
+            transport: self.transport.clone(),
         }
     }
 
@@ -412,8 +517,14 @@ impl LocalTerminalSession {
             let _ = pty.kill_process_group();
         }
 
+        if let Some(telnet) = self.telnet.take() {
+            let _ = telnet.close_tx.send(());
+            telnet.task.abort();
+        }
+
         // Drop input channel
         self.input_tx = None;
+        self.resize_tx = None;
     }
 }
 
@@ -475,6 +586,13 @@ pub struct LocalTerminalInfo {
     /// Whether this session is detached (running in background)
     #[serde(default)]
     pub detached: bool,
+    /// Backing transport for this terminal session.
+    #[serde(default = "default_transport")]
+    pub transport: LocalTerminalTransport,
+}
+
+fn default_transport() -> LocalTerminalTransport {
+    LocalTerminalTransport::Pty
 }
 
 /// Find a safe UTF-8 boundary in a byte slice.

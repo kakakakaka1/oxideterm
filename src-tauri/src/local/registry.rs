@@ -106,6 +106,39 @@ impl LocalTerminalRegistry {
         Ok((session_id, event_rx))
     }
 
+    /// Create a new Telnet-backed terminal session.
+    pub async fn create_telnet_session(
+        &self,
+        host: String,
+        port: u16,
+        cols: u16,
+        rows: u16,
+    ) -> Result<(String, mpsc::Receiver<SessionEvent>), SessionError> {
+        let mut session = LocalTerminalSession::new_telnet(host.clone(), port, cols, rows);
+        let session_id = session.id.clone();
+        let (event_tx, event_rx) = mpsc::channel::<SessionEvent>(256);
+
+        {
+            let mut channels = self.event_channels.write().await;
+            channels.insert(session_id.clone(), event_tx.clone());
+        }
+
+        session.start_telnet(host, port, event_tx).await?;
+
+        {
+            let mut sessions = self.sessions.write().await;
+            sessions.insert(session_id.clone(), session);
+        }
+
+        tracing::info!(
+            "Created Telnet terminal session: {}, total sessions: {}",
+            session_id,
+            self.sessions.read().await.len()
+        );
+
+        Ok((session_id, event_rx))
+    }
+
     /// Get session info
     pub async fn get_session_info(&self, session_id: &str) -> Option<LocalTerminalInfo> {
         let sessions = self.sessions.read().await;

@@ -1456,7 +1456,13 @@ export interface LocalTerminalInfo {
   running: boolean;
   /** Whether this session is detached (running in background) */
   detached?: boolean;
+  /** Backing transport type */
+  transport?: LocalTerminalTransport;
 }
+
+export type LocalTerminalTransport =
+  | { type?: 'pty' }
+  | { type: 'telnet'; host: string; port: number };
 
 /**
  * Background (detached) session info
@@ -1496,6 +1502,16 @@ export interface CreateLocalTerminalRequest {
   ohMyPoshEnabled?: boolean;
   /** Path to Oh My Posh theme file */
   ohMyPoshTheme?: string;
+}
+
+/**
+ * Request to create a Telnet terminal
+ */
+export interface CreateTelnetTerminalRequest {
+  host: string;
+  port?: number;
+  cols?: number;
+  rows?: number;
 }
 
 /**

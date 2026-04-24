@@ -52,6 +52,8 @@ export type PluginTerminalHooksDef = {
 
 export type ConnectionHookType = 'onConnect' | 'onDisconnect' | 'onReconnect' | 'onLinkDown';
 
+export type PluginTerminalTransportType = 'telnet';
+
 /** The plugin.json manifest */
 export type PluginManifest = {
   id: string;
@@ -73,6 +75,7 @@ export type PluginManifest = {
     sidebarPanels?: PluginSidebarDef[];
     settings?: PluginSettingDef[];
     terminalHooks?: PluginTerminalHooksDef;
+    terminalTransports?: PluginTerminalTransportType[];
     connectionHooks?: ConnectionHookType[];
     /** Tauri backend commands this plugin may invoke via ctx.api.invoke() */
     apiCommands?: string[];
@@ -225,6 +228,18 @@ export type PluginTerminalAPI = {
   writeToNode(nodeId: string, text: string): void;
   getNodeBuffer(nodeId: string): string | null;
   getNodeSelection(nodeId: string): string | null;
+  openTelnet(options: { host: string; port?: number; cols?: number; rows?: number }): Promise<{
+    sessionId: string;
+    info: {
+      id: string;
+      shell: { id: string; label: string; path: string; args: string[] };
+      cols: number;
+      rows: number;
+      running: boolean;
+      detached?: boolean;
+      transport?: { type?: 'pty' } | { type: 'telnet'; host: string; port: number };
+    };
+  }>;
 };
 
 /** ctx.settings — plugin-scoped settings */

@@ -12,6 +12,7 @@ import {
   LocalTerminalInfo,
   BackgroundSessionInfo,
   CreateLocalTerminalRequest,
+  CreateTelnetTerminalRequest,
 } from '../types';
 
 interface LocalTerminalStore {
@@ -27,6 +28,7 @@ interface LocalTerminalStore {
   // Actions
   loadShells: () => Promise<void>;
   createTerminal: (request?: CreateLocalTerminalRequest) => Promise<LocalTerminalInfo>;
+  createTelnetTerminal: (request: CreateTelnetTerminalRequest) => Promise<LocalTerminalInfo>;
   closeTerminal: (sessionId: string) => Promise<void>;
   resizeTerminal: (sessionId: string, cols: number, rows: number) => Promise<void>;
   writeTerminal: (sessionId: string, data: Uint8Array) => Promise<void>;
@@ -156,6 +158,41 @@ export const useLocalTerminalStore = create<LocalTerminalStore>((set, get) => ({
         title: i18n.t('local_shell.toast.create_failed'),
         body: errorMessage,
         dedupeKey: `local-terminal-create-failed:${request?.shellPath ?? 'default'}`,
+      });
+      throw error;
+    }
+  },
+
+  createTelnetTerminal: async (request: CreateTelnetTerminalRequest) => {
+    try {
+      const response = await api.localCreateTelnetTerminal(request);
+
+      set((state) => {
+        const newTerminals = new Map(state.terminals);
+        newTerminals.set(response.sessionId, response.info);
+        return { terminals: newTerminals };
+      });
+
+      useToastStore.getState().addToast({
+        title: i18n.t('local_shell.toast.terminal_created'),
+        description: response.info.shell.label,
+      });
+
+      return response.info;
+    } catch (error) {
+      const errorMessage = String(error);
+      console.error('Failed to create Telnet terminal:', error);
+      useToastStore.getState().addToast({
+        title: i18n.t('local_shell.toast.create_failed'),
+        description: errorMessage,
+        variant: 'error',
+      });
+      pushNotification({
+        kind: 'health',
+        severity: 'error',
+        title: i18n.t('local_shell.toast.create_failed'),
+        body: errorMessage,
+        dedupeKey: `telnet-terminal-create-failed:${request.host}:${request.port ?? 23}`,
       });
       throw error;
     }

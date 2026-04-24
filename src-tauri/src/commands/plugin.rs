@@ -81,6 +81,8 @@ pub struct PluginContributes {
     #[serde(default)]
     pub terminal_hooks: Option<PluginTerminalHooksDef>,
     #[serde(default)]
+    pub terminal_transports: Option<Vec<String>>,
+    #[serde(default)]
     pub connection_hooks: Option<Vec<String>>,
     #[serde(default)]
     pub api_commands: Option<Vec<String>>,
