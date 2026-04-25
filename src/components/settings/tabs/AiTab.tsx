@@ -171,6 +171,8 @@ export const AiTab = ({
     const { confirm, ConfirmDialog } = useConfirm();
     const [contextWindowsExpanded, setContextWindowsExpanded] = useState(true);
     const [collapsedContextProviders, setCollapsedContextProviders] = useState<Record<string, boolean>>({});
+    const [modelReasoningExpanded, setModelReasoningExpanded] = useState(false);
+    const [collapsedReasoningProviders, setCollapsedReasoningProviders] = useState<Record<string, boolean>>({});
     const [expandedProviders, setExpandedProviders] = useState<Record<string, boolean>>({});
     const [expandedProviderModels, setExpandedProviderModels] = useState<Record<string, boolean>>({});
     const [toolUseExpanded, setToolUseExpanded] = useState(true);
@@ -677,6 +679,85 @@ export const AiTab = ({
                             </Select>
                             <p className="text-xs text-theme-text-muted">{t('settings_view.ai.reasoning_hint')}</p>
                         </div>
+                        <div className="mt-4 max-w-3xl">
+                            <button
+                                type="button"
+                                className="mb-3 flex w-full items-start justify-between gap-3 rounded-md px-1 py-1 text-left text-theme-text-muted hover:bg-theme-bg-hover/40 hover:text-theme-text transition-colors"
+                                onClick={() => setModelReasoningExpanded((current) => !current)}
+                                aria-expanded={modelReasoningExpanded}
+                            >
+                                <div>
+                                    <h5 className="text-xs font-medium uppercase tracking-wider text-theme-text">
+                                        {t('settings_view.ai.model_reasoning_overrides')}
+                                    </h5>
+                                    <p className="mt-1 text-xs text-theme-text-muted">{t('settings_view.ai.model_reasoning_overrides_hint')}</p>
+                                </div>
+                                {modelReasoningExpanded
+                                    ? <ChevronDown className="mt-0.5 h-4 w-4 shrink-0" />
+                                    : <ChevronRight className="mt-0.5 h-4 w-4 shrink-0" />}
+                            </button>
+
+                            {modelReasoningExpanded && (ai.providers.every((provider) => provider.models.length === 0) ? (
+                                <p className="text-xs text-theme-text-muted italic">{t('settings_view.ai.model_reasoning_overrides_empty')}</p>
+                            ) : (
+                                <div className="space-y-4">
+                                    {ai.providers.filter((provider) => provider.models.length > 0).map((provider) => {
+                                        const providerCollapsed = collapsedReasoningProviders[provider.id] === true;
+                                        const overrideCount = provider.models.filter((model) => !!ai.reasoningModelOverrides?.[provider.id]?.[model]).length;
+
+                                        return (
+                                            <div key={provider.id}>
+                                                <button
+                                                    type="button"
+                                                    className="mb-1 flex w-full items-center justify-between gap-3 rounded px-1 py-1 text-left text-theme-text-muted hover:bg-theme-bg-hover/40 hover:text-theme-text transition-colors"
+                                                    onClick={() => setCollapsedReasoningProviders((current) => ({
+                                                        ...current,
+                                                        [provider.id]: !current[provider.id],
+                                                    }))}
+                                                    aria-expanded={!providerCollapsed}
+                                                >
+                                                    <span className="text-[10px] font-bold tracking-wider uppercase">{provider.name}</span>
+                                                    <span className="flex items-center gap-2 text-[10px] normal-case tracking-normal">
+                                                        <span>
+                                                            {t('settings_view.ai.model_reasoning_provider_summary', {
+                                                                count: provider.models.length,
+                                                                overrides: overrideCount,
+                                                            })}
+                                                        </span>
+                                                        {providerCollapsed
+                                                            ? <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+                                                            : <ChevronDown className="h-3.5 w-3.5 shrink-0" />}
+                                                    </span>
+                                                </button>
+                                                <div className={cn('border border-theme-border/30 rounded-md overflow-hidden', providerCollapsed && 'hidden')}>
+                                                    {provider.models.map((model, index) => (
+                                                        <div key={model} className={cn('flex items-center gap-2 px-3 py-1.5', index > 0 && 'border-t border-theme-border/20')}>
+                                                            <span className="text-xs text-theme-text-muted font-mono flex-1 truncate min-w-0" title={model}>{model}</span>
+                                                            <Select
+                                                                value={(ai.reasoningModelOverrides?.[provider.id]?.[model] ?? INHERIT_REASONING) as ReasoningSelectValue}
+                                                                onValueChange={(value) => setModelReasoningEffort(provider.id, model, reasoningValueOrNull(value))}
+                                                            >
+                                                                <SelectTrigger className="w-40 h-7 bg-theme-bg border-theme-border text-[10px] shrink-0">
+                                                                    <SelectValue />
+                                                                </SelectTrigger>
+                                                                <SelectContent>
+                                                                    <SelectItem value={INHERIT_REASONING}>{t('settings_view.ai.reasoning_inherit_provider')}</SelectItem>
+                                                                    {REASONING_EFFORTS.map((effort) => (
+                                                                        <SelectItem key={effort} value={effort}>
+                                                                            {t(`settings_view.ai.reasoning_${effort}`)}
+                                                                        </SelectItem>
+                                                                    ))}
+                                                                </SelectContent>
+                                                            </Select>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            ))}
+                        </div>
 
                         <Separator className="my-6 opacity-50" />
 
@@ -780,22 +861,6 @@ export const AiTab = ({
                                                             >
                                                                 {t(`settings_view.ai.ctx_source_${info.source}`)}
                                                             </span>
-                                                            <Select
-                                                                value={(ai.reasoningModelOverrides?.[provider.id]?.[model] ?? INHERIT_REASONING) as ReasoningSelectValue}
-                                                                onValueChange={(value) => setModelReasoningEffort(provider.id, model, reasoningValueOrNull(value))}
-                                                            >
-                                                                <SelectTrigger className="w-32 h-7 bg-theme-bg border-theme-border text-[10px] shrink-0">
-                                                                    <SelectValue />
-                                                                </SelectTrigger>
-                                                                <SelectContent>
-                                                                    <SelectItem value={INHERIT_REASONING}>{t('settings_view.ai.reasoning_inherit_provider')}</SelectItem>
-                                                                    {REASONING_EFFORTS.map((effort) => (
-                                                                        <SelectItem key={effort} value={effort}>
-                                                                            {t(`settings_view.ai.reasoning_${effort}`)}
-                                                                        </SelectItem>
-                                                                    ))}
-                                                                </SelectContent>
-                                                            </Select>
                                                             <Input
                                                                 type="number"
                                                                 min={1024}

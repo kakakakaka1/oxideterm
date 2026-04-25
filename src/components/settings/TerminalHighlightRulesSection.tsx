@@ -3,7 +3,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { AlertTriangle, GripVertical, Plus, Trash2, Wand2 } from 'lucide-react';
+import { AlertTriangle, ChevronDown, ChevronRight, GripVertical, Plus, Trash2, Wand2 } from 'lucide-react';
 import {
   DndContext,
   PointerSensor,
@@ -53,6 +53,8 @@ type TerminalHighlightRulesSectionProps = {
 type RuleRowProps = {
   rule: HighlightRule;
   runtimeRule?: RuntimeHighlightRule;
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
   onChange: (patch: Partial<HighlightRule>) => void;
   onDelete: () => void;
 };
@@ -143,7 +145,14 @@ function renderPreviewLine(line: string, rules: RuntimeHighlightRule[]) {
   });
 }
 
-function SortableRuleRow({ rule, runtimeRule, onChange, onDelete }: RuleRowProps) {
+function summarizePattern(pattern: string): string {
+  if (!pattern.trim()) {
+    return '-';
+  }
+  return pattern.length > 72 ? `${pattern.slice(0, 72)}...` : pattern;
+}
+
+function SortableRuleRow({ rule, runtimeRule, collapsed, onToggleCollapsed, onChange, onDelete }: RuleRowProps) {
   const { t } = useTranslation();
   const [foregroundDraft, setForegroundDraft] = useState(rule.foreground ?? '');
   const [backgroundDraft, setBackgroundDraft] = useState(rule.background ?? '');
@@ -189,8 +198,64 @@ function SortableRuleRow({ rule, runtimeRule, onChange, onDelete }: RuleRowProps
           <GripVertical className="h-4 w-4" />
         </button>
 
-        <div className="flex-1 space-y-3">
-          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)_140px]">
+        <div className="min-w-0 flex-1 space-y-3">
+          <div className="flex min-w-0 items-start justify-between gap-3">
+            <button
+              type="button"
+              className="group flex min-w-0 flex-1 items-start gap-2 rounded-md text-left text-theme-text hover:text-theme-text-heading"
+              onClick={onToggleCollapsed}
+              aria-expanded={!collapsed}
+              aria-label={t(`settings_view.terminal.highlight_rules.${collapsed ? 'expand_rule' : 'collapse_rule'}`)}
+            >
+              {collapsed ? (
+                <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-theme-text-muted group-hover:text-theme-accent" />
+              ) : (
+                <ChevronDown className="mt-1 h-4 w-4 shrink-0 text-theme-text-muted group-hover:text-theme-accent" />
+              )}
+              <span className="min-w-0 flex-1">
+                <span className="flex min-w-0 flex-wrap items-center gap-2">
+                  <span className="truncate text-sm font-medium">
+                    {rule.label.trim() || t('settings_view.terminal.highlight_rules.untitled_rule')}
+                  </span>
+                  <span className={cn(
+                    'rounded-full border px-2 py-0.5 text-[11px]',
+                    rule.enabled
+                      ? 'border-theme-accent/40 bg-theme-accent/10 text-theme-accent'
+                      : 'border-theme-border bg-theme-bg-hover text-theme-text-muted',
+                  )}>
+                    {rule.enabled
+                      ? t('settings_view.terminal.highlight_rules.enabled')
+                      : t('settings_view.terminal.highlight_rules.disabled')}
+                  </span>
+                  {rule.isRegex ? (
+                    <span className="rounded-full border border-theme-border bg-theme-bg-hover px-2 py-0.5 text-[11px] text-theme-text-muted">
+                      {t('settings_view.terminal.highlight_rules.regex')}
+                    </span>
+                  ) : null}
+                  {runtimeRule?.lastValidationError ? (
+                    <span className="inline-flex items-center gap-1 rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-[11px] text-amber-300">
+                      <AlertTriangle className="h-3 w-3" />
+                      {t('settings_view.terminal.highlight_rules.invalid_rule')}
+                    </span>
+                  ) : null}
+                </span>
+                <span className="mt-1 block truncate font-mono text-xs text-theme-text-muted">
+                  {summarizePattern(rule.pattern)}
+                </span>
+              </span>
+            </button>
+
+            {collapsed ? (
+              <Button type="button" variant="ghost" size="sm" className="shrink-0 text-theme-error hover:bg-theme-error/10 hover:text-theme-error" onClick={onDelete}>
+                <Trash2 className="mr-1 h-4 w-4" />
+                {t('settings_view.terminal.highlight_rules.delete')}
+              </Button>
+            ) : null}
+          </div>
+
+          {!collapsed ? (
+            <>
+              <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)_140px]">
             <div>
               <Label className="text-theme-text">{t('settings_view.terminal.highlight_rules.label')}</Label>
               <Input
@@ -224,9 +289,9 @@ function SortableRuleRow({ rule, runtimeRule, onChange, onDelete }: RuleRowProps
                 </SelectContent>
               </Select>
             </div>
-          </div>
+              </div>
 
-          <div className="grid gap-3 md:grid-cols-[repeat(2,minmax(0,1fr))_repeat(4,auto)] md:items-end">
+              <div className="grid gap-3 md:grid-cols-[repeat(2,minmax(0,1fr))_repeat(4,auto)] md:items-end">
             <div>
               <Label className="text-theme-text">{t('settings_view.terminal.highlight_rules.foreground')}</Label>
               <div className="mt-1 flex items-center gap-2">
@@ -290,9 +355,9 @@ function SortableRuleRow({ rule, runtimeRule, onChange, onDelete }: RuleRowProps
               <Trash2 className="mr-1 h-4 w-4" />
               {t('settings_view.terminal.highlight_rules.delete')}
             </Button>
-          </div>
+              </div>
 
-          <div className="flex items-center justify-between gap-3 text-xs">
+              <div className="flex items-center justify-between gap-3 text-xs">
             <div className="text-theme-text-muted">
               {runtimeRule?.lastValidationError
                 ? t(`settings_view.terminal.highlight_rules.validation.${runtimeRule.lastValidationError}`)
@@ -304,7 +369,9 @@ function SortableRuleRow({ rule, runtimeRule, onChange, onDelete }: RuleRowProps
                 {t('settings_view.terminal.highlight_rules.invalid_rule')}
               </div>
             ) : null}
-          </div>
+              </div>
+            </>
+          ) : null}
         </div>
       </div>
     </div>
@@ -314,6 +381,7 @@ function SortableRuleRow({ rule, runtimeRule, onChange, onDelete }: RuleRowProps
 export const TerminalHighlightRulesSection = ({ rules, updateRules }: TerminalHighlightRulesSectionProps) => {
   const { t } = useTranslation();
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  const [collapsedRuleIds, setCollapsedRuleIds] = useState<Set<string>>(() => new Set());
   const runtimeRules = useMemo(() => buildRuntimeHighlightRules(rules), [rules]);
   const runtimeRuleById = useMemo(() => new Map(runtimeRules.map((rule) => [rule.id, rule])), [runtimeRules]);
   const sortableIds = useMemo(() => rules.map((rule) => rule.id), [rules]);
@@ -334,6 +402,18 @@ export const TerminalHighlightRulesSection = ({ rules, updateRules }: TerminalHi
       return;
     }
     setRules([...rules, rule ?? createDefaultHighlightRule()]);
+  };
+
+  const toggleCollapsedRule = (ruleId: string) => {
+    setCollapsedRuleIds((current) => {
+      const next = new Set(current);
+      if (next.has(ruleId)) {
+        next.delete(ruleId);
+      } else {
+        next.add(ruleId);
+      }
+      return next;
+    });
   };
 
   const addStatusPreset = () => {
@@ -633,6 +713,8 @@ export const TerminalHighlightRulesSection = ({ rules, updateRules }: TerminalHi
                   key={rule.id}
                   rule={rule}
                   runtimeRule={runtimeRuleById.get(rule.id)}
+                  collapsed={collapsedRuleIds.has(rule.id)}
+                  onToggleCollapsed={() => toggleCollapsedRule(rule.id)}
                   onChange={(patch) => {
                     setRules(rules.map((currentRule) => currentRule.id === rule.id ? { ...currentRule, ...patch } : currentRule));
                   }}
