@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const portableApiMocks = vi.hoisted(() => ({
   getPortableStatus: vi.fn(),
   getPortableInfo: vi.fn(),
+  getLinuxWebviewProfile: vi.fn(),
   frontendReady: vi.fn(),
 }));
 
@@ -113,6 +114,7 @@ async function importMainWithMocks() {
     api: {
       getPortableStatus: portableApiMocks.getPortableStatus,
       getPortableInfo: portableApiMocks.getPortableInfo,
+      getLinuxWebviewProfile: portableApiMocks.getLinuxWebviewProfile,
       frontendReady: portableApiMocks.frontendReady,
     },
   }));
@@ -135,7 +137,9 @@ describe('main startup bootstrap', () => {
     initializeSettingsMock.mockReset();
     portableApiMocks.getPortableStatus.mockReset();
     portableApiMocks.getPortableInfo.mockReset();
+    portableApiMocks.getLinuxWebviewProfile.mockReset();
     portableApiMocks.frontendReady.mockReset();
+    portableApiMocks.getLinuxWebviewProfile.mockResolvedValue(null);
     portableApiMocks.frontendReady.mockResolvedValue(undefined);
     i18nState.ready = Promise.resolve();
     i18nState.tImpl.mockReset();

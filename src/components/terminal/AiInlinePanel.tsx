@@ -8,7 +8,7 @@ import { useAppStore } from '../../store/appStore';
 import { api } from '../../lib/api';
 import { useTranslation } from 'react-i18next';
 import { platform } from '../../lib/platform';
-import { getProvider } from '../../lib/ai/providerRegistry';
+import { getProvider, getProviderReasoningProtocol } from '../../lib/ai/providerRegistry';
 import { ModelSelector } from '../ai/ModelSelector';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -351,6 +351,8 @@ export const AiInlinePanel: React.FC<AiInlinePanelProps> = ({
         baseUrl: activeProvider.baseUrl,
         model,
         apiKey,
+        reasoningEffort: aiSettings.reasoningEffort,
+        reasoningProtocol: getProviderReasoningProtocol(activeProvider.type),
       };
 
       let fullContent = '';

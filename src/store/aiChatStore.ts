@@ -10,7 +10,7 @@ import { useSettingsStore, type AiMemorySettings } from './settingsStore';
 import { useSessionTreeStore } from './sessionTreeStore';
 import { useAppStore } from './appStore';
 import { gatherSidebarContext, buildContextReminder, type SidebarContext } from '../lib/sidebarContextProvider';
-import { getProvider } from '../lib/ai/providerRegistry';
+import { getProvider, getProviderReasoningProtocol } from '../lib/ai/providerRegistry';
 import { estimateTokens, estimateToolDefinitionsTokens, trimHistoryToTokenBudget, getModelContextWindow, responseReserve } from '../lib/ai/tokenUtils';
 import type { ChatMessage as ProviderChatMessage } from '../lib/ai/providers';
 import type { AiChatMessage, AiConversation, AiToolCall } from '../types';
@@ -1913,7 +1913,15 @@ You have tools to interact with the user's terminal sessions and workspace. **Us
         };
 
         for await (const event of provider.streamCompletion(
-          { baseUrl: providerBaseUrl, model: providerModel, apiKey: apiKey || '', maxResponseTokens, tools: toolDefs },
+          {
+            baseUrl: providerBaseUrl,
+            model: providerModel,
+            apiKey: apiKey || '',
+            maxResponseTokens,
+            reasoningEffort: aiSettings.reasoningEffort,
+            reasoningProtocol: getProviderReasoningProtocol(providerType),
+            tools: toolDefs,
+          },
           sanitizeApiMessages(apiMessages),
           abortController.signal
         )) {
@@ -3376,7 +3384,13 @@ You have tools to interact with the user's terminal sessions and workspace. **Us
       let summaryContent = '';
 
       for await (const event of provider.streamCompletion(
-        { baseUrl: providerBaseUrl, model: providerModel, apiKey: apiKey || '' },
+        {
+          baseUrl: providerBaseUrl,
+          model: providerModel,
+          apiKey: apiKey || '',
+          reasoningEffort: aiSettings.reasoningEffort,
+          reasoningProtocol: getProviderReasoningProtocol(providerType),
+        },
         summaryPrompt,
         abortController.signal,
       )) {
@@ -3651,7 +3665,14 @@ You have tools to interact with the user's terminal sessions and workspace. **Us
       const streamSignal = abortController?.signal ?? new AbortController().signal;
 
       for await (const event of provider.streamCompletion(
-        { baseUrl: providerBaseUrl, model: providerModel, apiKey: apiKey || '', maxResponseTokens: compactMaxResponseTokens },
+        {
+          baseUrl: providerBaseUrl,
+          model: providerModel,
+          apiKey: apiKey || '',
+          maxResponseTokens: compactMaxResponseTokens,
+          reasoningEffort: aiSettings.reasoningEffort,
+          reasoningProtocol: getProviderReasoningProtocol(providerType),
+        },
         summaryPrompt,
         streamSignal,
       )) {

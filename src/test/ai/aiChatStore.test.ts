@@ -50,6 +50,7 @@ vi.mock('@/lib/sidebarContextProvider', () => ({
 
 vi.mock('@/lib/ai/providerRegistry', () => ({
   getProvider: vi.fn(),
+  getProviderReasoningProtocol: () => 'none',
 }));
 
 vi.mock('@/lib/ai/tokenUtils', () => ({

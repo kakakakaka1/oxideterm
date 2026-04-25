@@ -24,6 +24,7 @@ import { DEFAULT_PROVIDERS } from '../lib/ai/providers';
 import { platform } from '../lib/platform';
 import { sanitizeHighlightRules } from '../lib/terminal/highlightPattern';
 import type { HighlightRule } from '../types';
+import type { AiReasoningEffort } from '../lib/ai/providers';
 
 // ============================================================================
 // Constants
@@ -282,6 +283,8 @@ export interface AiSettings {
   contextVisibleLines: number;  // Max visible lines to capture
   /** Thinking block display style: detailed (full) or compact (collapsed) */
   thinkingStyle: AiThinkingStyle;
+  /** Request-level reasoning/thinking effort. Provider adapters map or ignore unsupported values. */
+  reasoningEffort: AiReasoningEffort;
   /** Whether thinking blocks are expanded by default */
   thinkingDefaultExpanded: boolean;
   /** Cached model context window sizes from provider APIs.
@@ -506,6 +509,7 @@ const defaultAiSettings: AiSettings = {
   contextMaxChars: 8000,
   contextVisibleLines: 120,
   thinkingStyle: 'detailed',         // Default: show full thinking content
+  reasoningEffort: 'auto',
   thinkingDefaultExpanded: false,    // Default: collapsed for less noise
   customSystemPrompt: '',            // Default: use built-in prompt
   memory: {
@@ -1688,6 +1692,7 @@ const AI_KEYS: Array<keyof AiSettings> = [
   'contextMaxChars',
   'contextVisibleLines',
   'thinkingStyle',
+  'reasoningEffort',
   'thinkingDefaultExpanded',
   'modelContextWindows',
   'userContextWindows',

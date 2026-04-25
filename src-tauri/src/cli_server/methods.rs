@@ -803,6 +803,12 @@ const BUILTIN_PROVIDERS: &[BuiltinProvider] = &[
         default_model: "claude-sonnet-4-20250514",
     },
     BuiltinProvider {
+        keychain_id: "builtin-deepseek",
+        provider_type: "deepseek",
+        base_url: "https://api.deepseek.com",
+        default_model: "deepseek-v4-flash",
+    },
+    BuiltinProvider {
         keychain_id: "builtin-gemini",
         provider_type: "gemini",
         base_url: "https://generativelanguage.googleapis.com/v1beta",
@@ -1717,7 +1723,7 @@ async fn resolve_ai_provider(
             .find(|b| b.provider_type == provider_type)
             .ok_or((
                 protocol::ERR_INVALID_PARAMS,
-                format!("Unknown provider: {provider_type}. Available: openai, anthropic, gemini, ollama, openai_compatible"),
+                format!("Unknown provider: {provider_type}. Available: openai, anthropic, deepseek, gemini, ollama, openai_compatible"),
             ))?;
 
         let api_key = get_provider_api_key(app, config_state, builtin.keychain_id).await?;

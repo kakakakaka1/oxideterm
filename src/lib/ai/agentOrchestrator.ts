@@ -17,7 +17,7 @@ import { useAgentStore } from '../../store/agentStore';
 import { useAppStore } from '../../store/appStore';
 import { useSessionTreeStore } from '../../store/sessionTreeStore';
 import { useSettingsStore } from '../../store/settingsStore';
-import { getProvider } from './providerRegistry';
+import { getProvider, getProviderReasoningProtocol } from './providerRegistry';
 import { buildAgentSystemPrompt } from './agentSystemPrompt';
 import { buildPlannerSystemPrompt, parsePlanResponse } from './agentPlanner';
 import { buildReviewerSystemPrompt, buildReviewPrompt, formatReviewFeedback, parseReview, shouldRunReviewerForRound } from './agentReviewer';
@@ -47,7 +47,7 @@ import {
   processToolCalls,
   createStep,
 } from './roles';
-import type { ChatMessage, AiStreamProvider } from './providers';
+import type { AiReasoningEffort, AiReasoningProtocol, ChatMessage, AiStreamProvider } from './providers';
 import { createAiDiagnosticEvent, persistDiagnosticEvents, type AiDiagnosticTelemetryBase } from './turnModel/diagnostics';
 import type { AiDiagnosticEvent } from './turnModel/types';
 import type {
@@ -368,11 +368,13 @@ type ResolvedRoleConfig = {
   baseUrl: string;
   model: string;
   apiKey: string;
+  reasoningEffort?: AiReasoningEffort;
+  reasoningProtocol?: AiReasoningProtocol;
 };
 
 async function resolveRoleConfig(
   roleConfig: AgentRoleConfig | AgentReviewerConfig | undefined,
-  fallback: { provider: AiStreamProvider; baseUrl: string; model: string; apiKey: string },
+  fallback: ResolvedRoleConfig,
 ): Promise<ResolvedRoleConfig> {
   if (!roleConfig?.enabled || !roleConfig.providerId || !roleConfig.model) {
     return fallback;
@@ -392,6 +394,8 @@ async function resolveRoleConfig(
       baseUrl: roleProvider.baseUrl,
       model: roleConfig.model,
       apiKey: roleApiKey,
+      reasoningEffort: settings.ai.reasoningEffort,
+      reasoningProtocol: getProviderReasoningProtocol(roleProvider.type),
     };
   } catch {
     return fallback;
@@ -546,7 +550,14 @@ async function executeTask(task: AgentTask, signal: AbortSignal): Promise<{ next
   const apiKey = await getApiKeyForProvider(provider.id, provider.type);
 
   const agentRoles = settings.ai.agentRoles;
-  const executorConfig = { provider: aiProvider, baseUrl: provider.baseUrl, model: task.model, apiKey };
+  const executorConfig = {
+    provider: aiProvider,
+    baseUrl: provider.baseUrl,
+    model: task.model,
+    apiKey,
+    reasoningEffort: settings.ai.reasoningEffort,
+    reasoningProtocol: getProviderReasoningProtocol(provider.type),
+  };
   const plannerConfig = await resolveRoleConfig(agentRoles?.planner, executorConfig);
   const reviewerRoleConfig = agentRoles?.reviewer;
   const reviewerConfig = await resolveRoleConfig(reviewerRoleConfig, executorConfig);

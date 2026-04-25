@@ -9,8 +9,8 @@
  */
 
 import type { AiProviderType } from '../../types';
-import type { AiStreamProvider } from './providers';
-import { openaiProvider, openaiCompatibleProvider } from './providers/openai';
+import type { AiReasoningProtocol, AiStreamProvider } from './providers';
+import { openaiProvider, openaiCompatibleProvider, deepseekProvider } from './providers/openai';
 import { anthropicProvider } from './providers/anthropic';
 import { geminiProvider } from './providers/gemini';
 import { ollamaProvider } from './providers/ollama';
@@ -22,6 +22,7 @@ import { ollamaProvider } from './providers/ollama';
 const providers = new Map<AiProviderType, AiStreamProvider>([
   ['openai', openaiProvider],
   ['openai_compatible', openaiCompatibleProvider],
+  ['deepseek', deepseekProvider],
   ['anthropic', anthropicProvider],
   ['gemini', geminiProvider],
   ['ollama', ollamaProvider],
@@ -40,4 +41,17 @@ export function getProvider(type: AiProviderType): AiStreamProvider {
  */
 export function getRegisteredProviderTypes(): AiProviderType[] {
   return Array.from(providers.keys());
+}
+
+export function getProviderReasoningProtocol(type: AiProviderType): AiReasoningProtocol {
+  switch (type) {
+    case 'openai':
+      return 'openai';
+    case 'deepseek':
+      return 'deepseek';
+    case 'anthropic':
+      return 'anthropic';
+    default:
+      return 'none';
+  }
 }

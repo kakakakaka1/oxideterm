@@ -25,6 +25,9 @@ export type AiStreamEvent =
   | { type: 'done' }
   | { type: 'error'; message: string };
 
+export type AiReasoningEffort = 'auto' | 'off' | 'low' | 'medium' | 'high' | 'max';
+export type AiReasoningProtocol = 'none' | 'openai' | 'deepseek' | 'anthropic';
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Provider Interface
 // ═══════════════════════════════════════════════════════════════════════════
@@ -38,6 +41,10 @@ export type AiRequestConfig = {
   apiKey: string;
   /** Maximum tokens the model may generate in its response. Provider-specific default if omitted. */
   maxResponseTokens?: number;
+  /** Optional reasoning/thinking control. Adapters ignore unsupported protocols. */
+  reasoningEffort?: AiReasoningEffort;
+  /** Provider-specific reasoning payload dialect. */
+  reasoningProtocol?: AiReasoningProtocol;
   /** Tool definitions for function calling. Provider adapters convert to format-specific payloads. */
   tools?: AiToolDefinition[];
 };
@@ -150,6 +157,13 @@ export const DEFAULT_PROVIDERS: DefaultProviderConfig[] = [
     baseUrl: 'https://api.anthropic.com',
     defaultModel: 'claude-sonnet-4-20250514',
     models: [],
+  },
+  {
+    type: 'deepseek',
+    name: 'DeepSeek',
+    baseUrl: 'https://api.deepseek.com',
+    defaultModel: 'deepseek-v4-flash',
+    models: ['deepseek-v4-flash', 'deepseek-v4-pro', 'deepseek-chat', 'deepseek-reasoner'],
   },
   {
     type: 'gemini',

@@ -103,6 +103,23 @@ function convertTools(tools: AiToolDefinition[]): Array<{ name: string; descript
   }));
 }
 
+function resolveThinkingBudget(config: AiRequestConfig, maxTokens: number): number | null {
+  const effort = config.reasoningEffort ?? 'auto';
+  if (effort === 'auto' || effort === 'off' || config.reasoningProtocol !== 'anthropic') {
+    return null;
+  }
+
+  const desired = effort === 'max'
+    ? 8192
+    : effort === 'high'
+      ? 4096
+      : effort === 'medium'
+        ? 2048
+        : 1024;
+  const capped = Math.min(desired, Math.max(0, maxTokens - 1024));
+  return capped >= 1024 ? capped : null;
+}
+
 export const anthropicProvider: AiStreamProvider = {
   type: 'anthropic',
   displayName: 'Anthropic',
@@ -118,12 +135,17 @@ export const anthropicProvider: AiStreamProvider = {
     const { system, messages: apiMessages } = convertMessages(messages);
 
     // Build request body
+    const maxTokens = config.maxResponseTokens ?? 8192;
     const body: Record<string, unknown> = {
       model: config.model,
       messages: apiMessages,
-      max_tokens: config.maxResponseTokens ?? 8192,
+      max_tokens: maxTokens,
       stream: true,
     };
+    const thinkingBudget = resolveThinkingBudget(config, maxTokens);
+    if (thinkingBudget !== null) {
+      body.thinking = { type: 'enabled', budget_tokens: thinkingBudget };
+    }
 
     if (system) {
       body.system = system;

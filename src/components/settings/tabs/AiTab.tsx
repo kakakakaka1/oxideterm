@@ -18,7 +18,8 @@ import { TOOL_GROUPS, WRITE_TOOLS, EXPERIMENTAL_TOOLS } from '@/lib/ai/tools';
 import { getModelContextWindowInfo } from '@/lib/ai/tokenUtils';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
-import type { AiProvider } from '@/types';
+import type { AiProvider, AiProviderType } from '@/types';
+import type { AiReasoningEffort } from '@/lib/ai/providers';
 import type { AiSettings } from '@/store/settingsStore';
 
 const TOOL_ICON_MAP: Record<string, ElementType> = {
@@ -93,6 +94,54 @@ type AiTabProps = {
     onRequestEnableAiConfirm: () => void;
 };
 
+type ProviderTemplate = {
+    type: AiProviderType;
+    nameKey: string;
+    baseUrl: string;
+    defaultModel: string;
+};
+
+const PROVIDER_TEMPLATES: ProviderTemplate[] = [
+    {
+        type: 'openai_compatible',
+        nameKey: 'settings_view.ai.provider_template_openai_compatible',
+        baseUrl: 'https://',
+        defaultModel: '',
+    },
+    {
+        type: 'deepseek',
+        nameKey: 'settings_view.ai.provider_template_deepseek',
+        baseUrl: 'https://api.deepseek.com',
+        defaultModel: 'deepseek-v4-flash',
+    },
+    {
+        type: 'openai',
+        nameKey: 'settings_view.ai.provider_template_openai',
+        baseUrl: 'https://api.openai.com/v1',
+        defaultModel: 'gpt-4o-mini',
+    },
+    {
+        type: 'anthropic',
+        nameKey: 'settings_view.ai.provider_template_anthropic',
+        baseUrl: 'https://api.anthropic.com',
+        defaultModel: 'claude-sonnet-4-20250514',
+    },
+    {
+        type: 'gemini',
+        nameKey: 'settings_view.ai.provider_template_gemini',
+        baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+        defaultModel: 'gemini-2.0-flash',
+    },
+    {
+        type: 'ollama',
+        nameKey: 'settings_view.ai.provider_template_ollama',
+        baseUrl: 'http://localhost:11434',
+        defaultModel: '',
+    },
+];
+
+const REASONING_EFFORTS: AiReasoningEffort[] = ['auto', 'off', 'low', 'medium', 'high', 'max'];
+
 export const AiTab = ({
     ai,
     updateAi,
@@ -114,10 +163,12 @@ export const AiTab = ({
     const [expandedProviders, setExpandedProviders] = useState<Record<string, boolean>>({});
     const [expandedProviderModels, setExpandedProviderModels] = useState<Record<string, boolean>>({});
     const [toolUseExpanded, setToolUseExpanded] = useState(true);
+    const [newProviderType, setNewProviderType] = useState<AiProviderType>('openai_compatible');
     const memory = ai.memory ?? { enabled: true, content: '' };
     const toolUse = ai.toolUse ?? { enabled: false, autoApproveTools: {}, disabledTools: [] };
     const allToolNames = TOOL_GROUPS.flatMap((group) => [...group.readOnly, ...group.write]);
     const approvedToolCount = allToolNames.filter((name) => toolUse.autoApproveTools?.[name] === true).length;
+    const selectedProviderTemplate = PROVIDER_TEMPLATES.find((template) => template.type === newProviderType) ?? PROVIDER_TEMPLATES[0];
 
     return (
         <>
@@ -377,26 +428,42 @@ export const AiTab = ({
                             })}
                         </div>
 
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            className="mb-6"
-                            onClick={() => {
-                                const id = `custom-${Date.now()}`;
-                                addProvider({
-                                    id,
-                                    type: 'openai_compatible',
-                                    name: t('settings_view.ai.custom_provider'),
-                                    baseUrl: 'https://',
-                                    defaultModel: '',
-                                    models: [],
-                                    enabled: true,
-                                    createdAt: Date.now(),
-                                });
-                            }}
-                        >
-                            + {t('settings_view.ai.add_provider')}
-                        </Button>
+                        <div className="mb-6 flex flex-wrap items-end gap-3">
+                            <div className="grid gap-1">
+                                <Label className="text-xs text-theme-text-muted">{t('settings_view.ai.provider_template')}</Label>
+                                <Select value={newProviderType} onValueChange={(value) => setNewProviderType(value as AiProviderType)}>
+                                    <SelectTrigger className="w-56 bg-theme-bg h-8 text-xs">
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {PROVIDER_TEMPLATES.map((template) => (
+                                            <SelectItem key={template.type} value={template.type}>
+                                                {t(template.nameKey)}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                    const id = `custom-${selectedProviderTemplate.type}-${Date.now()}`;
+                                    addProvider({
+                                        id,
+                                        type: selectedProviderTemplate.type,
+                                        name: t(selectedProviderTemplate.nameKey),
+                                        baseUrl: selectedProviderTemplate.baseUrl,
+                                        defaultModel: selectedProviderTemplate.defaultModel,
+                                        models: selectedProviderTemplate.defaultModel ? [selectedProviderTemplate.defaultModel] : [],
+                                        enabled: true,
+                                        createdAt: Date.now(),
+                                    });
+                                }}
+                            >
+                                + {t('settings_view.ai.add_provider')}
+                            </Button>
+                        </div>
 
                         <Separator className="my-6 opacity-50" />
                         <h4 className="text-sm font-medium text-theme-text mb-4 uppercase tracking-wider">{t('settings_view.ai.embedding_title')}</h4>
@@ -553,6 +620,28 @@ export const AiTab = ({
                                     {t('settings_view.ai.memory_clear')}
                                 </Button>
                             </div>
+                        </div>
+
+                        <Separator className="my-6 opacity-50" />
+
+                        <h4 className="text-sm font-medium text-theme-text mb-4 uppercase tracking-wider">{t('settings_view.ai.reasoning_title')}</h4>
+                        <div className="max-w-3xl grid gap-2">
+                            <Select
+                                value={ai.reasoningEffort ?? 'auto'}
+                                onValueChange={(value) => updateAi('reasoningEffort', value as AiReasoningEffort)}
+                            >
+                                <SelectTrigger className="bg-theme-bg">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {REASONING_EFFORTS.map((effort) => (
+                                        <SelectItem key={effort} value={effort}>
+                                            {t(`settings_view.ai.reasoning_${effort}`)}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                            <p className="text-xs text-theme-text-muted">{t('settings_view.ai.reasoning_hint')}</p>
                         </div>
 
                         <Separator className="my-6 opacity-50" />

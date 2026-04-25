@@ -139,6 +139,7 @@ const MODEL_CONTEXT_WINDOWS: Array<[RegExp, number]> = [
   [/qwen-?3|qwen3|qwen-?2\.5|qwen2\.5|qwen-max/, 128000],
   [/qwen/, 32000],
   // DeepSeek
+  [/deepseek-v4/, 1048576],
   [/deepseek-v3|deepseek-r1/, 128000],
   [/deepseek/, 128000],
   // Moonshot

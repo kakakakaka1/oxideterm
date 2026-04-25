@@ -188,6 +188,10 @@ describe('getModelContextWindow', () => {
     expect(getModelContextWindow('deepseek-v3')).toBe(128000);
   });
 
+  it('returns 1048576 for deepseek-v4', () => {
+    expect(getModelContextWindow('deepseek-v4-pro')).toBe(1048576);
+  });
+
   it('returns default 8192 for unknown model', () => {
     expect(getModelContextWindow('totally-unknown-model')).toBe(8192);
   });

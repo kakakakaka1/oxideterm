@@ -195,6 +195,7 @@ vi.mock('@/lib/connectToSaved', () => ({
 
 vi.mock('@/lib/ai/providerRegistry', () => ({
   getProvider: vi.fn(),
+  getProviderReasoningProtocol: () => 'none',
 }));
 
 vi.mock('@/lib/ai/tools/outputCompressor', () => ({

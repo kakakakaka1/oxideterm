@@ -15,7 +15,7 @@ import { useToastStore } from '../../../hooks/useToast';
 import { executeTool, READ_ONLY_TOOLS, hasDeniedCommands } from '../tools';
 import { MAX_TOOL_CALLS_PER_ROUND, MAX_OUTPUT_BYTES } from '../agentConfig';
 import i18n from '../../../i18n';
-import type { ChatMessage, AiStreamProvider, AiToolDefinition } from '../providers';
+import type { AiReasoningEffort, AiReasoningProtocol, ChatMessage, AiStreamProvider, AiToolDefinition } from '../providers';
 import type { AgentStep, AgentApproval, AgentTask, AiToolResult } from '../../../types';
 import type { ToolExecutionContext } from '../tools';
 import { sanitizeApiMessages } from '../contextSanitizer';
@@ -56,6 +56,8 @@ export type LLMCallConfig = {
   baseUrl: string;
   model: string;
   apiKey: string;
+  reasoningEffort?: AiReasoningEffort;
+  reasoningProtocol?: AiReasoningProtocol;
 };
 
 /** Tool execution entry (approval + result) */
@@ -153,6 +155,8 @@ export async function streamCompletion(
     baseUrl: llmConfig.baseUrl,
     model: llmConfig.model,
     apiKey: llmConfig.apiKey,
+    reasoningEffort: llmConfig.reasoningEffort,
+    reasoningProtocol: llmConfig.reasoningProtocol,
     tools,
   };
 

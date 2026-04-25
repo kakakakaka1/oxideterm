@@ -1630,6 +1630,7 @@ export interface AiConversation {
 export type AiProviderType =
   | 'openai'            // OpenAI native API
   | 'anthropic'         // Anthropic Claude native API
+  | 'deepseek'          // DeepSeek native OpenAI-style API with thinking mode
   | 'gemini'            // Google Gemini API
   | 'ollama'            // Local Ollama
   | 'openai_compatible'; // Any OpenAI-compatible endpoint

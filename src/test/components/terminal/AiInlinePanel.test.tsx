@@ -63,6 +63,7 @@ vi.mock('@/lib/ai/providerRegistry', () => ({
   getProvider: () => ({
     streamCompletion: streamCompletionMock,
   }),
+  getProviderReasoningProtocol: () => 'openai',
 }));
 
 vi.mock('@/components/ai/ModelSelector', () => ({

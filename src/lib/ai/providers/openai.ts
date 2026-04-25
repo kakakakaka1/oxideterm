@@ -28,8 +28,24 @@ function convertTools(tools: AiToolDefinition[]): Array<{ type: 'function'; func
 /**
  * Convert ChatMessage[] to OpenAI API message format (handles tool role).
  */
-function convertMessages(messages: ChatMessage[]): Array<Record<string, unknown>> {
-  return messages.map((msg) => {
+function shouldPreserveReasoningContent(messages: ChatMessage[], index: number, config: AiRequestConfig): boolean {
+  if (config.reasoningProtocol !== 'deepseek') {
+    return true;
+  }
+  let lastUserIndex = -1;
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i]?.role === 'user') {
+      lastUserIndex = i;
+      break;
+    }
+  }
+  // DeepSeek only needs reasoning_content replay during a tool sub-turn.
+  // Older turns can drop it to reduce payload and match their API guidance.
+  return index > lastUserIndex;
+}
+
+function convertMessages(messages: ChatMessage[], config: AiRequestConfig): Array<Record<string, unknown>> {
+  return messages.map((msg, index) => {
     if (msg.role === 'tool') {
       return {
         role: 'tool',
@@ -48,13 +64,36 @@ function convertMessages(messages: ChatMessage[]): Array<Record<string, unknown>
         })),
       };
       // Preserve reasoning_content for thinking models (Kimi K2.5, DeepSeek-R1)
-      if (msg.reasoning_content !== undefined) {
+      if (msg.reasoning_content !== undefined && shouldPreserveReasoningContent(messages, index, config)) {
         assistantMsg.reasoning_content = msg.reasoning_content;
       }
       return assistantMsg;
     }
     return { role: msg.role, content: msg.content };
   });
+}
+
+function applyReasoningOptions(body: Record<string, unknown>, config: AiRequestConfig): void {
+  const effort = config.reasoningEffort ?? 'auto';
+  if (effort === 'auto') return;
+
+  if (config.reasoningProtocol === 'deepseek') {
+    if (effort === 'off') {
+      body.thinking = { type: 'disabled' };
+      return;
+    }
+    body.thinking = { type: 'enabled' };
+    body.reasoning_effort = effort === 'max' ? 'max' : 'high';
+    return;
+  }
+
+  if (config.reasoningProtocol === 'openai') {
+    if (effort === 'off') {
+      body.reasoning_effort = 'minimal';
+      return;
+    }
+    body.reasoning_effort = effort === 'max' ? 'high' : effort;
+  }
 }
 
 export const openaiProvider: AiStreamProvider = {
@@ -71,10 +110,11 @@ export const openaiProvider: AiStreamProvider = {
 
     const body: Record<string, unknown> = {
       model: config.model,
-      messages: convertMessages(messages),
+      messages: convertMessages(messages, config),
       stream: true,
       ...(config.maxResponseTokens ? { max_tokens: config.maxResponseTokens } : {}),
     };
+    applyReasoningOptions(body, config);
 
     if (config.tools && config.tools.length > 0) {
       body.tools = convertTools(config.tools);
@@ -334,4 +374,10 @@ export const openaiCompatibleProvider: AiStreamProvider = {
     }
     return result;
   },
+};
+
+export const deepseekProvider: AiStreamProvider = {
+  ...openaiCompatibleProvider,
+  type: 'deepseek',
+  displayName: 'DeepSeek',
 };
