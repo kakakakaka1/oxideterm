@@ -150,12 +150,17 @@
         "stop_port_forward": "Stop Forward",
         "sftp_list_dir": "SFTP List",
         "sftp_read_file": "SFTP Read",
+        "sftp_write_file": "SFTP Write",
         "sftp_stat": "SFTP Info",
         "sftp_get_cwd": "SFTP Path",
         "ide_get_open_files": "Open Files",
         "ide_get_file_content": "File Content",
         "ide_get_project_info": "Project Info",
         "ide_apply_edit": "Apply Edit",
+        "ide_replace_string": "Replace Text",
+        "ide_insert_text": "Insert Text",
+        "ide_open_file": "Open File",
+        "ide_create_file": "Create File",
         "local_list_shells": "List Shells",
         "local_get_terminal_info": "Terminal Info",
         "local_exec": "Local Exec",
@@ -169,6 +174,7 @@
         "get_resource_metrics": "Metrics",
         "list_saved_connections": "Saved Connections",
         "search_saved_connections": "Search Connections",
+        "connect_saved_session": "Connect Saved Session",
         "get_session_tree": "Session Tree",
         "list_plugins": "List Plugins",
         "send_control_sequence": "Send Signal",
@@ -186,7 +192,8 @@
         "get_broadcast_status": "Broadcast Status",
         "get_plugin_details": "Plugin Details",
         "get_ssh_environment": "SSH Environment",
-        "get_topology": "Topology"
+        "get_topology": "Topology",
+        "search_docs": "Search Docs"
       }
     },
     "guardrail": {

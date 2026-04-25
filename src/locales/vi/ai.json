@@ -150,12 +150,17 @@
         "stop_port_forward": "Dừng chuyển tiếp",
         "sftp_list_dir": "SFTP Danh sách",
         "sftp_read_file": "SFTP Đọc",
+        "sftp_write_file": "SFTP Write",
         "sftp_stat": "SFTP Thông tin",
         "sftp_get_cwd": "SFTP Đường dẫn",
         "ide_get_open_files": "Tệp đang mở",
         "ide_get_file_content": "Nội dung tệp",
         "ide_get_project_info": "Thông tin dự án",
         "ide_apply_edit": "Áp dụng chỉnh sửa",
+        "ide_replace_string": "Replace Text",
+        "ide_insert_text": "Insert Text",
+        "ide_open_file": "Open File",
+        "ide_create_file": "Create File",
         "local_list_shells": "Danh sách shell",
         "local_get_terminal_info": "Thông tin terminal",
         "local_exec": "Thực thi cục bộ",
@@ -169,6 +174,7 @@
         "get_resource_metrics": "Số liệu",
         "list_saved_connections": "Kết nối đã lưu",
         "search_saved_connections": "Tìm kết nối",
+        "connect_saved_session": "Connect Saved Session",
         "get_session_tree": "Cây phiên",
         "list_plugins": "Danh sách plugin",
         "send_control_sequence": "Gửi tín hiệu điều khiển",
@@ -186,7 +192,8 @@
         "get_broadcast_status": "Trạng thái phát",
         "get_plugin_details": "Chi tiết plugin",
         "get_ssh_environment": "Môi trường SSH",
-        "get_topology": "Tô pô"
+        "get_topology": "Tô pô",
+        "search_docs": "Search Docs"
       }
     },
     "guardrail": {

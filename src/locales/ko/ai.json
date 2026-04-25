@@ -150,12 +150,17 @@
         "stop_port_forward": "포워딩 중지",
         "sftp_list_dir": "SFTP 목록",
         "sftp_read_file": "SFTP 읽기",
+        "sftp_write_file": "SFTP Write",
         "sftp_stat": "SFTP 정보",
         "sftp_get_cwd": "SFTP 경로",
         "ide_get_open_files": "열린 파일",
         "ide_get_file_content": "파일 내용",
         "ide_get_project_info": "프로젝트 정보",
         "ide_apply_edit": "편집 적용",
+        "ide_replace_string": "Replace Text",
+        "ide_insert_text": "Insert Text",
+        "ide_open_file": "Open File",
+        "ide_create_file": "Create File",
         "local_list_shells": "셸 목록",
         "local_get_terminal_info": "터미널 정보",
         "local_exec": "로컬 실행",
@@ -169,6 +174,7 @@
         "get_resource_metrics": "메트릭",
         "list_saved_connections": "저장된 연결",
         "search_saved_connections": "연결 검색",
+        "connect_saved_session": "Connect Saved Session",
         "get_session_tree": "세션 트리",
         "list_plugins": "플러그인 목록",
         "send_control_sequence": "제어 신호 전송",
@@ -186,7 +192,8 @@
         "get_broadcast_status": "브로드캐스트 상태",
         "get_plugin_details": "플러그인 상세",
         "get_ssh_environment": "SSH 환경",
-        "get_topology": "토폴로지"
+        "get_topology": "토폴로지",
+        "search_docs": "Search Docs"
       }
     },
     "guardrail": {

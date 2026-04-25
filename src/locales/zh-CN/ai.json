@@ -150,12 +150,17 @@
         "stop_port_forward": "停止转发",
         "sftp_list_dir": "SFTP 列目录",
         "sftp_read_file": "SFTP 读文件",
+        "sftp_write_file": "SFTP 写文件",
         "sftp_stat": "SFTP 信息",
         "sftp_get_cwd": "SFTP 路径",
         "ide_get_open_files": "打开的文件",
         "ide_get_file_content": "文件内容",
         "ide_get_project_info": "项目信息",
         "ide_apply_edit": "应用编辑",
+        "ide_replace_string": "替换文本",
+        "ide_insert_text": "插入文本",
+        "ide_open_file": "打开文件",
+        "ide_create_file": "创建文件",
         "local_list_shells": "列出 Shell",
         "local_get_terminal_info": "终端信息",
         "local_exec": "本地执行",
@@ -169,6 +174,7 @@
         "get_resource_metrics": "资源指标",
         "list_saved_connections": "已保存连接",
         "search_saved_connections": "搜索连接",
+        "connect_saved_session": "连接已保存会话",
         "get_session_tree": "会话树",
         "list_plugins": "列出插件",
         "send_control_sequence": "发送控制信号",
@@ -186,7 +192,8 @@
         "get_broadcast_status": "广播状态",
         "get_plugin_details": "插件详情",
         "get_ssh_environment": "SSH 环境",
-        "get_topology": "网络拓扑"
+        "get_topology": "网络拓扑",
+        "search_docs": "搜索知识库"
       }
     },
     "guardrail": {

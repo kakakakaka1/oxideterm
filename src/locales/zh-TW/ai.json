@@ -150,12 +150,17 @@
         "stop_port_forward": "停止轉發",
         "sftp_list_dir": "SFTP 列目錄",
         "sftp_read_file": "SFTP 讀檔案",
+        "sftp_write_file": "SFTP 寫檔案",
         "sftp_stat": "SFTP 資訊",
         "sftp_get_cwd": "SFTP 路徑",
         "ide_get_open_files": "開啟的檔案",
         "ide_get_file_content": "檔案內容",
         "ide_get_project_info": "專案資訊",
         "ide_apply_edit": "套用編輯",
+        "ide_replace_string": "取代文字",
+        "ide_insert_text": "插入文字",
+        "ide_open_file": "開啟檔案",
+        "ide_create_file": "建立檔案",
         "local_list_shells": "列出 Shell",
         "local_get_terminal_info": "終端機資訊",
         "local_exec": "本機執行",
@@ -169,6 +174,7 @@
         "get_resource_metrics": "資源指標",
         "list_saved_connections": "已儲存連線",
         "search_saved_connections": "搜尋連線",
+        "connect_saved_session": "連接已儲存會話",
         "get_session_tree": "工作階段樹",
         "list_plugins": "列出外掛",
         "send_control_sequence": "傳送控制信號",
@@ -186,7 +192,8 @@
         "get_broadcast_status": "廣播狀態",
         "get_plugin_details": "外掛詳情",
         "get_ssh_environment": "SSH 環境",
-        "get_topology": "網路拓撲"
+        "get_topology": "網路拓撲",
+        "search_docs": "搜尋知識庫"
       }
     },
     "guardrail": {

@@ -150,12 +150,17 @@
         "stop_port_forward": "転送停止",
         "sftp_list_dir": "SFTP 一覧",
         "sftp_read_file": "SFTP 読取",
+        "sftp_write_file": "SFTP Write",
         "sftp_stat": "SFTP 情報",
         "sftp_get_cwd": "SFTP パス",
         "ide_get_open_files": "開いたファイル",
         "ide_get_file_content": "ファイル内容",
         "ide_get_project_info": "プロジェクト情報",
         "ide_apply_edit": "編集適用",
+        "ide_replace_string": "Replace Text",
+        "ide_insert_text": "Insert Text",
+        "ide_open_file": "Open File",
+        "ide_create_file": "Create File",
         "local_list_shells": "シェル一覧",
         "local_get_terminal_info": "ターミナル情報",
         "local_exec": "ローカル実行",
@@ -169,6 +174,7 @@
         "get_resource_metrics": "メトリクス",
         "list_saved_connections": "保存済み接続",
         "search_saved_connections": "接続検索",
+        "connect_saved_session": "Connect Saved Session",
         "get_session_tree": "セッションツリー",
         "list_plugins": "プラグイン一覧",
         "send_control_sequence": "制御信号送信",
@@ -186,7 +192,8 @@
         "get_broadcast_status": "ブロードキャスト状況",
         "get_plugin_details": "プラグイン詳細",
         "get_ssh_environment": "SSH 環境",
-        "get_topology": "トポロジー"
+        "get_topology": "トポロジー",
+        "search_docs": "Search Docs"
       }
     },
     "guardrail": {
