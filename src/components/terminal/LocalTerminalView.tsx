@@ -1097,6 +1097,7 @@ export const LocalTerminalView: React.FC<LocalTerminalViewProps> = ({
 
   // Listen for terminal data events from backend
   useEffect(() => {
+    if (!fontOpenReady) return;
     if (!terminalRef.current) return;
 
     const dataEventName = `local-terminal-data:${sessionId}`;
@@ -1188,7 +1189,7 @@ export const LocalTerminalView: React.FC<LocalTerminalViewProps> = ({
       unlistenDataFn?.();
       unlistenClosedFn?.();
     };
-  }, [feedOutput, maybeLoadImageAddon, maybeSuggestTerminalEncoding, recorderRef, sessionId, updateTerminalState]);
+  }, [feedOutput, fontOpenReady, maybeLoadImageAddon, maybeSuggestTerminalEncoding, recorderRef, sessionId, updateTerminalState]);
 
   // Listen for AI insert command events (only when this terminal is active)
   useEffect(() => {
