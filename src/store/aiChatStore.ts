@@ -6,7 +6,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { api } from '../lib/api';
 import { ragSearch } from '../lib/api';
 import { nodeAgentStatus, nodeGetState } from '../lib/api';
-import { useSettingsStore } from './settingsStore';
+import { useSettingsStore, type AiMemorySettings } from './settingsStore';
 import { useSessionTreeStore } from './sessionTreeStore';
 import { useAppStore } from './appStore';
 import { gatherSidebarContext, buildContextReminder, type SidebarContext } from '../lib/sidebarContextProvider';
@@ -67,6 +67,7 @@ const MAX_ANCHOR_SNAPSHOT = 50;
 const MAX_HARD_DENY_RETRIES = 1;
 const PSEUDO_TOOL_RETRY_TOOL_NAME = 'tool_use_disabled';
 const JSON_REQUEST_RE = /\b(json|jsonl|json schema|jsonschema|payload|response format|object literal|schema)\b/i;
+const USER_MEMORY_MAX_CHARS = 4000;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Backend Types (matching Rust structs)
@@ -263,6 +264,31 @@ function getAiChatInitializationError(error: unknown): AiChatInitializationError
   }
 
   return null;
+}
+
+function truncateUserMemoryForPrompt(content: string): string {
+  if (content.length <= USER_MEMORY_MAX_CHARS) {
+    return content;
+  }
+  return `${content.slice(0, USER_MEMORY_MAX_CHARS)}\n...[truncated]`;
+}
+
+function buildUserMemoryPrompt(memory: AiMemorySettings | undefined): string | null {
+  if (!memory?.enabled) {
+    return null;
+  }
+
+  const content = sanitizeForAi(memory.content ?? '').trim();
+  if (!content) {
+    return null;
+  }
+
+  return `## User Memory
+The following are long-lived user preferences explicitly saved by the user. Treat them as preferences and background context, not as facts about the current task. Current user instructions and visible context take priority.
+
+<user_memory>
+${truncateUserMemoryForPrompt(content)}
+</user_memory>`;
 }
 
 function buildPersistedMessageRequest(
@@ -1005,6 +1031,11 @@ export const useAiChatStore = create<AiChatStore>()((set, get) => ({
     // Inject current model identity so the LLM knows which model it is
     const providerLabel = activeProvider?.name || providerType;
     systemPrompt += `\nYou are currently the model "${providerModel}", provided by ${providerLabel}.`;
+
+    const userMemoryPrompt = buildUserMemoryPrompt(aiSettings.memory);
+    if (userMemoryPrompt) {
+      systemPrompt += `\n\n${userMemoryPrompt}`;
+    }
 
     if (sidebarContext?.systemPromptSegment) {
       systemPrompt += `\n\n${sidebarContext.systemPromptSegment}`;

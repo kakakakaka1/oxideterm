@@ -3,7 +3,7 @@
 
 import { useState, type ElementType } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Activity, ChevronDown, ChevronRight, CirclePlus, CircleStop, Code2, FileCode, FileText, FlaskConical, FolderInput, FolderOpen, FolderSearch, GitBranch, HardDrive, Info, Keyboard, ListTree, Monitor, MousePointer2, Network, Pen, Puzzle, Radio, RefreshCw, Search, Settings, Terminal as TerminalIcon, Wrench, X } from 'lucide-react';
+import { Activity, Brain, ChevronDown, ChevronRight, CirclePlus, CircleStop, Code2, FileCode, FileText, FlaskConical, FolderInput, FolderOpen, FolderSearch, GitBranch, HardDrive, Info, Keyboard, ListTree, Monitor, MousePointer2, Network, Pen, Puzzle, Radio, RefreshCw, Search, Settings, Terminal as TerminalIcon, Wrench, X } from 'lucide-react';
 import { McpServersPanel } from '@/components/settings/McpServersPanel';
 import { ProviderKeyInput } from '@/components/settings/ProviderKeyInput';
 import { Button } from '@/components/ui/button';
@@ -110,6 +110,7 @@ export const AiTab = ({
     const { error: toastError } = useToast();
     const { confirm, ConfirmDialog } = useConfirm();
     const [contextWindowsExpanded, setContextWindowsExpanded] = useState(true);
+    const memory = ai.memory ?? { enabled: true, content: '' };
 
     return (
         <>
@@ -416,6 +417,45 @@ export const AiTab = ({
                                 className="w-full bg-theme-bg border border-theme-border rounded-md px-3 py-2 text-sm text-theme-text placeholder-theme-text-muted/40 resize-y min-h-[80px] max-h-[200px] focus:outline-none focus:ring-1 focus:ring-theme-accent/40"
                             />
                             <p className="text-xs text-theme-text-muted">{t('settings_view.ai.system_prompt_hint')}</p>
+                        </div>
+
+                        <Separator className="my-6 opacity-50" />
+
+                        <h4 className="text-sm font-medium text-theme-text mb-4 uppercase tracking-wider flex items-center gap-2">
+                            <Brain className="w-4 h-4" />
+                            {t('settings_view.ai.memory_title')}
+                        </h4>
+                        <div className="max-w-3xl grid gap-3">
+                            <div className="flex items-center justify-between gap-4">
+                                <div>
+                                    <Label>{t('settings_view.ai.memory_enabled')}</Label>
+                                    <p className="text-xs text-theme-text-muted mt-0.5">{t('settings_view.ai.memory_enabled_hint')}</p>
+                                </div>
+                                <Checkbox
+                                    id="ai-memory-enabled"
+                                    checked={memory.enabled}
+                                    onCheckedChange={(checked) => updateAi('memory', { ...memory, enabled: !!checked })}
+                                />
+                            </div>
+                            <textarea
+                                value={memory.content}
+                                onChange={(event) => updateAi('memory', { ...memory, content: event.target.value })}
+                                placeholder={t('settings_view.ai.memory_placeholder')}
+                                rows={5}
+                                className="w-full bg-theme-bg border border-theme-border rounded-md px-3 py-2 text-sm text-theme-text placeholder-theme-text-muted/40 resize-y min-h-[120px] max-h-[260px] focus:outline-none focus:ring-1 focus:ring-theme-accent/40"
+                            />
+                            <div className="flex items-start justify-between gap-3">
+                                <p className="text-xs text-theme-text-muted leading-relaxed">{t('settings_view.ai.memory_hint')}</p>
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="shrink-0 text-xs"
+                                    disabled={!memory.content.trim()}
+                                    onClick={() => updateAi('memory', { ...memory, content: '' })}
+                                >
+                                    {t('settings_view.ai.memory_clear')}
+                                </Button>
+                            </div>
                         </div>
 
                         <Separator className="my-6 opacity-50" />

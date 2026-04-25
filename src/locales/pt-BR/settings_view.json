@@ -553,7 +553,13 @@
       "tool_use_subgroup_write": "Escrita / Execução",
       "tool_use_approve_all": "Aprovar tudo",
       "tool_use_approve_none": "Revogar tudo",
-      "tool_use_write_warning": "Ferramentas de escrita concedem à IA capacidades de execução de comandos e modificação de arquivos. Ative apenas em servidores confiáveis."
+      "tool_use_write_warning": "Ferramentas de escrita concedem à IA capacidades de execução de comandos e modificação de arquivos. Ative apenas em servidores confiáveis.",
+      "memory_title": "Memory / Preferences",
+      "memory_enabled": "Include saved memory",
+      "memory_enabled_hint": "Inject these long-lived preferences into AI chats. The content stays local until you send a message.",
+      "memory_placeholder": "- Prefer concise Chinese replies.\n- Explain the plan before large code changes.\n- I care about terminal rendering and SSH performance.",
+      "memory_hint": "Use this for stable preferences only. Avoid secrets, passwords, tokens, or one-off task facts. Current chat instructions always take priority.",
+      "memory_clear": "Clear Memory"
     },
     "sftp": {
       "title": "Transferências SFTP",

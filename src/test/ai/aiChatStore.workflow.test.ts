@@ -55,6 +55,10 @@ const settingsStoreMock = vi.hoisted(() => ({
         contextMaxChars: 8000,
         modelContextWindows: { 'provider-1': { 'mock-model': 1000 } },
         modelMaxResponseTokens: {},
+        memory: {
+          enabled: true,
+          content: '',
+        },
         toolUse: {
           enabled: false,
           disabledTools: [],
@@ -237,6 +241,7 @@ describe('aiChatStore workflows', () => {
     settingsStoreMock.state.settings.ai.toolUse.enabled = false;
     settingsStoreMock.state.settings.ai.toolUse.disabledTools = [];
     settingsStoreMock.state.settings.ai.toolUse.autoApproveTools = {};
+    settingsStoreMock.state.settings.ai.memory = { enabled: true, content: '' };
     parseUserInputMock.mockReturnValue({ slashCommand: null, participants: [], references: [], cleanText: '' });
     resolveSlashCommandMock.mockReturnValue(undefined);
     getProviderMock.mockReturnValue({ streamCompletion: providerStreamMock });
@@ -665,6 +670,22 @@ describe('aiChatStore workflows', () => {
     const providerMessages = providerStreamMock.mock.calls[0]?.[1];
     expect(providerMessages?.[0]?.role).toBe('system');
     expect(providerMessages?.[0]?.content).toContain('TOOL CALLING IS CURRENTLY DISABLED');
+  });
+
+  it('injects saved user memory into the system prompt when enabled', async () => {
+    setConversation([]);
+    settingsStoreMock.state.settings.ai.memory = {
+      enabled: true,
+      content: '- Prefer concise Chinese replies.',
+    };
+    streamText('plain answer');
+
+    await useAiChatStore.getState().sendMessage('hello');
+
+    const providerMessages = providerStreamMock.mock.calls[0]?.[1];
+    expect(providerMessages?.[0]?.role).toBe('system');
+    expect(providerMessages?.[0]?.content).toContain('## User Memory');
+    expect(providerMessages?.[0]?.content).toContain('Prefer concise Chinese replies');
   });
 
   it('stores turn snapshots and session metadata for sidebar sends', async () => {

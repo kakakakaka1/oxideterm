@@ -553,7 +553,13 @@
       "tool_use_subgroup_write": "Ghi / Thực thi",
       "tool_use_approve_all": "Phê duyệt tất cả",
       "tool_use_approve_none": "Thu hồi tất cả",
-      "tool_use_write_warning": "Công cụ ghi cấp cho AI khả năng thực thi lệnh và sửa đổi tệp. Chỉ kích hoạt trên máy chủ đáng tin cậy."
+      "tool_use_write_warning": "Công cụ ghi cấp cho AI khả năng thực thi lệnh và sửa đổi tệp. Chỉ kích hoạt trên máy chủ đáng tin cậy.",
+      "memory_title": "Memory / Preferences",
+      "memory_enabled": "Include saved memory",
+      "memory_enabled_hint": "Inject these long-lived preferences into AI chats. The content stays local until you send a message.",
+      "memory_placeholder": "- Prefer concise Chinese replies.\n- Explain the plan before large code changes.\n- I care about terminal rendering and SSH performance.",
+      "memory_hint": "Use this for stable preferences only. Avoid secrets, passwords, tokens, or one-off task facts. Current chat instructions always take priority.",
+      "memory_clear": "Clear Memory"
     },
     "sftp": {
       "title": "Truyền file SFTP",

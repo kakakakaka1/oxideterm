@@ -553,7 +553,13 @@
       "tool_use_subgroup_write": "寫入 / 執行",
       "tool_use_approve_all": "全部核准",
       "tool_use_approve_none": "全部撤銷",
-      "tool_use_write_warning": "寫入工具賦予 AI 命令執行和檔案修改能力，請僅在受信任的伺服器上啟用。"
+      "tool_use_write_warning": "寫入工具賦予 AI 命令執行和檔案修改能力，請僅在受信任的伺服器上啟用。",
+      "memory_title": "記憶 / 長期偏好",
+      "memory_enabled": "注入已儲存記憶",
+      "memory_enabled_hint": "把這些長期偏好加入 AI 聊天。內容只會在你送出訊息時傳給目前設定的 AI 端點。",
+      "memory_placeholder": "- 偏好簡潔中文回覆。\n- 大改動前先說明計畫。\n- 我很關注終端渲染和 SSH 效能。",
+      "memory_hint": "只適合保存穩定偏好。不要寫入金鑰、密碼、token 或一次性任務事實。目前聊天中的明確指令永遠優先。",
+      "memory_clear": "清空記憶"
     },
     "sftp": {
       "title": "SFTP 傳輸",

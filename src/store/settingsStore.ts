@@ -261,6 +261,11 @@ export type AiThinkingStyle = 'detailed' | 'compact';
 /** AI context source */
 export type AiContextSource = 'selection' | 'visible' | 'command';
 
+export interface AiMemorySettings {
+  enabled: boolean;
+  content: string;
+}
+
 /** AI settings */
 export interface AiSettings {
   enabled: boolean;
@@ -291,6 +296,8 @@ export interface AiSettings {
   userContextWindows?: Record<string, Record<string, number>>;
   /** Custom system prompt override (empty = use default) */
   customSystemPrompt?: string;
+  /** Long-lived user preferences explicitly saved by the user */
+  memory?: AiMemorySettings;
   /**
    * Per-model maximum response tokens override.
    * Shape: { [providerId]: { [modelId]: tokenCount } }
@@ -501,6 +508,10 @@ const defaultAiSettings: AiSettings = {
   thinkingStyle: 'detailed',         // Default: show full thinking content
   thinkingDefaultExpanded: false,    // Default: collapsed for less noise
   customSystemPrompt: '',            // Default: use built-in prompt
+  memory: {
+    enabled: true,
+    content: '',
+  },
   toolUse: {
     enabled: false,                  // Default: disabled until user opts in
     autoApproveTools: {
@@ -714,6 +725,10 @@ function mergeWithDefaults(saved: OxidePartialSettingsSnapshot | Partial<Persist
       ...defaults.ai,
       ...saved.ai,
       // Deep merge toolUse.autoApproveTools so new tools get defaults
+      memory: {
+        enabled: saved.ai?.memory?.enabled ?? defaults.ai.memory?.enabled ?? true,
+        content: saved.ai?.memory?.content ?? defaults.ai.memory?.content ?? '',
+      },
       toolUse: saved.ai?.toolUse
         ? {
             ...defaults.ai.toolUse,
@@ -1656,6 +1671,7 @@ const AI_KEYS: Array<keyof AiSettings> = [
   'modelContextWindows',
   'userContextWindows',
   'customSystemPrompt',
+  'memory',
   'modelMaxResponseTokens',
   'toolUse',
   'contextSources',

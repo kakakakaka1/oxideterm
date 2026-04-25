@@ -553,7 +553,13 @@
       "tool_use_subgroup_write": "쓰기 / 실행",
       "tool_use_approve_all": "모두 승인",
       "tool_use_approve_none": "모두 취소",
-      "tool_use_write_warning": "쓰기 도구는 AI에 명령 실행 및 파일 수정 기능을 부여합니다. 신뢰할 수 있는 서버에서만 활성화하세요."
+      "tool_use_write_warning": "쓰기 도구는 AI에 명령 실행 및 파일 수정 기능을 부여합니다. 신뢰할 수 있는 서버에서만 활성화하세요.",
+      "memory_title": "Memory / Preferences",
+      "memory_enabled": "Include saved memory",
+      "memory_enabled_hint": "Inject these long-lived preferences into AI chats. The content stays local until you send a message.",
+      "memory_placeholder": "- Prefer concise Chinese replies.\n- Explain the plan before large code changes.\n- I care about terminal rendering and SSH performance.",
+      "memory_hint": "Use this for stable preferences only. Avoid secrets, passwords, tokens, or one-off task facts. Current chat instructions always take priority.",
+      "memory_clear": "Clear Memory"
     },
     "sftp": {
       "title": "SFTP 전송",
