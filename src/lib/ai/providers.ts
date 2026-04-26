@@ -27,6 +27,7 @@ export type AiStreamEvent =
 
 export type AiReasoningEffort = 'auto' | 'off' | 'low' | 'medium' | 'high' | 'max';
 export type AiReasoningProtocol = 'none' | 'openai' | 'deepseek' | 'anthropic';
+export type AiToolChoice = 'auto' | 'required' | { type: 'tool'; name: string };
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Provider Interface
@@ -47,6 +48,8 @@ export type AiRequestConfig = {
   reasoningProtocol?: AiReasoningProtocol;
   /** Tool definitions for function calling. Provider adapters convert to format-specific payloads. */
   tools?: AiToolDefinition[];
+  /** Optional provider-native tool forcing. Adapters ignore this when no tools are present. */
+  toolChoice?: AiToolChoice;
 };
 
 /**

@@ -120,6 +120,19 @@ function resolveThinkingBudget(config: AiRequestConfig, maxTokens: number): numb
   return capped >= 1024 ? capped : null;
 }
 
+function applyToolChoice(body: Record<string, unknown>, config: AiRequestConfig): void {
+  if (!config.tools || config.tools.length === 0 || !config.toolChoice || config.toolChoice === 'auto') {
+    return;
+  }
+
+  if (config.toolChoice === 'required') {
+    body.tool_choice = { type: 'any' };
+    return;
+  }
+
+  body.tool_choice = { type: 'tool', name: config.toolChoice.name };
+}
+
 export const anthropicProvider: AiStreamProvider = {
   type: 'anthropic',
   displayName: 'Anthropic',
@@ -153,6 +166,12 @@ export const anthropicProvider: AiStreamProvider = {
 
     if (config.tools && config.tools.length > 0) {
       body.tools = convertTools(config.tools);
+      // Anthropic rejects forced tool_choice (`any`/`tool`) when extended
+      // thinking is enabled. Keep tools available and let the system prompt
+      // enforce required tool use in that mode.
+      if (thinkingBudget === null) {
+        applyToolChoice(body, config);
+      }
     }
 
     const { response: statusPromise, body: streamBody } = aiFetchStreaming(url, {

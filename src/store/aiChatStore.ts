@@ -13,7 +13,7 @@ import { gatherSidebarContext, buildContextReminder, type SidebarContext } from 
 import { getProvider, getProviderReasoningProtocol } from '../lib/ai/providerRegistry';
 import { resolveAiReasoningEffort } from '../lib/ai/reasoningSettings';
 import { estimateTokens, estimateToolDefinitionsTokens, trimHistoryToTokenBudget, getModelContextWindow, responseReserve } from '../lib/ai/tokenUtils';
-import type { ChatMessage as ProviderChatMessage } from '../lib/ai/providers';
+import type { AiToolChoice, ChatMessage as ProviderChatMessage } from '../lib/ai/providers';
 import type { AiChatMessage, AiConversation, AiToolCall } from '../types';
 import type {
   AiAssistantTurn,
@@ -32,8 +32,8 @@ import { createAiDiagnosticEvent, persistDiagnosticEvents, type AiDiagnosticTele
 import { normalizePendingSummaries } from '../lib/ai/turnModel/summaryMetadata';
 import { createSyntheticToolDenyPayload } from '../lib/ai/turnModel/toolFeedback';
 import { getToolUseNegativeConstraint } from '../lib/ai/turnModel/toolUsePolicy';
-import { CONTEXT_FREE_TOOLS, SESSION_ID_TOOLS, READ_ONLY_TOOLS, decideToolApproval, getToolsForPlan, inferToolIntents, executeTool, type ToolExecutionContext } from '../lib/ai/tools';
-import { buildToolOperationStrategyPrompt, buildTuiInteractionGuidelines } from '../lib/ai/toolUsePrompt';
+import { CONTEXT_FREE_TOOLS, SESSION_ID_TOOLS, READ_ONLY_TOOLS, classifyToolObligation, decideToolApproval, formatToolResultForModel, getToolsForPlan, inferToolIntents, executeTool, type ToolExecutionContext, type ToolObligation } from '../lib/ai/tools';
+import { buildToolObligationPrompt, buildToolOperationStrategyPrompt, buildTuiInteractionGuidelines } from '../lib/ai/toolUsePrompt';
 import { parseUserInput } from '../lib/ai/inputParser';
 import { resolveSlashCommand, SLASH_COMMANDS } from '../lib/ai/slashCommands';
 import { PARTICIPANTS, resolveParticipant, mergeParticipantTools } from '../lib/ai/participants';
@@ -70,6 +70,50 @@ const MAX_HARD_DENY_RETRIES = 1;
 const PSEUDO_TOOL_RETRY_TOOL_NAME = 'tool_use_disabled';
 const JSON_REQUEST_RE = /\b(json|jsonl|json schema|jsonschema|payload|response format|object literal|schema)\b/i;
 const USER_MEMORY_MAX_CHARS = 4000;
+const MAX_REQUIRED_TOOL_RETRIES = 1;
+const ACTION_CLAIM_RE = /\b(?:opened|connected|executed|ran|read|modified|changed|checked|verified|diagnosed|found|failed|succeeded)\b|(?:已经|已|我来|我已|现在).*(?:打开|连接|执行|运行|读取|修改|检查|诊断|确认|发现)|(?:结果是|连接失败|执行完成|修改完成)/i;
+
+function resolveToolChoiceForObligation(
+  obligation: ToolObligation | null,
+  tools: Array<{ name: string }> | undefined,
+): AiToolChoice | undefined {
+  if (!obligation || obligation.mode !== 'required' || obligation.candidateTools.length === 0 || !tools || tools.length === 0) {
+    return undefined;
+  }
+
+  return 'required';
+}
+
+function buildRequiredToolRetryPrompt(obligation: ToolObligation): string {
+  const candidates = obligation.candidateTools.length > 0
+    ? obligation.candidateTools.slice(0, 8).map((tool) => `\`${tool}\``).join(', ')
+    : 'the relevant available tool';
+
+  return [
+    'The previous assistant response did not call a structured tool, but this user request requires real app/tool state.',
+    `Reason: ${obligation.reason}.`,
+    `Call one of these tools before giving a final answer: ${candidates}.`,
+    'Do not claim that anything was opened, connected, executed, read, modified, checked, verified, or diagnosed until a tool result proves it.',
+  ].join('\n');
+}
+
+function shouldRetryRequiredToolRound(obligation: ToolObligation | null, assistantText: string): boolean {
+  if (!obligation || obligation.mode !== 'required' || obligation.candidateTools.length === 0) {
+    return false;
+  }
+
+  const trimmed = assistantText.trim();
+  if (!trimmed) {
+    return true;
+  }
+
+  if (ACTION_CLAIM_RE.test(trimmed)) {
+    return true;
+  }
+
+  const looksLikeClarification = /[?？]\s*$|(?:请|需要你|你可以|是否|哪一个|哪个|确认)/.test(trimmed);
+  return !looksLikeClarification;
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Backend Types (matching Rust structs)
@@ -1161,6 +1205,7 @@ export const useAiChatStore = create<AiChatStore>()((set, get) => ({
     // Resolve tool definitions — extracted as a function so it can be re-evaluated
     // between tool rounds (e.g. after open_local_terminal changes the active tab).
     let toolDefs: ReturnType<typeof getToolsForPlan> | undefined;
+    let toolObligation: ToolObligation | null = null;
     let mcpModule: Awaited<typeof import('../lib/ai/mcp')> | null = null;
     const resolveToolDefs = (): ReturnType<typeof getToolsForPlan> | undefined => {
       if (!toolUseEnabled) return undefined;
@@ -1196,6 +1241,17 @@ export const useAiChatStore = create<AiChatStore>()((set, get) => ({
     if (toolUseEnabled) {
       mcpModule = await import('../lib/ai/mcp');
       toolDefs = resolveToolDefs();
+      toolObligation = classifyToolObligation({
+        text: cleanContent,
+        activeTabType: sidebarContext?.env.activeTabType ?? null,
+        intents: toolIntents,
+        availableToolNames: toolDefs?.map((tool) => tool.name) ?? [],
+        disabledTools: get().getEffectiveDisabledTools(),
+      });
+      const obligationPrompt = buildToolObligationPrompt(toolObligation);
+      if (obligationPrompt) {
+        apiMessages[0].content += `\n\n${obligationPrompt}`;
+      }
 
       // Lazy TUI interaction guidance — only when experimental tools are in the active set
       if (toolDefs?.some(t => t.name === 'read_screen' || t.name === 'send_keys' || t.name === 'send_mouse')) {
@@ -1660,7 +1716,7 @@ export const useAiChatStore = create<AiChatStore>()((set, get) => ({
       const MAX_TOOL_CALLS_PER_ROUND = 8;
       let round = 0;
       const appendGuardrail = (
-        code: 'tool-use-disabled' | 'tool-context-missing' | 'tool-budget-limit' | 'tool-disabled-hard-deny',
+        code: 'tool-use-disabled' | 'tool-context-missing' | 'tool-budget-limit' | 'tool-disabled-hard-deny' | 'tool-required-no-call',
         message: string,
         rawText?: string,
       ) => {
@@ -1841,6 +1897,7 @@ export const useAiChatStore = create<AiChatStore>()((set, get) => ({
         return sessionId.length > 0 || (toolContext?.activeTerminalType === 'local_terminal' && !!toolContext.activeSessionId);
       };
 
+      let requiredToolRetryCount = 0;
       // eslint-disable-next-line no-constant-condition
       while (true) {
         const completedToolCalls: Array<{ id: string; name: string; arguments: string }> = [];
@@ -1848,13 +1905,20 @@ export const useAiChatStore = create<AiChatStore>()((set, get) => ({
         let bufferedAssistantText = '';
         let bufferedThinkingText = '';
         let isBufferingForHardDeny = !toolUseEnabled;
+        const isBufferingForRequiredTool = toolObligation?.mode === 'required' && requiredToolRetryCount < MAX_REQUIRED_TOOL_RETRIES;
         let hardDenyDetection: GuardrailDetectionResult | null = null;
+        const toolChoice = resolveToolChoiceForObligation(toolObligation, toolDefs);
 
         queueDiagnosticEvent('llm_request', {
           logicalRound: round + 1,
           messageCount: apiMessages.length,
           toolDefinitionCount: toolDefs?.length ?? 0,
           hardDenyRetryCount,
+          requiredToolRetryCount,
+          toolObligationMode: toolObligation?.mode ?? 'none',
+          toolObligationReason: toolObligation?.reason ?? null,
+          candidateToolNames: toolObligation?.candidateTools ?? [],
+          toolChoice: typeof toolChoice === 'string' ? toolChoice : toolChoice?.name ?? null,
         }, {
           turnId: assistantMessage.id,
           requestKind: 'chat',
@@ -1893,6 +1957,7 @@ export const useAiChatStore = create<AiChatStore>()((set, get) => ({
             reasoningEffort,
             reasoningProtocol: getProviderReasoningProtocol(providerType),
             tools: toolDefs,
+            toolChoice,
           },
           sanitizeApiMessages(apiMessages),
           abortController.signal
@@ -1943,6 +2008,11 @@ export const useAiChatStore = create<AiChatStore>()((set, get) => ({
                 }
               }
 
+              if (isBufferingForRequiredTool && !sawStructuredToolCall) {
+                bufferedAssistantText += event.content;
+                break;
+              }
+
               accumulator.onContent(event.content);
               updateAssistantSnapshot(false, false);
               break;
@@ -1951,6 +2021,11 @@ export const useAiChatStore = create<AiChatStore>()((set, get) => ({
               roundReasoningContent += event.content;
 
               if (!toolUseEnabled && !sawStructuredToolCall && (isBufferingForHardDeny || hardDenyDetection)) {
+                bufferedThinkingText += event.content;
+                break;
+              }
+
+              if (isBufferingForRequiredTool && !sawStructuredToolCall) {
                 bufferedThinkingText += event.content;
                 break;
               }
@@ -2002,9 +2077,16 @@ export const useAiChatStore = create<AiChatStore>()((set, get) => ({
           }
         }
 
-        if (!hardDenyDetection && bufferedAssistantText) {
+        const heldRequiredToolText = isBufferingForRequiredTool && completedToolCalls.length === 0
+          ? bufferedAssistantText
+          : '';
+        const heldRequiredToolThinking = isBufferingForRequiredTool && completedToolCalls.length === 0
+          ? bufferedThinkingText
+          : '';
+
+        if (!hardDenyDetection && bufferedAssistantText && !heldRequiredToolText) {
           flushBufferedAssistantText(true);
-        } else if (!hardDenyDetection && bufferedThinkingText) {
+        } else if (!hardDenyDetection && bufferedThinkingText && !heldRequiredToolThinking) {
           flushBufferedThinkingText(true);
         }
 
@@ -2132,6 +2214,41 @@ export const useAiChatStore = create<AiChatStore>()((set, get) => ({
         }
 
         clearAwaitingToolSummaryMarker(true);
+
+        if (
+          completedToolCalls.length === 0
+          && requiredToolRetryCount < MAX_REQUIRED_TOOL_RETRIES
+          && shouldRetryRequiredToolRound(toolObligation, heldRequiredToolText || roundResponseText)
+        ) {
+          appendGuardrail(
+            'tool-required-no-call',
+            'This request requires a real tool result before the assistant can answer. Retrying with a stricter tool-use instruction.',
+            heldRequiredToolText || roundResponseText,
+          );
+          apiMessages.push({
+            role: 'assistant',
+            content: heldRequiredToolText || roundResponseText || '(No tool call was made.)',
+          });
+          apiMessages.push({
+            role: 'user',
+            content: buildRequiredToolRetryPrompt(toolObligation!),
+          });
+          queueDiagnosticEvent('guardrail', {
+            code: 'tool-required-no-call',
+            retryAttempt: requiredToolRetryCount + 1,
+            candidateToolNames: toolObligation?.candidateTools ?? [],
+          }, {
+            turnId: assistantMessage.id,
+            requestKind: 'chat',
+          });
+          requiredToolRetryCount += 1;
+          roundResponseText = '';
+          roundReasoningContent = '';
+          bufferedAssistantText = '';
+          bufferedThinkingText = '';
+          updateAssistantSnapshot(true, false);
+          continue;
+        }
 
         if (completedToolCalls.length === 0) break;
 
@@ -2434,7 +2551,9 @@ export const useAiChatStore = create<AiChatStore>()((set, get) => ({
             updateAssistantSnapshot(true, false);
             toolResultMessages.push({
               role: 'tool',
-              content: JSON.stringify(createSyntheticToolDenyPayload(tc.result?.error || 'Tool call was rejected by the user.')),
+              content: tc.result
+                ? formatToolResultForModel(tc.result)
+                : JSON.stringify(createSyntheticToolDenyPayload('Tool call was rejected by the user.')),
               tool_call_id: tc.id,
               tool_name: tc.name,
             });
@@ -2475,7 +2594,7 @@ export const useAiChatStore = create<AiChatStore>()((set, get) => ({
               turnId: assistantMessage.id,
               parentId: tc.id,
             });
-            toolResultMessages.push({ role: 'tool', content: JSON.stringify(createSyntheticToolDenyPayload('Generation was stopped.')), tool_call_id: tc.id, tool_name: tc.name });
+            toolResultMessages.push({ role: 'tool', content: formatToolResultForModel(tc.result), tool_call_id: tc.id, tool_name: tc.name });
             continue;
           }
 
@@ -2489,7 +2608,7 @@ export const useAiChatStore = create<AiChatStore>()((set, get) => ({
             };
             toolResultMessages.push({
               role: 'tool',
-              content: JSON.stringify({ error: 'Invalid JSON arguments' }),
+              content: formatToolResultForModel(tc.result),
               tool_call_id: tc.id,
               tool_name: tc.name,
             });
@@ -2563,7 +2682,7 @@ export const useAiChatStore = create<AiChatStore>()((set, get) => ({
 
           toolResultMessages.push({
             role: 'tool',
-            content: result.success ? result.output : JSON.stringify({ error: result.error ?? 'Unknown error' }),
+            content: formatToolResultForModel(result),
             tool_call_id: tc.id,
             tool_name: tc.name,
           });
@@ -2597,6 +2716,13 @@ export const useAiChatStore = create<AiChatStore>()((set, get) => ({
         // (e.g. open_local_terminal, open_tab, open_session_tab may change activeTabType)
         if (toolUseEnabled) {
           toolDefs = resolveToolDefs();
+          toolObligation = classifyToolObligation({
+            text: cleanContent,
+            activeTabType: sidebarContext?.env.activeTabType ?? null,
+            intents: toolIntents,
+            availableToolNames: toolDefs?.map((tool) => tool.name) ?? [],
+            disabledTools: get().getEffectiveDisabledTools(),
+          });
           toolContext = await resolveToolContext();
         }
 

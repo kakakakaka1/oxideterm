@@ -12,6 +12,7 @@ export type {
 } from './types';
 export {
   createToolResultEnvelope,
+  formatToolResultForModel,
   fromLegacyToolResult,
   toLegacyToolResult,
 } from './envelope';

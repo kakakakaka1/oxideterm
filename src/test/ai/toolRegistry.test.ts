@@ -24,7 +24,9 @@ import {
   getToolsForPlan,
   getToolsForContext,
   inferToolIntents,
+  classifyToolObligation,
   pluginManifestToAiToolSpecs,
+  scoreToolsForRequest,
 } from '@/lib/ai/tools';
 import type { PluginManifest } from '@/types/plugin';
 
@@ -126,6 +128,14 @@ describe('tool disclosure planner v3 phase 2', () => {
     expect(inferToolIntents('change terminal renderer to canvas')).toContain('settings');
   });
 
+  it('infers non-tab intents for terminal, local, sftp, ide, and knowledge requests', () => {
+    expect(inferToolIntents('在本地执行 pwd')).toEqual(expect.arrayContaining(['local_shell', 'command']));
+    expect(inferToolIntents('读取当前终端缓冲区')).toContain('terminal_interaction');
+    expect(inferToolIntents('用 SFTP 上传这个目录')).toContain('sftp');
+    expect(inferToolIntents('打开 IDE 里的当前文件')).toContain('ide');
+    expect(inferToolIntents('搜索知识库里的插件开发文档')).toContain('knowledge');
+  });
+
   it('exposes connection workflow tools outside session manager when intent matches', () => {
     const tools = new Set(getToolsForPlan({
       activeTabType: 'local_terminal',
@@ -162,6 +172,64 @@ describe('tool disclosure planner v3 phase 2', () => {
 
     expect(tools.has('search_saved_connections')).toBe(true);
     expect(tools.has('connect_saved_session')).toBe(false);
+  });
+
+  it('scores workflow tools ahead of generic discovery tools for explicit actions', () => {
+    const scores = scoreToolsForRequest({
+      activeTabType: null,
+      hasAnySSHSession: false,
+      userMessage: '连接家里的主机本地',
+    });
+    const names = scores.map((score) => score.toolName);
+
+    expect(names.indexOf('search_saved_connections')).toBeGreaterThanOrEqual(0);
+    expect(names.indexOf('connect_saved_connection_by_query')).toBeGreaterThanOrEqual(0);
+    expect(names.indexOf('search_saved_connections')).toBeLessThan(names.indexOf('list_tabs'));
+  });
+});
+
+describe('tool obligation classifier v4', () => {
+  it('requires tools for live app actions', () => {
+    const obligation = classifyToolObligation({
+      text: '打开设置并把终端 renderer 改成 canvas',
+      activeTabType: null,
+      availableToolNames: ['get_settings', 'open_settings_section', 'update_setting'],
+    });
+
+    expect(obligation.mode).toBe('required');
+    expect(obligation.candidateTools).toEqual(expect.arrayContaining(['update_setting']));
+  });
+
+  it('requires tools for saved connection workflows outside the session manager', () => {
+    const obligation = classifyToolObligation({
+      text: '连接家里的主机本地',
+      activeTabType: 'local_terminal',
+      availableToolNames: ['search_saved_connections', 'connect_saved_connection_by_query'],
+    });
+
+    expect(obligation.mode).toBe('required');
+    expect(obligation.intents).toContain('connection');
+    expect(obligation.candidateTools).toContain('connect_saved_connection_by_query');
+  });
+
+  it('does not force tools for conceptual architecture discussion', () => {
+    const obligation = classifyToolObligation({
+      text: '你觉得终端工具调用系统应该怎么设计',
+      activeTabType: null,
+      availableToolNames: ['list_targets', 'terminal_exec'],
+    });
+
+    expect(obligation.mode).not.toBe('required');
+  });
+
+  it('treats pasted evidence explanations as optional tool use', () => {
+    const obligation = classifyToolObligation({
+      text: '解释这段报错：```ssh: connect to host 1.2.3.4 port 22: Connection refused```',
+      activeTabType: null,
+      availableToolNames: ['search_docs', 'list_targets'],
+    });
+
+    expect(obligation.mode).toBe('optional');
   });
 });
 

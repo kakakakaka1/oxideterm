@@ -13,6 +13,12 @@ const getProviderMock = vi.hoisted(() => vi.fn());
 const contextFreeToolsMock = vi.hoisted(() => new Set(['local_exec']));
 const sessionIdToolsMock = vi.hoisted(() => new Set<string>());
 const getToolsForContextMock = vi.hoisted(() => vi.fn<() => AiToolDefinition[]>(() => []));
+const classifyToolObligationMock = vi.hoisted(() => vi.fn(() => ({
+  mode: 'none',
+  reason: 'test-default',
+  intents: [] as string[],
+  candidateTools: [] as string[],
+})));
 const executeToolMock = vi.hoisted(() => vi.fn());
 const hasDeniedCommandsMock = vi.hoisted(() => vi.fn((_toolName?: string, _args?: Record<string, unknown>) => false));
 const estimateTokensMock = vi.hoisted(() => vi.fn(() => 100));
@@ -134,6 +140,14 @@ vi.mock('@/lib/ai/tools', () => ({
   getToolsForContext: getToolsForContextMock,
   getToolsForPlan: getToolsForContextMock,
   inferToolIntents: vi.fn(() => []),
+  classifyToolObligation: classifyToolObligationMock,
+  formatToolResultForModel: vi.fn((result) => JSON.stringify({
+    ok: result.envelope?.ok ?? result.success,
+    summary: result.envelope?.summary ?? result.error ?? result.output,
+    output: result.envelope?.output ?? result.output,
+    error: result.envelope?.error ?? (result.error ? { message: result.error, recoverable: true } : undefined),
+    nextActions: result.envelope?.nextActions,
+  })),
   isCommandDenied: vi.fn(() => false),
   hasDeniedCommands: hasDeniedCommandsMock,
   decideToolApproval: ({ toolName, args, autoApproveTools, readOnlyTools }: {
@@ -274,6 +288,13 @@ describe('aiChatStore workflows', () => {
     appStoreState.sessions = new Map();
     getToolsForContextMock.mockReset();
     getToolsForContextMock.mockReturnValue([]);
+    classifyToolObligationMock.mockReset();
+    classifyToolObligationMock.mockReturnValue({
+      mode: 'none',
+      reason: 'test-default',
+      intents: [],
+      candidateTools: [],
+    });
     executeToolMock.mockReset();
     hasDeniedCommandsMock.mockReset();
     hasDeniedCommandsMock.mockReturnValue(false);
@@ -720,6 +741,121 @@ describe('aiChatStore workflows', () => {
     expect(providerMessages?.[0]?.content).toContain('prefer direct execution with `terminal_exec` + `node_id`');
     expect(providerMessages?.[0]?.content).toContain('do not repeat the command and do not guess credentials');
     expect(providerMessages?.[0]?.content).toContain('pass `expectedHash`');
+  });
+
+  it('marks required tool requests with toolChoice and retries once when no tool call is made', async () => {
+    settingsStoreMock.state.settings.ai.toolUse.enabled = true;
+    const settingsTool = { name: 'open_settings_section', description: 'Open settings', parameters: { type: 'object', properties: {} } };
+    getToolsForContextMock.mockReturnValue([settingsTool]);
+    classifyToolObligationMock.mockReturnValue({
+      mode: 'required',
+      reason: 'action-request-needs-tool-result',
+      intents: ['settings'],
+      candidateTools: ['open_settings_section'],
+    });
+    providerStreamMock
+      .mockImplementationOnce(async function* () {
+        yield { type: 'content', content: '已经打开设置。' };
+        yield { type: 'done' };
+      })
+      .mockImplementationOnce(async function* () {
+        yield { type: 'content', content: '我需要调用设置工具后才能确认。' };
+        yield { type: 'done' };
+      });
+    setConversation([]);
+
+    await useAiChatStore.getState().sendMessage('打开设置');
+
+    expect(providerStreamMock).toHaveBeenCalledTimes(2);
+    expect(providerStreamMock.mock.calls[0]?.[0]).toMatchObject({ toolChoice: 'required' });
+    const retryMessages = providerStreamMock.mock.calls[1]?.[1];
+    expect(retryMessages).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        role: 'user',
+        content: expect.stringContaining('requires real app/tool state'),
+      }),
+    ]));
+    const assistantMessage = useAiChatStore.getState().conversations[0].messages.find((message) => message.role === 'assistant');
+    expect(assistantMessage?.content).toBe('我需要调用设置工具后才能确认。');
+    expect(assistantMessage?.turn?.parts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'guardrail', code: 'tool-required-no-call' }),
+    ]));
+  });
+
+  it('drops pre-required-tool thinking content before retrying', async () => {
+    settingsStoreMock.state.settings.ai.toolUse.enabled = true;
+    const settingsTool = { name: 'open_settings_section', description: 'Open settings', parameters: { type: 'object', properties: {} } };
+    getToolsForContextMock.mockReturnValue([settingsTool]);
+    classifyToolObligationMock.mockReturnValue({
+      mode: 'required',
+      reason: 'action-request-needs-tool-result',
+      intents: ['settings'],
+      candidateTools: ['open_settings_section'],
+    });
+    providerStreamMock
+      .mockImplementationOnce(async function* () {
+        yield { type: 'thinking', content: 'I will pretend settings are already open.' };
+        yield { type: 'content', content: '已经打开设置。' };
+        yield { type: 'done' };
+      })
+      .mockImplementationOnce(async function* () {
+        yield { type: 'content', content: '我需要调用设置工具后才能确认。' };
+        yield { type: 'done' };
+      });
+    setConversation([]);
+
+    await useAiChatStore.getState().sendMessage('打开设置');
+
+    const assistantMessage = useAiChatStore.getState().conversations[0].messages.find((message) => message.role === 'assistant');
+    expect(providerStreamMock).toHaveBeenCalledTimes(2);
+    expect(assistantMessage?.thinkingContent).toBeUndefined();
+    expect(assistantMessage?.turn?.parts.some((part) => part.type === 'thinking')).toBe(false);
+    expect(assistantMessage?.content).toBe('我需要调用设置工具后才能确认。');
+  });
+
+  it('feeds compact structured tool envelopes back to the model', async () => {
+    settingsStoreMock.state.settings.ai.toolUse.enabled = true;
+    settingsStoreMock.state.settings.ai.toolUse.autoApproveTools = { local_exec: true };
+    const localExecTool = { name: 'local_exec', description: 'Run local command', parameters: { type: 'object', properties: {} } };
+    getToolsForContextMock.mockReturnValue([localExecTool]);
+    classifyToolObligationMock.mockReturnValue({
+      mode: 'required',
+      reason: 'action-request-needs-tool-result',
+      intents: ['local_shell', 'command'],
+      candidateTools: ['local_exec'],
+    });
+    providerStreamMock
+      .mockImplementationOnce(async function* () {
+        yield { type: 'tool_call_complete', id: 'tool-env-1', name: 'local_exec', arguments: JSON.stringify({ command: 'pwd' }) };
+        yield { type: 'done' };
+      })
+      .mockImplementationOnce(async function* () {
+        yield { type: 'content', content: 'done' };
+        yield { type: 'done' };
+      });
+    executeToolMock.mockResolvedValue({
+      toolCallId: 'tool-env-1',
+      toolName: 'local_exec',
+      success: true,
+      output: '/tmp/project',
+      envelope: {
+        ok: true,
+        summary: 'Command completed',
+        output: '/tmp/project',
+        nextActions: [{ tool: 'get_terminal_buffer', reason: 'Observe output', priority: 'optional' }],
+        meta: { toolName: 'local_exec', durationMs: 2 },
+      },
+      durationMs: 2,
+    });
+    setConversation([]);
+
+    await useAiChatStore.getState().sendMessage('在本地执行 pwd');
+
+    const secondRequestMessages = providerStreamMock.mock.calls[1]?.[1] ?? [];
+    const toolMessage = secondRequestMessages.find((message: { role: string; tool_name?: string }) => message.role === 'tool' && message.tool_name === 'local_exec');
+    expect(toolMessage?.content).toContain('"ok":true');
+    expect(toolMessage?.content).toContain('"nextActions"');
+    expect(toolMessage?.content).toContain('Command completed');
   });
 
   it('stores turn snapshots and session metadata for sidebar sends', async () => {

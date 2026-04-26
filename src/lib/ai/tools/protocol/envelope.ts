@@ -5,6 +5,10 @@ import type { AiToolResult } from '../../../../types';
 import type { ToolCapability, ToolResultEnvelope } from './types';
 
 const DEFAULT_DURATION_MS = 0;
+const MODEL_OUTPUT_MAX_CHARS = 12000;
+const MODEL_ERROR_OUTPUT_MAX_CHARS = 2000;
+const MODEL_SUMMARY_MAX_CHARS = 1000;
+const MODEL_ERROR_MESSAGE_MAX_CHARS = 1000;
 
 function firstNonEmptyLine(value: string): string | undefined {
   return value
@@ -102,4 +106,49 @@ export function fromLegacyToolResult(result: AiToolResult): ToolResultEnvelope {
     durationMs: result.durationMs,
     truncated: result.truncated,
   });
+}
+
+function truncateForModel(value: string, maxChars = MODEL_OUTPUT_MAX_CHARS): { value: string; truncated: boolean } {
+  if (value.length <= maxChars) {
+    return { value, truncated: false };
+  }
+
+  return {
+    value: `${value.slice(0, maxChars)}\n\n[truncated: ${value.length - maxChars} chars omitted]`,
+    truncated: true,
+  };
+}
+
+export function formatToolResultForModel(result: AiToolResult): string {
+  const envelope = fromLegacyToolResult(result);
+  const summary = truncateForModel(envelope.summary, MODEL_SUMMARY_MAX_CHARS);
+  const output = truncateForModel(
+    envelope.output || result.output || envelope.summary,
+    envelope.ok ? MODEL_OUTPUT_MAX_CHARS : MODEL_ERROR_OUTPUT_MAX_CHARS,
+  );
+  const errorMessage = envelope.error
+    ? truncateForModel(envelope.error.message, MODEL_ERROR_MESSAGE_MAX_CHARS)
+    : null;
+  const payload = {
+    ok: envelope.ok,
+    summary: summary.value,
+    output: output.value,
+    ...(envelope.error ? { error: { ...envelope.error, message: errorMessage?.value ?? envelope.error.message } } : {}),
+    ...(envelope.recoverable !== undefined ? { recoverable: envelope.recoverable } : {}),
+    ...(envelope.waitingForInput !== undefined ? { waitingForInput: envelope.waitingForInput } : {}),
+    ...(envelope.warnings && envelope.warnings.length > 0 ? { warnings: envelope.warnings } : {}),
+    ...(envelope.observations && envelope.observations.length > 0 ? { observations: envelope.observations } : {}),
+    ...(envelope.targets && envelope.targets.length > 0 ? { targets: envelope.targets } : {}),
+    ...(envelope.nextActions && envelope.nextActions.length > 0 ? { nextActions: envelope.nextActions } : {}),
+    ...(envelope.disambiguation ? { disambiguation: envelope.disambiguation } : {}),
+    meta: {
+      ...envelope.meta,
+      truncated: envelope.meta.truncated === true
+        || summary.truncated
+        || output.truncated
+        || errorMessage?.truncated === true,
+    },
+  };
+
+  return JSON.stringify(payload);
 }

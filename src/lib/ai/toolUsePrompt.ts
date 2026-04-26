@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 import type { TabType } from '../../types';
+import type { ToolObligation } from './tools';
 
 export function buildToolOperationStrategyPrompt(options: {
   activeTabType?: TabType | null;
@@ -62,4 +63,27 @@ export function buildTuiInteractionGuidelines(): string {
 - Call \`read_screen\` first to see the current viewport before sending keys or mouse events.
 - After \`send_keys\`, call \`read_screen\` to verify the result.
 - \`send_mouse\` is only for mouse-aware TUIs such as htop, mc, and tmux. Check \`isAlternateBuffer\` first.`;
+}
+
+export function buildToolObligationPrompt(obligation: ToolObligation): string {
+  if (obligation.mode === 'none') {
+    return '';
+  }
+
+  const candidates = obligation.candidateTools.length > 0
+    ? obligation.candidateTools.slice(0, 8).map((tool) => `\`${tool}\``).join(', ')
+    : 'the most relevant available tool';
+
+  if (obligation.mode === 'required') {
+    return `## Tool Obligation
+This user request requires real application, terminal, filesystem, connection, settings, plugin, MCP, or knowledge-base state.
+Reason: ${obligation.reason}
+You must call a structured tool before the final answer. Candidate tools: ${candidates}.
+Do not claim you opened, connected, executed, read, modified, checked, verified, or diagnosed anything unless a tool result proves it.`;
+  }
+
+  return `## Tool Opportunity
+Tools may improve this answer, but they are not mandatory if the user supplied enough evidence.
+Reason: ${obligation.reason}
+Useful candidate tools: ${candidates}.`;
 }

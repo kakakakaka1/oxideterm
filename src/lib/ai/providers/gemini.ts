@@ -78,6 +78,18 @@ function convertTools(tools: AiToolDefinition[]): Array<{ functionDeclarations: 
   }];
 }
 
+function applyToolChoice(body: Record<string, unknown>, config: AiRequestConfig): void {
+  if (!config.tools || config.tools.length === 0 || !config.toolChoice || config.toolChoice === 'auto') {
+    return;
+  }
+
+  const functionCallingConfig: Record<string, unknown> = { mode: 'ANY' };
+  if (config.toolChoice !== 'required') {
+    functionCallingConfig.allowedFunctionNames = [config.toolChoice.name];
+  }
+  body.toolConfig = { functionCallingConfig };
+}
+
 export const geminiProvider: AiStreamProvider = {
   type: 'gemini',
   displayName: 'Google Gemini',
@@ -102,6 +114,7 @@ export const geminiProvider: AiStreamProvider = {
     }
     if (config.tools && config.tools.length > 0) {
       body.tools = convertTools(config.tools);
+      applyToolChoice(body, config);
     }
 
     const { response: statusPromise, body: streamBody } = aiFetchStreaming(url, {

@@ -57,6 +57,7 @@ export type AiGuardrailCode =
   | 'tool-use-disabled'
   | 'tool-context-missing'
   | 'tool-disabled-hard-deny'
+  | 'tool-required-no-call'
   | 'tool-budget-limit';
 
 export type AiTurnPart =

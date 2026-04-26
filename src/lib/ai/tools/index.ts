@@ -62,6 +62,7 @@ export {
   createToolResultEnvelope,
   createToolTarget,
   decideToolApproval,
+  formatToolResultForModel,
   fromLegacyToolResult,
   hasTargetCapability,
   inferToolRisk,
@@ -72,11 +73,21 @@ export {
 export {
   getToolsForPlan,
   inferToolIntents,
+  scoreToolsForRequest,
 } from './toolPlanner';
 export type {
+  ToolScore,
   ToolIntentInferenceInput,
   ToolPlanInput,
 } from './toolPlanner';
+export {
+  classifyToolObligation,
+} from './toolObligation';
+export type {
+  ToolObligation,
+  ToolObligationInput,
+  ToolObligationMode,
+} from './toolObligation';
 export {
   pluginAiToolToDefinition,
   pluginAiToolToSpec,

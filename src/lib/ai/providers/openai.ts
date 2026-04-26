@@ -96,6 +96,51 @@ function applyReasoningOptions(body: Record<string, unknown>, config: AiRequestC
   }
 }
 
+function applyToolChoice(body: Record<string, unknown>, config: AiRequestConfig): void {
+  if (!config.tools || config.tools.length === 0 || !config.toolChoice || config.toolChoice === 'auto') {
+    return;
+  }
+
+  if (config.toolChoice === 'required') {
+    body.tool_choice = 'required';
+    return;
+  }
+
+  body.tool_choice = {
+    type: 'function',
+    function: { name: config.toolChoice.name },
+  };
+}
+
+async function readErrorText(body: ReadableStream<Uint8Array>): Promise<string> {
+  const errReader = body.getReader();
+  const errDecoder = new TextDecoder();
+  let errorText = '';
+  try {
+    while (true) {
+      const { done, value } = await errReader.read();
+      if (done) break;
+      errorText += errDecoder.decode(value, { stream: true });
+    }
+  } catch { /* stream error */ }
+  return errorText;
+}
+
+function parseOpenAiError(status: number, errorText: string): string {
+  let errorMessage = `API error: ${status}`;
+  try {
+    const errorJson = JSON.parse(errorText);
+    errorMessage = errorJson.error?.message || errorJson.message || errorMessage;
+  } catch {
+    if (errorText) errorMessage = errorText.slice(0, 200);
+  }
+  return errorMessage;
+}
+
+function isToolChoiceUnsupportedError(message: string): boolean {
+  return /tool[_-]?choice|tool_choice|unsupported.*tool|unknown.*tool|unrecognized.*tool|invalid.*tool_choice/i.test(message);
+}
+
 export const openaiProvider: AiStreamProvider = {
   type: 'openai',
   displayName: 'OpenAI',
@@ -118,6 +163,7 @@ export const openaiProvider: AiStreamProvider = {
 
     if (config.tools && config.tools.length > 0) {
       body.tools = convertTools(config.tools);
+      applyToolChoice(body, config);
     }
 
     const headers: Record<string, string> = {
@@ -127,36 +173,33 @@ export const openaiProvider: AiStreamProvider = {
       headers['Authorization'] = `Bearer ${config.apiKey}`;
     }
 
-    const { response: statusPromise, body: streamBody } = aiFetchStreaming(url, {
+    const startRequest = (requestBody: Record<string, unknown>) => aiFetchStreaming(url, {
       method: 'POST',
       headers,
-      body: JSON.stringify(body),
+      body: JSON.stringify(requestBody),
       signal,
     });
 
-    const { ok, status } = await statusPromise;
+    let { response: statusPromise, body: streamBody } = startRequest(body);
+    let { ok, status } = await statusPromise;
 
     if (!ok) {
-      // Read error body from stream
-      const errReader = streamBody.getReader();
-      const errDecoder = new TextDecoder();
-      let errorText = '';
-      try {
-        while (true) {
-          const { done, value } = await errReader.read();
-          if (done) break;
-          errorText += errDecoder.decode(value, { stream: true });
+      let errorMessage = parseOpenAiError(status, await readErrorText(streamBody));
+      if (body.tool_choice && isToolChoiceUnsupportedError(errorMessage)) {
+        const fallbackBody = { ...body };
+        delete fallbackBody.tool_choice;
+        ({ response: statusPromise, body: streamBody } = startRequest(fallbackBody));
+        ({ ok, status } = await statusPromise);
+        if (ok) {
+          errorMessage = '';
+        } else {
+          errorMessage = parseOpenAiError(status, await readErrorText(streamBody));
         }
-      } catch { /* stream error */ }
-      let errorMessage = `API error: ${status}`;
-      try {
-        const errorJson = JSON.parse(errorText);
-        errorMessage = errorJson.error?.message || errorJson.message || errorMessage;
-      } catch {
-        if (errorText) errorMessage = errorText.slice(0, 200);
       }
-      yield { type: 'error', message: errorMessage };
-      return;
+      if (!ok) {
+        yield { type: 'error', message: errorMessage };
+        return;
+      }
     }
 
     const reader = streamBody.getReader();

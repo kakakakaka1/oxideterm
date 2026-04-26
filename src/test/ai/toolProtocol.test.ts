@@ -9,6 +9,7 @@ import {
   createToolTarget,
   decideToolApproval,
   detectTerminalPrompt,
+  formatToolResultForModel,
   fromLegacyToolResult,
   hasTargetCapability,
   inferToolRisk,
@@ -117,6 +118,87 @@ describe('tool protocol v2 adapters', () => {
         recoverable: true,
       },
     });
+  });
+
+  it('formats structured tool results for model follow-up rounds', () => {
+    const result = toLegacyToolResult(createToolResultEnvelope({
+      ok: false,
+      toolName: 'terminal_exec',
+      summary: 'Command is waiting for password input',
+      output: '[sudo] password for user:',
+      error: {
+        code: 'terminal_waiting_for_input',
+        message: 'The command is waiting for user input.',
+        recoverable: true,
+      },
+      waitingForInput: true,
+      recoverable: true,
+      nextActions: [
+        { tool: 'read_screen', reason: 'Inspect the visible prompt', priority: 'recommended' },
+      ],
+    }), 'call-waiting');
+
+    const payload = JSON.parse(formatToolResultForModel(result));
+
+    expect(payload).toMatchObject({
+      ok: false,
+      summary: 'Command is waiting for password input',
+      waitingForInput: true,
+      recoverable: true,
+      error: {
+        code: 'terminal_waiting_for_input',
+        recoverable: true,
+      },
+      nextActions: [
+        expect.objectContaining({ tool: 'read_screen' }),
+      ],
+    });
+  });
+
+  it('uses a tighter model-output cap for failed tool results', () => {
+    const longOutput = 'x'.repeat(6000);
+    const result = toLegacyToolResult(createToolResultEnvelope({
+      ok: false,
+      toolName: 'terminal_exec',
+      summary: 'Command failed',
+      output: longOutput,
+      error: {
+        code: 'command_failed',
+        message: 'Command exited with code 1.',
+        recoverable: true,
+      },
+    }), 'call-long-error');
+
+    const payload = JSON.parse(formatToolResultForModel(result));
+
+    expect(payload.output.length).toBeLessThan(2300);
+    expect(payload.output).toContain('[truncated: 4000 chars omitted]');
+    expect(payload.meta.truncated).toBe(true);
+    expect(payload.error).toMatchObject({
+      code: 'command_failed',
+      recoverable: true,
+    });
+  });
+
+  it('caps failed tool summary and error fields before sending them to the model', () => {
+    const longError = 'stderr '.repeat(1200);
+    const result = {
+      toolCallId: 'call-long-stderr',
+      toolName: 'read_file',
+      success: false,
+      output: '',
+      error: longError,
+      durationMs: 1,
+    };
+
+    const payload = JSON.parse(formatToolResultForModel(result));
+
+    expect(payload.summary.length).toBeLessThan(1200);
+    expect(payload.output.length).toBeLessThan(2300);
+    expect(payload.error.message.length).toBeLessThan(1200);
+    expect(payload.summary).toContain('[truncated:');
+    expect(payload.error.message).toContain('[truncated:');
+    expect(payload.meta.truncated).toBe(true);
   });
 });
 

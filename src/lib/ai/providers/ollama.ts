@@ -64,6 +64,54 @@ function convertMessages(messages: ChatMessage[]): Array<Record<string, unknown>
   });
 }
 
+function applyToolChoice(body: Record<string, unknown>, config: AiRequestConfig): void {
+  if (!config.tools || config.tools.length === 0 || !config.toolChoice || config.toolChoice === 'auto') {
+    return;
+  }
+
+  if (config.toolChoice === 'required') {
+    body.tool_choice = 'required';
+    return;
+  }
+
+  body.tool_choice = {
+    type: 'function',
+    function: { name: config.toolChoice.name },
+  };
+}
+
+async function readErrorText(reader: ReadableStreamDefaultReader<Uint8Array>): Promise<string> {
+  const errDecoder = new TextDecoder();
+  let errorText = '';
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      errorText += errDecoder.decode(value, { stream: true });
+    }
+  } catch { /* stream error */ }
+  return errorText;
+}
+
+function parseOllamaError(status: number, errorText: string): string {
+  if (status === 0 || errorText.includes('ECONNREFUSED')) {
+    return 'Cannot connect to Ollama. Make sure Ollama is running (ollama serve).';
+  }
+
+  let errorMessage = `Ollama error: ${status}`;
+  try {
+    const errorJson = JSON.parse(errorText);
+    errorMessage = errorJson.error?.message || errorJson.error || errorMessage;
+  } catch {
+    if (errorText) errorMessage = errorText.slice(0, 200);
+  }
+  return errorMessage;
+}
+
+function isToolChoiceUnsupportedError(message: string): boolean {
+  return /tool[_-]?choice|tool_choice|unsupported.*tool|unknown.*tool|unrecognized.*tool|invalid.*tool_choice/i.test(message);
+}
+
 export const ollamaProvider: AiStreamProvider = {
   type: 'ollama',
   displayName: 'Ollama (Local)',
@@ -89,6 +137,7 @@ export const ollamaProvider: AiStreamProvider = {
       };
       if (config.tools && config.tools.length > 0) {
         body.tools = convertTools(config.tools);
+        applyToolChoice(body, config);
       }
 
       const headers: Record<string, string> = {
@@ -96,47 +145,40 @@ export const ollamaProvider: AiStreamProvider = {
         ...(config.apiKey ? { 'Authorization': `Bearer ${config.apiKey}` } : {}),
       };
 
-      const { response: statusPromise, body: streamBody } = aiFetchStreaming(url, {
+      const startRequest = (requestBody: Record<string, unknown>) => aiFetchStreaming(url, {
         method: 'POST',
         headers,
-        body: JSON.stringify(body),
+        body: JSON.stringify(requestBody),
         signal,
       });
 
+      let { response: statusPromise, body: streamBody } = startRequest(body);
       const resp = await statusPromise;
       streamOk = resp.ok;
       streamStatus = resp.status;
       reader = streamBody.getReader();
+      if (!streamOk && body.tool_choice) {
+        const firstErrorMessage = parseOllamaError(streamStatus, await readErrorText(reader));
+        if (isToolChoiceUnsupportedError(firstErrorMessage)) {
+          const fallbackBody = { ...body };
+          delete fallbackBody.tool_choice;
+          ({ response: statusPromise, body: streamBody } = startRequest(fallbackBody));
+          const fallbackResp = await statusPromise;
+          streamOk = fallbackResp.ok;
+          streamStatus = fallbackResp.status;
+          reader = streamBody.getReader();
+        } else {
+          yield { type: 'error', message: firstErrorMessage };
+          return;
+        }
+      }
     } catch (e) {
       yield { type: 'error', message: 'Cannot connect to Ollama. Make sure Ollama is running (ollama serve).' };
       return;
     }
 
     if (!streamOk) {
-      const errDecoder = new TextDecoder();
-      let errorText = '';
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          errorText += errDecoder.decode(value, { stream: true });
-        }
-      } catch { /* stream error */ }
-      let errorMessage = `Ollama error: ${streamStatus}`;
-
-      // Special handling for connection refused (Ollama not running)
-      if (streamStatus === 0 || errorText.includes('ECONNREFUSED')) {
-        errorMessage = 'Cannot connect to Ollama. Make sure Ollama is running (ollama serve).';
-      } else {
-        try {
-          const errorJson = JSON.parse(errorText);
-          errorMessage = errorJson.error?.message || errorJson.error || errorMessage;
-        } catch {
-          if (errorText) errorMessage = errorText.slice(0, 200);
-        }
-      }
-
-      yield { type: 'error', message: errorMessage };
+      yield { type: 'error', message: parseOllamaError(streamStatus, await readErrorText(reader)) };
       return;
     }
 

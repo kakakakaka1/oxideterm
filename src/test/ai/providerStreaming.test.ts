@@ -84,6 +84,72 @@ describe('provider streaming EOF handling', () => {
     expect(events.at(-1)).toEqual({ type: 'done' });
   });
 
+  it('openai provider maps required toolChoice to tool_choice', async () => {
+    aiFetchStreamingMock.mockReturnValue({
+      response: Promise.resolve({ ok: true, status: 200 }),
+      body: makeStream(['data: [DONE]']),
+    });
+
+    const { openaiProvider } = await import('@/lib/ai/providers/openai');
+    await collectEvents(openaiProvider.streamCompletion({
+      baseUrl: 'https://example.test',
+      model: 'gpt-test',
+      apiKey: 'key',
+      tools: [{ name: 'local_exec', description: 'Run local command', parameters: { type: 'object', properties: {} } }],
+      toolChoice: 'required',
+    }, [{ role: 'user', content: 'run pwd' }], new AbortController().signal));
+
+    expect(getLastRequestBody()).toMatchObject({
+      tool_choice: 'required',
+    });
+  });
+
+  it('openai provider maps specific toolChoice to function tool_choice', async () => {
+    aiFetchStreamingMock.mockReturnValue({
+      response: Promise.resolve({ ok: true, status: 200 }),
+      body: makeStream(['data: [DONE]']),
+    });
+
+    const { openaiProvider } = await import('@/lib/ai/providers/openai');
+    await collectEvents(openaiProvider.streamCompletion({
+      baseUrl: 'https://example.test',
+      model: 'gpt-test',
+      apiKey: 'key',
+      tools: [{ name: 'get_settings', description: 'Read settings', parameters: { type: 'object', properties: {} } }],
+      toolChoice: { type: 'tool', name: 'get_settings' },
+    }, [{ role: 'user', content: 'check settings' }], new AbortController().signal));
+
+    expect(getLastRequestBody()).toMatchObject({
+      tool_choice: { type: 'function', function: { name: 'get_settings' } },
+    });
+  });
+
+  it('openai-compatible provider retries without tool_choice when a gateway rejects it', async () => {
+    aiFetchStreamingMock
+      .mockReturnValueOnce({
+        response: Promise.resolve({ ok: false, status: 400 }),
+        body: makeStream(['{"error":{"message":"Unsupported parameter: tool_choice"}}']),
+      })
+      .mockReturnValueOnce({
+        response: Promise.resolve({ ok: true, status: 200 }),
+        body: makeStream(['data: [DONE]']),
+      });
+
+    const { openaiCompatibleProvider } = await import('@/lib/ai/providers/openai');
+    const events = await collectEvents(openaiCompatibleProvider.streamCompletion({
+      baseUrl: 'https://gateway.test',
+      model: 'gateway-model',
+      apiKey: '',
+      tools: [{ name: 'local_exec', description: 'Run local command', parameters: { type: 'object', properties: {} } }],
+      toolChoice: 'required',
+    }, [{ role: 'user', content: 'run pwd' }], new AbortController().signal));
+
+    expect(events.at(-1)).toEqual({ type: 'done' });
+    expect(aiFetchStreamingMock).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(aiFetchStreamingMock.mock.calls[0]?.[1].body)).toMatchObject({ tool_choice: 'required' });
+    expect(JSON.parse(aiFetchStreamingMock.mock.calls[1]?.[1].body)).not.toHaveProperty('tool_choice');
+  });
+
   it('anthropic provider processes the final content block without a trailing newline', async () => {
     aiFetchStreamingMock.mockReturnValue({
       response: Promise.resolve({ ok: true, status: 200 }),
@@ -102,6 +168,50 @@ describe('provider streaming EOF handling', () => {
 
     expect(events).toContainEqual({ type: 'content', content: 'review text' });
     expect(events.at(-1)).toEqual({ type: 'done' });
+  });
+
+  it('anthropic provider maps required toolChoice to any tool choice', async () => {
+    aiFetchStreamingMock.mockReturnValue({
+      response: Promise.resolve({ ok: true, status: 200 }),
+      body: makeStream(['data: {"type":"message_stop"}']),
+    });
+
+    const { anthropicProvider } = await import('@/lib/ai/providers/anthropic');
+    await collectEvents(anthropicProvider.streamCompletion({
+      baseUrl: 'https://example.test',
+      model: 'claude-test',
+      apiKey: 'key',
+      tools: [{ name: 'read_screen', description: 'Read screen', parameters: { type: 'object', properties: {} } }],
+      toolChoice: 'required',
+    }, [{ role: 'user', content: 'inspect terminal' }], new AbortController().signal));
+
+    expect(getLastRequestBody()).toMatchObject({
+      tool_choice: { type: 'any' },
+    });
+  });
+
+  it('anthropic provider does not force toolChoice while extended thinking is enabled', async () => {
+    aiFetchStreamingMock.mockReturnValue({
+      response: Promise.resolve({ ok: true, status: 200 }),
+      body: makeStream(['data: {"type":"message_stop"}']),
+    });
+
+    const { anthropicProvider } = await import('@/lib/ai/providers/anthropic');
+    await collectEvents(anthropicProvider.streamCompletion({
+      baseUrl: 'https://example.test',
+      model: 'claude-test',
+      apiKey: 'key',
+      maxResponseTokens: 4096,
+      reasoningEffort: 'medium',
+      reasoningProtocol: 'anthropic',
+      tools: [{ name: 'read_screen', description: 'Read screen', parameters: { type: 'object', properties: {} } }],
+      toolChoice: 'required',
+    }, [{ role: 'user', content: 'inspect terminal' }], new AbortController().signal));
+
+    expect(getLastRequestBody()).toMatchObject({
+      thinking: { type: 'enabled', budget_tokens: 2048 },
+    });
+    expect(getLastRequestBody()).not.toHaveProperty('tool_choice');
   });
 
   it('deepseek provider maps reasoning off to disabled thinking', async () => {
