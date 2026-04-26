@@ -264,6 +264,229 @@ describe('hydrateStructuredConversation', () => {
     });
   });
 
+  it('preserves canonical assistant part order when replaying completed transcript turns', () => {
+    const conversation = dtoToConversation({
+      id: 'conv-1',
+      title: 'Conversation',
+      createdAt: 1,
+      updatedAt: 2,
+      sessionId: null,
+      origin: 'sidebar',
+      messages: [
+        {
+          id: 'user-1',
+          role: 'user',
+          content: 'Run pwd',
+          timestamp: 10,
+          context: null,
+        },
+        {
+          id: 'assistant-1',
+          role: 'assistant',
+          content: 'stale projection',
+          timestamp: 11,
+          context: null,
+        },
+      ],
+    });
+
+    const canonicalParts = [
+      { type: 'thinking' as const, text: 'I should inspect the terminal.' },
+      { type: 'text' as const, text: 'I will run pwd.' },
+      { type: 'tool_call' as const, id: 'tool-1', name: 'terminal_exec', argumentsText: '{"command":"pwd"}', status: 'complete' as const },
+      { type: 'tool_result' as const, toolCallId: 'tool-1', toolName: 'terminal_exec', success: true, output: '/tmp' },
+      { type: 'thinking' as const, text: 'Now explain the result.' },
+      { type: 'text' as const, text: 'The current directory is /tmp.' },
+    ];
+
+    const rebuilt = rebuildConversationFromTranscript(conversation, [
+      {
+        id: 'entry-start',
+        conversationId: 'conv-1',
+        turnId: 'assistant-1',
+        timestamp: 11,
+        kind: 'assistant_turn_start',
+        payload: { messageId: 'assistant-1' },
+      },
+      {
+        id: 'entry-round',
+        conversationId: 'conv-1',
+        turnId: 'assistant-1',
+        timestamp: 12,
+        kind: 'assistant_round',
+        payload: { messageId: 'assistant-1', roundId: 'round-1', round: 1 },
+      },
+      {
+        id: 'entry-tool-call',
+        conversationId: 'conv-1',
+        turnId: 'assistant-1',
+        timestamp: 13,
+        kind: 'tool_call',
+        payload: {
+          messageId: 'assistant-1',
+          roundId: 'round-1',
+          id: 'tool-1',
+          name: 'terminal_exec',
+          argumentsText: '{"command":"pwd"}',
+        },
+      },
+      {
+        id: 'entry-tool-result',
+        conversationId: 'conv-1',
+        turnId: 'assistant-1',
+        timestamp: 14,
+        kind: 'tool_result',
+        payload: {
+          messageId: 'assistant-1',
+          roundId: 'round-1',
+          toolCallId: 'tool-1',
+          toolName: 'terminal_exec',
+          success: true,
+          output: '/tmp',
+        },
+      },
+      {
+        id: 'entry-part',
+        conversationId: 'conv-1',
+        turnId: 'assistant-1',
+        timestamp: 15,
+        kind: 'assistant_part',
+        payload: {
+          parts: canonicalParts,
+          completeTurnParts: true,
+        },
+      },
+      {
+        id: 'entry-end',
+        conversationId: 'conv-1',
+        turnId: 'assistant-1',
+        timestamp: 16,
+        kind: 'assistant_turn_end',
+        payload: {
+          messageId: 'assistant-1',
+          status: 'complete',
+          plainTextSummary: 'The current directory is /tmp.',
+        },
+      },
+    ]);
+
+    const assistantMessage = rebuilt.messages.find((message) => message.id === 'assistant-1');
+    expect(assistantMessage?.turn?.parts).toEqual(canonicalParts);
+    expect(assistantMessage).toMatchObject({
+      content: 'I will run pwd.The current directory is /tmp.',
+      thinkingContent: 'I should inspect the terminal.Now explain the result.',
+    });
+  });
+
+  it('keeps persisted turn order when replaying legacy tool-first transcripts', () => {
+    const persistedParts = [
+      { type: 'thinking' as const, text: 'I should inspect the terminal.' },
+      { type: 'tool_call' as const, id: 'tool-1', name: 'terminal_exec', argumentsText: '{"command":"pwd"}', status: 'complete' as const },
+      { type: 'tool_result' as const, toolCallId: 'tool-1', toolName: 'terminal_exec', success: true, output: '/tmp' },
+      { type: 'text' as const, text: 'The current directory is /tmp.' },
+    ];
+    const conversation = dtoToConversation({
+      id: 'conv-1',
+      title: 'Conversation',
+      createdAt: 1,
+      updatedAt: 2,
+      sessionId: null,
+      origin: 'sidebar',
+      messages: [
+        {
+          id: 'user-1',
+          role: 'user',
+          content: 'Run pwd',
+          timestamp: 10,
+          context: null,
+        },
+        {
+          id: 'assistant-1',
+          role: 'assistant',
+          content: 'The current directory is /tmp.',
+          timestamp: 11,
+          context: null,
+          turn: {
+            id: 'assistant-1',
+            status: 'complete',
+            plainTextSummary: 'The current directory is /tmp.',
+            parts: persistedParts,
+            toolRounds: [{
+              id: 'round-1',
+              round: 1,
+              toolCalls: [{
+                id: 'tool-1',
+                name: 'terminal_exec',
+                argumentsText: '{"command":"pwd"}',
+                executionState: 'completed',
+              }],
+            }],
+          },
+        },
+      ],
+    });
+
+    const rebuilt = rebuildConversationFromTranscript(conversation, [
+      {
+        id: 'entry-tool-call',
+        conversationId: 'conv-1',
+        turnId: 'assistant-1',
+        timestamp: 12,
+        kind: 'tool_call',
+        payload: {
+          messageId: 'assistant-1',
+          roundId: 'round-1',
+          id: 'tool-1',
+          name: 'terminal_exec',
+          argumentsText: '{"command":"pwd"}',
+        },
+      },
+      {
+        id: 'entry-tool-result',
+        conversationId: 'conv-1',
+        turnId: 'assistant-1',
+        timestamp: 13,
+        kind: 'tool_result',
+        payload: {
+          messageId: 'assistant-1',
+          roundId: 'round-1',
+          toolCallId: 'tool-1',
+          toolName: 'terminal_exec',
+          success: true,
+          output: '/tmp',
+        },
+      },
+      {
+        id: 'entry-part',
+        conversationId: 'conv-1',
+        turnId: 'assistant-1',
+        timestamp: 14,
+        kind: 'assistant_part',
+        payload: {
+          parts: [
+            { type: 'thinking', text: 'I should inspect the terminal.' },
+            { type: 'text', text: 'The current directory is /tmp.' },
+          ],
+        },
+      },
+      {
+        id: 'entry-end',
+        conversationId: 'conv-1',
+        turnId: 'assistant-1',
+        timestamp: 15,
+        kind: 'assistant_turn_end',
+        payload: {
+          messageId: 'assistant-1',
+          status: 'complete',
+          plainTextSummary: 'The current directory is /tmp.',
+        },
+      },
+    ]);
+
+    const assistantMessage = rebuilt.messages.find((message) => message.id === 'assistant-1');
+    expect(assistantMessage?.turn?.parts).toEqual(persistedParts);
+  });
+
   it('preserves transcriptRef and summaryRef when decoding persisted compaction anchors', () => {
     const anchorContent = encodeAnchorContent('compacted summary', {
       type: 'compaction-anchor',

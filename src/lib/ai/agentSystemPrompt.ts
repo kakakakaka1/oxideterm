@@ -11,6 +11,7 @@
 
 import type { AutonomyLevel, TabType } from '../../types';
 import { tabTypeLabel } from './tabTypeLabel';
+import { buildToolOperationStrategyPrompt } from './toolUsePrompt';
 
 /** Build the agent system prompt with dynamic context */
 export function buildAgentSystemPrompt(options: {
@@ -91,12 +92,7 @@ ${buildCurrentContextSection(activeTabType, terminalType, connectionInfo, localO
 ## Available Sessions
 ${availableSessions || 'No active sessions. You can use context-free tools like list_targets to discover available targets.'}
 
-## Tool Use
-Use tools proactively — act on real data, don't guess. Use list_targets first if you need to discover targets, then list_capabilities when the available operations are unclear.
-For remote execution: use terminal_exec with session_id or node_id.
-For file operations: use read_file, write_file, list_directory.
-For infrastructure: use list_port_forwards, create_port_forward.
-For monitoring: use get_connection_health, get_resource_metrics.`;
+${buildToolOperationStrategyPrompt({ activeTabType })}`;
 }
 
 function buildCurrentContextSection(

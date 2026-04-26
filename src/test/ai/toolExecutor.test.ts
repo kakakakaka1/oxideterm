@@ -757,6 +757,42 @@ describe('toolExecutor regressions', () => {
     expect(subscribeTerminalOutputMock.mock.invocationCallOrder[0]).toBeLessThan(writeToTerminalMock.mock.invocationCallOrder[0]);
   });
 
+  it('polls terminal buffers when terminal_exec output notification is missed', async () => {
+    findPaneBySessionIdMock.mockReturnValue('pane-1');
+
+    let currentLines = 0;
+    const renderedLines = [
+      { text: 'pwd' },
+      { text: '/Users/dominical/Documents/OxideTerm' },
+      { text: 'dominical@macbook %' },
+    ];
+
+    getBufferStatsMock.mockImplementation(async () => ({
+      current_lines: currentLines,
+      total_lines: currentLines,
+      max_lines: 100000,
+      memory_usage_mb: 1,
+    }));
+    getScrollBufferMock.mockImplementation(async (_sessionId: string, startLine: number, count: number) => (
+      renderedLines.slice(startLine, startLine + count)
+    ));
+
+    writeToTerminalMock.mockImplementation(() => {
+      currentLines = renderedLines.length;
+      return true;
+    });
+
+    const result = await executeTool(
+      'terminal_exec',
+      { session_id: 'session-1', command: 'pwd' },
+      { activeNodeId: null, activeAgentAvailable: false },
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.output).toContain('/Users/dominical/Documents/OxideTerm');
+    expect(result.output).not.toContain('No new output after');
+  });
+
   it('returns rendered terminal_exec output when backend buffer text is mojibake', async () => {
     findPaneBySessionIdMock.mockReturnValue('pane-1');
 

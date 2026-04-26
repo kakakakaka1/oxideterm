@@ -33,6 +33,7 @@ import { normalizePendingSummaries } from '../lib/ai/turnModel/summaryMetadata';
 import { createSyntheticToolDenyPayload } from '../lib/ai/turnModel/toolFeedback';
 import { getToolUseNegativeConstraint } from '../lib/ai/turnModel/toolUsePolicy';
 import { CONTEXT_FREE_TOOLS, SESSION_ID_TOOLS, READ_ONLY_TOOLS, decideToolApproval, getToolsForContext, executeTool, type ToolExecutionContext } from '../lib/ai/tools';
+import { buildToolOperationStrategyPrompt, buildTuiInteractionGuidelines } from '../lib/ai/toolUsePrompt';
 import { parseUserInput } from '../lib/ai/inputParser';
 import { resolveSlashCommand, SLASH_COMMANDS } from '../lib/ai/slashCommands';
 import { PARTICIPANTS, resolveParticipant, mergeParticipantTools } from '../lib/ai/participants';
@@ -1126,46 +1127,10 @@ export const useAiChatStore = create<AiChatStore>()((set, get) => ({
       systemPrompt += `\n\n## Tool Use Policy\n${toolUseNegativeConstraint}`;
     }
 
-    // Tool use guidance — slim version focusing on routing & key principles.
-    // Tool categories are already described in each tool's definition.
     if (toolUseEnabled) {
-      systemPrompt += `\n\n## Tool Use Guidelines
-
-You have tools to interact with the user's terminal sessions and workspace. **Use them proactively** — act on real data, don't guess.
-
-### Key Principles
-- **Act, don't guess**: Use tools to get real data about system state, files, or connections.
-- **One-shot execution**: \`terminal_exec\` with session_id auto-captures output. No need to chain \`await_terminal_output\` unless you passed \`await_output: false\`.
-- **Prefer node_id**: For non-interactive commands, \`node_id\` provides more reliable output capture (direct stdout/stderr) than \`session_id\` (terminal scraping). Use \`session_id\` only when you need to interact with an existing terminal session.
-- **Discover first**: Use \`list_targets\` to find the right target and \`list_capabilities\` when you need to know which operations are available. \`list_sessions\` / \`list_tabs\` are legacy summaries.
-
-### Error Recovery
-- **If output is empty or incomplete**: Use \`get_terminal_buffer\` to read the full terminal content, or retry the command.
-- **If a tool returns an error**: Explain the error to the user and suggest alternatives.
-- **For long-running commands** (build, install, compilation): Use \`await_output: false\`, then check later with \`get_terminal_buffer\` or \`await_terminal_output\`.
-
-### Routing
-- \`node_id\`: direct remote execution (captured stdout/stderr, more reliable).
-- \`session_id\`: send into an open terminal (visible to user, output auto-captured from screen).
-- Context-free tools (\`list_targets\`, \`list_capabilities\`, \`list_sessions\`, \`list_tabs\`, etc.) need no node or session.
-
-### Connecting to Servers
-- To connect to a server: first use \`list_saved_connections\` or \`search_saved_connections\` to find the connection ID, then use \`connect_saved_session\` to establish the SSH connection and open a terminal.
-- \`connect_saved_session\` handles authentication (OS keychain), proxy chains (multi-hop), and host key verification automatically.
-
-### Editing Files in IDE
-- To edit a file: use \`ide_get_open_files\` to check if it's open, or \`ide_open_file\` to open it. Then use \`ide_replace_string\` for precise string replacement or \`ide_insert_text\` to insert at a specific line.
-- \`ide_replace_string\`: include 3+ lines of surrounding context in \`old_string\` to ensure a unique match. Only replaces the first occurrence.
-- For creating new files: use \`ide_create_file\` (IDE) or \`sftp_write_file\` (no IDE needed).
-- When IDE is not available, use \`write_file\` (requires remote agent) or \`sftp_write_file\` as fallback.`;
-
-  if (sidebarContext?.env.activeTabType === 'local_terminal') {
-    systemPrompt += `\n\n### Local Terminal Focus
-- The active tab is a local terminal on the user's machine.
-- For local files, dotfiles, shell config, and local process inspection, prefer \`local_exec\`.
-- Do not use remote file tools like \`read_file\`, \`list_directory\`, \`grep_search\`, or \`write_file\` unless the user explicitly targets an SSH node with \`node_id\`.
-- If you need to interact with the currently open local shell, \`terminal_exec\` can reuse the active local session when no \`session_id\` is provided.`;
-  }
+      systemPrompt += `\n\n${buildToolOperationStrategyPrompt({
+        activeTabType: sidebarContext?.env.activeTabType,
+      })}`;
     }
 
     apiMessages.push({
@@ -1219,11 +1184,7 @@ You have tools to interact with the user's terminal sessions and workspace. **Us
 
       // Lazy TUI interaction guidance — only when experimental tools are in the active set
       if (toolDefs?.some(t => t.name === 'read_screen' || t.name === 'send_keys' || t.name === 'send_mouse')) {
-        const tuiGuide = `\n\n### TUI Interaction (Experimental)
-- Call \`read_screen\` first to see the current viewport before sending keys/mouse.
-- After \`send_keys\`, call \`read_screen\` to verify.
-- \`send_mouse\` only for mouse-aware TUIs (htop, mc, tmux). Check \`isAlternateBuffer\` first.`;
-        apiMessages[0].content += tuiGuide;
+        apiMessages[0].content += `\n\n${buildTuiInteractionGuidelines()}`;
       }
     }
 
@@ -1394,16 +1355,10 @@ You have tools to interact with the user's terminal sessions and workspace. **Us
       if (assistantTurnClosed) return;
       assistantTurnClosed = true;
 
-      const transcriptParts = turn.parts.filter((part) => (
-        part.type === 'text'
-        || part.type === 'thinking'
-        || part.type === 'warning'
-        || part.type === 'error'
-      ));
-
-      if (transcriptParts.length > 0) {
+      if (turn.parts.length > 0) {
         queueTranscriptEntry('assistant_part', {
-          parts: transcriptParts,
+          parts: turn.parts,
+          completeTurnParts: true,
         }, {
           turnId: assistantMessage.id,
           parentId: assistantMessage.id,

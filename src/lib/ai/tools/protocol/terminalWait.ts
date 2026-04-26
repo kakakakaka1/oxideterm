@@ -77,6 +77,7 @@ export async function waitForTerminalOutput(options: TerminalWaitOptions): Promi
   const baseStableMs = options.stableSecs * 1000;
   const maxStableMs = options.maxAdaptiveStableSecs * 1000;
   const pollIntervalMs = 200;
+  const fallbackProbeIntervalMs = 600;
 
   console.debug(`[AI:ToolExec] waitForTerminalOutput: initial=${initialLineCount}, timeout=${options.timeoutSecs}s, stable=${options.stableSecs}s`);
 
@@ -88,6 +89,7 @@ export async function waitForTerminalOutput(options: TerminalWaitOptions): Promi
     let pollTimer: ReturnType<typeof setInterval> | null = null;
     let settled = false;
     let lastCheckedCounter = 0;
+    let lastProbeAt = 0;
     let lastRenderedDelta = '';
     let checking = false;
     let outputBursts = 0;
@@ -120,10 +122,13 @@ export async function waitForTerminalOutput(options: TerminalWaitOptions): Promi
     pollTimer = setInterval(async () => {
       if (settled || checking) return;
       const outputCounter = outputSubscription.getCount();
-      if (outputCounter === lastCheckedCounter) return;
+      const now = Date.now();
+      const shouldProbe = outputCounter !== lastCheckedCounter || now - lastProbeAt >= fallbackProbeIntervalMs;
+      if (!shouldProbe) return;
 
       checking = true;
       lastCheckedCounter = outputCounter;
+      lastProbeAt = now;
 
       let currentLineCount: number | null;
       let currentLines: string[] | null;

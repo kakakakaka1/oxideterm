@@ -66,6 +66,7 @@ type TranscriptAssistantState = {
   status: AiAssistantTurn['status'];
   plainTextSummary?: string;
   parts: AiTurnPart[];
+  hasCompleteParts?: boolean;
   roundsById: Map<string, AiToolRound>;
   roundOrder: string[];
 };
@@ -92,6 +93,24 @@ function getBooleanField(payload: Record<string, unknown>, key: string): boolean
 function getEnvelopeField(payload: Record<string, unknown>): ToolResultEnvelope | undefined {
   const envelope = payload.envelope;
   return envelope && typeof envelope === 'object' ? envelope as ToolResultEnvelope : undefined;
+}
+
+function isToolTurnPart(part: AiTurnPart): boolean {
+  return part.type === 'tool_call' || part.type === 'tool_result';
+}
+
+function appendTranscriptPart(assistantState: TranscriptAssistantState, part: AiTurnPart): void {
+  if (assistantState.hasCompleteParts) {
+    return;
+  }
+  assistantState.parts.push(part);
+}
+
+function appendTranscriptParts(assistantState: TranscriptAssistantState, parts: AiTurnPart[]): void {
+  if (assistantState.hasCompleteParts || parts.length === 0) {
+    return;
+  }
+  assistantState.parts.push(...parts);
 }
 
 function isSummaryReferenceKind(value: unknown): value is NonNullable<AiSummaryReference['kind']> {
@@ -267,7 +286,17 @@ function buildAssistantMessageFromTranscript(
     status: assistantState.endEntryId
       ? assistantState.status
       : fallback?.turn?.status ?? 'error',
-    parts: assistantState.parts.slice(),
+    parts: (() => {
+      const fallbackParts = fallback?.turn?.parts;
+      if (
+        !assistantState.hasCompleteParts
+        && fallbackParts?.some(isToolTurnPart)
+        && assistantState.parts.some(isToolTurnPart)
+      ) {
+        return fallbackParts.slice();
+      }
+      return assistantState.parts.slice();
+    })(),
     toolRounds: rounds,
     plainTextSummary: assistantState.plainTextSummary ?? '',
   };
@@ -531,7 +560,12 @@ export function rebuildConversationFromTranscript(
         }
         const assistantState = ensureTranscriptAssistantState(transcriptAssistants, messageId, entry.timestamp);
         const parts = Array.isArray(payload.parts) ? payload.parts as AiTurnPart[] : [];
-        assistantState.parts.push(...parts);
+        if (getBooleanField(payload, 'completeTurnParts')) {
+          assistantState.parts = parts.slice();
+          assistantState.hasCompleteParts = true;
+        } else {
+          appendTranscriptParts(assistantState, parts);
+        }
         break;
       }
       case 'guardrail': {
@@ -542,7 +576,7 @@ export function rebuildConversationFromTranscript(
           break;
         }
         const assistantState = ensureTranscriptAssistantState(transcriptAssistants, messageId, entry.timestamp);
-        assistantState.parts.push({
+        appendTranscriptPart(assistantState, {
           type: 'guardrail',
           code: code as Extract<AiTurnPart, { type: 'guardrail' }>['code'],
           message,
@@ -585,7 +619,7 @@ export function rebuildConversationFromTranscript(
             executionState: 'pending',
           });
         }
-        assistantState.parts.push({
+        appendTranscriptPart(assistantState, {
           type: 'tool_call',
           id: toolCallId,
           name: toolName,
@@ -613,7 +647,7 @@ export function rebuildConversationFromTranscript(
             toolCall.approvalState = 'rejected';
           }
         }
-        assistantState.parts.push({
+        appendTranscriptPart(assistantState, {
           type: 'tool_result',
           toolCallId,
           toolName,

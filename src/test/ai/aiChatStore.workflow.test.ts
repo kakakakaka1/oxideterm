@@ -704,6 +704,22 @@ describe('aiChatStore workflows', () => {
     expect(providerMessages?.[0]?.content).toContain('Prefer concise Chinese replies');
   });
 
+  it('injects operation-focused tool strategy when tool use is enabled', async () => {
+    settingsStoreMock.state.settings.ai.toolUse.enabled = true;
+    setConversation([]);
+    streamText('plain answer');
+
+    await useAiChatStore.getState().sendMessage('run a command');
+
+    const providerMessages = providerStreamMock.mock.calls[0]?.[1];
+    expect(providerMessages?.[0]?.role).toBe('system');
+    expect(providerMessages?.[0]?.content).toContain('## Tool Use Strategy');
+    expect(providerMessages?.[0]?.content).toContain('First identify the task type');
+    expect(providerMessages?.[0]?.content).toContain('prefer direct execution with `terminal_exec` + `node_id`');
+    expect(providerMessages?.[0]?.content).toContain('do not repeat the command and do not guess credentials');
+    expect(providerMessages?.[0]?.content).toContain('pass `expectedHash`');
+  });
+
   it('stores turn snapshots and session metadata for sidebar sends', async () => {
     setConversation([]);
     appStoreState.activeTabId = 'tab-1';

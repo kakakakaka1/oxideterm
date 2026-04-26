@@ -10,6 +10,7 @@
  */
 
 import type { AgentRoleDefinition, AgentPipelinePreset } from '../../../types';
+import { buildToolOperationStrategyPrompt } from '../toolUsePrompt';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Template variables (resolved at runtime by RoleRunner):
@@ -122,12 +123,7 @@ When the task is complete (or cannot be completed), respond with a summary:
 ## Available Sessions
 {{sessions}}
 
-## Tool Use
-Use tools proactively — act on real data, don't guess. Use list_targets first if you need to discover targets, then list_capabilities when the available operations are unclear.
-For remote execution: use terminal_exec with session_id or node_id.
-For file operations: use read_file, write_file, list_directory.
-For infrastructure: use list_port_forwards, create_port_forward.
-For monitoring: use get_connection_health, get_resource_metrics.`,
+${buildToolOperationStrategyPrompt()}`,
   toolAllowlist: '*',
   maxRounds: null, // uses task.maxRounds
   outputSchema: 'text',
