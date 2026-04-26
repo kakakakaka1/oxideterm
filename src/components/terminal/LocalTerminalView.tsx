@@ -43,7 +43,8 @@ import {
   unregisterTerminalBuffer,
   setActivePaneId as setRegistryActivePaneId,
   touchTerminalEntry,
-  notifyTerminalOutput 
+  notifyTerminalOutput,
+  updateTerminalReadiness,
 } from '../../lib/terminalRegistry';
 import { onMapleRegularLoaded, ensureCJKFallback, prepareTerminalFontForOpen } from '../../lib/fontLoader';
 import { api } from '../../lib/api';
@@ -1121,6 +1122,7 @@ export const LocalTerminalView: React.FC<LocalTerminalViewProps> = ({
         // Feed recording (terminal output)
         feedOutput(displayData);
       }
+      notifyTerminalOutput(sessionId);
       // Delegate batching + tier management to adaptive renderer
       adaptiveRendererRef.current.scheduleWrite(displayData);
 
@@ -1146,6 +1148,11 @@ export const LocalTerminalView: React.FC<LocalTerminalViewProps> = ({
     }).then((fn) => {
       if (mounted) {
         unlistenDataFn = fn;
+        updateTerminalReadiness(sessionId, {
+          terminalType: 'local_terminal',
+          frontendOutputListenerReady: true,
+          backendBufferReady: true,
+        });
       } else {
         fn(); // Component unmounted, clean up immediately
       }
@@ -1188,6 +1195,9 @@ export const LocalTerminalView: React.FC<LocalTerminalViewProps> = ({
       
       unlistenDataFn?.();
       unlistenClosedFn?.();
+      updateTerminalReadiness(sessionId, {
+        frontendOutputListenerReady: false,
+      });
     };
   }, [feedOutput, fontOpenReady, maybeLoadImageAddon, maybeSuggestTerminalEncoding, recorderRef, sessionId, updateTerminalState]);
 

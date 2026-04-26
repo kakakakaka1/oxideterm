@@ -36,7 +36,8 @@ import {
   unregisterTerminalBuffer, 
   setActivePaneId as setRegistryActivePaneId,
   touchTerminalEntry,
-  notifyTerminalOutput 
+  notifyTerminalOutput,
+  updateTerminalReadiness,
 } from '../../lib/terminalRegistry';
 import { onMapleRegularLoaded, ensureCJKFallback, prepareTerminalFontForOpen } from '../../lib/fontLoader';
 import { runInputPipeline, runOutputPipeline } from '../../lib/plugin/pluginTerminalHooks';
@@ -1295,6 +1296,10 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
       // If old connection exists but URL changed, close it
       if (existingWsUrl !== null && normalizedWsUrl !== existingWsUrl) {
         console.log('[Terminal] Session reconnected, closing old WebSocket and reconnecting...');
+        updateTerminalReadiness(sessionId, {
+          terminalType: 'terminal',
+          frontendOutputListenerReady: false,
+        });
         reconnectingRef.current = true;
         controllerRuntimePendingRef.current = true;
         blockedRuntimeWebSocketRef.current = existingWs;
@@ -1341,6 +1346,11 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
         // Re-send current terminal size
         syncRemotePtySize();
         syncTrzszController();
+        updateTerminalReadiness(sessionId, {
+          terminalType: 'terminal',
+          frontendOutputListenerReady: true,
+          backendBufferReady: true,
+        });
       };
 
       ws.onmessage = (e) => handleWsMessageRef.current(e, ws);
@@ -1348,6 +1358,10 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
       ws.onerror = (error) => {
         if (!isMountedRef.current || wsRef.current !== ws) return;
         console.error('WebSocket reconnection error:', error);
+        updateTerminalReadiness(sessionId, {
+          terminalType: 'terminal',
+          frontendOutputListenerReady: false,
+        });
         term.writeln(`\r\n\x1b[31m${i18n.t('terminal.ssh.ws_reconnect_error')}\x1b[0m`);
         if (!reconnectingRef.current) {
           recoverWebSocket(opened ? 'reconnect-error-opened' : 'reconnect-error');
@@ -1360,6 +1374,10 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
           manualCloseRef.current = false;
           return;
         }
+        updateTerminalReadiness(sessionId, {
+          terminalType: 'terminal',
+          frontendOutputListenerReady: false,
+        });
         console.log('WebSocket closed after reconnect:', event.code, event.reason);
         if (event.code !== 1000) {
           term.writeln(`\r\n\x1b[33m${i18n.t('terminal.ssh.connection_closed_code', { code: event.code })}\x1b[0m`);
@@ -1761,6 +1779,10 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
 
               const ws = new WebSocket(wsUrl);
               let opened = false;
+              updateTerminalReadiness(sessionId, {
+                terminalType: 'terminal',
+                frontendOutputListenerReady: false,
+              });
               ws.binaryType = 'arraybuffer';
               wsRef.current = ws;
               lastWsUrlRef.current = wsUrl;
@@ -1788,6 +1810,11 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
                   // Initial resize using the current visible or last stable size.
                   syncRemotePtySize();
                   syncTrzszController();
+                  updateTerminalReadiness(sessionId, {
+                    terminalType: 'terminal',
+                    frontendOutputListenerReady: true,
+                    backendBufferReady: true,
+                  });
                   // Focus terminal after connection only when it is appropriate
                   focusTerminal('soft');
                   resolve();
@@ -1804,6 +1831,10 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
                   if (wsRef.current === ws) {
                     wsRef.current = null;
                   }
+                  updateTerminalReadiness(sessionId, {
+                    terminalType: 'terminal',
+                    frontendOutputListenerReady: false,
+                  });
                   
                   if (!opened && attempt < maxAttempts) {
                     // Fast retry with exponential backoff: 250ms, 500ms, 750ms, 1000ms, 1250ms, 1500ms, 1750ms, 2000ms
@@ -1862,6 +1893,10 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
                     resolve();
                     return;
                   }
+                  updateTerminalReadiness(sessionId, {
+                    terminalType: 'terminal',
+                    frontendOutputListenerReady: false,
+                  });
                   if (!opened && attempt < maxAttempts) {
                     // Connection closed before open - retry
                     return; // Let onerror handle retry

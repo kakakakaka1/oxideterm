@@ -16,7 +16,7 @@ use crate::local::session::{
     BackgroundSessionInfo, LocalTerminalInfo, LocalTerminalSession, SessionError, SessionEvent,
 };
 use crate::local::shell::ShellInfo;
-use crate::session::ScrollBuffer;
+use crate::session::{BufferStats, ScrollBuffer, TerminalLine};
 use crate::ssh::{ExtendedSessionHandle, SessionCommand};
 
 /// Maximum number of background (detached) sessions allowed
@@ -164,6 +164,51 @@ impl LocalTerminalRegistry {
             Some(session) => session.write(data).await,
             None => Err(SessionError::NotFound(session_id.to_string())),
         }
+    }
+
+    pub async fn get_scroll_buffer(
+        &self,
+        session_id: &str,
+        start_line: usize,
+        count: usize,
+    ) -> Result<Vec<TerminalLine>, SessionError> {
+        let scroll_buffer = {
+            let sessions = self.sessions.read().await;
+            sessions
+                .get(session_id)
+                .map(|session| session.scroll_buffer.clone())
+                .ok_or_else(|| SessionError::NotFound(session_id.to_string()))?
+        };
+
+        Ok(scroll_buffer.get_range(start_line, count).await)
+    }
+
+    pub async fn get_buffer_stats(&self, session_id: &str) -> Result<BufferStats, SessionError> {
+        let scroll_buffer = {
+            let sessions = self.sessions.read().await;
+            sessions
+                .get(session_id)
+                .map(|session| session.scroll_buffer.clone())
+                .ok_or_else(|| SessionError::NotFound(session_id.to_string()))?
+        };
+
+        Ok(scroll_buffer.stats().await)
+    }
+
+    pub async fn get_capped_buffer(
+        &self,
+        session_id: &str,
+        cap: usize,
+    ) -> Result<(Vec<TerminalLine>, usize), SessionError> {
+        let scroll_buffer = {
+            let sessions = self.sessions.read().await;
+            sessions
+                .get(session_id)
+                .map(|session| session.scroll_buffer.clone())
+                .ok_or_else(|| SessionError::NotFound(session_id.to_string()))?
+        };
+
+        Ok(scroll_buffer.get_capped(cap).await)
     }
 
     /// Resize a session

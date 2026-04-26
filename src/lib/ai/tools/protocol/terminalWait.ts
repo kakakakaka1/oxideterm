@@ -12,6 +12,7 @@ import {
 
 export type TerminalOutputSubscription = {
   getCount: () => number;
+  setNotifyHandler?: (handler: (() => void) | null) => void;
   unsubscribe: () => void;
 };
 
@@ -47,15 +48,21 @@ export interface TerminalWaitOptions {
 export function createTerminalOutputSubscription(sessionId: string): TerminalOutputSubscription {
   let outputCounter = 0;
   let unsubscribed = false;
+  let notifyHandler: (() => void) | null = null;
   const rawUnsubscribe = subscribeTerminalOutput(sessionId, () => {
     outputCounter += 1;
+    notifyHandler?.();
   });
 
   return {
     getCount: () => outputCounter,
+    setNotifyHandler: (handler) => {
+      notifyHandler = handler;
+    },
     unsubscribe: () => {
       if (unsubscribed) return;
       unsubscribed = true;
+      notifyHandler = null;
       rawUnsubscribe();
     },
   };
@@ -76,8 +83,6 @@ export async function waitForTerminalOutput(options: TerminalWaitOptions): Promi
   const timeoutMs = options.timeoutSecs * 1000;
   const baseStableMs = options.stableSecs * 1000;
   const maxStableMs = options.maxAdaptiveStableSecs * 1000;
-  const pollIntervalMs = 200;
-  const fallbackProbeIntervalMs = 600;
 
   console.debug(`[AI:ToolExec] waitForTerminalOutput: initial=${initialLineCount}, timeout=${options.timeoutSecs}s, stable=${options.stableSecs}s`);
 
@@ -86,12 +91,11 @@ export async function waitForTerminalOutput(options: TerminalWaitOptions): Promi
   const result = await new Promise<TerminalWaitReason>((resolve) => {
     let stableTimer: ReturnType<typeof setTimeout> | null = null;
     let promptGraceTimer: ReturnType<typeof setTimeout> | null = null;
-    let pollTimer: ReturnType<typeof setInterval> | null = null;
     let settled = false;
     let lastCheckedCounter = 0;
-    let lastProbeAt = 0;
     let lastRenderedDelta = '';
     let checking = false;
+    let pendingCheck = false;
     let outputBursts = 0;
 
     const abortHandler = options.abortSignal ? () => done('aborted') : null;
@@ -102,8 +106,8 @@ export async function waitForTerminalOutput(options: TerminalWaitOptions): Promi
       clearTimeout(timeoutTimer);
       if (stableTimer) clearTimeout(stableTimer);
       if (promptGraceTimer) clearTimeout(promptGraceTimer);
-      if (pollTimer) clearInterval(pollTimer);
       if (options.abortSignal && abortHandler) options.abortSignal.removeEventListener('abort', abortHandler);
+      outputSubscription.setNotifyHandler?.(null);
       outputSubscription.unsubscribe();
       console.debug(`[AI:ToolExec] done: reason=${reason}`);
       resolve(reason);
@@ -119,16 +123,12 @@ export async function waitForTerminalOutput(options: TerminalWaitOptions): Promi
       options.abortSignal.addEventListener('abort', abortHandler!, { once: true });
     }
 
-    pollTimer = setInterval(async () => {
+    const runCheck = async () => {
       if (settled || checking) return;
-      const outputCounter = outputSubscription.getCount();
-      const now = Date.now();
-      const shouldProbe = outputCounter !== lastCheckedCounter || now - lastProbeAt >= fallbackProbeIntervalMs;
-      if (!shouldProbe) return;
 
       checking = true;
-      lastCheckedCounter = outputCounter;
-      lastProbeAt = now;
+      pendingCheck = false;
+      lastCheckedCounter = outputSubscription.getCount();
 
       let currentLineCount: number | null;
       let currentLines: string[] | null;
@@ -200,7 +200,23 @@ export async function waitForTerminalOutput(options: TerminalWaitOptions): Promi
       }
 
       checking = false;
-    }, pollIntervalMs);
+      if (!settled && (pendingCheck || outputSubscription.getCount() !== lastCheckedCounter)) {
+        pendingCheck = false;
+        queueMicrotask(scheduleCheck);
+      }
+    };
+
+    const scheduleCheck = () => {
+      if (settled) return;
+      if (checking) {
+        pendingCheck = true;
+        return;
+      }
+      void runCheck();
+    };
+
+    outputSubscription.setNotifyHandler?.(scheduleCheck);
+    scheduleCheck();
   });
 
   if (result === 'aborted') {

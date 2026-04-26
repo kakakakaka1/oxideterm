@@ -38,6 +38,7 @@ import { useEventLogStore } from '../../../store/eventLogStore';
 import { useTransferStore } from '../../../store/transferStore';
 import { useRecordingStore } from '../../../store/recordingStore';
 import { useBroadcastStore } from '../../../store/broadcastStore';
+import { waitForTerminalReady } from '../../terminalRegistry';
 import { compressOutput } from './outputCompressor';
 import { sanitizeConnectionInfo } from '../contextSanitizer';
 import { MAX_OUTPUT_BYTES } from '../agentConfig';
@@ -96,6 +97,7 @@ const MAX_ADAPTIVE_STABLE_SECS = 5;
 const EMPTY_OUTPUT_TAIL_LINES = 20;
 /** Default tail window used when only a lightweight snapshot is needed */
 const TERMINAL_BUFFER_TAIL_FALLBACK_LINES = 500;
+const TERMINAL_READY_TIMEOUT_MS = 3000;
 
 /** Context needed to execute tools — activeNodeId may be null when no terminal is focused */
 export type ToolExecutionContext = {
@@ -124,6 +126,32 @@ type ResolvedNode = {
 
 function makeAbortError(): DOMException {
   return new DOMException('Generation was stopped.', 'AbortError');
+}
+
+async function waitForInteractiveTerminalReady(
+  sessionId: string,
+  abortSignal?: AbortSignal,
+): Promise<string | null> {
+  const ready = await waitForTerminalReady(sessionId, {
+    timeoutMs: TERMINAL_READY_TIMEOUT_MS,
+    abortSignal,
+  });
+  if (ready.ready) {
+    return null;
+  }
+
+  const state = ready.state;
+  if (!state) {
+    return `Terminal session is not ready for interactive input yet: ${sessionId}. The terminal view may still be opening. Retry terminal_exec after the terminal is visible.`;
+  }
+
+  const missing: string[] = [];
+  if (!state.writerReady) missing.push('writer');
+  if (!state.frontendOutputListenerReady) missing.push('output listener');
+  if (!state.renderBufferReady) missing.push('render buffer');
+  if (!state.backendBufferReady) missing.push('backend buffer');
+
+  return `Terminal session is not ready for interactive input yet: ${sessionId}. Waiting for ${missing.join(', ') || 'terminal readiness'} timed out. Retry shortly or inspect with get_terminal_buffer.`;
 }
 
 function throwIfAborted(signal?: AbortSignal): void {
@@ -552,6 +580,11 @@ async function execTerminalCommandToSession(
   const command = typeof args.command === 'string' ? args.command.trim() : '';
   if (!command) {
     return { toolCallId, toolName: 'terminal_exec', success: false, output: '', error: 'Missing required argument: command', durationMs: Date.now() - startTime };
+  }
+
+  const notReadyError = await waitForInteractiveTerminalReady(sessionId, abortSignal);
+  if (notReadyError) {
+    return { toolCallId, toolName: 'terminal_exec', success: false, output: '', error: notReadyError, durationMs: Date.now() - startTime };
   }
 
   // Pre-command snapshot: take BEFORE writing command to avoid race condition
@@ -1448,6 +1481,11 @@ async function execSendControlSequence(
     return { toolCallId, toolName, success: false, output: '', error: `Invalid sequence. Must be one of: ${Object.keys(CONTROL_SEQUENCES).join(', ')}`, durationMs: Date.now() - startTime };
   }
 
+  const notReadyError = await waitForInteractiveTerminalReady(sessionId, abortSignal);
+  if (notReadyError) {
+    return { toolCallId, toolName, success: false, output: '', error: notReadyError, durationMs: Date.now() - startTime };
+  }
+
   const preSnapshotLineCount = await readBufferLineCount(sessionId);
   const outputSubscription = createTerminalOutputSubscription(sessionId);
   let waitResult: WaitResult;
@@ -1525,6 +1563,12 @@ async function execBatchExec(
       if (!cmd) {
         results.push(`[${i + 1}] (empty command — skipped)`);
         continue;
+      }
+
+      const notReadyError = await waitForInteractiveTerminalReady(sessionId, abortSignal);
+      if (notReadyError) {
+        results.push(`[${i + 1}] $ ${cmd}\n❌ ${notReadyError}`);
+        break;
       }
 
       // Pre-command snapshot: capture buffer line count BEFORE sending the command
@@ -1934,6 +1978,11 @@ async function execSendKeys(
     }
   }
 
+  const notReadyError = await waitForInteractiveTerminalReady(sessionId, abortSignal);
+  if (notReadyError) {
+    return { toolCallId, toolName, success: false, output: '', error: notReadyError, durationMs: Date.now() - startTime };
+  }
+
   const sentSummary: string[] = [];
   const preSnapshotLineCount = await readBufferLineCount(sessionId);
   const outputSubscription = createTerminalOutputSubscription(sessionId);
@@ -2053,6 +2102,11 @@ async function execSendMouse(
   const snapshot = readTerminalScreen(sessionId);
   if (snapshot && (x > snapshot.cols || y > snapshot.rows)) {
     return { toolCallId, toolName, success: false, output: '', error: `Coordinates out of bounds. Terminal is ${snapshot.cols}×${snapshot.rows}, got (${x},${y}).`, durationMs: Date.now() - startTime };
+  }
+
+  const notReadyError = await waitForInteractiveTerminalReady(sessionId, abortSignal);
+  if (notReadyError) {
+    return { toolCallId, toolName, success: false, output: '', error: notReadyError, durationMs: Date.now() - startTime };
   }
 
   const preSnapshotLineCount = await readBufferLineCount(sessionId);
@@ -2922,11 +2976,17 @@ async function execOpenLocalTerminal(args: Record<string, unknown>, startTime: n
       cwd ? { cwd } : undefined,
     );
     useAppStore.getState().createTab('local_terminal', info.id, skipFocus ? { skipFocus } : undefined);
+    const readyResult = skipFocus
+      ? { ready: false as const }
+      : await waitForTerminalReady(info.id, { timeoutMs: TERMINAL_READY_TIMEOUT_MS });
+    const readinessText = readyResult.ready
+      ? 'Terminal is ready for terminal_exec.'
+      : 'Terminal is opening; retry terminal_exec after it becomes visible.';
     return {
       toolCallId,
       toolName: 'open_local_terminal',
       success: true,
-      output: `Local terminal opened. Session ID: ${info.id}, Shell: ${info.shell?.label ?? 'unknown'}`,
+      output: `Local terminal opened. Session ID: ${info.id}, Shell: ${info.shell?.label ?? 'unknown'}\n${readinessText}`,
       durationMs: Date.now() - startTime,
     };
   } catch (e) {

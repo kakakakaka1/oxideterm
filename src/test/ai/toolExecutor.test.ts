@@ -71,6 +71,7 @@ const findPaneBySessionIdMock = vi.hoisted(() => vi.fn());
 const getTerminalBufferMock = vi.hoisted(() => vi.fn());
 const writeToTerminalMock = vi.hoisted(() => vi.fn());
 const subscribeTerminalOutputMock = vi.hoisted(() => vi.fn());
+const waitForTerminalReadyMock = vi.hoisted(() => vi.fn());
 const readScreenMock = vi.hoisted(() => vi.fn());
 const createTabMock = vi.hoisted(() => vi.fn());
 
@@ -197,6 +198,7 @@ vi.mock('@/lib/terminalRegistry', () => ({
   getTerminalBuffer: getTerminalBufferMock,
   writeToTerminal: writeToTerminalMock,
   subscribeTerminalOutput: subscribeTerminalOutputMock,
+  waitForTerminalReady: waitForTerminalReadyMock,
   readScreen: readScreenMock,
 }));
 
@@ -246,6 +248,8 @@ describe('toolExecutor get_settings sanitization', () => {
     writeToTerminalMock.mockReset();
     subscribeTerminalOutputMock.mockReset();
     subscribeTerminalOutputMock.mockImplementation(() => () => {});
+    waitForTerminalReadyMock.mockReset();
+    waitForTerminalReadyMock.mockResolvedValue({ ready: true, state: null });
     readScreenMock.mockReset();
     createTabMock.mockReset();
     sessionTreeState.nodes = [];
@@ -703,6 +707,8 @@ describe('toolExecutor regressions', () => {
     writeToTerminalMock.mockReset();
     subscribeTerminalOutputMock.mockReset();
     subscribeTerminalOutputMock.mockImplementation(() => () => {});
+    waitForTerminalReadyMock.mockReset();
+    waitForTerminalReadyMock.mockResolvedValue({ ready: true, state: null });
     getBufferStatsMock.mockReset();
     getBufferStatsMock.mockRejectedValue(new Error('no backend buffer stats'));
     getScrollBufferMock.mockReset();
@@ -757,7 +763,7 @@ describe('toolExecutor regressions', () => {
     expect(subscribeTerminalOutputMock.mock.invocationCallOrder[0]).toBeLessThan(writeToTerminalMock.mock.invocationCallOrder[0]);
   });
 
-  it('polls terminal buffers when terminal_exec output notification is missed', async () => {
+  it('captures terminal_exec output from the output notification path', async () => {
     findPaneBySessionIdMock.mockReturnValue('pane-1');
 
     let currentLines = 0;
@@ -766,6 +772,14 @@ describe('toolExecutor regressions', () => {
       { text: '/Users/dominical/Documents/OxideTerm' },
       { text: 'dominical@macbook %' },
     ];
+
+    let outputListener: (() => void) | undefined;
+    subscribeTerminalOutputMock.mockImplementation((_sessionId: string, listener: () => void) => {
+      outputListener = listener;
+      return () => {
+        outputListener = undefined;
+      };
+    });
 
     getBufferStatsMock.mockImplementation(async () => ({
       current_lines: currentLines,
@@ -779,6 +793,7 @@ describe('toolExecutor regressions', () => {
 
     writeToTerminalMock.mockImplementation(() => {
       currentLines = renderedLines.length;
+      outputListener?.();
       return true;
     });
 
@@ -791,6 +806,67 @@ describe('toolExecutor regressions', () => {
     expect(result.success).toBe(true);
     expect(result.output).toContain('/Users/dominical/Documents/OxideTerm');
     expect(result.output).not.toContain('No new output after');
+  });
+
+  it('waits for terminal readiness before writing terminal_exec input', async () => {
+    findPaneBySessionIdMock.mockReturnValue('pane-1');
+    waitForTerminalReadyMock.mockResolvedValue({
+      ready: false,
+      state: {
+        sessionId: 'session-1',
+        terminalType: 'local_terminal',
+        writerReady: true,
+        frontendOutputListenerReady: false,
+        renderBufferReady: true,
+        backendBufferReady: true,
+        updatedAt: Date.now(),
+      },
+      reason: 'timeout',
+    });
+
+    const result = await executeTool(
+      'terminal_exec',
+      { session_id: 'session-1', command: 'pwd' },
+      { activeNodeId: null, activeAgentAvailable: false },
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Terminal session is not ready for interactive input yet');
+    expect(result.error).toContain('output listener');
+    expect(writeToTerminalMock).not.toHaveBeenCalled();
+  });
+
+  it('waits for local terminal readiness before reporting terminal_exec readiness', async () => {
+    localTerminalState.createTerminal.mockResolvedValue({
+      id: 'local-session-1',
+      shell: { label: 'Zsh' },
+      running: true,
+      cols: 80,
+      rows: 24,
+    });
+    waitForTerminalReadyMock.mockResolvedValue({
+      ready: true,
+      state: {
+        sessionId: 'local-session-1',
+        terminalType: 'local_terminal',
+        writerReady: true,
+        frontendOutputListenerReady: true,
+        renderBufferReady: true,
+        backendBufferReady: true,
+        updatedAt: Date.now(),
+      },
+    });
+
+    const result = await executeTool(
+      'open_local_terminal',
+      {},
+      { activeNodeId: null, activeAgentAvailable: false },
+    );
+
+    expect(result.success).toBe(true);
+    expect(createTabMock).toHaveBeenCalledWith('local_terminal', 'local-session-1', undefined);
+    expect(waitForTerminalReadyMock).toHaveBeenCalledWith('local-session-1', { timeoutMs: 3000 });
+    expect(result.output).toContain('Terminal is ready for terminal_exec');
   });
 
   it('returns rendered terminal_exec output when backend buffer text is mojibake', async () => {

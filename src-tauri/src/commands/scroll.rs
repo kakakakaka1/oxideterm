@@ -11,6 +11,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, State};
 
+use crate::commands::local::LocalTerminalState;
 use crate::session::history_archive::{get_archived_excerpt, load_manifest, read_chunk_records};
 use crate::session::{
     ArchiveHealthSnapshot, ArchivedHistoryExcerpt, BufferStats, SearchOptions, SessionRegistry,
@@ -497,12 +498,19 @@ pub async fn get_scroll_buffer(
     start_line: usize,
     count: usize,
     registry: State<'_, Arc<SessionRegistry>>,
+    local_state: State<'_, Arc<LocalTerminalState>>,
 ) -> Result<Vec<TerminalLine>, String> {
-    let scroll_buffer = registry
-        .with_session(&session_id, |entry| entry.scroll_buffer.clone())
-        .ok_or_else(|| format!("Session {} not found", session_id))?;
+    if let Some(scroll_buffer) =
+        registry.with_session(&session_id, |entry| entry.scroll_buffer.clone())
+    {
+        return Ok(scroll_buffer.get_range(start_line, count).await);
+    }
 
-    Ok(scroll_buffer.get_range(start_line, count).await)
+    local_state
+        .registry
+        .get_scroll_buffer(&session_id, start_line, count)
+        .await
+        .map_err(|_| format!("Session {} not found", session_id))
 }
 
 /// Get scroll buffer statistics
@@ -510,12 +518,19 @@ pub async fn get_scroll_buffer(
 pub async fn get_buffer_stats(
     session_id: String,
     registry: State<'_, Arc<SessionRegistry>>,
+    local_state: State<'_, Arc<LocalTerminalState>>,
 ) -> Result<BufferStats, String> {
-    let scroll_buffer = registry
-        .with_session(&session_id, |entry| entry.scroll_buffer.clone())
-        .ok_or_else(|| format!("Session {} not found", session_id))?;
+    if let Some(scroll_buffer) =
+        registry.with_session(&session_id, |entry| entry.scroll_buffer.clone())
+    {
+        return Ok(scroll_buffer.stats().await);
+    }
 
-    Ok(scroll_buffer.stats().await)
+    local_state
+        .registry
+        .get_buffer_stats(&session_id)
+        .await
+        .map_err(|_| format!("Session {} not found", session_id))
 }
 
 /// Clear scroll buffer contents
@@ -537,15 +552,22 @@ pub async fn clear_buffer(
 pub async fn get_all_buffer_lines(
     session_id: String,
     registry: State<'_, Arc<SessionRegistry>>,
+    local_state: State<'_, Arc<LocalTerminalState>>,
 ) -> Result<BufferLinesResponse, String> {
-    let scroll_buffer = registry
-        .with_session(&session_id, |entry| entry.scroll_buffer.clone())
-        .ok_or_else(|| format!("Session {} not found", session_id))?;
-
     // Single-lock cap-aware extraction: only clones up to HARD_LIMIT lines
     // and reads total atomically, avoiding both TOCTOU and full-buffer clone.
     const HARD_LIMIT: usize = 50_000;
-    let (lines, total_lines) = scroll_buffer.get_capped(HARD_LIMIT).await;
+    let (lines, total_lines) = if let Some(scroll_buffer) =
+        registry.with_session(&session_id, |entry| entry.scroll_buffer.clone())
+    {
+        scroll_buffer.get_capped(HARD_LIMIT).await
+    } else {
+        local_state
+            .registry
+            .get_capped_buffer(&session_id, HARD_LIMIT)
+            .await
+            .map_err(|_| format!("Session {} not found", session_id))?
+    };
     let returned_lines = lines.len();
     let truncated = total_lines > returned_lines;
     Ok(BufferLinesResponse {

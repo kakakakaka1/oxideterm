@@ -51,6 +51,144 @@ const outputListeners = new Map<string, Set<OutputListener>>();
 // same event loop turn are coalesced into a single listener invocation.
 const pendingNotify = new Set<string>();
 
+export type TerminalReadinessState = {
+  sessionId: string;
+  terminalType: 'terminal' | 'local_terminal' | null;
+  writerReady: boolean;
+  frontendOutputListenerReady: boolean;
+  renderBufferReady: boolean;
+  backendBufferReady: boolean;
+  updatedAt: number;
+};
+
+export type TerminalReadinessResult = {
+  ready: boolean;
+  state: TerminalReadinessState | null;
+  reason?: string;
+};
+
+type ReadinessListener = () => void;
+
+const readinessBySession = new Map<string, TerminalReadinessState>();
+const readinessListeners = new Map<string, Set<ReadinessListener>>();
+
+function createDefaultReadiness(sessionId: string): TerminalReadinessState {
+  return {
+    sessionId,
+    terminalType: null,
+    writerReady: false,
+    frontendOutputListenerReady: false,
+    renderBufferReady: false,
+    backendBufferReady: false,
+    updatedAt: Date.now(),
+  };
+}
+
+function isTerminalReady(state: TerminalReadinessState): boolean {
+  return state.writerReady
+    && state.frontendOutputListenerReady
+    && state.renderBufferReady
+    && state.backendBufferReady;
+}
+
+function notifyReadinessListeners(sessionId: string): void {
+  const listeners = readinessListeners.get(sessionId);
+  if (!listeners || listeners.size === 0) return;
+  for (const listener of listeners) {
+    try {
+      listener();
+    } catch (error) {
+      console.error('[TerminalRegistry] Readiness listener error:', error);
+    }
+  }
+}
+
+export function updateTerminalReadiness(
+  sessionId: string,
+  patch: Partial<Omit<TerminalReadinessState, 'sessionId' | 'updatedAt'>>,
+): TerminalReadinessState {
+  const existing = readinessBySession.get(sessionId) ?? createDefaultReadiness(sessionId);
+  const next: TerminalReadinessState = {
+    ...existing,
+    ...patch,
+    sessionId,
+    updatedAt: Date.now(),
+  };
+  readinessBySession.set(sessionId, next);
+  notifyReadinessListeners(sessionId);
+  return next;
+}
+
+export function getTerminalReadiness(sessionId: string): TerminalReadinessState | null {
+  return readinessBySession.get(sessionId) ?? null;
+}
+
+export function waitForTerminalReady(
+  sessionId: string,
+  options: { timeoutMs?: number; abortSignal?: AbortSignal } = {},
+): Promise<TerminalReadinessResult> {
+  const timeoutMs = options.timeoutMs ?? 3000;
+  const current = readinessBySession.get(sessionId);
+  if (current && isTerminalReady(current)) {
+    return Promise.resolve({ ready: true, state: current });
+  }
+
+  if (options.abortSignal?.aborted) {
+    return Promise.resolve({ ready: false, state: current ?? null, reason: 'aborted' });
+  }
+
+  return new Promise((resolve) => {
+    let settled = false;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+    const cleanup = () => {
+      const listeners = readinessListeners.get(sessionId);
+      listeners?.delete(check);
+      if (listeners && listeners.size === 0) {
+        readinessListeners.delete(sessionId);
+      }
+      if (timeoutId) clearTimeout(timeoutId);
+      options.abortSignal?.removeEventListener('abort', abort);
+    };
+
+    const finish = (result: TerminalReadinessResult) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(result);
+    };
+
+    const check = () => {
+      const state = readinessBySession.get(sessionId) ?? null;
+      if (state && isTerminalReady(state)) {
+        finish({ ready: true, state });
+      }
+    };
+
+    const abort = () => {
+      finish({ ready: false, state: readinessBySession.get(sessionId) ?? null, reason: 'aborted' });
+    };
+
+    let listeners = readinessListeners.get(sessionId);
+    if (!listeners) {
+      listeners = new Set();
+      readinessListeners.set(sessionId, listeners);
+    }
+    listeners.add(check);
+
+    options.abortSignal?.addEventListener('abort', abort, { once: true });
+    timeoutId = setTimeout(() => {
+      finish({
+        ready: false,
+        state: readinessBySession.get(sessionId) ?? null,
+        reason: 'timeout',
+      });
+    }, timeoutMs);
+
+    check();
+  });
+}
+
 /**
  * Subscribe to output notifications for a session.
  * The callback fires each time the terminal receives new data (after xterm parses it).
@@ -136,6 +274,13 @@ export function registerTerminalBuffer(
   if (activePaneId === null) {
     activePaneId = paneId;
   }
+
+  updateTerminalReadiness(sessionId, {
+    terminalType,
+    writerReady: Boolean(writer),
+    renderBufferReady: true,
+    backendBufferReady: true,
+  });
 }
 
 /**
@@ -143,6 +288,7 @@ export function registerTerminalBuffer(
  * @param paneId - The pane ID to unregister
  */
 export function unregisterTerminalBuffer(paneId: string): void {
+  const removedEntry = registry.get(paneId);
   registry.delete(paneId);
   
   // Clear activePaneId if it was the unregistered one
@@ -158,6 +304,14 @@ export function unregisterTerminalBuffer(paneId: string): void {
     useBroadcastStore.getState().removeTarget(paneId);
   } catch {
     // broadcastStore may not be loaded yet during early teardown
+  }
+
+  if (removedEntry && !findPaneBySessionId(removedEntry.sessionId)) {
+    updateTerminalReadiness(removedEntry.sessionId, {
+      writerReady: false,
+      frontendOutputListenerReady: false,
+      renderBufferReady: false,
+    });
   }
 }
 
@@ -432,6 +586,8 @@ export function getCombinedPaneContext(
  */
 export function clearRegistry(): void {
   registry.clear();
+  readinessBySession.clear();
+  readinessListeners.clear();
   activePaneId = null;
 }
 
@@ -601,4 +757,3 @@ export function broadcastToTargets(
   }
   return { sent, failed };
 }
-

@@ -18,6 +18,7 @@ You have tools to interact with the user's terminal sessions and workspace. Use 
 
 ### Command Execution
 - If the user asks to run a command and return the result, prefer direct execution with \`terminal_exec\` + \`node_id\`; it captures stdout/stderr reliably.
+- For local one-shot commands where the user did not explicitly ask to run inside the visible terminal, prefer \`local_exec\`; use \`terminal_exec\` + \`session_id\` only when visible shell state or interaction matters.
 - If the user explicitly says to continue in an existing terminal, use \`terminal_exec\` + \`session_id\` so the action happens in that visible shell.
 - Use \`session_id\` for commands that depend on existing shell state, TUI apps, shell history, job control, or the user's currently open terminal.
 - \`terminal_exec\` with \`session_id\` auto-captures output. Do not call \`await_terminal_output\` after it unless you set \`await_output: false\`.
