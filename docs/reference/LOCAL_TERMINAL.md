@@ -165,29 +165,16 @@ OxideTerm 使用以下逻辑自动检测 Shell：
    - /bin/*
 ```
 
-### 自定义 Shell
+### 未被扫描到的 Shell
 
-如果您的 Shell 没有被自动检测到，可以手动添加：
+OxideTerm 目前不会读取 `shells.json`。如果某个 Shell 没有出现在列表中，请确认可执行文件安装在标准路径、macOS/Linux 上已写入 `/etc/shells`，或能被平台对应的 Shell 扫描器发现。
 
-**配置文件位置**：
-```
-~/.oxideterm/shells.json  (macOS/Linux)
-%APPDATA%\OxideTerm\shells.json  (Windows)
-```
-
-**格式**：
-```json
-{
-  "custom_shells": [
-    {
-      "name": "custom-shell",
-      "label": "My Custom Shell",
-      "path": "/usr/local/bin/my-shell",
-      "args": ["--login"]
-    }
-  ]
-}
-```
+真实可配置项位于 **设置 → 本地终端**：
+- 默认 Shell
+- 默认工作目录
+- 是否加载 Shell profile
+- Windows Oh My Posh
+- 自定义环境变量
 
 ---
 
@@ -452,7 +439,7 @@ A: 可能的原因：
 
 解决方案：
 1. 检查 Shell 路径：`which zsh` (Unix) 或 `where pwsh` (Windows)
-2. 手动添加到 `shells.json`
+2. macOS/Linux 上可确认该 Shell 是否写入 `/etc/shells`
 3. 重启 OxideTerm 刷新 Shell 列表
 
 ---
@@ -544,28 +531,9 @@ A: 可能的原因：
 
 ## 🛠️ 高级配置
 
-### 设置 Shell 参数
+### 启动选项
 
-某些 Shell 需要特定参数才能正常工作：
-
-```json
-{
-  "custom_shells": [
-    {
-      "name": "zsh",
-      "label": "Zsh (Login)",
-      "path": "/bin/zsh",
-      "args": ["-l"]  // --login
-    },
-    {
-      "name": "bash",
-      "label": "Bash (Interactive)",
-      "path": "/bin/bash",
-      "args": ["-i"]  // --interactive
-    }
-  ]
-}
-```
+OxideTerm 会为已检测到的 Shell 使用安全的默认启动参数。在 **设置 → 本地终端** 中，可以配置是否加载 Shell profile、默认工作目录、Windows Oh My Posh 和自定义环境变量。
 
 ### 设置初始化脚本
 
