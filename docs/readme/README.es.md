@@ -200,7 +200,7 @@ Reenvío local (-L), remoto (-R) y dinámico SOCKS5 (-D) completo:
 - **Restauración automática**: los reenvíos `Suspended` se reanudan automáticamente en reconexión sin intervención del usuario
 - **Timeout de inactividad**: `FORWARD_IDLE_TIMEOUT` (300 s) previene la acumulación de conexiones zombi
 
-### � trzsz — Transferencia de Archivos Integrada
+### 📦 trzsz — Transferencia de Archivos Integrada
 
 Sube y descarga archivos directamente a través de la sesión SSH — sin conexión SFTP:
 
@@ -212,7 +212,7 @@ Sube y descarga archivos directamente a través de la sesión SSH — sin conexi
 - **Notificaciones en vivo**: notificaciones Toast para inicio, finalización, cancelación y errores — incluyendo un aviso cuando se detecta trzsz pero la función está desactivada
 - Activar en **Configuración → Terminal → Transferencia Integrada**
 
-### �🔌 Sistema de plugins en tiempo de ejecución
+### 🔌 Sistema de plugins en tiempo de ejecución
 
 Carga ESM dinámica con una superficie API congelada y reforzada en seguridad:
 

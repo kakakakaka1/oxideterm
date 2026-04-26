@@ -191,7 +191,7 @@ Privacy-first AI assistant with dual interaction modes:
 - **Providers**: OpenAI, Ollama, DeepSeek, OneAPI, or any `/v1/chat/completions` endpoint
 - **Security**: API keys stored in OS keychain; on macOS, key reads gated behind **Touch ID** via `LAContext` — no entitlements or code-signing required, cached after first auth per session
 
-###  Port Forwarding — Lock-Free I/O
+### 🔀 Port Forwarding — Lock-Free I/O
 
 Full local (-L), remote (-R), and dynamic SOCKS5 (-D) forwarding:
 
@@ -200,7 +200,7 @@ Full local (-L), remote (-R), and dynamic SOCKS5 (-D) forwarding:
 - **Auto-restore**: `Suspended` forwards automatically resume on reconnect without user intervention
 - **Idle timeout**: `FORWARD_IDLE_TIMEOUT` (300s) prevents zombie connections from accumulating
 
-### � trzsz — In-Band File Transfer
+### 📦 trzsz — In-Band File Transfer
 
 Upload and download files directly through the SSH terminal session — no SFTP connection required:
 
@@ -212,7 +212,7 @@ Upload and download files directly through the SSH terminal session — no SFTP 
 - **Live notifications**: toast notifications for start, completion, cancellation, and errors — including a hint when trzsz is detected but the feature is disabled
 - Enable in **Settings → Terminal → In-Band Transfer**
 
-### �🔌 Runtime Plugin System
+### 🔌 Runtime Plugin System
 
 Dynamic ESM loading with a security-hardened, frozen API surface:
 
@@ -487,7 +487,7 @@ Full text: [GNU General Public License v3.0](https://www.gnu.org/licenses/gpl-3.
 ---
 
 <p align="center">
-  <sub>271,000+ lines of Rust & TypeScript — built with ⚡ and ☕</sub>
+  <sub>286,000+ lines of code — built with ⚡ and ☕</sub>
 </p>
 
 ## Star History

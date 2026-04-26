@@ -200,7 +200,7 @@ Inoltro locale (-L), remoto (-R) e SOCKS5 dinamico (-D) completo:
 - **Ripristino automatico**: gli inoltri `Suspended` riprendono automaticamente alla riconnessione senza intervento dell'utente
 - **Timeout di inattività**: `FORWARD_IDLE_TIMEOUT` (300 s) previene l'accumulo di connessioni zombie
 
-### � trzsz — Trasferimento File Integrato
+### 📦 trzsz — Trasferimento File Integrato
 
 Carica e scarica file direttamente attraverso la sessione SSH — senza connessione SFTP:
 
@@ -212,7 +212,7 @@ Carica e scarica file direttamente attraverso la sessione SSH — senza connessi
 - **Notifiche in tempo reale**: notifiche Toast per avvio, completamento, annullamento ed errori — incluso un suggerimento quando viene rilevato trzsz ma la funzione è disabilitata
 - Attivare in **Impostazioni → Terminale → Trasferimento Integrato**
 
-### �🔌 Sistema di plugin runtime
+### 🔌 Sistema di plugin runtime
 
 Caricamento ESM dinamico con superficie API congelata e rinforzata in sicurezza:
 

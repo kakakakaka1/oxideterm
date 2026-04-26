@@ -200,7 +200,7 @@ Redirection locale (-L), distante (-R) et dynamique SOCKS5 (-D) complète :
 - **Restauration automatique** : les redirections `Suspended` reprennent automatiquement à la reconnexion sans intervention utilisateur
 - **Délai d'inactivité** : `FORWARD_IDLE_TIMEOUT` (300 s) empêche l'accumulation de connexions zombies
 
-### � trzsz — Transfert de Fichiers Intégré
+### 📦 trzsz — Transfert de Fichiers Intégré
 
 Uploadez et téléchargez des fichiers directement via la session SSH — sans connexion SFTP :
 
@@ -212,7 +212,7 @@ Uploadez et téléchargez des fichiers directement via la session SSH — sans c
 - **Notifications en direct** : notifications Toast pour le démarrage, la complétion, l'annulation et les erreurs — y compris un indice quand trzsz est détecté mais la fonctionnalité est désactivée
 - Activer dans **Paramètres → Terminal → Transfert Intégré**
 
-### �🔌 Système de plugins en runtime
+### 🔌 Système de plugins en runtime
 
 Chargement ESM dynamique avec une surface API gelée et renforcée en sécurité :
 

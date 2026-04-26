@@ -200,7 +200,7 @@ Vollständige lokale (-L), Remote- (-R) und dynamische SOCKS5-Weiterleitung (-D)
 - **Automatische Wiederherstellung**: `Suspended`-Weiterleitungen werden bei Reconnect automatisch fortgesetzt, ohne Benutzereingriff
 - **Leerlauf-Timeout**: `FORWARD_IDLE_TIMEOUT` (300 s) verhindert die Ansammlung von Zombie-Verbindungen
 
-### � trzsz — In-Band-Dateiübertragung
+### 📦 trzsz — In-Band-Dateiübertragung
 
 Dateien direkt über die SSH-Terminalsitzung hoch- und herunterladen — ohne SFTP-Verbindung:
 
@@ -212,7 +212,7 @@ Dateien direkt über die SSH-Terminalsitzung hoch- und herunterladen — ohne SF
 - **Live-Benachrichtigungen**: Toast-Benachrichtigungen für Start, Abschluss, Abbruch und Fehler — einschließlich eines Hinweises, wenn trzsz erkannt, aber die Funktion deaktiviert ist
 - Aktivieren unter **Einstellungen → Terminal → In-Band-Übertragung**
 
-### �🔌 Laufzeit-Plugin-System
+### 🔌 Laufzeit-Plugin-System
 
 Dynamisches ESM-Laden mit sicherheitsgehärteter, eingefrorener API-Oberfläche:
 
