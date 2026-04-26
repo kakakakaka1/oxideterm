@@ -841,6 +841,8 @@ pub fn run() {
         commands::node_sftp_rename,
         commands::node_terminal_url,
         // Oxide-Next: Phase 4 补全命令
+        commands::node_sftp_start_directory_transfer,
+        commands::node_sftp_list_background_transfers,
         commands::node_sftp_delete_recursive,
         commands::node_sftp_download_dir,
         commands::node_sftp_upload_dir,
@@ -1220,6 +1222,8 @@ pub fn run() {
         commands::node_sftp_rename,
         commands::node_terminal_url,
         // Oxide-Next: Phase 4 补全命令
+        commands::node_sftp_start_directory_transfer,
+        commands::node_sftp_list_background_transfers,
         commands::node_sftp_delete_recursive,
         commands::node_sftp_download_dir,
         commands::node_sftp_upload_dir,

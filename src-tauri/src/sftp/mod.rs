@@ -21,5 +21,9 @@ pub use progress::{
 };
 pub use retry::{RetryConfig, calculate_backoff, is_retryable_error, transfer_with_retry};
 pub use session::{ResumeContext, SftpSession};
-pub use transfer::{TransferControl, TransferGuard, TransferManager, check_transfer_control};
+pub use transfer::{
+    BackgroundTransferDirection, BackgroundTransferKind, BackgroundTransferSnapshot,
+    BackgroundTransferState, TransferControl, TransferGuard, TransferManager,
+    check_transfer_control,
+};
 pub use types::*;

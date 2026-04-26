@@ -8,10 +8,14 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use parking_lot::RwLock;
+use serde::{Deserialize, Serialize};
 use tokio::sync::{Notify, Semaphore, watch};
 use tracing::{debug, info, warn};
+
+use super::progress::{TransferStrategy, TransferType};
 
 /// Transfer control signals
 #[derive(Debug)]
@@ -138,6 +142,80 @@ const MAX_DIRECTORY_PARALLELISM: usize = 16;
 /// Default recursive directory file workers per transfer.
 const DEFAULT_DIRECTORY_PARALLELISM: usize = 4;
 
+const FINISHED_BACKGROUND_TRANSFER_RETENTION_MS: u64 = 5 * 60 * 1000;
+
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or_default()
+}
+
+/// Direction exposed by the in-memory background transfer registry.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum BackgroundTransferDirection {
+    Upload,
+    Download,
+}
+
+impl From<TransferType> for BackgroundTransferDirection {
+    fn from(value: TransferType) -> Self {
+        match value {
+            TransferType::Upload => Self::Upload,
+            TransferType::Download => Self::Download,
+        }
+    }
+}
+
+/// File vs directory transfer kind.
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum BackgroundTransferKind {
+    File,
+    Directory,
+}
+
+/// Transfer lifecycle state exposed to the frontend.
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum BackgroundTransferState {
+    Pending,
+    Active,
+    Paused,
+    Completed,
+    Cancelled,
+    Error,
+}
+
+impl BackgroundTransferState {
+    fn is_finished(self) -> bool {
+        matches!(self, Self::Completed | Self::Cancelled | Self::Error)
+    }
+}
+
+/// Stable transfer snapshot used for WebView reload recovery.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct BackgroundTransferSnapshot {
+    pub id: String,
+    pub node_id: String,
+    pub name: String,
+    pub local_path: String,
+    pub remote_path: String,
+    pub direction: BackgroundTransferDirection,
+    pub kind: BackgroundTransferKind,
+    pub strategy: TransferStrategy,
+    pub state: BackgroundTransferState,
+    pub size: u64,
+    pub transferred: u64,
+    pub backend_speed: Option<u64>,
+    pub error: Option<String>,
+    pub start_time: u64,
+    pub end_time: Option<u64>,
+    pub item_count: Option<u64>,
+}
+
 /// Transfer Manager handles concurrent transfers
 pub struct TransferManager {
     /// Semaphore for limiting concurrent transfers (sized for max possible)
@@ -154,6 +232,10 @@ pub struct TransferManager {
     availability_notify: Arc<Notify>,
     /// Speed limit in bytes per second (0 = unlimited, Arc for sharing with transfer loops)
     speed_limit_bps: Arc<AtomicUsize>,
+    /// In-memory snapshots for background transfers that outlive frontend invoke promises.
+    background_transfers: RwLock<HashMap<String, BackgroundTransferSnapshot>>,
+    /// Wakes waiters and snapshot subscribers when a background transfer changes.
+    background_notify: Arc<Notify>,
 }
 
 impl TransferManager {
@@ -166,7 +248,20 @@ impl TransferManager {
             directory_parallelism: AtomicUsize::new(DEFAULT_DIRECTORY_PARALLELISM),
             availability_notify: Arc::new(Notify::new()),
             speed_limit_bps: Arc::new(AtomicUsize::new(0)),
+            background_transfers: RwLock::new(HashMap::new()),
+            background_notify: Arc::new(Notify::new()),
         }
+    }
+
+    fn cleanup_background_transfers(&self) {
+        let now = now_ms();
+        self.background_transfers.write().retain(|_, snapshot| {
+            !snapshot.state.is_finished()
+                || snapshot
+                    .end_time
+                    .map(|end| now.saturating_sub(end) <= FINISHED_BACKGROUND_TRANSFER_RETENTION_MS)
+                    .unwrap_or(true)
+        });
     }
 
     /// Update the maximum concurrent transfer limit
@@ -290,6 +385,118 @@ impl TransferManager {
         self.controls.read().len()
     }
 
+    /// Register a background transfer snapshot before the task starts.
+    pub fn register_background_transfer(&self, mut snapshot: BackgroundTransferSnapshot) {
+        self.cleanup_background_transfers();
+        snapshot.state = BackgroundTransferState::Pending;
+        self.background_transfers
+            .write()
+            .insert(snapshot.id.clone(), snapshot);
+        self.background_notify.notify_waiters();
+    }
+
+    /// Update the strategy once a transfer task has selected a concrete path.
+    pub fn update_background_transfer_strategy(
+        &self,
+        transfer_id: &str,
+        strategy: TransferStrategy,
+    ) {
+        if let Some(snapshot) = self.background_transfers.write().get_mut(transfer_id) {
+            snapshot.strategy = strategy;
+            self.background_notify.notify_waiters();
+        }
+    }
+
+    /// Mark a queued background transfer as actively running.
+    pub fn mark_background_transfer_active(&self, transfer_id: &str) {
+        if let Some(snapshot) = self.background_transfers.write().get_mut(transfer_id) {
+            snapshot.state = BackgroundTransferState::Active;
+            self.background_notify.notify_waiters();
+        }
+    }
+
+    /// Record backend progress for a background transfer.
+    pub fn update_background_transfer_progress(
+        &self,
+        transfer_id: &str,
+        transferred: u64,
+        total: u64,
+        speed: u64,
+    ) {
+        if let Some(snapshot) = self.background_transfers.write().get_mut(transfer_id) {
+            snapshot.transferred = transferred;
+            if total > 0 {
+                snapshot.size = total;
+            }
+            snapshot.backend_speed = Some(speed);
+            if !snapshot.state.is_finished() {
+                snapshot.state = BackgroundTransferState::Active;
+            }
+            self.background_notify.notify_waiters();
+        }
+    }
+
+    /// Finish a background transfer and wake any legacy waiters.
+    pub fn finish_background_transfer(
+        &self,
+        transfer_id: &str,
+        state: BackgroundTransferState,
+        error: Option<String>,
+        item_count: Option<u64>,
+    ) -> Option<BackgroundTransferSnapshot> {
+        let mut transfers = self.background_transfers.write();
+        let snapshot = transfers.get_mut(transfer_id)?;
+        snapshot.state = state;
+        snapshot.error = error;
+        snapshot.item_count = item_count;
+        snapshot.end_time = Some(now_ms());
+        if state == BackgroundTransferState::Completed && snapshot.size > 0 {
+            snapshot.transferred = snapshot.size;
+        }
+        let snapshot = snapshot.clone();
+        drop(transfers);
+        self.background_notify.notify_waiters();
+        Some(snapshot)
+    }
+
+    /// Return one background transfer snapshot.
+    pub fn get_background_transfer(&self, transfer_id: &str) -> Option<BackgroundTransferSnapshot> {
+        self.cleanup_background_transfers();
+        self.background_transfers.read().get(transfer_id).cloned()
+    }
+
+    /// Return background transfers, optionally scoped to a node.
+    pub fn list_background_transfers(
+        &self,
+        node_id: Option<&str>,
+    ) -> Vec<BackgroundTransferSnapshot> {
+        self.cleanup_background_transfers();
+        let mut snapshots: Vec<_> = self
+            .background_transfers
+            .read()
+            .values()
+            .filter(|snapshot| node_id.map_or(true, |id| snapshot.node_id == id))
+            .cloned()
+            .collect();
+        snapshots.sort_by_key(|snapshot| snapshot.start_time);
+        snapshots
+    }
+
+    /// Wait until a background transfer reaches a terminal state.
+    pub async fn wait_background_transfer_finished(
+        &self,
+        transfer_id: &str,
+    ) -> Option<BackgroundTransferSnapshot> {
+        loop {
+            let notified = self.background_notify.notified();
+            match self.get_background_transfer(transfer_id) {
+                Some(snapshot) if snapshot.state.is_finished() => return Some(snapshot),
+                Some(_) => notified.await,
+                None => return None,
+            }
+        }
+    }
+
     /// Cancel a specific transfer
     pub fn cancel(&self, transfer_id: &str) -> bool {
         if let Some(control) = self.controls.read().get(transfer_id) {
@@ -378,6 +585,27 @@ mod tests {
 
     use tokio::time::timeout;
 
+    fn make_background_snapshot(id: &str, node_id: &str) -> BackgroundTransferSnapshot {
+        BackgroundTransferSnapshot {
+            id: id.to_string(),
+            node_id: node_id.to_string(),
+            name: "project/".to_string(),
+            local_path: "/local/project".to_string(),
+            remote_path: "/remote/project".to_string(),
+            direction: BackgroundTransferDirection::Upload,
+            kind: BackgroundTransferKind::Directory,
+            strategy: TransferStrategy::DirectoryTar,
+            state: BackgroundTransferState::Active,
+            size: 0,
+            transferred: 0,
+            backend_speed: None,
+            error: None,
+            start_time: now_ms(),
+            end_time: None,
+            item_count: None,
+        }
+    }
+
     #[test]
     fn test_transfer_control_state_transitions() {
         let control = TransferControl::new();
@@ -435,6 +663,61 @@ mod tests {
     #[test]
     fn test_transfer_guard_noop_without_manager() {
         let _guard = TransferGuard::new(None, "no-manager".to_string());
+    }
+
+    #[test]
+    fn test_background_transfer_snapshot_lifecycle() {
+        let manager = TransferManager::new();
+        manager.register_background_transfer(make_background_snapshot("tx-1", "node-a"));
+
+        let queued = manager.get_background_transfer("tx-1").unwrap();
+        assert_eq!(queued.state, BackgroundTransferState::Pending);
+
+        manager.mark_background_transfer_active("tx-1");
+        manager.update_background_transfer_progress("tx-1", 256, 1024, 64);
+
+        let active = manager.get_background_transfer("tx-1").unwrap();
+        assert_eq!(active.state, BackgroundTransferState::Active);
+        assert_eq!(active.transferred, 256);
+        assert_eq!(active.size, 1024);
+        assert_eq!(active.backend_speed, Some(64));
+        assert_eq!(manager.list_background_transfers(Some("node-a")).len(), 1);
+        assert!(manager.list_background_transfers(Some("node-b")).is_empty());
+
+        let finished = manager
+            .finish_background_transfer("tx-1", BackgroundTransferState::Completed, None, Some(7))
+            .unwrap();
+        assert_eq!(finished.state, BackgroundTransferState::Completed);
+        assert_eq!(finished.transferred, 1024);
+        assert_eq!(finished.item_count, Some(7));
+    }
+
+    #[tokio::test]
+    async fn test_wait_background_transfer_finished_wakes_on_completion() {
+        let manager = Arc::new(TransferManager::new());
+        manager.register_background_transfer(make_background_snapshot("tx-1", "node-a"));
+
+        let finisher = manager.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(25)).await;
+            finisher.finish_background_transfer(
+                "tx-1",
+                BackgroundTransferState::Error,
+                Some("boom".to_string()),
+                None,
+            );
+        });
+
+        let snapshot = timeout(
+            Duration::from_millis(300),
+            manager.wait_background_transfer_finished("tx-1"),
+        )
+        .await
+        .expect("waiter should wake")
+        .expect("snapshot should still be retained");
+
+        assert_eq!(snapshot.state, BackgroundTransferState::Error);
+        assert_eq!(snapshot.error.as_deref(), Some("boom"));
     }
 
     #[test]

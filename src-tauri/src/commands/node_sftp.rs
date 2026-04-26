@@ -8,6 +8,7 @@
 //!
 //! 参考: docs/reference/OXIDE_NEXT_ARCHITECTURE.md §3.2
 
+use std::path::Path;
 use std::sync::Arc;
 
 use tauri::{AppHandle, Emitter, State};
@@ -19,6 +20,10 @@ use crate::sftp::progress::{
     ProgressStore, StoredTransferProgress, TransferStatus, TransferStrategy, TransferType,
 };
 use crate::sftp::types::*;
+use crate::sftp::{
+    BackgroundTransferDirection, BackgroundTransferKind, BackgroundTransferSnapshot,
+    BackgroundTransferState,
+};
 use crate::ssh::SshConnectionRegistry;
 
 #[derive(Debug, Clone, serde::Serialize, PartialEq, Eq)]
@@ -28,6 +33,30 @@ struct TransferCompleteEvent {
     node_id: String,
     success: bool,
     error: Option<String>,
+    strategy: Option<TransferStrategy>,
+    transfer: Option<BackgroundTransferSnapshot>,
+}
+
+#[derive(Debug, Clone, Copy, serde::Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DirectoryTransferMode {
+    Auto,
+    Recursive,
+    Tar,
+}
+
+impl Default for DirectoryTransferMode {
+    fn default() -> Self {
+        Self::Auto
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StartDirectoryTransferResponse {
+    transfer_id: String,
+    strategy: TransferStrategy,
+    transfer: BackgroundTransferSnapshot,
 }
 
 fn transfer_complete_event_name(node_id: &str) -> String {
@@ -39,12 +68,16 @@ fn build_transfer_complete_event(
     transfer_id: &str,
     success: bool,
     error: Option<String>,
+    transfer: Option<BackgroundTransferSnapshot>,
 ) -> TransferCompleteEvent {
+    let strategy = transfer.as_ref().map(|snapshot| snapshot.strategy.clone());
     TransferCompleteEvent {
         transfer_id: transfer_id.to_string(),
         node_id: node_id.to_string(),
         success,
         error,
+        strategy,
+        transfer,
     }
 }
 
@@ -55,9 +88,20 @@ fn emit_transfer_complete(
     success: bool,
     error: Option<String>,
 ) {
+    emit_transfer_complete_with_snapshot(app, node_id, transfer_id, success, error, None);
+}
+
+fn emit_transfer_complete_with_snapshot(
+    app: &AppHandle,
+    node_id: &str,
+    transfer_id: &str,
+    success: bool,
+    error: Option<String>,
+    transfer: Option<BackgroundTransferSnapshot>,
+) {
     let _ = app.emit(
         &transfer_complete_event_name(node_id),
-        &build_transfer_complete_event(node_id, transfer_id, success, error),
+        &build_transfer_complete_event(node_id, transfer_id, success, error, transfer),
     );
 }
 
@@ -136,6 +180,53 @@ fn build_directory_transfer_progress(
     progress
 }
 
+fn path_display_name(path: &str) -> String {
+    let trimmed = path.trim_end_matches(['/', '\\']);
+    Path::new(trimmed)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty())
+        .unwrap_or(trimmed)
+        .to_string()
+}
+
+fn now_millis() -> u64 {
+    chrono::Utc::now().timestamp_millis().max(0) as u64
+}
+
+fn build_background_directory_transfer_snapshot(
+    transfer_id: &str,
+    node_id: &str,
+    transfer_type: TransferType,
+    local_path: &str,
+    remote_path: &str,
+    strategy: TransferStrategy,
+) -> BackgroundTransferSnapshot {
+    let direction = BackgroundTransferDirection::from(transfer_type.clone());
+    let name_source = match transfer_type {
+        TransferType::Upload => local_path,
+        TransferType::Download => remote_path,
+    };
+    BackgroundTransferSnapshot {
+        id: transfer_id.to_string(),
+        node_id: node_id.to_string(),
+        name: format!("{}/", path_display_name(name_source)),
+        local_path: local_path.to_string(),
+        remote_path: remote_path.to_string(),
+        direction,
+        kind: BackgroundTransferKind::Directory,
+        strategy,
+        state: BackgroundTransferState::Pending,
+        size: 0,
+        transferred: 0,
+        backend_speed: None,
+        error: None,
+        start_time: now_millis(),
+        end_time: None,
+        item_count: None,
+    }
+}
+
 fn update_directory_transfer_progress(
     progress: &mut StoredTransferProgress,
     event: &TransferProgress,
@@ -174,10 +265,17 @@ fn spawn_directory_progress_forwarder(
     mut rx: tokio::sync::mpsc::Receiver<TransferProgress>,
     progress_store: Arc<dyn ProgressStore>,
     mut stored_progress: StoredTransferProgress,
+    transfer_manager: Arc<crate::sftp::TransferManager>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         while let Some(progress) = rx.recv().await {
             let _ = app.emit(&format!("sftp:progress:{}", node_id), &progress);
+            transfer_manager.update_background_transfer_progress(
+                &progress.id,
+                progress.transferred_bytes,
+                progress.total_bytes,
+                progress.speed,
+            );
             update_directory_transfer_progress(&mut stored_progress, &progress);
             let _ = progress_store.save(&stored_progress).await;
         }
@@ -234,6 +332,7 @@ async fn resume_directory_download(
         rx,
         progress_store.clone(),
         seed.clone(),
+        transfer_manager.clone(),
     );
 
     let control = transfer_manager.register(transfer_id);
@@ -307,6 +406,7 @@ async fn resume_directory_upload(
         rx,
         progress_store.clone(),
         seed.clone(),
+        transfer_manager.clone(),
     );
 
     let control = transfer_manager.register(transfer_id);
@@ -366,6 +466,230 @@ async fn resume_directory_upload(
     finalize_directory_transfer_progress(progress_store.as_ref(), &seed, &result).await;
 
     result.map(|_| ()).map_err(RouteError::from)
+}
+
+#[derive(Clone)]
+struct BackgroundDirectoryTransferTask {
+    node_id: String,
+    connection_id: String,
+    transfer_id: String,
+    transfer_type: TransferType,
+    local_path: String,
+    remote_path: String,
+    strategy: TransferStrategy,
+    compression: Option<crate::sftp::tar_transfer::TarCompression>,
+}
+
+fn transfer_was_cancelled(error: &RouteError) -> bool {
+    error.to_string().to_ascii_lowercase().contains("cancel")
+}
+
+async fn finalize_directory_transfer_progress_route(
+    progress_store: &dyn ProgressStore,
+    seed: &StoredTransferProgress,
+    result: &Result<u64, RouteError>,
+) {
+    match result {
+        Ok(_) => {
+            let _ = progress_store.delete(&seed.transfer_id).await;
+        }
+        Err(error) if transfer_was_cancelled(error) => {
+            let _ = progress_store.delete(&seed.transfer_id).await;
+        }
+        Err(error) => {
+            let mut progress = progress_store
+                .load(&seed.transfer_id)
+                .await
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| seed.clone());
+            progress.mark_failed(error.to_string());
+            let _ = progress_store.save(&progress).await;
+        }
+    }
+}
+
+async fn run_background_directory_transfer(
+    task: BackgroundDirectoryTransferTask,
+    app: AppHandle,
+    router: Arc<NodeRouter>,
+    progress_store: Arc<dyn ProgressStore>,
+    transfer_manager: Arc<crate::sftp::TransferManager>,
+) -> Result<u64, RouteError> {
+    let control = transfer_manager.register(&task.transfer_id);
+    let _transfer_guard =
+        crate::sftp::TransferGuard::new(Some(&transfer_manager), task.transfer_id.clone());
+    let _permit = transfer_manager.acquire_permit().await;
+
+    if control.is_cancelled() {
+        return Err(RouteError::from(SftpError::TransferCancelled));
+    }
+
+    transfer_manager.mark_background_transfer_active(&task.transfer_id);
+    transfer_manager.update_background_transfer_strategy(&task.transfer_id, task.strategy.clone());
+
+    let seed = build_directory_transfer_progress(
+        &task.transfer_id,
+        task.transfer_type.clone(),
+        match task.transfer_type {
+            TransferType::Upload => &task.local_path,
+            TransferType::Download => &task.remote_path,
+        },
+        match task.transfer_type {
+            TransferType::Upload => &task.remote_path,
+            TransferType::Download => &task.local_path,
+        },
+        0,
+        &task.connection_id,
+        task.strategy.clone(),
+    );
+    progress_store.save(&seed).await.map_err(RouteError::from)?;
+
+    let (tx, rx) = tokio::sync::mpsc::channel::<TransferProgress>(100);
+    let progress_task = spawn_directory_progress_forwarder(
+        app,
+        task.node_id.clone(),
+        rx,
+        progress_store.clone(),
+        seed.clone(),
+        transfer_manager.clone(),
+    );
+
+    let cancel_flag = create_cancel_flag_bridge(control);
+    let speed_limit = Some(transfer_manager.speed_limit_bps_ref());
+
+    let result = match (task.transfer_type.clone(), task.strategy.clone()) {
+        (TransferType::Upload, TransferStrategy::DirectoryTar) => {
+            let sftp = router.acquire_sftp(&task.node_id).await?;
+            {
+                let sftp = sftp.lock().await;
+                let components: Vec<&str> = task
+                    .remote_path
+                    .split('/')
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                for i in 0..components.len() {
+                    let prefix = format!("/{}", components[..=i].join("/"));
+                    let _ = sftp.mkdir(&prefix).await;
+                }
+            }
+            let resolved = router.resolve_connection(&task.node_id).await?;
+            crate::sftp::tar_transfer::tar_upload_directory(
+                &resolved.handle_controller,
+                &task.local_path,
+                &task.remote_path,
+                &task.transfer_id,
+                Some(tx),
+                Some(cancel_flag),
+                task.compression,
+                speed_limit,
+            )
+            .await
+            .map_err(RouteError::from)
+        }
+        (TransferType::Download, TransferStrategy::DirectoryTar) => {
+            let resolved = router.resolve_connection(&task.node_id).await?;
+            crate::sftp::tar_transfer::tar_download_directory(
+                &resolved.handle_controller,
+                &task.remote_path,
+                &task.local_path,
+                &task.transfer_id,
+                Some(tx),
+                Some(cancel_flag),
+                task.compression,
+                speed_limit,
+            )
+            .await
+            .map_err(RouteError::from)
+        }
+        (TransferType::Upload, TransferStrategy::DirectoryRecursive) => {
+            let sftp = router.acquire_transfer_sftp(&task.node_id).await?;
+            sftp.upload_dir(
+                &task.local_path,
+                &task.remote_path,
+                &task.transfer_id,
+                Some(tx),
+                Some(cancel_flag),
+                speed_limit,
+                transfer_manager.directory_parallelism(),
+            )
+            .await
+            .map_err(RouteError::from)
+        }
+        (TransferType::Download, TransferStrategy::DirectoryRecursive) => {
+            let sftp = router.acquire_transfer_sftp(&task.node_id).await?;
+            sftp.download_dir(
+                &task.remote_path,
+                &task.local_path,
+                &task.transfer_id,
+                Some(tx),
+                Some(cancel_flag),
+                speed_limit,
+                transfer_manager.directory_parallelism(),
+            )
+            .await
+            .map_err(RouteError::from)
+        }
+        (_, TransferStrategy::File) => Err(RouteError::SftpOperationError(
+            "background directory transfer cannot use file strategy".to_string(),
+        )),
+    };
+
+    let _ = progress_task.await;
+    finalize_directory_transfer_progress_route(progress_store.as_ref(), &seed, &result).await;
+    result
+}
+
+fn spawn_background_directory_transfer(
+    task: BackgroundDirectoryTransferTask,
+    app: AppHandle,
+    router: Arc<NodeRouter>,
+    progress_store: Arc<dyn ProgressStore>,
+    transfer_manager: Arc<crate::sftp::TransferManager>,
+) {
+    tokio::spawn(async move {
+        let transfer_id = task.transfer_id.clone();
+        let node_id = task.node_id.clone();
+        let result = run_background_directory_transfer(
+            task,
+            app.clone(),
+            router,
+            progress_store,
+            transfer_manager.clone(),
+        )
+        .await;
+
+        let (state, success, error, item_count) = match result {
+            Ok(count) => (BackgroundTransferState::Completed, true, None, Some(count)),
+            Err(error) if transfer_was_cancelled(&error) => (
+                BackgroundTransferState::Cancelled,
+                false,
+                Some(error.to_string()),
+                None,
+            ),
+            Err(error) => (
+                BackgroundTransferState::Error,
+                false,
+                Some(error.to_string()),
+                None,
+            ),
+        };
+
+        let snapshot = transfer_manager.finish_background_transfer(
+            &transfer_id,
+            state,
+            error.clone(),
+            item_count,
+        );
+        emit_transfer_complete_with_snapshot(
+            &app,
+            &node_id,
+            &transfer_id,
+            success,
+            error,
+            snapshot,
+        );
+    });
 }
 
 // ============================================================================
@@ -737,6 +1061,153 @@ pub struct NodeWriteResult {
 // Phase 4: 补全缺失的 node_* 命令
 // ============================================================================
 
+async fn start_background_directory_transfer_internal(
+    node_id: String,
+    direction: BackgroundTransferDirection,
+    local_path: String,
+    remote_path: String,
+    transfer_id: Option<String>,
+    mode: DirectoryTransferMode,
+    compression: Option<crate::sftp::tar_transfer::TarCompression>,
+    app: AppHandle,
+    router: Arc<NodeRouter>,
+    progress_store: Arc<dyn ProgressStore>,
+    transfer_manager: Arc<crate::sftp::TransferManager>,
+) -> Result<StartDirectoryTransferResponse, RouteError> {
+    let resolved = router.resolve_connection(&node_id).await?;
+    let transfer_type = match direction {
+        BackgroundTransferDirection::Upload => TransferType::Upload,
+        BackgroundTransferDirection::Download => TransferType::Download,
+    };
+    let strategy = match mode {
+        DirectoryTransferMode::Recursive => TransferStrategy::DirectoryRecursive,
+        DirectoryTransferMode::Tar => TransferStrategy::DirectoryTar,
+        DirectoryTransferMode::Auto => {
+            if crate::sftp::tar_transfer::probe_tar_support(&resolved.handle_controller).await {
+                TransferStrategy::DirectoryTar
+            } else {
+                TransferStrategy::DirectoryRecursive
+            }
+        }
+    };
+    let compression = match strategy {
+        TransferStrategy::DirectoryTar => {
+            if compression.is_some() {
+                compression
+            } else {
+                Some(
+                    crate::sftp::tar_transfer::probe_tar_compression(&resolved.handle_controller)
+                        .await,
+                )
+            }
+        }
+        _ => None,
+    };
+
+    let tid = transfer_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let snapshot = build_background_directory_transfer_snapshot(
+        &tid,
+        &node_id,
+        transfer_type.clone(),
+        &local_path,
+        &remote_path,
+        strategy.clone(),
+    );
+    transfer_manager.register_background_transfer(snapshot.clone());
+
+    spawn_background_directory_transfer(
+        BackgroundDirectoryTransferTask {
+            node_id,
+            connection_id: resolved.connection_id,
+            transfer_id: tid.clone(),
+            transfer_type,
+            local_path,
+            remote_path,
+            strategy: strategy.clone(),
+            compression,
+        },
+        app,
+        router,
+        progress_store,
+        transfer_manager,
+    );
+
+    Ok(StartDirectoryTransferResponse {
+        transfer_id: tid,
+        strategy,
+        transfer: snapshot,
+    })
+}
+
+async fn wait_for_background_directory_result(
+    transfer_manager: Arc<crate::sftp::TransferManager>,
+    transfer_id: &str,
+) -> Result<u64, RouteError> {
+    let snapshot = transfer_manager
+        .wait_background_transfer_finished(transfer_id)
+        .await
+        .ok_or_else(|| {
+            RouteError::SftpOperationError(format!(
+                "Background transfer not found: {}",
+                transfer_id
+            ))
+        })?;
+
+    match snapshot.state {
+        BackgroundTransferState::Completed => Ok(snapshot.item_count.unwrap_or(0)),
+        BackgroundTransferState::Cancelled => Err(RouteError::from(SftpError::TransferCancelled)),
+        BackgroundTransferState::Error => Err(RouteError::SftpOperationError(
+            snapshot
+                .error
+                .unwrap_or_else(|| "Background transfer failed".to_string()),
+        )),
+        _ => Err(RouteError::SftpOperationError(format!(
+            "Background transfer finished wait returned non-terminal state: {:?}",
+            snapshot.state
+        ))),
+    }
+}
+
+/// Start a background directory transfer and return immediately.
+#[tauri::command]
+pub async fn node_sftp_start_directory_transfer(
+    node_id: String,
+    direction: BackgroundTransferDirection,
+    local_path: String,
+    remote_path: String,
+    transfer_id: Option<String>,
+    mode: Option<DirectoryTransferMode>,
+    compression: Option<crate::sftp::tar_transfer::TarCompression>,
+    app: AppHandle,
+    router: State<'_, Arc<NodeRouter>>,
+    progress_store: State<'_, Arc<dyn crate::sftp::ProgressStore>>,
+    transfer_manager: State<'_, Arc<crate::sftp::TransferManager>>,
+) -> Result<StartDirectoryTransferResponse, RouteError> {
+    start_background_directory_transfer_internal(
+        node_id,
+        direction,
+        local_path,
+        remote_path,
+        transfer_id,
+        mode.unwrap_or_default(),
+        compression,
+        app,
+        (*router).clone(),
+        (*progress_store).clone(),
+        (*transfer_manager).clone(),
+    )
+    .await
+}
+
+/// List background transfers that are still retained by the backend.
+#[tauri::command]
+pub async fn node_sftp_list_background_transfers(
+    node_id: Option<String>,
+    transfer_manager: State<'_, Arc<crate::sftp::TransferManager>>,
+) -> Result<Vec<BackgroundTransferSnapshot>, RouteError> {
+    Ok(transfer_manager.list_background_transfers(node_id.as_deref()))
+}
+
 /// 递归删除目录
 #[tauri::command]
 pub async fn node_sftp_delete_recursive(
@@ -761,65 +1232,21 @@ pub async fn node_sftp_download_dir(
     progress_store: State<'_, Arc<dyn crate::sftp::ProgressStore>>,
     transfer_manager: State<'_, Arc<crate::sftp::TransferManager>>,
 ) -> Result<u64, RouteError> {
-    // Gate concurrency: acquire permit BEFORE opening SSH channel
-    let _permit = transfer_manager.acquire_permit().await;
-    let resolved = router.resolve_connection(&node_id).await?;
-    let sftp = router.acquire_transfer_sftp(&node_id).await?;
-
-    let tid = transfer_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-    let stored_progress = build_directory_transfer_progress(
-        &tid,
-        TransferType::Download,
-        &remote_path,
-        &local_path,
-        0,
-        &resolved.connection_id,
-        TransferStrategy::DirectoryRecursive,
-    );
-    progress_store
-        .save(&stored_progress)
-        .await
-        .map_err(RouteError::from)?;
-
-    let (tx, rx) = tokio::sync::mpsc::channel::<TransferProgress>(100);
-    let progress_task = spawn_directory_progress_forwarder(
-        app.clone(),
-        node_id.clone(),
-        rx,
+    let response = start_background_directory_transfer_internal(
+        node_id,
+        BackgroundTransferDirection::Download,
+        local_path,
+        remote_path,
+        transfer_id,
+        DirectoryTransferMode::Recursive,
+        None,
+        app,
+        (*router).clone(),
         (*progress_store).clone(),
-        stored_progress.clone(),
-    );
-
-    // Register with TransferManager for cancel support
-    let control = transfer_manager.register(&tid);
-    let cancel_flag = create_cancel_flag_bridge(control);
-
-    let result = sftp
-        .download_dir(
-            &remote_path,
-            &local_path,
-            &tid,
-            Some(tx),
-            Some(cancel_flag),
-            Some(transfer_manager.speed_limit_bps_ref()),
-            transfer_manager.directory_parallelism(),
-        )
-        .await;
-    transfer_manager.unregister(&tid);
-    let _ = progress_task.await;
-    finalize_directory_transfer_progress(
-        progress_store.inner().as_ref(),
-        &stored_progress,
-        &result,
+        (*transfer_manager).clone(),
     )
-    .await;
-
-    match &result {
-        Ok(_) => emit_transfer_complete(&app, &node_id, &tid, true, None),
-        Err(err) => emit_transfer_complete(&app, &node_id, &tid, false, Some(err.to_string())),
-    }
-
-    result.map_err(RouteError::from)
+    .await?;
+    wait_for_background_directory_result((*transfer_manager).clone(), &response.transfer_id).await
 }
 
 /// 递归上传目录
@@ -834,65 +1261,21 @@ pub async fn node_sftp_upload_dir(
     progress_store: State<'_, Arc<dyn crate::sftp::ProgressStore>>,
     transfer_manager: State<'_, Arc<crate::sftp::TransferManager>>,
 ) -> Result<u64, RouteError> {
-    // Gate concurrency: acquire permit BEFORE opening SSH channel
-    let _permit = transfer_manager.acquire_permit().await;
-    let resolved = router.resolve_connection(&node_id).await?;
-    let sftp = router.acquire_transfer_sftp(&node_id).await?;
-
-    let tid = transfer_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-    let stored_progress = build_directory_transfer_progress(
-        &tid,
-        TransferType::Upload,
-        &local_path,
-        &remote_path,
-        0,
-        &resolved.connection_id,
-        TransferStrategy::DirectoryRecursive,
-    );
-    progress_store
-        .save(&stored_progress)
-        .await
-        .map_err(RouteError::from)?;
-
-    let (tx, rx) = tokio::sync::mpsc::channel::<TransferProgress>(100);
-    let progress_task = spawn_directory_progress_forwarder(
-        app.clone(),
-        node_id.clone(),
-        rx,
+    let response = start_background_directory_transfer_internal(
+        node_id,
+        BackgroundTransferDirection::Upload,
+        local_path,
+        remote_path,
+        transfer_id,
+        DirectoryTransferMode::Recursive,
+        None,
+        app,
+        (*router).clone(),
         (*progress_store).clone(),
-        stored_progress.clone(),
-    );
-
-    // Register with TransferManager for cancel support
-    let control = transfer_manager.register(&tid);
-    let cancel_flag = create_cancel_flag_bridge(control);
-
-    let result = sftp
-        .upload_dir(
-            &local_path,
-            &remote_path,
-            &tid,
-            Some(tx),
-            Some(cancel_flag),
-            Some(transfer_manager.speed_limit_bps_ref()),
-            transfer_manager.directory_parallelism(),
-        )
-        .await;
-    transfer_manager.unregister(&tid);
-    let _ = progress_task.await;
-    finalize_directory_transfer_progress(
-        progress_store.inner().as_ref(),
-        &stored_progress,
-        &result,
+        (*transfer_manager).clone(),
     )
-    .await;
-
-    match &result {
-        Ok(_) => emit_transfer_complete(&app, &node_id, &tid, true, None),
-        Err(err) => emit_transfer_complete(&app, &node_id, &tid, false, Some(err.to_string())),
-    }
-
-    result.map_err(RouteError::from)
+    .await?;
+    wait_for_background_directory_result((*transfer_manager).clone(), &response.transfer_id).await
 }
 
 /// 十六进制预览（支持静默重建）
@@ -1221,76 +1604,21 @@ pub async fn node_sftp_tar_upload(
     progress_store: State<'_, Arc<dyn crate::sftp::ProgressStore>>,
     transfer_manager: State<'_, Arc<crate::sftp::TransferManager>>,
 ) -> Result<u64, RouteError> {
-    let _permit = transfer_manager.acquire_permit().await;
-    let resolved = router.resolve_connection(&node_id).await?;
-    let sftp = router.acquire_sftp(&node_id).await?;
-
-    // Register with TransferManager for cancel support
-    let tid = transfer_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-    let stored_progress = build_directory_transfer_progress(
-        &tid,
-        TransferType::Upload,
-        &local_path,
-        &remote_path,
-        0,
-        &resolved.connection_id,
-        TransferStrategy::DirectoryTar,
-    );
-    progress_store
-        .save(&stored_progress)
-        .await
-        .map_err(RouteError::from)?;
-
-    let (tx, rx) = tokio::sync::mpsc::channel::<TransferProgress>(100);
-    let progress_task = spawn_directory_progress_forwarder(
-        app.clone(),
-        node_id.clone(),
-        rx,
-        (*progress_store).clone(),
-        stored_progress.clone(),
-    );
-    let control = transfer_manager.register(&tid);
-    let cancel_flag = create_cancel_flag_bridge(control);
-
-    // Recursively create target directory via SFTP (portable `mkdir -p`).
-    // Walk path prefixes and create each level; "already exists" errors are ignored.
-    // This is O(path_depth), NOT O(file_count) — tar itself creates all internal subdirs.
-    {
-        let sftp = sftp.lock().await;
-        let components: Vec<&str> = remote_path.split('/').filter(|s| !s.is_empty()).collect();
-        for i in 0..components.len() {
-            let prefix = format!("/{}", components[..=i].join("/"));
-            let _ = sftp.mkdir(&prefix).await;
-        }
-    }
-
-    let result = crate::sftp::tar_transfer::tar_upload_directory(
-        &resolved.handle_controller,
-        &local_path,
-        &remote_path,
-        &tid,
-        Some(tx),
-        Some(cancel_flag),
+    let response = start_background_directory_transfer_internal(
+        node_id,
+        BackgroundTransferDirection::Upload,
+        local_path,
+        remote_path,
+        transfer_id,
+        DirectoryTransferMode::Tar,
         compression,
-        Some(transfer_manager.speed_limit_bps_ref()),
+        app,
+        (*router).clone(),
+        (*progress_store).clone(),
+        (*transfer_manager).clone(),
     )
-    .await;
-
-    transfer_manager.unregister(&tid);
-    let _ = progress_task.await;
-    finalize_directory_transfer_progress(
-        progress_store.inner().as_ref(),
-        &stored_progress,
-        &result,
-    )
-    .await;
-
-    match &result {
-        Ok(_) => emit_transfer_complete(&app, &node_id, &tid, true, None),
-        Err(err) => emit_transfer_complete(&app, &node_id, &tid, false, Some(err.to_string())),
-    }
-
-    result.map_err(RouteError::from)
+    .await?;
+    wait_for_background_directory_result((*transfer_manager).clone(), &response.transfer_id).await
 }
 
 /// Download a remote directory to local via tar streaming.
@@ -1306,61 +1634,21 @@ pub async fn node_sftp_tar_download(
     progress_store: State<'_, Arc<dyn crate::sftp::ProgressStore>>,
     transfer_manager: State<'_, Arc<crate::sftp::TransferManager>>,
 ) -> Result<u64, RouteError> {
-    let _permit = transfer_manager.acquire_permit().await;
-    let resolved = router.resolve_connection(&node_id).await?;
-
-    let tid = transfer_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-    let stored_progress = build_directory_transfer_progress(
-        &tid,
-        TransferType::Download,
-        &remote_path,
-        &local_path,
-        0,
-        &resolved.connection_id,
-        TransferStrategy::DirectoryTar,
-    );
-    progress_store
-        .save(&stored_progress)
-        .await
-        .map_err(RouteError::from)?;
-
-    let (tx, rx) = tokio::sync::mpsc::channel::<TransferProgress>(100);
-    let progress_task = spawn_directory_progress_forwarder(
-        app.clone(),
-        node_id.clone(),
-        rx,
-        (*progress_store).clone(),
-        stored_progress.clone(),
-    );
-    let control = transfer_manager.register(&tid);
-    let cancel_flag = create_cancel_flag_bridge(control);
-
-    let result = crate::sftp::tar_transfer::tar_download_directory(
-        &resolved.handle_controller,
-        &remote_path,
-        &local_path,
-        &tid,
-        Some(tx),
-        Some(cancel_flag),
+    let response = start_background_directory_transfer_internal(
+        node_id,
+        BackgroundTransferDirection::Download,
+        local_path,
+        remote_path,
+        transfer_id,
+        DirectoryTransferMode::Tar,
         compression,
-        Some(transfer_manager.speed_limit_bps_ref()),
+        app,
+        (*router).clone(),
+        (*progress_store).clone(),
+        (*transfer_manager).clone(),
     )
-    .await;
-
-    transfer_manager.unregister(&tid);
-    let _ = progress_task.await;
-    finalize_directory_transfer_progress(
-        progress_store.inner().as_ref(),
-        &stored_progress,
-        &result,
-    )
-    .await;
-    match &result {
-        Ok(_) => emit_transfer_complete(&app, &node_id, &tid, true, None),
-        Err(err) => emit_transfer_complete(&app, &node_id, &tid, false, Some(err.to_string())),
-    }
-
-    result.map_err(RouteError::from)
+    .await?;
+    wait_for_background_directory_result((*transfer_manager).clone(), &response.transfer_id).await
 }
 
 #[cfg(test)]
@@ -1483,6 +1771,7 @@ mod tests {
             "transfer-1",
             false,
             Some("failed".to_string()),
+            None,
         );
 
         assert_eq!(
@@ -1496,6 +1785,8 @@ mod tests {
                 node_id: "node-1".to_string(),
                 success: false,
                 error: Some("failed".to_string()),
+                strategy: None,
+                transfer: None,
             }
         );
     }

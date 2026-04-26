@@ -2553,6 +2553,50 @@ export const nodeSftpDownloadDir = (nodeId: string, remotePath: string, localPat
 export const nodeSftpUploadDir = (nodeId: string, localPath: string, remotePath: string, transferId?: string): Promise<number> =>
   invoke('node_sftp_upload_dir', { nodeId, localPath, remotePath, transferId });
 
+export type SftpDirectoryTransferMode = 'auto' | 'recursive' | 'tar';
+export type SftpDirectoryTransferStrategy = 'directory_recursive' | 'directory_tar' | 'file';
+
+export interface SftpBackgroundTransferSnapshot {
+  id: string;
+  nodeId: string;
+  name: string;
+  localPath: string;
+  remotePath: string;
+  direction: 'upload' | 'download';
+  kind: 'file' | 'directory';
+  strategy: SftpDirectoryTransferStrategy;
+  state: 'pending' | 'active' | 'paused' | 'completed' | 'cancelled' | 'error';
+  size: number;
+  transferred: number;
+  backendSpeed?: number | null;
+  error?: string | null;
+  startTime: number;
+  endTime?: number | null;
+  itemCount?: number | null;
+}
+
+export interface StartSftpDirectoryTransferResponse {
+  transferId: string;
+  strategy: SftpDirectoryTransferStrategy;
+  transfer: SftpBackgroundTransferSnapshot;
+}
+
+/** 后台目录传输：立即返回 transferId，实际传输由后端任务继续执行 */
+export const nodeSftpStartDirectoryTransfer = (
+  nodeId: string,
+  direction: 'upload' | 'download',
+  localPath: string,
+  remotePath: string,
+  transferId?: string,
+  mode: SftpDirectoryTransferMode = 'auto',
+  compression?: 'zstd' | 'gzip' | 'none',
+): Promise<StartSftpDirectoryTransferResponse> =>
+  invoke('node_sftp_start_directory_transfer', { nodeId, direction, localPath, remotePath, transferId, mode, compression });
+
+/** 读取后端仍保留的后台传输快照，用于 WebView reload / 组件重挂载恢复 */
+export const nodeSftpListBackgroundTransfers = (nodeId?: string): Promise<SftpBackgroundTransferSnapshot[]> =>
+  invoke('node_sftp_list_background_transfers', { nodeId: nodeId ?? null });
+
 /** 探测远端是否支持 tar 命令（结果应缓存） */
 export const nodeSftpTarProbe = (nodeId: string): Promise<boolean> =>
   invoke('node_sftp_tar_probe', { nodeId });

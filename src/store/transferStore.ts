@@ -24,12 +24,30 @@ export interface TransferItem {
   backendSpeed?: number;  // Speed reported by backend (bytes/sec)
 }
 
+export interface TransferSnapshotInput {
+  id: string;
+  nodeId: string;
+  name: string;
+  localPath: string;
+  remotePath: string;
+  direction: TransferDirection;
+  size: number;
+  transferred: number;
+  state: TransferState;
+  error?: string | null;
+  startTime: number;
+  endTime?: number | null;
+  backendSpeed?: number | null;
+}
+
 interface TransferStore {
   // State
   transfers: Map<string, TransferItem>;
   
   // Actions
   addTransfer: (transfer: Omit<TransferItem, 'transferred' | 'state' | 'startTime' | 'backendSpeed'>) => string;
+  upsertTransferSnapshot: (transfer: TransferSnapshotInput) => void;
+  upsertTransferSnapshots: (transfers: TransferSnapshotInput[]) => void;
   updateProgress: (id: string, transferred: number, total: number, speed?: number) => void;
   setTransferState: (id: string, state: TransferState, error?: string) => void;
   removeTransfer: (id: string) => void;
@@ -67,6 +85,37 @@ export const useTransferStore = create<TransferStore>((set, get) => ({
     });
     
     return id;
+  },
+
+  upsertTransferSnapshot: (transfer) => {
+    get().upsertTransferSnapshots([transfer]);
+  },
+
+  upsertTransferSnapshots: (transfers) => {
+    if (transfers.length === 0) return;
+    set((state) => {
+      const newTransfers = new Map(state.transfers);
+      for (const snapshot of transfers) {
+        const existing = newTransfers.get(snapshot.id);
+        newTransfers.set(snapshot.id, {
+          ...existing,
+          id: snapshot.id,
+          nodeId: snapshot.nodeId,
+          name: snapshot.name,
+          localPath: snapshot.localPath,
+          remotePath: snapshot.remotePath,
+          direction: snapshot.direction,
+          size: snapshot.size > 0 ? snapshot.size : existing?.size ?? 0,
+          transferred: snapshot.transferred,
+          state: snapshot.state,
+          error: snapshot.error ?? undefined,
+          startTime: snapshot.startTime || existing?.startTime || Date.now(),
+          endTime: snapshot.endTime ?? existing?.endTime,
+          backendSpeed: snapshot.backendSpeed ?? existing?.backendSpeed,
+        });
+      }
+      return { transfers: newTransfers };
+    });
   },
   
   updateProgress: (id, transferred, total, speed) => {

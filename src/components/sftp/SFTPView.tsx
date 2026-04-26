@@ -32,6 +32,7 @@ import {
 import { useAppStore } from '../../store/appStore';
 import { usePluginStore } from '../../store/pluginStore';
 import { useTransferStore } from '../../store/transferStore';
+import type { TransferSnapshotInput } from '../../store/transferStore';
 import { useToast } from '../../hooks/useToast';
 import { useTabBgActive } from '../../hooks/useTabBackground';
 import { Button } from '../ui/button';
@@ -48,7 +49,8 @@ import { CodeHighlight } from '../fileManager/CodeHighlight';
 import { OfficePreview } from '../fileManager/OfficePreview';
 import { PdfViewer } from '../fileManager/PdfViewer';
 import { ImageViewer } from '../fileManager/ImageViewer';
-import { api, nodeSftpInit, nodeSftpListDir, nodeSftpPreview, nodeSftpPreviewHex, nodeSftpDownload, nodeSftpUpload, nodeSftpDownloadDir, nodeSftpUploadDir, nodeSftpTarProbe, nodeSftpTarCompressionProbe, nodeSftpTarUpload, nodeSftpTarDownload, nodeSftpDelete, nodeSftpDeleteRecursive, nodeSftpMkdir, nodeSftpRename, cleanupSftpPreviewTemp } from '../../lib/api';
+import { api, nodeSftpInit, nodeSftpListDir, nodeSftpPreview, nodeSftpPreviewHex, nodeSftpDownload, nodeSftpUpload, nodeSftpStartDirectoryTransfer, nodeSftpListBackgroundTransfers, nodeSftpDelete, nodeSftpDeleteRecursive, nodeSftpMkdir, nodeSftpRename, cleanupSftpPreviewTemp } from '../../lib/api';
+import type { SftpBackgroundTransferSnapshot } from '../../lib/api';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useSettingsStore } from '../../store/settingsStore';
@@ -111,6 +113,25 @@ interface TransferCompleteEvent {
   node_id: string;
     success: boolean;
     error?: string;
+    transfer?: SftpBackgroundTransferSnapshot;
+}
+
+function toTransferSnapshotInput(snapshot: SftpBackgroundTransferSnapshot): TransferSnapshotInput {
+  return {
+    id: snapshot.id,
+    nodeId: snapshot.nodeId,
+    name: snapshot.name,
+    localPath: snapshot.localPath,
+    remotePath: snapshot.remotePath,
+    direction: snapshot.direction,
+    size: snapshot.size,
+    transferred: snapshot.transferred,
+    state: snapshot.state,
+    error: snapshot.error,
+    startTime: snapshot.startTime,
+    endTime: snapshot.endTime,
+    backendSpeed: snapshot.backendSpeed,
+  };
 }
 
 type PreviewFileState = {
@@ -740,20 +761,17 @@ const SFTPMediaPreview: React.FC<{
   );
 };
 
-// Module-level cache for tar capability probes, keyed by nodeId.
-// Survives component remounts (e.g. reconnect) without re-probing.
-type TarCompressionKind = 'zstd' | 'gzip' | 'none';
-const tarSupportCache = new Map<string, boolean>();
-const tarCompressionCache = new Map<string, TarCompressionKind>();
-const tarProbePromises = new Map<string, Promise<boolean>>();
-const tarCompressionProbePromises = new Map<string, Promise<TarCompressionKind>>();
-
 type PendingTransfer = {
   file: string;
   direction: 'upload' | 'download';
   basePath: string;
   fileInfo: FileInfo | undefined;
   sourcePath?: string;
+};
+
+type TransferExecutionResult = {
+  success: boolean;
+  queued: boolean;
 };
 
 export const SFTPView = ({ nodeId }: { nodeId: string }) => {
@@ -1005,9 +1023,6 @@ export const SFTPView = ({ nodeId }: { nodeId: string }) => {
   useEffect(() => {
     return () => {
       unregisterSftpContext(nodeId);
-      // Clean up module-level tar probe caches for this node
-      tarSupportCache.delete(nodeId);
-      tarCompressionCache.delete(nodeId);
     };
   }, [nodeId]);
 
@@ -1320,7 +1335,12 @@ export const SFTPView = ({ nodeId }: { nodeId: string }) => {
   }, [remotePathInput]);
 
   // Get transfer store actions
-  const { addTransfer, updateProgress, setTransferState, getAllTransfers } = useTransferStore();
+  const { addTransfer, updateProgress, setTransferState, getAllTransfers, upsertTransferSnapshot, upsertTransferSnapshots } = useTransferStore();
+  const refreshLocalFilesRef = useRef(refreshLocalFiles);
+
+  useEffect(() => {
+    refreshLocalFilesRef.current = refreshLocalFiles;
+  }, [refreshLocalFiles]);
 
   useEffect(() => {
     previewFileRef.current = previewFile;
@@ -1348,12 +1368,37 @@ export const SFTPView = ({ nodeId }: { nodeId: string }) => {
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    nodeSftpListBackgroundTransfers(nodeId)
+      .then((snapshots) => {
+        if (!cancelled) {
+          upsertTransferSnapshots(snapshots.map(toTransferSnapshotInput));
+        }
+      })
+      .catch((error) => {
+        console.debug('[SFTP] Failed to hydrate background transfers:', error);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [nodeId, upsertTransferSnapshots]);
+
   // Event Listeners for Transfer Progress
   useEffect(() => {
       // 使用 mounted 标志防止组件卸载后仍处理事件
       let mounted = true;
       let unlistenProgressFn: (() => void) | null = null;
       let unlistenCompleteFn: (() => void) | null = null;
+      const safeUnlisten = (fn: (() => void) | null, label: string) => {
+        if (!fn) return;
+        try {
+          fn();
+        } catch (error) {
+          console.debug(`[SFTP] Failed to unlisten ${label}:`, error);
+        }
+      };
       
       // Setup progress listener
       listen<TransferProgressEvent>(`sftp:progress:${nodeId}`, (event) => {
@@ -1376,15 +1421,20 @@ export const SFTPView = ({ nodeId }: { nodeId: string }) => {
         if (mounted) {
           unlistenProgressFn = fn;
         } else {
-          fn(); // Component unmounted, clean up immediately
+          safeUnlisten(fn, 'progress'); // Component unmounted, clean up immediately
         }
+      }).catch((error) => {
+        console.debug('[SFTP] Failed to register progress listener:', error);
       });
       
       // Setup complete listener
       listen<TransferCompleteEvent>(`sftp:complete:${nodeId}`, (event) => {
         if (!mounted) return; // 组件已卸载，忽略事件
         
-        const { transfer_id, success, error } = event.payload;
+        const { transfer_id, success, error, transfer: backendTransfer } = event.payload;
+        if (backendTransfer) {
+          upsertTransferSnapshot(toTransferSnapshotInput(backendTransfer));
+        }
         const transfer = getAllTransfers().find((item) => item.id === transfer_id);
         const nextUpdate = resolveTransferCompletionUpdate(transfer?.state, success, error);
 
@@ -1392,10 +1442,10 @@ export const SFTPView = ({ nodeId }: { nodeId: string }) => {
           setTransferState(transfer_id, 'completed');
           const refreshPlan = getTransferCompletionRefreshPlan(transfer?.direction);
           if (refreshPlan.refreshLocal) {
-            refreshLocalFiles();
+            refreshLocalFilesRef.current();
           }
           if (refreshPlan.refreshRemote) {
-            nodeSftpListDir(nodeId, remotePath).then(setRemoteFiles);
+            nodeSftpListDir(nodeId, remotePathRef.current).then(setRemoteFiles);
           }
         } else if (nextUpdate?.state === 'error') {
           setTransferState(transfer_id, 'error', nextUpdate.error);
@@ -1404,16 +1454,18 @@ export const SFTPView = ({ nodeId }: { nodeId: string }) => {
         if (mounted) {
           unlistenCompleteFn = fn;
         } else {
-          fn(); // Component unmounted, clean up immediately
+          safeUnlisten(fn, 'complete'); // Component unmounted, clean up immediately
         }
+      }).catch((error) => {
+        console.debug('[SFTP] Failed to register complete listener:', error);
       });
       
       return () => { 
           mounted = false;
-          unlistenProgressFn?.();
-          unlistenCompleteFn?.();
+          safeUnlisten(unlistenProgressFn, 'progress');
+          safeUnlisten(unlistenCompleteFn, 'complete');
       };
-  }, [nodeId, updateProgress, setTransferState, refreshLocalFiles, remotePath, getAllTransfers]);
+  }, [nodeId, updateProgress, setTransferState, getAllTransfers, upsertTransferSnapshot]);
 
   // Toast notifications
   const { success: toastSuccess } = useToast();
@@ -1437,71 +1489,6 @@ export const SFTPView = ({ nodeId }: { nodeId: string }) => {
     return newName;
   };
 
-  // Try tar streaming for directory transfer; fall back to SFTP if unavailable
-  const transferDirWithTarFallback = async (
-    nid: string,
-    localFile: string,
-    remoteFile: string,
-    tid: string,
-    dir: 'upload' | 'download'
-  ) => {
-    // Lazy-probe tar support (deduplicated for concurrent transfers, cached per nodeId)
-    if (!tarSupportCache.has(nid)) {
-      if (!tarProbePromises.has(nid)) {
-        tarProbePromises.set(nid, nodeSftpTarProbe(nid)
-          .then((supported) => {
-            tarSupportCache.set(nid, supported);
-            return supported;
-          })
-          .catch(() => {
-            tarSupportCache.set(nid, false);
-            return false;
-          })
-          .finally(() => {
-            tarProbePromises.delete(nid);
-          }));
-      }
-
-      await tarProbePromises.get(nid);
-    }
-
-    if (tarSupportCache.get(nid)) {
-      // Lazy-probe best compression (deduplicated, cached per nodeId)
-      if (!tarCompressionCache.has(nid)) {
-        if (!tarCompressionProbePromises.has(nid)) {
-          tarCompressionProbePromises.set(nid, nodeSftpTarCompressionProbe(nid)
-            .then((comp) => {
-              tarCompressionCache.set(nid, comp);
-              return comp;
-            })
-            .catch(() => {
-              tarCompressionCache.set(nid, 'none');
-              return 'none' as TarCompressionKind;
-            })
-            .finally(() => {
-              tarCompressionProbePromises.delete(nid);
-            }));
-        }
-        await tarCompressionProbePromises.get(nid);
-      }
-
-      const comp = tarCompressionCache.get(nid) ?? 'none';
-      // Tar fast path (with compression)
-      if (dir === 'upload') {
-        await nodeSftpTarUpload(nid, localFile, remoteFile, tid, comp);
-      } else {
-        await nodeSftpTarDownload(nid, remoteFile, localFile, tid, comp);
-      }
-    } else {
-      // SFTP fallback
-      if (dir === 'upload') {
-        await nodeSftpUploadDir(nid, localFile, remoteFile, tid);
-      } else {
-        await nodeSftpDownloadDir(nid, remoteFile, localFile, tid);
-      }
-    }
-  };
-
   // Execute single file transfer
   const executeTransfer = async (
     file: string,
@@ -1510,7 +1497,7 @@ export const SFTPView = ({ nodeId }: { nodeId: string }) => {
     fileInfo: FileInfo | undefined,
     targetFileName?: string,  // For rename option
     sourcePath?: string,
-  ): Promise<boolean> => {
+  ): Promise<TransferExecutionResult> => {
     const isDirectory = fileInfo?.file_type === 'Directory';
     const actualFileName = targetFileName || file;
     
@@ -1534,22 +1521,26 @@ export const SFTPView = ({ nodeId }: { nodeId: string }) => {
     try {
       if (direction === 'upload') {
         if (isDirectory) {
-          await transferDirWithTarFallback(nodeId, localFilePath, remoteFilePath, transferId, 'upload');
+          const response = await nodeSftpStartDirectoryTransfer(nodeId, 'upload', localFilePath, remoteFilePath, transferId, 'auto');
+          upsertTransferSnapshot(toTransferSnapshotInput(response.transfer));
+          return { success: true, queued: true };
         } else {
           await nodeSftpUpload(nodeId, localFilePath, remoteFilePath, transferId);
         }
       } else {
         if (isDirectory) {
-          await transferDirWithTarFallback(nodeId, localFilePath, remoteFilePath, transferId, 'download');
+          const response = await nodeSftpStartDirectoryTransfer(nodeId, 'download', localFilePath, remoteFilePath, transferId, 'auto');
+          upsertTransferSnapshot(toTransferSnapshotInput(response.transfer));
+          return { success: true, queued: true };
         } else {
           await nodeSftpDownload(nodeId, remoteFilePath, localFilePath, transferId);
         }
       }
-      return true;
+      return { success: true, queued: false };
     } catch (err) {
       console.error("Transfer failed:", err);
       setTransferState(transferId, 'error', normalizeTransferFailure(err));
-      return false;
+      return { success: false, queued: false };
     }
   };
 
@@ -1601,6 +1592,7 @@ export const SFTPView = ({ nodeId }: { nodeId: string }) => {
     let successCount = 0;
     let failCount = 0;
     let skippedCount = 0;
+    let queuedCount = 0;
     
     const targetFiles = pendingTransfers[0]?.direction === 'upload' ? remoteFiles : localFiles;
     
@@ -1628,7 +1620,7 @@ export const SFTPView = ({ nodeId }: { nodeId: string }) => {
         targetFileName = generateUniqueName(transfer.file, targetFiles);
       }
       
-      const success = await executeTransfer(
+      const result = await executeTransfer(
         transfer.file,
         transfer.direction,
         transfer.basePath,
@@ -1637,7 +1629,10 @@ export const SFTPView = ({ nodeId }: { nodeId: string }) => {
         transfer.sourcePath,
       );
       
-      if (success) {
+      if (result.success) {
+        if (result.queued) {
+          queuedCount++;
+        }
         successCount++;
       } else {
         failCount++;
@@ -1646,7 +1641,8 @@ export const SFTPView = ({ nodeId }: { nodeId: string }) => {
     
     // Show toast notification
     const isUpload = pendingTransfers[0]?.direction === 'upload';
-    if (successCount > 0 && failCount === 0) {
+    const onlyQueuedDirectoryTransfers = queuedCount > 0 && queuedCount === successCount && failCount === 0;
+    if (!onlyQueuedDirectoryTransfers && successCount > 0 && failCount === 0) {
       const msg = skippedCount > 0 
         ? t('sftp.toast.transferred_skipped', { count: successCount, skipped: skippedCount })
         : t('sftp.toast.transferred_count', { count: successCount });
@@ -1657,11 +1653,13 @@ export const SFTPView = ({ nodeId }: { nodeId: string }) => {
       toastError(isUpload ? t('sftp.toast.upload_partial') : t('sftp.toast.download_partial'), t('sftp.toast.partial_detail', { success: successCount, failed: failCount, skipped: skippedCount }));
     }
     
-    // Refresh file lists
-    if (pendingTransfers[0]?.direction === 'upload') {
-      nodeSftpListDir(nodeId, remotePath).then(setRemoteFiles);
-    } else {
-      refreshLocalFiles();
+    // Completed file transfers can refresh immediately. Background directory transfers refresh on complete event.
+    if (!onlyQueuedDirectoryTransfers) {
+      if (pendingTransfers[0]?.direction === 'upload') {
+        nodeSftpListDir(nodeId, remotePath).then(setRemoteFiles);
+      } else {
+        refreshLocalFiles();
+      }
     }
   };
 

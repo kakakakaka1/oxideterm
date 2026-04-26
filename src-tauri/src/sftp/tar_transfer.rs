@@ -322,17 +322,32 @@ pub async fn tar_upload_directory(
         .await
         .map_err(|e| SftpError::ChannelError(format!("Failed to send EOF: {}", e)))?;
 
-    // Wait for remote tar to finish and check exit status
-    let exit_code = drain_channel_exit(&mut channel).await;
+    // Wait for remote tar to finish and check exit status. Some servers send
+    // EOF before exit-status, so the drain helper must wait until Close/None.
+    let exit = drain_channel_exit(&mut channel).await;
     let _ = channel.close().await;
 
-    if let Some(code) = exit_code {
+    if exit.timed_out {
+        return Err(SftpError::TransferError(
+            "Remote tar did not finish before timeout".to_string(),
+        ));
+    }
+
+    if let Some(code) = exit.exit_code {
         if code != 0 {
+            let stderr_str = String::from_utf8_lossy(&exit.stderr);
             return Err(SftpError::TransferError(format!(
-                "Remote tar exited with code {}",
-                code
+                "Remote tar exited with code {}: {}",
+                code,
+                stderr_str.trim()
             )));
         }
+    } else if !exit.stderr.is_empty() {
+        let stderr_str = String::from_utf8_lossy(&exit.stderr);
+        return Err(SftpError::TransferError(format!(
+            "Remote tar failed without exit status: {}",
+            stderr_str.trim()
+        )));
     }
 
     // Final progress
@@ -733,9 +748,20 @@ async fn dir_total_size(path: &Path) -> Result<u64, SftpError> {
     .map_err(|e| SftpError::TransferError(format!("size scan panicked: {}", e)))?
 }
 
-/// Drain a channel until EOF/Close, returning the exit code if received.
-async fn drain_channel_exit(channel: &mut russh::Channel<russh::client::Msg>) -> Option<u32> {
+struct ChannelExit {
+    exit_code: Option<u32>,
+    stderr: Vec<u8>,
+    timed_out: bool,
+}
+
+/// Drain a channel until Close/None, returning the exit code if received.
+///
+/// SSH servers commonly send EOF before exit-status. Breaking on EOF makes a
+/// failed remote command look successful, which is especially bad for tar upload
+/// because the target directory may already have been created.
+async fn drain_channel_exit(channel: &mut russh::Channel<russh::client::Msg>) -> ChannelExit {
     let mut exit_code = None;
+    let mut stderr = Vec::new();
 
     let drain = tokio::time::timeout(std::time::Duration::from_secs(30), async {
         loop {
@@ -743,18 +769,27 @@ async fn drain_channel_exit(channel: &mut russh::Channel<russh::client::Msg>) ->
                 Some(ChannelMsg::ExitStatus { exit_status }) => {
                     exit_code = Some(exit_status);
                 }
-                Some(ChannelMsg::Eof) | Some(ChannelMsg::Close) | None => break,
+                Some(ChannelMsg::ExtendedData { data, ext: 1 }) => {
+                    stderr.extend_from_slice(&data);
+                }
+                Some(ChannelMsg::Eof) => {}
+                Some(ChannelMsg::Close) | None => break,
                 _ => {}
             }
         }
     })
     .await;
 
-    if drain.is_err() {
+    let timed_out = drain.is_err();
+    if timed_out {
         warn!("drain_channel_exit timed out");
     }
 
-    exit_code
+    ChannelExit {
+        exit_code,
+        stderr,
+        timed_out,
+    }
 }
 
 /// Shell-escape a path using double quotes.
