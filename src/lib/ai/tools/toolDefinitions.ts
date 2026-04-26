@@ -1328,6 +1328,20 @@ export type ToolSpec = {
   experimental: boolean;
 };
 
+export type ExternalToolSpecInput = {
+  definition: AiToolDefinition;
+  domain?: ToolDomain;
+  intentTags?: ToolIntent[];
+  requiredTarget?: ToolTargetRequirement;
+  sideEffect?: ToolSideEffect;
+  groupKey?: string;
+  readOnly?: boolean;
+  write?: boolean;
+  contextFree?: boolean;
+  sessionIdTool?: boolean;
+  experimental?: boolean;
+};
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Safety Classification
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1541,7 +1555,6 @@ export const IDE_ONLY_TOOLS = new Set([
   'ide_get_open_files',
   'ide_get_file_content',
   'ide_get_project_info',
-  'ide_apply_edit',
 ]);
 
 /** Tools only shown when local_terminal tab is active */
@@ -1824,6 +1837,27 @@ export function getToolSpec(name: string): ToolSpec | undefined {
 
 export function getToolDefinitionByName(name: string): AiToolDefinition | undefined {
   return TOOL_SPEC_BY_NAME.get(name)?.definition;
+}
+
+export function createExternalToolSpec(input: ExternalToolSpecInput): ToolSpec {
+  const domain = input.domain ?? (input.definition.name.startsWith('mcp::') ? 'mcp' : 'plugin');
+  const readOnly = input.readOnly ?? (input.sideEffect === 'read');
+  const sideEffect = input.sideEffect ?? (readOnly ? 'read' : 'write');
+  return {
+    name: input.definition.name,
+    definition: input.definition,
+    domain,
+    intentTags: input.intentTags ?? inferIntentTags(input.definition.name, domain),
+    requiredTarget: input.requiredTarget ?? 'none',
+    sideEffect,
+    legacyVisibility: 'always',
+    groupKey: input.groupKey,
+    readOnly,
+    write: input.write ?? !readOnly,
+    contextFree: input.contextFree ?? true,
+    sessionIdTool: input.sessionIdTool ?? false,
+    experimental: input.experimental ?? false,
+  };
 }
 
 /**

@@ -563,7 +563,7 @@
       "tool_use": "ツール使用",
       "tool_use_enabled": "ツール使用を有効にする",
       "tool_use_enabled_hint": "AIがFunction Callingを通じてリモートサーバーでコマンド実行、ファイル読み取り、操作を行うことを許可します。",
-      "tool_use_approve_hint": "AIが確認なしで使用できるツールを選択します。未承認のツールは自動的に拒否されます。",
+      "tool_use_approve_hint": "AIが確認なしで使用できるツールを選択します。未選択のツールは実行前に確認を求めます。",
       "tool_use_group_terminal": "ターミナルとファイル",
       "tool_use_group_session": "セッション",
       "tool_use_group_infrastructure": "インフラ",

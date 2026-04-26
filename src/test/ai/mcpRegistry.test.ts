@@ -444,4 +444,31 @@ describe('mcpRegistry', () => {
       'mcp::shared-name#srv-b::ping',
     ]);
   });
+
+  it('adapts connected MCP tools into v3 tool specs', async () => {
+    settingsStoreMock.state.settings.ai.mcpServers = [
+      createSseConfig({ id: 'srv-1', name: 'filesystem', url: 'http://localhost:3000/files' }),
+    ];
+
+    const { useMcpRegistry } = await import('@/lib/ai/mcp/mcpRegistry');
+    useMcpRegistry.setState({
+      servers: new Map<string, McpServerState>([
+        ['srv-1', createConnectedState(settingsStoreMock.state.settings.ai.mcpServers[0], {
+          tools: [createTool('read_file')],
+        })],
+      ]),
+      toolIndex: new Map(),
+    });
+
+    const specs = useMcpRegistry.getState().getAllMcpToolSpecs();
+
+    expect(specs).toHaveLength(1);
+    expect(specs[0]).toMatchObject({
+      definition: { name: 'mcp::filesystem::read_file' },
+      domain: 'mcp',
+      legacyVisibility: 'always',
+      sideEffect: 'read',
+      groupKey: 'mcp',
+    });
+  });
 });

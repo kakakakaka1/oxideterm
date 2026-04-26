@@ -168,7 +168,6 @@
         "ide_get_open_files": "Fichiers ouverts",
         "ide_get_file_content": "Contenu fichier",
         "ide_get_project_info": "Info projet",
-        "ide_apply_edit": "Appliquer modif",
         "ide_replace_string": "Replace Text",
         "ide_insert_text": "Insert Text",
         "ide_open_file": "Open File",
@@ -179,6 +178,7 @@
         "local_get_drives": "Lecteurs",
         "open_local_terminal": "Ouvrir Terminal",
         "get_settings": "Paramètres",
+        "open_settings_section": "Ouvrir section paramètres",
         "update_setting": "Modifier param.",
         "get_pool_stats": "Stats pool",
         "set_pool_config": "Config pool",
@@ -186,7 +186,8 @@
         "get_resource_metrics": "Métriques",
         "list_saved_connections": "Connexions sauvées",
         "search_saved_connections": "Rechercher conn.",
-        "connect_saved_session": "Connect Saved Session",
+        "connect_saved_session": "Connecter session enregistrée",
+        "connect_saved_connection_by_query": "Connecter connexion enregistrée",
         "get_session_tree": "Arbre sessions",
         "list_plugins": "Lister les plugins",
         "send_control_sequence": "Envoyer un signal",
@@ -205,7 +206,17 @@
         "get_plugin_details": "Détails du plugin",
         "get_ssh_environment": "Environnement SSH",
         "get_topology": "Topologie",
-        "search_docs": "Search Docs"
+        "search_docs": "Rechercher docs"
+      },
+      "risk_labels": {
+        "read": "Lecture",
+        "write-file": "Écriture fichier",
+        "execute-command": "Exécution commande",
+        "interactive-input": "Entrée interactive",
+        "destructive": "Destructif",
+        "network-expose": "Exposition réseau",
+        "settings-change": "Modification paramètres",
+        "credential-sensitive": "Identifiants sensibles"
       }
     },
     "guardrail": {

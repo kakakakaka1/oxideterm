@@ -23,6 +23,7 @@ import type {
   McpToolSchema,
 } from './mcpTypes';
 import type { AiToolDefinition } from '../providers';
+import { createExternalToolSpec, type ToolSpec } from '../tools/toolDefinitions';
 
 type McpRegistryState = {
   servers: Map<string, McpServerState>;
@@ -40,6 +41,8 @@ type McpRegistryState = {
   callTool: (serverId: string, toolName: string, args: Record<string, unknown>) => Promise<McpCallToolResult>;
   /** Get all tools from all connected servers as AiToolDefinitions */
   getAllMcpToolDefinitions: () => AiToolDefinition[];
+  /** Get all tools from all connected servers as v3 ToolSpecs */
+  getAllMcpToolSpecs: () => ToolSpec[];
   /** Find which server owns a tool and return the original tool name */
   findServerForTool: (toolName: string) => { server: McpServerState; originalName: string } | undefined;
   /** Refresh tools list for a server */
@@ -75,6 +78,20 @@ function mcpToolToAiTool(tool: McpToolSchema, serverName: string, namespace: str
     description: `[MCP: ${serverName}] ${tool.description ?? tool.name}`,
     parameters: tool.inputSchema as Record<string, unknown>,
   };
+}
+
+function mcpToolToToolSpec(tool: McpToolSchema, serverName: string, namespace: string): ToolSpec {
+  return createExternalToolSpec({
+    definition: mcpToolToAiTool(tool, serverName, namespace),
+    domain: 'mcp',
+    intentTags: ['knowledge'],
+    requiredTarget: 'mcp_server',
+    sideEffect: 'read',
+    groupKey: 'mcp',
+    readOnly: true,
+    write: false,
+    contextFree: true,
+  });
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -328,6 +345,19 @@ export const useMcpRegistry = create<McpRegistryState>((set, get) => ({
       }
     }
     return definitions;
+  },
+
+  getAllMcpToolSpecs: () => {
+    const specs: ToolSpec[] = [];
+    const connectedServers = Array.from(get().servers.values()).filter((server) => server.status === 'connected');
+    const nameCounts = buildServerNameCounts(connectedServers);
+    for (const server of connectedServers) {
+      const namespace = getServerToolNamespace(server.config, nameCounts);
+      for (const tool of server.tools) {
+        specs.push(mcpToolToToolSpec(tool, server.config.name, namespace));
+      }
+    }
+    return specs;
   },
 
   findServerForTool: (toolName: string) => {

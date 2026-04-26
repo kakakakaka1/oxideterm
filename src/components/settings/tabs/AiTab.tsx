@@ -45,7 +45,6 @@ const TOOL_ICON_MAP: Record<string, ElementType> = {
     ide_get_open_files: FileCode,
     ide_get_file_content: FileCode,
     ide_get_project_info: Code2,
-    ide_apply_edit: Pen,
     local_list_shells: TerminalIcon,
     local_get_terminal_info: ListTree,
     local_exec: TerminalIcon,

@@ -108,6 +108,13 @@ const ideStoreState = vi.hoisted(() => ({
   insertTextInTab: vi.fn(),
 }));
 
+const mcpRegistryState = vi.hoisted(() => ({
+  findServerForTool: vi.fn(),
+  callTool: vi.fn(),
+  getAllMcpResources: vi.fn(() => []),
+  readResource: vi.fn(),
+}));
+
 vi.mock('@/lib/api', () => ({
   api: {
     localExecCommand: localExecCommandMock,
@@ -223,6 +230,12 @@ vi.mock('@/lib/ai/contextSanitizer', () => ({
   sanitizeConnectionInfo: (value: unknown) => value,
 }));
 
+vi.mock('@/lib/ai/mcp', () => ({
+  useMcpRegistry: {
+    getState: () => mcpRegistryState,
+  },
+}));
+
 import { executeTool } from '@/lib/ai/tools/toolExecutor';
 
 describe('toolExecutor get_settings sanitization', () => {
@@ -277,6 +290,11 @@ describe('toolExecutor get_settings sanitization', () => {
     ideStoreState.saveFile.mockReset();
     ideStoreState.replaceStringInTab.mockReset();
     ideStoreState.insertTextInTab.mockReset();
+    mcpRegistryState.findServerForTool.mockReset();
+    mcpRegistryState.callTool.mockReset();
+    mcpRegistryState.getAllMcpResources.mockReset();
+    mcpRegistryState.getAllMcpResources.mockReturnValue([]);
+    mcpRegistryState.readResource.mockReset();
     settingsState.settings.ai.mcpServers[0].env = {
       API_TOKEN: 'super-secret',
       DEBUG: '1',
@@ -453,6 +471,46 @@ describe('toolExecutor get_settings sanitization', () => {
 
     writeToTerminalMock.mockClear();
     findPaneBySessionIdMock.mockClear();
+  });
+
+  it('blocks manual ssh in a visible terminal when a matching saved connection exists', async () => {
+    searchConnectionsMock.mockResolvedValue([
+      { id: 'saved-1', host: '192.168.31.192', port: 22, username: 'lipsc', name: 'Home Local', group: 'Home' },
+    ]);
+    findPaneBySessionIdMock.mockReturnValue('pane-1');
+    getBufferStatsMock.mockResolvedValue({ current_lines: 0, total_lines: 0, max_lines: 100000, memory_usage_mb: 0 });
+    writeToTerminalMock.mockReturnValue(true);
+
+    const result = await executeTool(
+      'terminal_exec',
+      { command: 'ssh lipsc@192.168.31.192', await_output: false },
+      { activeNodeId: null, activeAgentAvailable: false, activeSessionId: 'active-session', activeTerminalType: 'local_terminal' },
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('saved connection');
+    expect(writeToTerminalMock).not.toHaveBeenCalled();
+    expect(result.envelope?.nextActions?.[0]).toMatchObject({
+      tool: 'connect_saved_session',
+      args: { connection_id: 'saved-1' },
+      priority: 'recommended',
+    });
+  });
+
+  it('allows manual ssh when no saved connection matches', async () => {
+    searchConnectionsMock.mockResolvedValue([]);
+    findPaneBySessionIdMock.mockReturnValue('pane-1');
+    getBufferStatsMock.mockResolvedValue({ current_lines: 0, total_lines: 0, max_lines: 100000, memory_usage_mb: 0 });
+    writeToTerminalMock.mockReturnValue(true);
+
+    const result = await executeTool(
+      'terminal_exec',
+      { command: 'ssh someone@203.0.113.10', await_output: false },
+      { activeNodeId: null, activeAgentAvailable: false, activeSessionId: 'active-session', activeTerminalType: 'local_terminal' },
+    );
+
+    expect(result.success).toBe(true);
+    expect(writeToTerminalMock).toHaveBeenCalledWith('pane-1', 'ssh someone@203.0.113.10\r');
   });
 
   it('lists unified targets for SSH, local terminal, and tab routing', async () => {
@@ -1274,6 +1332,27 @@ describe('toolExecutor regressions', () => {
     expect(result.output).toContain('directoryParallelism');
     expect(result.envelope?.nextActions?.map((action) => action.tool)).toContain('get_settings');
     expect(result.envelope?.nextActions?.map((action) => action.tool)).toContain('update_setting');
+  });
+
+  it('executes dynamic MCP tools without requiring an SSH node context', async () => {
+    mcpRegistryState.findServerForTool.mockReturnValue({
+      server: { config: { id: 'mcp-1', name: 'filesystem' } },
+      originalName: 'read_file',
+    });
+    mcpRegistryState.callTool.mockResolvedValue({
+      isError: false,
+      content: [{ type: 'text', text: 'hello from mcp' }],
+    });
+
+    const result = await executeTool(
+      'mcp::filesystem::read_file',
+      { path: '/tmp/example.txt' },
+      { activeNodeId: null, activeAgentAvailable: false },
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.output).toBe('hello from mcp');
+    expect(mcpRegistryState.callTool).toHaveBeenCalledWith('mcp-1', 'read_file', { path: '/tmp/example.txt' });
   });
 
   it('reports ide_create_file as partial success when post-create content setup fails', async () => {

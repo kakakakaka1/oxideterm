@@ -168,7 +168,6 @@
         "ide_get_open_files": "開啟的檔案",
         "ide_get_file_content": "檔案內容",
         "ide_get_project_info": "專案資訊",
-        "ide_apply_edit": "套用編輯",
         "ide_replace_string": "取代文字",
         "ide_insert_text": "插入文字",
         "ide_open_file": "開啟檔案",
@@ -179,6 +178,7 @@
         "local_get_drives": "列出磁碟",
         "open_local_terminal": "開啟終端",
         "get_settings": "取得設定",
+        "open_settings_section": "開啟設定項",
         "update_setting": "修改設定",
         "get_pool_stats": "連線池統計",
         "set_pool_config": "連線池設定",
@@ -187,6 +187,7 @@
         "list_saved_connections": "已儲存連線",
         "search_saved_connections": "搜尋連線",
         "connect_saved_session": "連接已儲存會話",
+        "connect_saved_connection_by_query": "連接已儲存連線",
         "get_session_tree": "工作階段樹",
         "list_plugins": "列出外掛",
         "send_control_sequence": "傳送控制信號",
@@ -206,6 +207,16 @@
         "get_ssh_environment": "SSH 環境",
         "get_topology": "網路拓撲",
         "search_docs": "搜尋知識庫"
+      },
+      "risk_labels": {
+        "read": "唯讀",
+        "write-file": "寫入檔案",
+        "execute-command": "執行命令",
+        "interactive-input": "互動輸入",
+        "destructive": "危險操作",
+        "network-expose": "網路暴露",
+        "settings-change": "修改設定",
+        "credential-sensitive": "憑證敏感"
       }
     },
     "guardrail": {

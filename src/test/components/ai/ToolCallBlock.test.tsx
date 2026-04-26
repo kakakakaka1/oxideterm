@@ -4,6 +4,14 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, options?: Record<string, unknown>) => {
+      const toolNames: Record<string, string> = {
+        read_file: 'Read File',
+        write_file: 'Write File',
+        terminal_exec: 'Execute Command',
+      };
+      const riskLabels: Record<string, string> = {
+        read: 'Read',
+      };
       if (key === 'ai.tool_use.heading') return 'Tool Calls';
       if (key === 'ai.tool_use.arguments') return 'Arguments';
       if (key === 'ai.tool_use.output') return 'Output';
@@ -16,7 +24,14 @@ vi.mock('react-i18next', () => ({
       if (key === 'ai.tool_use.approval_required') return 'Requires approval';
       if (key === 'ai.tool_use.condensed') return `condensed ${String(options?.count ?? 0)}`;
       if (key === 'ai.tool_use.condensed_label') return 'Earlier calls';
-      if (key.startsWith('ai.tool_use.tool_names.')) return key.split('.').at(-1) ?? key;
+      if (key.startsWith('ai.tool_use.tool_names.')) {
+        const name = key.slice('ai.tool_use.tool_names.'.length);
+        return toolNames[name] ?? String(options?.defaultValue ?? name);
+      }
+      if (key.startsWith('ai.tool_use.risk_labels.')) {
+        const name = key.slice('ai.tool_use.risk_labels.'.length);
+        return riskLabels[name] ?? String(options?.defaultValue ?? name);
+      }
       return key;
     },
   }),
@@ -85,9 +100,9 @@ describe('ToolCallBlock', () => {
     );
 
     expect(screen.getByText('Tool Calls (1)')).toBeInTheDocument();
-    expect(screen.getByText('read_file')).toBeInTheDocument();
+    expect(screen.getByText('Read File')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /read_file/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Read File/i }));
 
     expect(screen.getByText('Arguments')).toBeInTheDocument();
     expect(screen.getAllByText(/"path":\s*"\/tmp\/demo\.txt"/).length).toBeGreaterThan(0);
@@ -132,7 +147,7 @@ describe('ToolCallBlock', () => {
     expect(screen.getByText('filesystem.write')).toBeInTheDocument();
     expect(screen.getByText(/Written 3 bytes/)).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /write_file/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Write File/i }));
 
     expect(screen.getByText('Warnings')).toBeInTheDocument();
     expect(screen.getByText('unconditional overwrite')).toBeInTheDocument();
@@ -157,6 +172,31 @@ describe('ToolCallBlock', () => {
     );
 
     expect(screen.getByText('Tool Calls (1)')).toBeInTheDocument();
-    expect(screen.getByText('terminal_exec')).toBeInTheDocument();
+    expect(screen.getByText('Execute Command')).toBeInTheDocument();
+  });
+
+  it('formats dynamic MCP tool names instead of exposing raw internal ids', () => {
+    render(
+      <ToolCallBlock
+        toolCalls={[
+          {
+            id: 'tool-mcp',
+            name: 'mcp::filesystem::read_file',
+            arguments: '{"path":"/tmp/demo.txt"}',
+            status: 'completed',
+            result: {
+              toolCallId: 'tool-mcp',
+              toolName: 'mcp::filesystem::read_file',
+              success: true,
+              output: 'ok',
+              durationMs: 1,
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText('MCP: filesystem / Read File')).toBeInTheDocument();
+    expect(screen.queryByText('mcp::filesystem::read_file')).not.toBeInTheDocument();
   });
 });

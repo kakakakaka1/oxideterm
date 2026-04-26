@@ -315,6 +315,11 @@ export async function executeTool(
   try {
     throwIfAborted(options.abortSignal);
 
+    // Dynamic MCP tools are global external tools, not SSH-node tools.
+    if (toolName.startsWith('mcp::')) {
+      return await executeMcpTool(toolName, args, startTime, toolCallId);
+    }
+
     // Context-free tools — no node required
     if (CONTEXT_FREE_TOOLS.has(toolName)) {
       return await executeContextFreeTool(toolName, args, context, options, startTime, toolCallId);
@@ -535,6 +540,176 @@ function hasPotentiallyCatastrophicRegex(pattern: string): boolean {
   return /(\([^)]*[+*][^)]*\))[+*]|([+*])\1/.test(pattern);
 }
 
+type ParsedSshCommand = {
+  host: string;
+  username?: string;
+  port?: number;
+};
+
+type SafeSavedConnection = {
+  id: string;
+  host: string;
+  port: number;
+  username: string;
+  name?: string;
+  group?: string;
+};
+
+function shellTokens(command: string): string[] {
+  const tokens: string[] = [];
+  let current = '';
+  let quote: '"' | "'" | null = null;
+  let escaped = false;
+
+  for (const char of command.trim()) {
+    if (escaped) {
+      current += char;
+      escaped = false;
+      continue;
+    }
+    if (char === '\\' && quote !== "'") {
+      escaped = true;
+      continue;
+    }
+    if ((char === '"' || char === "'") && (!quote || quote === char)) {
+      quote = quote ? null : char;
+      continue;
+    }
+    if (!quote && /\s/.test(char)) {
+      if (current) tokens.push(current);
+      current = '';
+      continue;
+    }
+    current += char;
+  }
+  if (current) tokens.push(current);
+  return tokens;
+}
+
+function parseSshCommand(command: string): ParsedSshCommand | null {
+  const tokens = shellTokens(command);
+  if (tokens[0] === 'sudo') tokens.shift();
+  const binary = tokens.shift();
+  if (!binary || !/(?:^|\/)ssh$/.test(binary)) return null;
+
+  let username: string | undefined;
+  let port: number | undefined;
+  const optionsWithValue = new Set(['-B', '-b', '-c', '-D', '-E', '-e', '-F', '-I', '-i', '-J', '-L', '-l', '-m', '-O', '-o', '-p', '-Q', '-R', '-S', '-W', '-w']);
+
+  while (tokens.length > 0) {
+    const token = tokens.shift()!;
+    if (token === '--') break;
+    if (!token.startsWith('-')) {
+      const target = token;
+      const at = target.lastIndexOf('@');
+      const host = at >= 0 ? target.slice(at + 1) : target;
+      if (at >= 0) username = target.slice(0, at) || username;
+      const normalizedHost = host.replace(/^\[/, '').replace(/\]$/, '');
+      return normalizedHost ? { host: normalizedHost, username, port } : null;
+    }
+
+    if (token.startsWith('-p') && token.length > 2) {
+      const parsedPort = Number(token.slice(2));
+      if (Number.isFinite(parsedPort)) port = parsedPort;
+      continue;
+    }
+    if (token.startsWith('-l') && token.length > 2) {
+      username = token.slice(2);
+      continue;
+    }
+    if (optionsWithValue.has(token)) {
+      const value = tokens.shift();
+      if (token === '-p' && value) {
+        const parsedPort = Number(value);
+        if (Number.isFinite(parsedPort)) port = parsedPort;
+      } else if (token === '-l' && value) {
+        username = value;
+      }
+    }
+  }
+
+  const target = tokens.shift();
+  if (!target) return null;
+  const at = target.lastIndexOf('@');
+  const host = at >= 0 ? target.slice(at + 1) : target;
+  if (at >= 0) username = target.slice(0, at) || username;
+  const normalizedHost = host.replace(/^\[/, '').replace(/\]$/, '');
+  return normalizedHost ? { host: normalizedHost, username, port } : null;
+}
+
+function savedConnectionMatches(parsed: ParsedSshCommand, connection: SafeSavedConnection): boolean {
+  if (connection.host !== parsed.host) return false;
+  if (parsed.username && connection.username !== parsed.username) return false;
+  if (parsed.port && connection.port !== parsed.port) return false;
+  return true;
+}
+
+async function detectSavedConnectionSshMisuse(
+  command: string,
+  startTime: number,
+  toolCallId: string,
+  toolName: string,
+): Promise<AiToolResult | null> {
+  const parsed = parseSshCommand(command);
+  if (!parsed) return null;
+
+  try {
+    const connections = (await api.searchConnections(parsed.host)).map((connection) => ({
+      id: connection.id,
+      host: connection.host,
+      port: connection.port,
+      username: connection.username,
+      name: connection.name,
+      group: connection.group ?? undefined,
+    }));
+    const matches = connections.filter((connection) => savedConnectionMatches(parsed, connection));
+    if (matches.length === 0) return null;
+
+    return envelopeResult(toolCallId, {
+      ok: false,
+      toolName,
+      summary: 'A matching saved SSH connection exists. Use OxideTerm connection tools instead of manual ssh.',
+      output: `Manual ssh command matches ${matches.length} saved connection${matches.length === 1 ? '' : 's'} for ${parsed.username ? `${parsed.username}@` : ''}${parsed.host}. Use connect_saved_connection_by_query or connect_saved_session so OxideTerm can handle credentials, proxy chains, host key verification, and terminal registration.`,
+      data: { parsedCommand: parsed, matches },
+      error: {
+        code: 'manual_ssh_matches_saved_connection',
+        message: 'A matching saved SSH connection exists. Use the saved connection workflow instead of manual ssh.',
+        recoverable: true,
+      },
+      recoverable: true,
+      durationMs: Date.now() - startTime,
+      targets: matches.map((connection) => ({
+        id: connection.id,
+        kind: 'ssh-node',
+        label: `${connection.name || connection.host} (${connection.username}@${connection.host}:${connection.port})`,
+        metadata: connection,
+      })),
+      nextActions: matches.length === 1
+        ? [
+            { tool: 'connect_saved_session', args: { connection_id: matches[0].id }, reason: 'Use the matching saved connection instead of manual ssh.', priority: 'recommended' },
+            { tool: 'terminal_exec', args: { command, await_output: true }, reason: 'Only use manual ssh if the user explicitly requested a raw ssh command.', priority: 'fallback' },
+          ]
+        : [
+            { tool: 'connect_saved_connection_by_query', args: { query: parsed.host }, reason: 'Disambiguate and connect using saved connection metadata.', priority: 'recommended' },
+          ],
+      ...(matches.length > 1
+        ? {
+            disambiguation: {
+              prompt: 'Multiple saved connections match this ssh target. Choose one saved connection.',
+              options: matches.map((connection) => ({
+                id: connection.id,
+                label: `${connection.name || connection.host} — ${connection.username}@${connection.host}:${connection.port}`,
+                args: { query: parsed.host, connection_id: connection.id },
+              })),
+            },
+          }
+        : {}),
+    });
+  } catch {
+    return null;
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Individual Tool Executors
 // ═══════════════════════════════════════════════════════════════════════════
@@ -585,6 +760,11 @@ async function execTerminalCommandToSession(
   const command = typeof args.command === 'string' ? args.command.trim() : '';
   if (!command) {
     return { toolCallId, toolName: 'terminal_exec', success: false, output: '', error: 'Missing required argument: command', durationMs: Date.now() - startTime };
+  }
+
+  const savedConnectionGuardrail = await detectSavedConnectionSshMisuse(command, startTime, toolCallId, 'terminal_exec');
+  if (savedConnectionGuardrail) {
+    return savedConnectionGuardrail;
   }
 
   const notReadyError = await waitForInteractiveTerminalReady(sessionId, abortSignal);
@@ -2934,6 +3114,11 @@ async function execLocalExec(
   }
 
   try {
+    const savedConnectionGuardrail = await detectSavedConnectionSshMisuse(command, startTime, toolCallId, 'local_exec');
+    if (savedConnectionGuardrail) {
+      return savedConnectionGuardrail;
+    }
+
     const result = await api.localExecCommand(
       command,
       args.cwd as string | undefined,

@@ -34,6 +34,7 @@ export {
   getAllToolSpecs,
   getToolSpec,
   getToolDefinitionByName,
+  createExternalToolSpec,
   getToolsForContext,
   isCommandDenied,
   getDeniedCommands,
@@ -46,6 +47,7 @@ export type {
   ToolSideEffect,
   ToolSpec,
   ToolTargetRequirement,
+  ExternalToolSpecInput,
 } from './toolDefinitions';
 export { executeTool, type ToolExecutionContext } from './toolExecutor';
 export type {
@@ -76,3 +78,8 @@ export type {
   ToolIntentInferenceInput,
   ToolPlanInput,
 } from './toolPlanner';
+export {
+  pluginAiToolToDefinition,
+  pluginAiToolToSpec,
+  pluginManifestToAiToolSpecs,
+} from './pluginToolSpecs';

@@ -77,7 +77,8 @@ export const PARTICIPANTS: ParticipantDef[] = [
     icon: 'Code2',
     includeTools: [
       'list_targets', 'list_capabilities',
-      'ide_get_open_files', 'ide_get_file_content', 'ide_get_project_info', 'ide_apply_edit',
+      'ide_get_open_files', 'ide_get_file_content', 'ide_get_project_info',
+      'ide_replace_string', 'ide_insert_text', 'ide_open_file', 'ide_create_file',
     ],
     systemPromptModifier:
       'The user is asking about code editing in IDE mode. Focus on the project structure, code analysis, editing operations, and programming assistance.',
@@ -108,7 +109,7 @@ export const PARTICIPANTS: ParticipantDef[] = [
       'list_targets', 'list_capabilities',
       'get_all_health', 'get_resource_metrics',
       'get_event_log', 'get_transfer_status', 'get_recording_status',
-      'get_broadcast_status', 'get_app_status', 'get_app_stats',
+      'get_broadcast_status',
     ],
     systemPromptModifier:
       'The user is asking about system monitoring, health checks, or resource usage. Focus on diagnostics, performance metrics, and operational status.',

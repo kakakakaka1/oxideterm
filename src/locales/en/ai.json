@@ -168,7 +168,6 @@
         "ide_get_open_files": "Open Files",
         "ide_get_file_content": "File Content",
         "ide_get_project_info": "Project Info",
-        "ide_apply_edit": "Apply Edit",
         "ide_replace_string": "Replace Text",
         "ide_insert_text": "Insert Text",
         "ide_open_file": "Open File",
@@ -179,6 +178,7 @@
         "local_get_drives": "List Drives",
         "open_local_terminal": "Open Terminal",
         "get_settings": "Get Settings",
+        "open_settings_section": "Open Settings Section",
         "update_setting": "Update Setting",
         "get_pool_stats": "Pool Stats",
         "set_pool_config": "Pool Config",
@@ -187,6 +187,7 @@
         "list_saved_connections": "Saved Connections",
         "search_saved_connections": "Search Connections",
         "connect_saved_session": "Connect Saved Session",
+        "connect_saved_connection_by_query": "Connect Saved Connection",
         "get_session_tree": "Session Tree",
         "list_plugins": "List Plugins",
         "send_control_sequence": "Send Signal",
@@ -206,6 +207,16 @@
         "get_ssh_environment": "SSH Environment",
         "get_topology": "Topology",
         "search_docs": "Search Docs"
+      },
+      "risk_labels": {
+        "read": "Read",
+        "write-file": "Write File",
+        "execute-command": "Execute Command",
+        "interactive-input": "Interactive Input",
+        "destructive": "Destructive",
+        "network-expose": "Network Exposure",
+        "settings-change": "Settings Change",
+        "credential-sensitive": "Credential Sensitive"
       }
     },
     "guardrail": {

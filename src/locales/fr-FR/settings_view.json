@@ -563,7 +563,7 @@
       "tool_use": "Utilisation d'outils",
       "tool_use_enabled": "Activer l'utilisation d'outils",
       "tool_use_enabled_hint": "Permettre à l'IA d'exécuter des commandes, lire des fichiers et effectuer des actions sur les serveurs distants via Function Calling.",
-      "tool_use_approve_hint": "Sélectionnez les outils que l'IA peut utiliser sans confirmation. Les outils non approuvés seront rejetés automatiquement.",
+      "tool_use_approve_hint": "Sélectionnez les outils que l'IA peut utiliser sans confirmation. Les outils non sélectionnés demanderont confirmation avant l'exécution.",
       "tool_use_group_terminal": "Terminal & Fichiers",
       "tool_use_group_session": "Session",
       "tool_use_group_infrastructure": "Infrastructure",

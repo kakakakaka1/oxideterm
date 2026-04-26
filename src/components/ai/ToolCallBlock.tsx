@@ -125,7 +125,6 @@ const TOOL_ICONS: Record<string, React.ElementType> = {
   ide_get_open_files: FileCode,
   ide_get_file_content: FileCode,
   ide_get_project_info: Code2,
-  ide_apply_edit: Pen,
   // Local terminal tools
   local_list_shells: Terminal,
   local_get_terminal_info: ListTree,
@@ -134,6 +133,7 @@ const TOOL_ICONS: Record<string, React.ElementType> = {
   // Settings tools
   get_settings: Settings,
   update_setting: Settings,
+  open_settings_section: Settings,
   // Connection pool tools
   get_pool_stats: Activity,
   set_pool_config: Settings,
@@ -143,6 +143,8 @@ const TOOL_ICONS: Record<string, React.ElementType> = {
   // Session manager tools
   list_saved_connections: Network,
   search_saved_connections: Search,
+  connect_saved_session: Network,
+  connect_saved_connection_by_query: Network,
   get_session_tree: ListTree,
   // Plugin manager tools
   list_plugins: Puzzle,
@@ -156,6 +158,33 @@ const TOOL_ICONS: Record<string, React.ElementType> = {
 };
 
 const LONG_OUTPUT_PREVIEW_CHARS = 1200;
+
+function humanizeToolToken(value: string): string {
+  return value
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function formatToolDisplayName(toolName: string, t: ReturnType<typeof useTranslation>['t']): string {
+  const translated = t(`ai.tool_use.tool_names.${toolName}`, { defaultValue: '' });
+  if (translated) return translated;
+
+  const mcpMatch = /^mcp::([^:]+)::(.+)$/.exec(toolName);
+  if (mcpMatch) {
+    return `MCP: ${mcpMatch[1]} / ${humanizeToolToken(mcpMatch[2])}`;
+  }
+
+  const pluginMatch = /^plugin::([^:]+)::(.+)$/.exec(toolName);
+  if (pluginMatch) {
+    return `Plugin: ${pluginMatch[1]} / ${humanizeToolToken(pluginMatch[2])}`;
+  }
+
+  return humanizeToolToken(toolName);
+}
+
+function formatRiskLabel(risk: ToolRisk, t: ReturnType<typeof useTranslation>['t']): string {
+  return t(`ai.tool_use.risk_labels.${risk}`, { defaultValue: humanizeToolToken(risk) });
+}
 
 const RISK_CLASS: Record<ToolRisk, string> = {
   read: 'border-sky-500/25 text-sky-300 bg-sky-500/10',
@@ -318,10 +347,10 @@ const ToolCallItem = memo(function ToolCallItem({ call }: { call: AiToolCall }) 
         <StatusIcon status={call.status} />
         <Icon className="w-3 h-3 text-theme-text-muted/60 shrink-0" />
         <span className="font-medium text-theme-text-muted/70 shrink-0">
-          {t(`ai.tool_use.tool_names.${call.name}`, { defaultValue: call.name })}
+          {formatToolDisplayName(call.name, t)}
         </span>
         <Badge className={cn('shrink-0', RISK_CLASS[risk])}>
-          {risk}
+          {formatRiskLabel(risk, t)}
         </Badge>
         {capability && (
           <Badge className="shrink-0 border-theme-border/30 text-theme-text-muted/60 bg-theme-bg/30">

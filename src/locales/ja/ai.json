@@ -168,7 +168,6 @@
         "ide_get_open_files": "開いたファイル",
         "ide_get_file_content": "ファイル内容",
         "ide_get_project_info": "プロジェクト情報",
-        "ide_apply_edit": "編集適用",
         "ide_replace_string": "Replace Text",
         "ide_insert_text": "Insert Text",
         "ide_open_file": "Open File",
@@ -179,6 +178,7 @@
         "local_get_drives": "ドライブ一覧",
         "open_local_terminal": "端末を開く",
         "get_settings": "設定取得",
+        "open_settings_section": "設定セクションを開く",
         "update_setting": "設定変更",
         "get_pool_stats": "プール統計",
         "set_pool_config": "プール設定",
@@ -186,7 +186,8 @@
         "get_resource_metrics": "メトリクス",
         "list_saved_connections": "保存済み接続",
         "search_saved_connections": "接続検索",
-        "connect_saved_session": "Connect Saved Session",
+        "connect_saved_session": "保存済みセッション接続",
+        "connect_saved_connection_by_query": "保存済み接続へ接続",
         "get_session_tree": "セッションツリー",
         "list_plugins": "プラグイン一覧",
         "send_control_sequence": "制御信号送信",
@@ -205,7 +206,17 @@
         "get_plugin_details": "プラグイン詳細",
         "get_ssh_environment": "SSH 環境",
         "get_topology": "トポロジー",
-        "search_docs": "Search Docs"
+        "search_docs": "ドキュメント検索"
+      },
+      "risk_labels": {
+        "read": "読み取り",
+        "write-file": "ファイル書き込み",
+        "execute-command": "コマンド実行",
+        "interactive-input": "対話入力",
+        "destructive": "破壊的操作",
+        "network-expose": "ネットワーク公開",
+        "settings-change": "設定変更",
+        "credential-sensitive": "認証情報"
       }
     },
     "guardrail": {

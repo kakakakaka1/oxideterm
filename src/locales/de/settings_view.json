@@ -563,7 +563,7 @@
       "tool_use": "Werkzeugnutzung",
       "tool_use_enabled": "Werkzeugnutzung aktivieren",
       "tool_use_enabled_hint": "Erlaubt der KI, über Function Calling Befehle auszuführen, Dateien zu lesen und Aktionen auf Remote-Servern durchzuführen.",
-      "tool_use_approve_hint": "Wählen Sie aus, welche Tools die KI ohne Bestätigung verwenden darf. Nicht genehmigte Tools werden automatisch abgelehnt.",
+      "tool_use_approve_hint": "Wählen Sie aus, welche Tools die KI ohne Bestätigung verwenden darf. Nicht ausgewählte Tools fragen vor der Ausführung nach Bestätigung.",
       "tool_use_group_terminal": "Terminal & Dateien",
       "tool_use_group_session": "Sitzung",
       "tool_use_group_infrastructure": "Infrastruktur",

@@ -563,7 +563,7 @@
       "tool_use": "Sử dụng công cụ",
       "tool_use_enabled": "Bật sử dụng công cụ",
       "tool_use_enabled_hint": "Cho phép AI thực thi lệnh, đọc tệp và thực hiện hành động trên máy chủ từ xa qua Function Calling.",
-      "tool_use_approve_hint": "Chọn công cụ AI có thể sử dụng mà không cần xác nhận. Công cụ chưa được phê duyệt sẽ bị từ chối tự động.",
+      "tool_use_approve_hint": "Chọn công cụ AI có thể sử dụng mà không cần xác nhận. Công cụ chưa chọn sẽ hỏi xác nhận trước khi chạy.",
       "tool_use_group_terminal": "Terminal & Tệp",
       "tool_use_group_session": "Phiên",
       "tool_use_group_infrastructure": "Hạ tầng",

@@ -168,7 +168,6 @@
         "ide_get_open_files": "열린 파일",
         "ide_get_file_content": "파일 내용",
         "ide_get_project_info": "프로젝트 정보",
-        "ide_apply_edit": "편집 적용",
         "ide_replace_string": "Replace Text",
         "ide_insert_text": "Insert Text",
         "ide_open_file": "Open File",
@@ -179,6 +178,7 @@
         "local_get_drives": "드라이브 목록",
         "open_local_terminal": "터미널 열기",
         "get_settings": "설정 조회",
+        "open_settings_section": "설정 섹션 열기",
         "update_setting": "설정 변경",
         "get_pool_stats": "풀 통계",
         "set_pool_config": "풀 설정",
@@ -186,7 +186,8 @@
         "get_resource_metrics": "메트릭",
         "list_saved_connections": "저장된 연결",
         "search_saved_connections": "연결 검색",
-        "connect_saved_session": "Connect Saved Session",
+        "connect_saved_session": "저장된 세션 연결",
+        "connect_saved_connection_by_query": "저장된 연결 접속",
         "get_session_tree": "세션 트리",
         "list_plugins": "플러그인 목록",
         "send_control_sequence": "제어 신호 전송",
@@ -205,7 +206,17 @@
         "get_plugin_details": "플러그인 상세",
         "get_ssh_environment": "SSH 환경",
         "get_topology": "토폴로지",
-        "search_docs": "Search Docs"
+        "search_docs": "문서 검색"
+      },
+      "risk_labels": {
+        "read": "읽기",
+        "write-file": "파일 쓰기",
+        "execute-command": "명령 실행",
+        "interactive-input": "대화형 입력",
+        "destructive": "위험 작업",
+        "network-expose": "네트워크 노출",
+        "settings-change": "설정 변경",
+        "credential-sensitive": "자격 증명 민감"
       }
     },
     "guardrail": {

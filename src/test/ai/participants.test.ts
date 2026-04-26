@@ -8,6 +8,7 @@ import {
   filterParticipants,
   mergeParticipantTools,
 } from '@/lib/ai/participants';
+import { ALL_BUILTIN_TOOL_DEFS } from '@/lib/ai/tools';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Registry Integrity
@@ -39,6 +40,15 @@ describe('PARTICIPANTS registry', () => {
       for (const tool of p.includeTools) {
         expect(typeof tool).toBe('string');
         expect(tool.length).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it('all includeTools point to registered built-in tools', () => {
+    const knownTools = new Set(ALL_BUILTIN_TOOL_DEFS.map((tool) => tool.name));
+    for (const p of PARTICIPANTS) {
+      for (const tool of p.includeTools) {
+        expect(knownTools.has(tool), `${p.name} includes unknown tool ${tool}`).toBe(true);
       }
     }
   });

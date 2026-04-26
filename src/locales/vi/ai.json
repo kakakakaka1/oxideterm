@@ -168,7 +168,6 @@
         "ide_get_open_files": "Tệp đang mở",
         "ide_get_file_content": "Nội dung tệp",
         "ide_get_project_info": "Thông tin dự án",
-        "ide_apply_edit": "Áp dụng chỉnh sửa",
         "ide_replace_string": "Replace Text",
         "ide_insert_text": "Insert Text",
         "ide_open_file": "Open File",
@@ -179,6 +178,7 @@
         "local_get_drives": "Danh sách ổ đĩa",
         "open_local_terminal": "Mở Terminal",
         "get_settings": "Cài đặt",
+        "open_settings_section": "Mở mục cài đặt",
         "update_setting": "Sửa cài đặt",
         "get_pool_stats": "Thống kê pool",
         "set_pool_config": "Cấu hình pool",
@@ -186,7 +186,8 @@
         "get_resource_metrics": "Số liệu",
         "list_saved_connections": "Kết nối đã lưu",
         "search_saved_connections": "Tìm kết nối",
-        "connect_saved_session": "Connect Saved Session",
+        "connect_saved_session": "Kết nối phiên đã lưu",
+        "connect_saved_connection_by_query": "Kết nối cấu hình đã lưu",
         "get_session_tree": "Cây phiên",
         "list_plugins": "Danh sách plugin",
         "send_control_sequence": "Gửi tín hiệu điều khiển",
@@ -205,7 +206,17 @@
         "get_plugin_details": "Chi tiết plugin",
         "get_ssh_environment": "Môi trường SSH",
         "get_topology": "Tô pô",
-        "search_docs": "Search Docs"
+        "search_docs": "Tìm tài liệu"
+      },
+      "risk_labels": {
+        "read": "Chỉ đọc",
+        "write-file": "Ghi tệp",
+        "execute-command": "Thực thi lệnh",
+        "interactive-input": "Nhập tương tác",
+        "destructive": "Thao tác nguy hiểm",
+        "network-expose": "Lộ mạng",
+        "settings-change": "Đổi cài đặt",
+        "credential-sensitive": "Nhạy cảm thông tin đăng nhập"
       }
     },
     "guardrail": {

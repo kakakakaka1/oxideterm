@@ -4,9 +4,19 @@ import {
   ALL_BUILTIN_TOOL_DEFS,
   CONTEXT_FREE_TOOLS,
   EXPERIMENTAL_TOOLS,
+  IDE_ONLY_TOOLS,
+  LOCAL_ONLY_TOOLS,
+  MONITOR_ONLY_TOOLS,
+  PLUGIN_MGR_ONLY_TOOLS,
+  POOL_ONLY_TOOLS,
   READ_ONLY_TOOLS,
   SESSION_ID_TOOLS,
+  SESSION_MGR_ONLY_TOOLS,
+  SETTINGS_ONLY_TOOLS,
+  SFTP_ONLY_TOOLS,
+  SSH_ONLY_TOOLS,
   TOOL_SPEC_BY_NAME,
+  TOOL_GROUPS,
   WRITE_TOOLS,
   getAllToolSpecs,
   getToolDefinitionByName,
@@ -14,7 +24,9 @@ import {
   getToolsForPlan,
   getToolsForContext,
   inferToolIntents,
+  pluginManifestToAiToolSpecs,
 } from '@/lib/ai/tools';
+import type { PluginManifest } from '@/types/plugin';
 
 function toolNamesForContext(...args: Parameters<typeof getToolsForContext>): Set<string> {
   return new Set(getToolsForContext(...args).map((tool) => tool.name));
@@ -44,6 +56,38 @@ describe('tool registry v3 compatibility layer', () => {
       expect(spec.contextFree).toBe(CONTEXT_FREE_TOOLS.has(spec.name));
       expect(spec.sessionIdTool).toBe(SESSION_ID_TOOLS.has(spec.name));
       expect(spec.experimental).toBe(EXPERIMENTAL_TOOLS.has(spec.name));
+    }
+  });
+
+  it('does not keep stale tool names in classification metadata', () => {
+    const knownTools = new Set(ALL_BUILTIN_TOOL_DEFS.map((tool) => tool.name));
+    const classificationSets = [
+      READ_ONLY_TOOLS,
+      WRITE_TOOLS,
+      EXPERIMENTAL_TOOLS,
+      CONTEXT_FREE_TOOLS,
+      SESSION_ID_TOOLS,
+      SSH_ONLY_TOOLS,
+      SFTP_ONLY_TOOLS,
+      IDE_ONLY_TOOLS,
+      LOCAL_ONLY_TOOLS,
+      SETTINGS_ONLY_TOOLS,
+      POOL_ONLY_TOOLS,
+      MONITOR_ONLY_TOOLS,
+      SESSION_MGR_ONLY_TOOLS,
+      PLUGIN_MGR_ONLY_TOOLS,
+    ];
+
+    for (const set of classificationSets) {
+      for (const toolName of set) {
+        expect(knownTools.has(toolName), `${toolName} should be a registered built-in tool`).toBe(true);
+      }
+    }
+
+    for (const group of TOOL_GROUPS) {
+      for (const toolName of [...group.readOnly, ...group.write]) {
+        expect(knownTools.has(toolName), `${toolName} in group ${group.groupKey} should be registered`).toBe(true);
+      }
     }
   });
 
@@ -118,5 +162,51 @@ describe('tool disclosure planner v3 phase 2', () => {
 
     expect(tools.has('search_saved_connections')).toBe(true);
     expect(tools.has('connect_saved_session')).toBe(false);
+  });
+});
+
+describe('external tool spec adapters', () => {
+  it('maps plugin AI tool metadata into v3 tool specs without changing the plugin API', () => {
+    const manifest: PluginManifest = {
+      id: 'com.example.plugin',
+      name: 'Example',
+      version: '1.0.0',
+      main: 'index.js',
+      contributes: {
+        aiTools: [
+          {
+            name: 'open_thing',
+            description: 'Open a plugin thing',
+            parameters: { type: 'object', properties: {} },
+            capabilities: ['navigation.open'],
+            targetKinds: ['app-tab'],
+          },
+          {
+            name: 'read_thing',
+            description: 'Read a plugin thing',
+            capabilities: ['state.list'],
+          },
+        ],
+      },
+    };
+
+    const specs = pluginManifestToAiToolSpecs(manifest);
+
+    expect(specs.map((spec) => spec.name)).toEqual([
+      'plugin::com.example.plugin::open_thing',
+      'plugin::com.example.plugin::read_thing',
+    ]);
+    expect(specs[0]).toMatchObject({
+      domain: 'plugin',
+      sideEffect: 'navigate',
+      requiredTarget: 'app_tab',
+      write: true,
+    });
+    expect(specs[1]).toMatchObject({
+      domain: 'plugin',
+      sideEffect: 'read',
+      requiredTarget: 'none',
+      readOnly: true,
+    });
   });
 });

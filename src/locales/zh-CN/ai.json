@@ -168,7 +168,6 @@
         "ide_get_open_files": "打开的文件",
         "ide_get_file_content": "文件内容",
         "ide_get_project_info": "项目信息",
-        "ide_apply_edit": "应用编辑",
         "ide_replace_string": "替换文本",
         "ide_insert_text": "插入文本",
         "ide_open_file": "打开文件",
@@ -179,6 +178,7 @@
         "local_get_drives": "列出驱动器",
         "open_local_terminal": "打开终端",
         "get_settings": "获取设置",
+        "open_settings_section": "打开设置项",
         "update_setting": "修改设置",
         "get_pool_stats": "连接池统计",
         "set_pool_config": "连接池配置",
@@ -187,6 +187,7 @@
         "list_saved_connections": "已保存连接",
         "search_saved_connections": "搜索连接",
         "connect_saved_session": "连接已保存会话",
+        "connect_saved_connection_by_query": "连接已保存连接",
         "get_session_tree": "会话树",
         "list_plugins": "列出插件",
         "send_control_sequence": "发送控制信号",
@@ -206,6 +207,16 @@
         "get_ssh_environment": "SSH 环境",
         "get_topology": "网络拓扑",
         "search_docs": "搜索知识库"
+      },
+      "risk_labels": {
+        "read": "只读",
+        "write-file": "写入文件",
+        "execute-command": "执行命令",
+        "interactive-input": "交互输入",
+        "destructive": "危险操作",
+        "network-expose": "网络暴露",
+        "settings-change": "修改设置",
+        "credential-sensitive": "凭据敏感"
       }
     },
     "guardrail": {
