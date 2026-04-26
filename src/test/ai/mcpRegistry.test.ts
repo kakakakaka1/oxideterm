@@ -466,7 +466,6 @@ describe('mcpRegistry', () => {
     expect(specs[0]).toMatchObject({
       definition: { name: 'mcp::filesystem::read_file' },
       domain: 'mcp',
-      legacyVisibility: 'always',
       sideEffect: 'read',
       groupKey: 'mcp',
     });

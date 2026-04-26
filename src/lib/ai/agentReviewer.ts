@@ -16,9 +16,6 @@
 import type { AgentReviewResult, AgentRoundContract, AgentStep } from '../../types';
 import { parseReviewResponse } from './structuredOutput';
 
-// DEFAULT_REVIEW_INTERVAL is now in agentConfig.ts — kept as re-export for compatibility
-export { DEFAULT_REVIEW_INTERVAL } from './agentConfig';
-
 /** Build the reviewer system prompt */
 export function buildReviewerSystemPrompt(): string {
   return `You are a quality assurance reviewer for an autonomous terminal operations agent. Your job is to audit the agent's recent actions and provide actionable feedback.

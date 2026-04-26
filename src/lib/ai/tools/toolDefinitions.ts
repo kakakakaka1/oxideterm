@@ -1300,18 +1300,6 @@ export type ToolTargetRequirement =
 
 export type ToolSideEffect = 'read' | 'write' | 'execute' | 'navigate' | 'network' | 'settings';
 
-export type ToolLegacyVisibility =
-  | 'always'
-  | 'ssh_session'
-  | 'sftp_tab'
-  | 'ide_tab'
-  | 'local_terminal_tab'
-  | 'settings_tab'
-  | 'connection_pool_tab'
-  | 'connection_monitor_tab'
-  | 'session_manager_tab'
-  | 'plugin_manager_tab';
-
 export type ToolSpec = {
   name: string;
   definition: AiToolDefinition;
@@ -1319,7 +1307,6 @@ export type ToolSpec = {
   intentTags: ToolIntent[];
   requiredTarget: ToolTargetRequirement;
   sideEffect: ToolSideEffect;
-  legacyVisibility: ToolLegacyVisibility;
   groupKey?: string;
   readOnly: boolean;
   write: boolean;
@@ -1789,19 +1776,6 @@ function inferSideEffect(toolName: string): ToolSideEffect {
   return 'read';
 }
 
-function inferLegacyVisibility(toolName: string): ToolLegacyVisibility {
-  if (SFTP_ONLY_TOOLS.has(toolName)) return 'sftp_tab';
-  if (IDE_ONLY_TOOLS.has(toolName)) return 'ide_tab';
-  if (LOCAL_ONLY_TOOLS.has(toolName)) return 'local_terminal_tab';
-  if (SETTINGS_ONLY_TOOLS.has(toolName)) return 'settings_tab';
-  if (POOL_ONLY_TOOLS.has(toolName)) return 'connection_pool_tab';
-  if (MONITOR_ONLY_TOOLS.has(toolName)) return 'connection_monitor_tab';
-  if (SESSION_MGR_ONLY_TOOLS.has(toolName)) return 'session_manager_tab';
-  if (PLUGIN_MGR_ONLY_TOOLS.has(toolName)) return 'plugin_manager_tab';
-  if (SSH_ONLY_TOOLS.has(toolName)) return 'ssh_session';
-  return 'always';
-}
-
 function createToolSpec(definition: AiToolDefinition): ToolSpec {
   const domain = inferToolDomain(definition.name);
   return {
@@ -1811,7 +1785,6 @@ function createToolSpec(definition: AiToolDefinition): ToolSpec {
     intentTags: inferIntentTags(definition.name, domain),
     requiredTarget: inferRequiredTarget(definition.name),
     sideEffect: inferSideEffect(definition.name),
-    legacyVisibility: inferLegacyVisibility(definition.name),
     groupKey: GROUP_KEY_BY_TOOL.get(definition.name),
     readOnly: READ_ONLY_TOOLS.has(definition.name),
     write: WRITE_TOOLS.has(definition.name),
@@ -1850,7 +1823,6 @@ export function createExternalToolSpec(input: ExternalToolSpecInput): ToolSpec {
     intentTags: input.intentTags ?? inferIntentTags(input.definition.name, domain),
     requiredTarget: input.requiredTarget ?? 'none',
     sideEffect,
-    legacyVisibility: 'always',
     groupKey: input.groupKey,
     readOnly,
     write: input.write ?? !readOnly,

@@ -43,7 +43,6 @@ export {
 export type {
   ToolDomain,
   ToolIntent,
-  ToolLegacyVisibility,
   ToolSideEffect,
   ToolSpec,
   ToolTargetRequirement,
