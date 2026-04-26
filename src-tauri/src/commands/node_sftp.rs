@@ -12,7 +12,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use tauri::{AppHandle, Emitter, State};
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::router::{NodeRouter, NodeStateSnapshot, RouteError, TerminalEndpoint};
 use crate::sftp::error::SftpError;
@@ -478,6 +478,7 @@ struct BackgroundDirectoryTransferTask {
     remote_path: String,
     strategy: TransferStrategy,
     compression: Option<crate::sftp::tar_transfer::TarCompression>,
+    fallback_to_recursive: bool,
 }
 
 fn transfer_was_cancelled(error: &RouteError) -> bool {
@@ -555,7 +556,7 @@ async fn run_background_directory_transfer(
         transfer_manager.clone(),
     );
 
-    let cancel_flag = create_cancel_flag_bridge(control);
+    let cancel_flag = create_cancel_flag_bridge(control.clone());
     let speed_limit = Some(transfer_manager.speed_limit_bps_ref());
 
     let result = match (task.transfer_type.clone(), task.strategy.clone()) {
@@ -574,33 +575,95 @@ async fn run_background_directory_transfer(
                 }
             }
             let resolved = router.resolve_connection(&task.node_id).await?;
-            crate::sftp::tar_transfer::tar_upload_directory(
+            let tar_result = crate::sftp::tar_transfer::tar_upload_directory(
                 &resolved.handle_controller,
                 &task.local_path,
                 &task.remote_path,
                 &task.transfer_id,
-                Some(tx),
-                Some(cancel_flag),
+                Some(tx.clone()),
+                Some(cancel_flag.clone()),
                 task.compression,
-                speed_limit,
+                speed_limit.clone(),
             )
             .await
-            .map_err(RouteError::from)
+            .map_err(RouteError::from);
+
+            if tar_result.is_err()
+                && task.fallback_to_recursive
+                && !cancel_flag.load(std::sync::atomic::Ordering::Relaxed)
+                && !control.is_cancelled()
+            {
+                if let Err(error) = &tar_result {
+                    warn!(
+                        "tar directory upload failed; falling back to recursive SFTP: {}",
+                        error
+                    );
+                }
+                transfer_manager.update_background_transfer_strategy(
+                    &task.transfer_id,
+                    TransferStrategy::DirectoryRecursive,
+                );
+                let sftp = router.acquire_transfer_sftp(&task.node_id).await?;
+                sftp.upload_dir(
+                    &task.local_path,
+                    &task.remote_path,
+                    &task.transfer_id,
+                    Some(tx),
+                    Some(cancel_flag),
+                    speed_limit,
+                    transfer_manager.directory_parallelism(),
+                )
+                .await
+                .map_err(RouteError::from)
+            } else {
+                tar_result
+            }
         }
         (TransferType::Download, TransferStrategy::DirectoryTar) => {
             let resolved = router.resolve_connection(&task.node_id).await?;
-            crate::sftp::tar_transfer::tar_download_directory(
+            let tar_result = crate::sftp::tar_transfer::tar_download_directory(
                 &resolved.handle_controller,
                 &task.remote_path,
                 &task.local_path,
                 &task.transfer_id,
-                Some(tx),
-                Some(cancel_flag),
+                Some(tx.clone()),
+                Some(cancel_flag.clone()),
                 task.compression,
-                speed_limit,
+                speed_limit.clone(),
             )
             .await
-            .map_err(RouteError::from)
+            .map_err(RouteError::from);
+
+            if tar_result.is_err()
+                && task.fallback_to_recursive
+                && !cancel_flag.load(std::sync::atomic::Ordering::Relaxed)
+                && !control.is_cancelled()
+            {
+                if let Err(error) = &tar_result {
+                    warn!(
+                        "tar directory download failed; falling back to recursive SFTP: {}",
+                        error
+                    );
+                }
+                transfer_manager.update_background_transfer_strategy(
+                    &task.transfer_id,
+                    TransferStrategy::DirectoryRecursive,
+                );
+                let sftp = router.acquire_transfer_sftp(&task.node_id).await?;
+                sftp.download_dir(
+                    &task.remote_path,
+                    &task.local_path,
+                    &task.transfer_id,
+                    Some(tx),
+                    Some(cancel_flag),
+                    speed_limit,
+                    transfer_manager.directory_parallelism(),
+                )
+                .await
+                .map_err(RouteError::from)
+            } else {
+                tar_result
+            }
         }
         (TransferType::Upload, TransferStrategy::DirectoryRecursive) => {
             let sftp = router.acquire_transfer_sftp(&task.node_id).await?;
@@ -1125,6 +1188,8 @@ async fn start_background_directory_transfer_internal(
             remote_path,
             strategy: strategy.clone(),
             compression,
+            fallback_to_recursive: matches!(mode, DirectoryTransferMode::Auto)
+                && matches!(strategy, TransferStrategy::DirectoryTar),
         },
         app,
         router,

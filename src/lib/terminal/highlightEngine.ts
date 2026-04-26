@@ -18,6 +18,7 @@ import type { HighlightRule } from '@/types';
 
 const MAX_HIGHLIGHT_DECORATIONS = 10_000;
 const RULE_TIMEOUT_MS = 10;
+const TERMINAL_ACTIVE_SCAN_IDLE_MS = 120;
 
 type BufferSnapshot = {
   type: 'normal' | 'alternate';
@@ -135,6 +136,10 @@ function overlap(start: number, end: number, otherStart: number, otherEnd: numbe
   return start < otherEnd && end > otherStart;
 }
 
+function rowsOverlap(startRow: number, endRow: number, otherStartRow: number, otherEndRow: number): boolean {
+  return startRow <= otherEndRow && endRow >= otherStartRow;
+}
+
 function applyDecorationClasses(element: HTMLElement, rule: RuntimeHighlightRule): void {
   const renderMode = rule.renderMode ?? 'background';
   const usesOverlayStyles = renderMode !== 'background';
@@ -164,6 +169,8 @@ function applyDecorationClasses(element: HTMLElement, rule: RuntimeHighlightRule
 
 export const __testOnly = {
   applyDecorationClasses,
+  rowsOverlap,
+  TERMINAL_ACTIVE_SCAN_IDLE_MS,
 };
 
 export class HighlightEngine {
@@ -180,10 +187,13 @@ export class HighlightEngine {
   private bufferGeneration = 0;
   private viewportSignature = '';
   private lastSnapshot: BufferSnapshot;
+  private scheduledScanTimeoutHandle: ReturnType<typeof setTimeout> | null = null;
   private scheduledScanHandle: number | null = null;
   private activeScanToken = 0;
   private scanInFlight = false;
   private rescanRequested = false;
+  private rescanWaitForIdle = false;
+  private lastTerminalActivityAt = 0;
 
   constructor(term: Terminal, rules: HighlightRule[], options: HighlightEngineOptions = {}) {
     this.term = term;
@@ -194,7 +204,11 @@ export class HighlightEngine {
     this.disposables.push(
       term.onWriteParsed(() => {
         this.handleBufferMutation();
-        this.scheduleViewportScan();
+        this.markTerminalActivity();
+        this.scheduleViewportScan(true);
+      }),
+      term.onKey(() => {
+        this.markTerminalActivity();
       }),
       term.onResize(() => {
         this.invalidateAll();
@@ -219,6 +233,10 @@ export class HighlightEngine {
   }
 
   dispose(): void {
+    if (this.scheduledScanTimeoutHandle !== null) {
+      clearTimeout(this.scheduledScanTimeoutHandle);
+      this.scheduledScanTimeoutHandle = null;
+    }
     if (this.scheduledScanHandle !== null) {
       cancelAnimationFrame(this.scheduledScanHandle);
       this.scheduledScanHandle = null;
@@ -242,6 +260,7 @@ export class HighlightEngine {
   }
 
   private handleBufferMutation(): void {
+    this.activeScanToken += 1;
     const next = this.captureSnapshot();
     const trimmed = next.length === this.lastSnapshot.length && next.baseY > this.lastSnapshot.baseY;
     const reset = next.length < this.lastSnapshot.length || next.baseY < this.lastSnapshot.baseY;
@@ -256,6 +275,10 @@ export class HighlightEngine {
       this.invalidateAll();
     }
     this.lastSnapshot = next;
+  }
+
+  private markTerminalActivity(): void {
+    this.lastTerminalActivityAt = Date.now();
   }
 
   private invalidateAll(): void {
@@ -277,10 +300,77 @@ export class HighlightEngine {
     this.decorationIndex.clear();
   }
 
-  private scheduleViewportScan(): void {
-    if (this.scanInFlight) {
-      this.rescanRequested = true;
+  private disposeDecorationKey(key: string): void {
+    const records = this.decorationIndex.get(key);
+    if (!records) {
       return;
+    }
+
+    records.forEach((record) => {
+      record.decoration.dispose();
+      record.marker.dispose();
+    });
+    this.decorationIndex.delete(key);
+
+    for (const [logicalLineId, keys] of this.logicalLineIndex.entries()) {
+      keys.delete(key);
+      if (!keys.size) {
+        this.logicalLineIndex.delete(logicalLineId);
+      }
+    }
+  }
+
+  private clearScannedWindow(windowKey: string): void {
+    const keys = Array.from(this.decorationIndex.keys())
+      .filter((key) => key.startsWith(`${windowKey}:`));
+    keys.forEach((key) => this.disposeDecorationKey(key));
+    this.scannedWindows.delete(windowKey);
+  }
+
+  private clearOverlappingScannedWindows(startRow: number, endRow: number): void {
+    const staleWindowKeys = Array.from(this.scannedWindows.values())
+      .filter((windowMeta) => rowsOverlap(windowMeta.startRow, windowMeta.endRow, startRow, endRow))
+      .map((windowMeta) => windowMeta.key);
+
+    staleWindowKeys.forEach((windowKey) => this.clearScannedWindow(windowKey));
+  }
+
+  private scheduleViewportScan(debounce = false): void {
+    if (this.scanInFlight) {
+      const hadQueuedRescan = this.rescanRequested;
+      this.rescanRequested = true;
+      this.rescanWaitForIdle = hadQueuedRescan
+        ? this.rescanWaitForIdle && debounce
+        : debounce;
+      return;
+    }
+
+    if (debounce) {
+      if (this.scheduledScanHandle !== null) {
+        return;
+      }
+      if (this.scheduledScanTimeoutHandle !== null) {
+        clearTimeout(this.scheduledScanTimeoutHandle);
+      }
+      const idleDelay = Math.max(
+        0,
+        TERMINAL_ACTIVE_SCAN_IDLE_MS - (Date.now() - this.lastTerminalActivityAt),
+      );
+      this.scheduledScanTimeoutHandle = setTimeout(() => {
+        this.scheduledScanTimeoutHandle = null;
+        const idleForMs = Date.now() - this.lastTerminalActivityAt;
+        if (idleForMs < TERMINAL_ACTIVE_SCAN_IDLE_MS) {
+          this.scheduleViewportScan(true);
+          return;
+        }
+        this.scheduleViewportScan();
+      }, idleDelay);
+      return;
+    }
+
+    if (this.scheduledScanTimeoutHandle !== null) {
+      clearTimeout(this.scheduledScanTimeoutHandle);
+      this.scheduledScanTimeoutHandle = null;
     }
 
     if (this.scheduledScanHandle !== null) {
@@ -319,6 +409,7 @@ export class HighlightEngine {
         lastAccessAt: Date.now(),
         logicalLineIds: new Set(lines.map((line) => line.id)),
       };
+      this.clearOverlappingScannedWindows(viewportStart, viewportEnd);
       this.scannedWindows.set(windowKey, windowMeta);
 
       for (const line of lines) {
@@ -339,8 +430,10 @@ export class HighlightEngine {
     } finally {
       this.scanInFlight = false;
       if (this.rescanRequested) {
+        const debounceRescan = this.rescanWaitForIdle;
         this.rescanRequested = false;
-        this.scheduleViewportScan();
+        this.rescanWaitForIdle = false;
+        this.scheduleViewportScan(debounceRescan);
       }
     }
   }
@@ -351,17 +444,8 @@ export class HighlightEngine {
       return;
     }
 
-    for (const key of keys) {
-      const records = this.decorationIndex.get(key);
-      if (!records) {
-        continue;
-      }
-
-      records.forEach((record) => {
-        record.decoration.dispose();
-        record.marker.dispose();
-      });
-      this.decorationIndex.delete(key);
+    for (const key of Array.from(keys)) {
+      this.disposeDecorationKey(key);
     }
 
     this.logicalLineIndex.delete(logicalLineId);

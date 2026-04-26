@@ -5,7 +5,7 @@
 //!
 //! Provides SFTP file operations over an existing SSH connection.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
@@ -1246,11 +1246,16 @@ impl SftpSession {
         )
         .await?;
 
-        let mkdir_futs: Vec<_> = all_remote_dirs.iter().map(|d| self.mkdir(d)).collect();
-        let mkdir_results = futures_util::future::join_all(mkdir_futs).await;
-        for (i, result) in mkdir_results.iter().enumerate() {
-            if let Err(e) = result {
-                debug!("mkdir {:?} (may already exist): {}", all_remote_dirs[i], e);
+        // Keep parent-before-child ordering. Creating the full directory tree
+        // concurrently can make children race ahead of missing parents on some
+        // SFTP servers, leaving a directory shell with later file writes failing.
+        let mut seen_dirs = HashSet::new();
+        for dir in all_remote_dirs {
+            if !seen_dirs.insert(dir.clone()) {
+                continue;
+            }
+            if let Err(e) = self.mkdir(&dir).await {
+                debug!("mkdir {:?} (may already exist): {}", dir, e);
             }
         }
 

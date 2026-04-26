@@ -90,28 +90,11 @@ async fn probe_tar_inner(controller: &HandleController) -> Result<bool, SftpErro
         .await
         .map_err(|e| SftpError::ChannelError(format!("Failed to exec tar probe: {}", e)))?;
 
-    let mut exit_code: Option<u32> = None;
+    let exit =
+        drain_channel_exit_with_timeout(&mut channel, std::time::Duration::from_secs(10)).await;
+    let _ = channel.close().await;
 
-    // Drain the channel (we don't need the output)
-    let drain = tokio::time::timeout(std::time::Duration::from_secs(10), async {
-        loop {
-            match channel.wait().await {
-                Some(ChannelMsg::ExitStatus { exit_status }) => {
-                    exit_code = Some(exit_status);
-                }
-                Some(ChannelMsg::Eof) | Some(ChannelMsg::Close) | None => break,
-                _ => {}
-            }
-        }
-    })
-    .await;
-
-    if drain.is_err() {
-        let _ = channel.close().await;
-        return Ok(false);
-    }
-
-    Ok(exit_code == Some(0))
+    Ok(!exit.timed_out && exit.exit_code == Some(0))
 }
 
 /// Probe which compression methods the remote `tar` supports.
@@ -148,26 +131,11 @@ async fn probe_exec_exit0(controller: &HandleController, cmd: &str) -> bool {
         return false;
     }
 
-    let mut exit_code: Option<u32> = None;
-    let drain = tokio::time::timeout(std::time::Duration::from_secs(10), async {
-        loop {
-            match channel.wait().await {
-                Some(ChannelMsg::ExitStatus { exit_status }) => {
-                    exit_code = Some(exit_status);
-                }
-                Some(ChannelMsg::Eof) | Some(ChannelMsg::Close) | None => break,
-                _ => {}
-            }
-        }
-    })
-    .await;
+    let exit =
+        drain_channel_exit_with_timeout(&mut channel, std::time::Duration::from_secs(10)).await;
+    let _ = channel.close().await;
 
-    if drain.is_err() {
-        let _ = channel.close().await;
-        return false;
-    }
-
-    exit_code == Some(0)
+    !exit.timed_out && exit.exit_code == Some(0)
 }
 
 // ============================================================================
@@ -760,10 +728,17 @@ struct ChannelExit {
 /// failed remote command look successful, which is especially bad for tar upload
 /// because the target directory may already have been created.
 async fn drain_channel_exit(channel: &mut russh::Channel<russh::client::Msg>) -> ChannelExit {
+    drain_channel_exit_with_timeout(channel, std::time::Duration::from_secs(30)).await
+}
+
+async fn drain_channel_exit_with_timeout(
+    channel: &mut russh::Channel<russh::client::Msg>,
+    timeout: std::time::Duration,
+) -> ChannelExit {
     let mut exit_code = None;
     let mut stderr = Vec::new();
 
-    let drain = tokio::time::timeout(std::time::Duration::from_secs(30), async {
+    let drain = tokio::time::timeout(timeout, async {
         loop {
             match channel.wait().await {
                 Some(ChannelMsg::ExitStatus { exit_status }) => {

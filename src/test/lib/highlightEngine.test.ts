@@ -45,4 +45,15 @@ describe('highlightEngine decoration overlay styles', () => {
     expect(underlineElement.style.getPropertyValue('--xterm-highlight-bg')).toBe('#1d4ed8');
     expect(outlineElement.style.getPropertyValue('--xterm-highlight-fg')).toBe('#eff6ff');
   });
+
+  it('treats touching terminal row windows as overlapping inclusively', () => {
+    expect(__testOnly.rowsOverlap(10, 20, 20, 30)).toBe(true);
+    expect(__testOnly.rowsOverlap(10, 20, 21, 30)).toBe(false);
+    expect(__testOnly.rowsOverlap(10, 20, 0, 10)).toBe(true);
+  });
+
+  it('keeps terminal active highlight scan idle gate responsive', () => {
+    expect(__testOnly.TERMINAL_ACTIVE_SCAN_IDLE_MS).toBeGreaterThanOrEqual(80);
+    expect(__testOnly.TERMINAL_ACTIVE_SCAN_IDLE_MS).toBeLessThanOrEqual(250);
+  });
 });
