@@ -185,6 +185,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
   const wsRecoveryAttemptsRef = useRef(0);
   const wsRecoveryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wsConnectAbortRef = useRef<AbortController | null>(null); // Cancel WS connect retries on unmount
+  const connectionNoticeKeysRef = useRef<Set<string>>(new Set());
   const gitRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
@@ -506,7 +507,15 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
   }, []);
 
   const writeServerOutputToTerminal = useCallback((payload: Uint8Array) => {
+    connectionNoticeKeysRef.current.clear();
     adaptiveRendererRef.current.scheduleWrite(payload);
+  }, []);
+
+  const writeConnectionNotice = useCallback((key: string, line: string) => {
+    const term = terminalRef.current;
+    if (!term || connectionNoticeKeysRef.current.has(key)) return;
+    connectionNoticeKeysRef.current.add(key);
+    term.writeln(line);
   }, []);
 
   const transformTerminalOutput = useCallback((payload: Uint8Array) => {
@@ -835,10 +844,10 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
     if (wsRecoveryInFlightRef.current) return;
     if (wsRecoveryAttemptsRef.current >= 15) {
       // All recovery attempts exhausted — notify user
-      const term = terminalRef.current;
-      if (term) {
-        term.writeln(`\r\n\x1b[31m${i18n.t('terminal.ssh.connection_failed')}\x1b[0m`);
-      }
+      writeConnectionNotice(
+        'connection-failed',
+        `\r\n\x1b[31m${i18n.t('terminal.ssh.connection_failed')}\x1b[0m`,
+      );
       return;
     }
     if (connectionStatusRef.current !== 'connected') return;
@@ -922,7 +931,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
         wsRecoveryInFlightRef.current = false;
       }
     }, delayMs);
-  }, [sessionId]);
+  }, [sessionId, writeConnectionNotice]);
 
   useEffect(() => {
     return () => {
@@ -1312,12 +1321,14 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
       }
     }
     
-    const term = terminalRef.current;
     const wsToken = currentSession?.ws_token;
     const displayUser = currentSession?.username ?? 'unknown';
     const displayHost = currentSession?.host ?? 'unknown';
     
-    term.writeln(`\r\n\x1b[33m${i18n.t('terminal.ssh.reconnecting', { user: displayUser, host: displayHost })}\x1b[0m`);
+    writeConnectionNotice(
+      'ws-reconnecting',
+      `\r\n\x1b[33m${i18n.t('terminal.ssh.reconnecting', { user: displayUser, host: displayHost })}\x1b[0m`,
+    );
     
     try {
       const ws = new WebSocket(wsUrl);
@@ -1341,7 +1352,10 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
           ws.send(wsToken);
         }
         
-        term.writeln(`\x1b[32m${i18n.t('terminal.ssh.reconnected')}\x1b[0m\r\n`);
+        writeConnectionNotice(
+          'ws-reconnected',
+          `\x1b[32m${i18n.t('terminal.ssh.reconnected')}\x1b[0m\r\n`,
+        );
         
         // Re-send current terminal size
         syncRemotePtySize();
@@ -1362,7 +1376,10 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
           terminalType: 'terminal',
           frontendOutputListenerReady: false,
         });
-        term.writeln(`\r\n\x1b[31m${i18n.t('terminal.ssh.ws_reconnect_error')}\x1b[0m`);
+        writeConnectionNotice(
+          'ws-reconnect-error',
+          `\r\n\x1b[31m${i18n.t('terminal.ssh.ws_reconnect_error')}\x1b[0m`,
+        );
         if (!reconnectingRef.current) {
           recoverWebSocket(opened ? 'reconnect-error-opened' : 'reconnect-error');
         }
@@ -1380,7 +1397,10 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
         });
         console.log('WebSocket closed after reconnect:', event.code, event.reason);
         if (event.code !== 1000) {
-          term.writeln(`\r\n\x1b[33m${i18n.t('terminal.ssh.connection_closed_code', { code: event.code })}\x1b[0m`);
+          writeConnectionNotice(
+            `ws-closed-code-${event.code}`,
+            `\r\n\x1b[33m${i18n.t('terminal.ssh.connection_closed_code', { code: event.code })}\x1b[0m`,
+          );
         }
         if (!reconnectingRef.current) {
           recoverWebSocket(opened ? 'reconnect-close-opened' : 'reconnect-close');
@@ -1388,9 +1408,12 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
       };
     } catch (e) {
       console.error('Failed to reconnect WebSocket:', e);
-      term.writeln(`\r\n\x1b[31m${i18n.t('terminal.ssh.ws_establish_failed', { error: e })}\x1b[0m`);
+      writeConnectionNotice(
+        'ws-establish-failed',
+        `\r\n\x1b[31m${i18n.t('terminal.ssh.ws_establish_failed', { error: e })}\x1b[0m`,
+      );
     }
-  }, [session?.ws_url, recoverWebSocket, cleanupWebSocket, connectionStatus, syncRemotePtySize, disposeTrzszController, syncTrzszController]);
+  }, [session?.ws_url, recoverWebSocket, cleanupWebSocket, connectionStatus, syncRemotePtySize, disposeTrzszController, syncTrzszController, writeConnectionNotice]);
 
   // Font family resolver — see src/lib/fontFamily.ts
 
@@ -1877,7 +1900,10 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
                       return;
                     }
                     
-                    term.writeln(`\r\n\x1b[31m${i18n.t('terminal.ssh.ws_error', { error: 'Connection failed' })}\x1b[0m`);
+                    writeConnectionNotice(
+                      'ws-connection-failed',
+                      `\r\n\x1b[31m${i18n.t('terminal.ssh.ws_error', { error: 'Connection failed' })}\x1b[0m`,
+                    );
                     recoverWebSocket('initial-error');
                     resolve();
                   }
@@ -1902,7 +1928,10 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
                     return; // Let onerror handle retry
                   }
                   if (!reconnectingRef.current && opened) {
-                    term.writeln(`\r\n\x1b[31m${i18n.t('terminal.ssh.connection_closed')}\x1b[0m`);
+                    writeConnectionNotice(
+                      'ws-connection-closed',
+                      `\r\n\x1b[31m${i18n.t('terminal.ssh.connection_closed')}\x1b[0m`,
+                    );
                     recoverWebSocket('initial-close-opened');
                   }
                   resolve();
@@ -2252,7 +2281,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
         term.dispose();
         terminalRef.current = null;
     };
-  }, [fontOpenReady, sessionId, syncRemotePtySize, syncTrzszController, disposeTrzszController, sendEncodedTerminalInput]); // Only remount on session change — bg image is handled dynamically
+  }, [fontOpenReady, sessionId, syncRemotePtySize, syncTrzszController, disposeTrzszController, sendEncodedTerminalInput, writeConnectionNotice]); // Only remount on session change — bg image is handled dynamically
 
   useEffect(() => {
     selectionGestureRef.current?.refresh();
