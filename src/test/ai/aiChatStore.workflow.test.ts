@@ -33,6 +33,8 @@ const resolveAllReferencesMock = vi.hoisted(() => vi.fn<(...args: unknown[]) => 
 const appStoreState = vi.hoisted(() => ({ tabs: [] as Array<{ id: string; type?: string }>, activeTabId: null as string | null, sessions: new Map() }));
 const apiMocks = vi.hoisted(() => ({
   getAiProviderApiKey: vi.fn().mockResolvedValue('key-1'),
+  getConnections: vi.fn().mockResolvedValue([]),
+  localExecCommand: vi.fn().mockResolvedValue({ stdout: 'ok', stderr: '', exitCode: 0, timedOut: false }),
   ragSearch: vi.fn().mockResolvedValue([]),
   nodeAgentStatus: vi.fn().mockResolvedValue({ type: 'ready' }),
   nodeGetState: vi.fn().mockResolvedValue({ state: { readiness: 'ready' } }),
@@ -84,7 +86,11 @@ vi.mock('@tauri-apps/api/core', () => ({
 }));
 
 vi.mock('@/lib/api', () => ({
-  api: { getAiProviderApiKey: apiMocks.getAiProviderApiKey },
+  api: {
+    getAiProviderApiKey: apiMocks.getAiProviderApiKey,
+    getConnections: apiMocks.getConnections,
+    localExecCommand: apiMocks.localExecCommand,
+  },
   ragSearch: apiMocks.ragSearch,
   nodeAgentStatus: apiMocks.nodeAgentStatus,
   nodeGetState: apiMocks.nodeGetState,
@@ -180,7 +186,6 @@ vi.mock('@/lib/ai/slashCommands', () => ({
 vi.mock('@/lib/ai/participants', () => ({
   PARTICIPANTS: [],
   resolveParticipant: vi.fn(),
-  mergeParticipantTools: vi.fn(() => new Set()),
 }));
 
 vi.mock('@/lib/ai/references', () => ({
@@ -298,6 +303,10 @@ describe('aiChatStore workflows', () => {
       candidateTools: [],
     });
     executeToolMock.mockReset();
+    apiMocks.getConnections.mockReset();
+    apiMocks.getConnections.mockResolvedValue([]);
+    apiMocks.localExecCommand.mockReset();
+    apiMocks.localExecCommand.mockResolvedValue({ stdout: 'ok', stderr: '', exitCode: 0, timedOut: false });
     hasDeniedCommandsMock.mockReset();
     hasDeniedCommandsMock.mockReturnValue(false);
     streamText('summary text');
@@ -312,7 +321,6 @@ describe('aiChatStore workflows', () => {
       abortController: null,
       trimInfo: null,
       compactionInfo: null,
-      sessionDisabledTools: null,
     });
   });
 
@@ -515,20 +523,9 @@ describe('aiChatStore workflows', () => {
   it('updates approval state on the originating conversation even after switching activeConversationId', async () => {
     settingsStoreMock.state.settings.ai.toolUse.enabled = true;
     setConversation([]);
-    getToolsForContextMock.mockReturnValue([
-      { name: 'local_exec', description: 'Run a local command', parameters: {} },
-    ]);
-    hasDeniedCommandsMock.mockReturnValue(true);
-    executeToolMock.mockResolvedValue({
-      toolCallId: 'tool-1',
-      toolName: 'local_exec',
-      success: true,
-      output: 'ok',
-    });
-
     providerStreamMock
       .mockImplementationOnce(async function* () {
-        yield { type: 'tool_call_complete', id: 'tool-1', name: 'local_exec', arguments: JSON.stringify({ command: 'sudo reboot' }) };
+        yield { type: 'tool_call_complete', id: 'tool-1', name: 'run_command', arguments: JSON.stringify({ target_id: 'local-shell:default', command: 'sudo reboot' }) };
         yield { type: 'done' };
       })
       .mockImplementationOnce(async function* () {
@@ -571,23 +568,13 @@ describe('aiChatStore workflows', () => {
 
   it('keeps the assistant message visible when the provider errors after a tool round', async () => {
     settingsStoreMock.state.settings.ai.toolUse.enabled = true;
-    settingsStoreMock.state.settings.ai.toolUse.autoApproveTools = { local_exec: true };
+    settingsStoreMock.state.settings.ai.toolUse.autoApproveTools = { run_command: true };
     setConversation([]);
-    getToolsForContextMock.mockReturnValue([
-      { name: 'local_exec', description: 'Run a local command', parameters: {} },
-    ]);
-    hasDeniedCommandsMock.mockReturnValue(false);
-    executeToolMock.mockResolvedValue({
-      toolCallId: 'tool-keep-1',
-      toolName: 'local_exec',
-      success: true,
-      output: 'ok',
-    });
 
     providerStreamMock
       .mockImplementationOnce(async function* () {
         yield { type: 'thinking', content: 'Let me inspect that first.' };
-        yield { type: 'tool_call_complete', id: 'tool-keep-1', name: 'local_exec', arguments: JSON.stringify({ command: 'uname -a' }) };
+        yield { type: 'tool_call_complete', id: 'tool-keep-1', name: 'run_command', arguments: JSON.stringify({ target_id: 'local-shell:default', command: 'uname -a' }) };
         yield { type: 'done' };
       })
       .mockImplementationOnce(async function* () {
@@ -612,26 +599,17 @@ describe('aiChatStore workflows', () => {
 
   it('uses the configured tool-round limit before continuing tool loops', async () => {
     settingsStoreMock.state.settings.ai.toolUse.enabled = true;
-    settingsStoreMock.state.settings.ai.toolUse.autoApproveTools = { local_exec: true };
+    settingsStoreMock.state.settings.ai.toolUse.autoApproveTools = { run_command: true };
     settingsStoreMock.state.settings.ai.toolUse.maxRounds = 1;
     setConversation([]);
-    getToolsForContextMock.mockReturnValue([
-      { name: 'local_exec', description: 'Run a local command', parameters: {} },
-    ]);
-    executeToolMock.mockResolvedValue({
-      toolCallId: 'tool-round-1',
-      toolName: 'local_exec',
-      success: true,
-      output: 'ok',
-    });
 
     providerStreamMock
       .mockImplementationOnce(async function* () {
-        yield { type: 'tool_call_complete', id: 'tool-round-1', name: 'local_exec', arguments: JSON.stringify({ command: 'pwd' }) };
+        yield { type: 'tool_call_complete', id: 'tool-round-1', name: 'run_command', arguments: JSON.stringify({ target_id: 'local-shell:default', command: 'pwd' }) };
         yield { type: 'done' };
       })
       .mockImplementationOnce(async function* () {
-        yield { type: 'tool_call_complete', id: 'tool-round-2', name: 'local_exec', arguments: JSON.stringify({ command: 'whoami' }) };
+        yield { type: 'tool_call_complete', id: 'tool-round-2', name: 'run_command', arguments: JSON.stringify({ target_id: 'local-shell:default', command: 'whoami' }) };
         yield { type: 'done' };
       });
 
@@ -640,7 +618,7 @@ describe('aiChatStore workflows', () => {
     const assistantMessage = useAiChatStore.getState().conversations[0].messages.find((message) => message.role === 'assistant');
     const budgetRound = assistantMessage?.turn?.toolRounds.find((toolRound) => toolRound.toolCalls.some((toolCall) => toolCall.id === 'tool-round-2'));
     expect(providerStreamMock).toHaveBeenCalledTimes(2);
-    expect(executeToolMock).toHaveBeenCalledTimes(1);
+    expect(apiMocks.localExecCommand).toHaveBeenCalledTimes(1);
     expect(budgetRound).toMatchObject({
       toolCalls: expect.arrayContaining([
         expect.objectContaining({
@@ -659,21 +637,12 @@ describe('aiChatStore workflows', () => {
     let releaseSummary!: () => void;
 
     settingsStoreMock.state.settings.ai.toolUse.enabled = true;
-    settingsStoreMock.state.settings.ai.toolUse.autoApproveTools = { local_exec: true };
+    settingsStoreMock.state.settings.ai.toolUse.autoApproveTools = { run_command: true };
     setConversation([]);
-    getToolsForContextMock.mockReturnValue([
-      { name: 'local_exec', description: 'Run a local command', parameters: {} },
-    ]);
-    executeToolMock.mockResolvedValue({
-      toolCallId: 'tool-wait-1',
-      toolName: 'local_exec',
-      success: true,
-      output: 'pwd',
-    });
 
     providerStreamMock
       .mockImplementationOnce(async function* () {
-        yield { type: 'tool_call_complete', id: 'tool-wait-1', name: 'local_exec', arguments: JSON.stringify({ command: 'pwd' }) };
+        yield { type: 'tool_call_complete', id: 'tool-wait-1', name: 'run_command', arguments: JSON.stringify({ target_id: 'local-shell:default', command: 'pwd' }) };
         yield { type: 'done' };
       })
       .mockImplementationOnce(async function* () {
@@ -706,21 +675,12 @@ describe('aiChatStore workflows', () => {
 
   it('keeps inline post-tool thinking after the tool round instead of collapsing it to the top', async () => {
     settingsStoreMock.state.settings.ai.toolUse.enabled = true;
-    settingsStoreMock.state.settings.ai.toolUse.autoApproveTools = { local_exec: true };
+    settingsStoreMock.state.settings.ai.toolUse.autoApproveTools = { run_command: true };
     setConversation([]);
-    getToolsForContextMock.mockReturnValue([
-      { name: 'local_exec', description: 'Run a local command', parameters: {} },
-    ]);
-    executeToolMock.mockResolvedValue({
-      toolCallId: 'tool-inline-think-1',
-      toolName: 'local_exec',
-      success: true,
-      output: 'pwd',
-    });
 
     providerStreamMock
       .mockImplementationOnce(async function* () {
-        yield { type: 'tool_call_complete', id: 'tool-inline-think-1', name: 'local_exec', arguments: JSON.stringify({ command: 'pwd' }) };
+        yield { type: 'tool_call_complete', id: 'tool-inline-think-1', name: 'run_command', arguments: JSON.stringify({ target_id: 'local-shell:default', command: 'pwd' }) };
         yield { type: 'done' };
       })
       .mockImplementationOnce(async function* () {
@@ -783,12 +743,12 @@ describe('aiChatStore workflows', () => {
 
     const providerMessages = providerStreamMock.mock.calls[0]?.[1];
     expect(providerMessages?.[0]?.role).toBe('system');
-    expect(providerMessages?.[0]?.content).toContain('## Tool Use Strategy');
-    expect(providerMessages?.[0]?.content).toContain('First identify the task type');
-    expect(providerMessages?.[0]?.content).toContain('resolve the target with `resolve_target`');
-    expect(providerMessages?.[0]?.content).toContain('`terminal_exec` + `target_id` for an `ssh-node`');
-    expect(providerMessages?.[0]?.content).toContain('do not repeat the command and do not guess credentials');
-    expect(providerMessages?.[0]?.content).toContain('pass `expectedHash`');
+    expect(providerMessages?.[0]?.content).toContain('## OxideSens Tool System');
+    expect(providerMessages?.[0]?.content).toContain('call `select_target` first');
+    expect(providerMessages?.[0]?.content).toContain('`connect_target` first, then `run_command`');
+    expect(providerMessages?.[0]?.content).toContain('Never open a local terminal and type `ssh user@host`');
+    expect(providerMessages?.[0]?.content).toContain('Do not guess passwords, passphrases, sudo prompts, or repeat the command');
+    expect(providerMessages?.[0]?.content).toContain('Every action that runs, writes, transfers, or sends input must use an explicit target_id');
   });
 
   it('marks required tool requests with toolChoice and retries once when no tool call is made', async () => {
@@ -830,6 +790,43 @@ describe('aiChatStore workflows', () => {
     ]));
   });
 
+  it('does not retry required discovery after list_targets already returned a result', async () => {
+    settingsStoreMock.state.settings.ai.toolUse.enabled = true;
+    apiMocks.getConnections.mockResolvedValue([
+      {
+        id: 'conn-1',
+        name: '家里的主机',
+        host: '100.118.61.75',
+        port: 22,
+        username: 'lipsc',
+        group: 'Imported',
+      },
+    ]);
+    providerStreamMock
+      .mockImplementationOnce(async function* () {
+        yield { type: 'tool_call_complete', id: 'tool-list-1', name: 'list_targets', arguments: JSON.stringify({ kind: 'all' }) };
+        yield { type: 'done' };
+      })
+      .mockImplementationOnce(async function* () {
+        yield { type: 'content', content: '当前有 1 个远程主机：家里的主机。' };
+        yield { type: 'done' };
+      });
+    setConversation([]);
+
+    await useAiChatStore.getState().sendMessage('现在有哪些远程主机可供连接');
+
+    expect(providerStreamMock).toHaveBeenCalledTimes(2);
+    const assistantMessage = useAiChatStore.getState().conversations[0].messages.find((message) => message.role === 'assistant');
+    expect(assistantMessage?.content).toBe('当前有 1 个远程主机：家里的主机。');
+    expect(assistantMessage?.turn?.parts).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'guardrail', code: 'tool-required-no-call' }),
+    ]));
+    expect(assistantMessage?.turn?.toolRounds[0]?.toolCalls[0]).toMatchObject({
+      name: 'list_targets',
+      executionState: 'completed',
+    });
+  });
+
   it('drops pre-required-tool thinking content before retrying', async () => {
     settingsStoreMock.state.settings.ai.toolUse.enabled = true;
     const settingsTool = { name: 'open_settings_section', description: 'Open settings', parameters: { type: 'object', properties: {} } };
@@ -863,47 +860,26 @@ describe('aiChatStore workflows', () => {
 
   it('feeds compact structured tool envelopes back to the model', async () => {
     settingsStoreMock.state.settings.ai.toolUse.enabled = true;
-    settingsStoreMock.state.settings.ai.toolUse.autoApproveTools = { local_exec: true };
-    const localExecTool = { name: 'local_exec', description: 'Run local command', parameters: { type: 'object', properties: {} } };
-    getToolsForContextMock.mockReturnValue([localExecTool]);
-    classifyToolObligationMock.mockReturnValue({
-      mode: 'required',
-      reason: 'action-request-needs-tool-result',
-      intents: ['local_shell', 'command'],
-      candidateTools: ['local_exec'],
-    });
+    settingsStoreMock.state.settings.ai.toolUse.autoApproveTools = { run_command: true };
+    apiMocks.localExecCommand.mockResolvedValue({ stdout: '/tmp/project', stderr: '', exitCode: 0, timedOut: false });
     providerStreamMock
       .mockImplementationOnce(async function* () {
-        yield { type: 'tool_call_complete', id: 'tool-env-1', name: 'local_exec', arguments: JSON.stringify({ command: 'pwd' }) };
+        yield { type: 'tool_call_complete', id: 'tool-env-1', name: 'run_command', arguments: JSON.stringify({ target_id: 'local-shell:default', command: 'pwd' }) };
         yield { type: 'done' };
       })
       .mockImplementationOnce(async function* () {
         yield { type: 'content', content: 'done' };
         yield { type: 'done' };
       });
-    executeToolMock.mockResolvedValue({
-      toolCallId: 'tool-env-1',
-      toolName: 'local_exec',
-      success: true,
-      output: '/tmp/project',
-      envelope: {
-        ok: true,
-        summary: 'Command completed',
-        output: '/tmp/project',
-        nextActions: [{ tool: 'get_terminal_buffer', reason: 'Observe output', priority: 'optional' }],
-        meta: { toolName: 'local_exec', durationMs: 2 },
-      },
-      durationMs: 2,
-    });
     setConversation([]);
 
     await useAiChatStore.getState().sendMessage('在本地执行 pwd');
 
     const secondRequestMessages = providerStreamMock.mock.calls[1]?.[1] ?? [];
-    const toolMessage = secondRequestMessages.find((message: { role: string; tool_name?: string }) => message.role === 'tool' && message.tool_name === 'local_exec');
+    const toolMessage = secondRequestMessages.find((message: { role: string; tool_name?: string }) => message.role === 'tool' && message.tool_name === 'run_command');
     expect(toolMessage?.content).toContain('"ok":true');
-    expect(toolMessage?.content).toContain('"nextActions"');
-    expect(toolMessage?.content).toContain('Command completed');
+    expect(toolMessage?.content).toContain('Local command completed');
+    expect(toolMessage?.content).toContain('/tmp/project');
   });
 
   it('stores turn snapshots and session metadata for sidebar sends', async () => {

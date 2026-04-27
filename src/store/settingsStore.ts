@@ -541,73 +541,21 @@ const defaultAiSettings: AiSettings = {
     enabled: false,                  // Default: disabled until user opts in
     maxRounds: DEFAULT_AI_TOOL_MAX_ROUNDS,
     autoApproveTools: {
-      // Read-only tools: auto-approve by default
-      read_file: true,
-      list_directory: true,
-      grep_search: true,
-      git_status: true,
-      list_tabs: true,
-      list_sessions: true,
+      // Task-level read/discovery tools: auto-approve by default
       list_targets: true,
-      list_capabilities: true,
-      get_terminal_buffer: true,
-      search_terminal: true,
-      await_terminal_output: true,
-      list_connections: true,
-      list_port_forwards: true,
-      get_detected_ports: true,
-      get_connection_health: true,
-      sftp_list_dir: true,
-      sftp_read_file: true,
-      sftp_stat: true,
-      sftp_get_cwd: true,
-      ide_get_open_files: true,
-      ide_get_file_content: true,
-      ide_get_project_info: true,
-      // Local terminal (read-only)
-      local_list_shells: true,
-      local_get_terminal_info: true,
-      local_get_drives: true,
-      // Settings (read-only)
-      get_settings: true,
-      // Connection pool (read-only)
-      get_pool_stats: true,
-      // Connection monitor (read-only)
-      get_all_health: true,
-      get_resource_metrics: true,
-      // Session manager (all read-only)
-      list_saved_connections: true,
-      search_saved_connections: true,
-      get_session_tree: true,
-      // Plugin manager (read-only)
-      list_plugins: true,
-      // Write tools: require approval by default
-      terminal_exec: false,
-      write_file: false,
-      create_port_forward: false,
-      stop_port_forward: false,
-      // IDE (write)
-      ide_replace_string: false,
-      ide_insert_text: false,
-      ide_open_file: false,
-      ide_create_file: false,
-      // SFTP (write)
-      sftp_write_file: false,
-      // Local terminal (write)
-      local_exec: false,
-      // Settings (write)
-      update_setting: false,
-      // Connection pool (write)
-      set_pool_config: false,
-      // Meta tools
-      send_control_sequence: false,
-      batch_exec: false,
-      // Session manager (write)
-      connect_saved_session: false,
-      // TUI interaction (experimental — disabled by default)
-      read_screen: false,
-      send_keys: false,
-      send_mouse: false,
+      select_target: true,
+      observe_terminal: true,
+      read_resource: true,
+      get_state: true,
+      recall_preferences: true,
+      // Task-level action tools: require approval by default
+      connect_target: false,
+      run_command: false,
+      send_terminal_input: false,
+      write_resource: false,
+      transfer_resource: false,
+      open_app_surface: false,
+      remember_preference: false,
     },
     disabledTools: [],
   },

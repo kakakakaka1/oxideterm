@@ -1,9 +1,9 @@
 // Copyright (C) 2026 AnalyseDeCircuit
 // SPDX-License-Identifier: GPL-3.0-only
 
-import { useState, type ElementType } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Activity, Brain, ChevronDown, ChevronRight, CirclePlus, CircleStop, Code2, FileCode, FileText, FlaskConical, FolderInput, FolderOpen, FolderSearch, GitBranch, HardDrive, Info, Keyboard, ListTree, Monitor, MousePointer2, Network, Pen, Puzzle, Radio, RefreshCw, Search, Settings, Terminal as TerminalIcon, Wrench, X } from 'lucide-react';
+import { Brain, ChevronDown, ChevronRight, RefreshCw, Wrench, X } from 'lucide-react';
 import { McpServersPanel } from '@/components/settings/McpServersPanel';
 import { ProviderKeyInput } from '@/components/settings/ProviderKeyInput';
 import { Button } from '@/components/ui/button';
@@ -14,7 +14,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Separator } from '@/components/ui/separator';
 import { useConfirm } from '@/hooks/useConfirm';
 import { useToast } from '@/hooks/useToast';
-import { TOOL_GROUPS, WRITE_TOOLS, EXPERIMENTAL_TOOLS } from '@/lib/ai/tools';
 import { getModelContextWindowInfo } from '@/lib/ai/tokenUtils';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -27,63 +26,6 @@ import {
     normalizeAiToolMaxRounds,
     type AiSettings,
 } from '@/store/settingsStore';
-
-const TOOL_ICON_MAP: Record<string, ElementType> = {
-    terminal_exec: TerminalIcon,
-    read_file: FileText,
-    write_file: Pen,
-    list_directory: FolderOpen,
-    grep_search: Search,
-    git_status: GitBranch,
-    list_sessions: Network,
-    get_terminal_buffer: TerminalIcon,
-    search_terminal: Search,
-    list_connections: Network,
-    list_port_forwards: Radio,
-    get_detected_ports: Radio,
-    get_connection_health: Activity,
-    create_port_forward: CirclePlus,
-    stop_port_forward: CircleStop,
-    sftp_list_dir: FolderSearch,
-    sftp_read_file: HardDrive,
-    sftp_stat: Info,
-    sftp_get_cwd: HardDrive,
-    ide_get_open_files: FileCode,
-    ide_get_file_content: FileCode,
-    ide_get_project_info: Code2,
-    local_list_shells: TerminalIcon,
-    local_get_terminal_info: ListTree,
-    local_exec: TerminalIcon,
-    local_get_drives: HardDrive,
-    get_settings: Settings,
-    update_setting: Settings,
-    get_pool_stats: Activity,
-    set_pool_config: Settings,
-    get_all_health: Activity,
-    get_resource_metrics: Activity,
-    list_saved_connections: Network,
-    search_saved_connections: Search,
-    get_session_tree: ListTree,
-    list_plugins: Puzzle,
-    read_screen: Monitor,
-    send_keys: Keyboard,
-    send_mouse: MousePointer2,
-};
-
-const TOOL_GROUP_ICONS: Record<string, ElementType> = {
-    terminal: TerminalIcon,
-    session: Network,
-    infrastructure: Radio,
-    sftp: FolderInput,
-    ide: Code2,
-    local_terminal: TerminalIcon,
-    settings: Settings,
-    connection_pool: Activity,
-    connection_monitor: Activity,
-    session_manager: Network,
-    plugin_manager: Puzzle,
-    tui_interaction: Monitor,
-};
 
 type AiTabProps = {
     ai: AiSettings;
@@ -185,9 +127,13 @@ export const AiTab = ({
     const memory = ai.memory ?? { enabled: true, content: '' };
     const toolUse = ai.toolUse ?? { enabled: false, autoApproveTools: {}, disabledTools: [], maxRounds: DEFAULT_AI_TOOL_MAX_ROUNDS };
     const toolUseMaxRounds = normalizeAiToolMaxRounds(toolUse.maxRounds);
-    const disabledToolCount = toolUse.disabledTools?.length ?? 0;
-    const allToolNames = TOOL_GROUPS.flatMap((group) => [...group.readOnly, ...group.write]);
-    const approvedToolCount = allToolNames.filter((name) => toolUse.autoApproveTools?.[name] === true).length;
+    const approveTools = toolUse.autoApproveTools ?? {};
+    const setToolApproval = (toolName: string, approved: boolean) => {
+        updateAi('toolUse', {
+            ...toolUse,
+            autoApproveTools: { ...approveTools, [toolName]: approved },
+        });
+    };
     const selectedProviderTemplate = PROVIDER_TEMPLATES.find((template) => template.type === newProviderType) ?? PROVIDER_TEMPLATES[0];
 
     return (
@@ -936,9 +882,8 @@ export const AiTab = ({
                         {!toolUseExpanded && (
                             <div className="ml-4 border-l border-theme-border/30 pl-4">
                                 <p className="text-xs text-theme-text-muted">
-                                    {t('settings_view.ai.tool_use_collapsed_summary', {
-                                        approved: approvedToolCount,
-                                        total: allToolNames.length,
+                                    {t('settings_view.ai.tool_use_policy_summary', {
+                                        defaultValue: 'Read-only actions are automatic; execution, writes, settings changes, and transfers follow the approval policy below.',
                                     })}
                                 </p>
                             </div>
@@ -949,27 +894,11 @@ export const AiTab = ({
                             id="ai-tool-use-details"
                             className={toolUse.enabled ? 'space-y-5 ml-4 pl-4 border-l border-theme-border/30' : 'opacity-40 pointer-events-none space-y-5 ml-4 pl-4 border-l border-theme-border/30'}
                         >
-                            <p className="text-xs text-theme-text-muted">{t('settings_view.ai.tool_use_approve_hint')}</p>
-
-                            {disabledToolCount > 0 && (
-                                <div className="flex items-center justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
-                                    <div className="min-w-0">
-                                        <p className="text-xs font-medium text-amber-300">
-                                            {t('settings_view.ai.tool_use_disabled_tools_title', { count: disabledToolCount })}
-                                        </p>
-                                        <p className="mt-0.5 text-xs text-amber-200/75">
-                                            {t('settings_view.ai.tool_use_disabled_tools_hint')}
-                                        </p>
-                                    </div>
-                                    <button
-                                        type="button"
-                                        onClick={() => updateAi('toolUse', { ...toolUse, disabledTools: [] })}
-                                        className="shrink-0 rounded border border-amber-400/40 px-3 py-1 text-xs text-amber-200 transition-colors hover:bg-amber-400/10"
-                                    >
-                                        {t('settings_view.ai.tool_use_restore_disabled_tools')}
-                                    </button>
-                                </div>
-                            )}
+                            <p className="text-xs text-theme-text-muted">
+                                {t('settings_view.ai.tool_use_approve_hint', {
+                                    defaultValue: 'OxideSens now exposes task-level tools to the model. These controls decide when a real capability needs your approval.',
+                                })}
+                            </p>
 
                             <div className="rounded-lg border border-theme-border/60 bg-theme-bg-panel/30 p-3">
                                 <div className="flex items-center justify-between gap-4">
@@ -997,121 +926,81 @@ export const AiTab = ({
                                 </div>
                             </div>
 
-                            <div className="flex gap-2">
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        const all: Record<string, boolean> = {};
-                                        for (const group of TOOL_GROUPS) {
-                                            for (const name of [...group.readOnly, ...group.write]) {
-                                                if (!EXPERIMENTAL_TOOLS.has(name)) all[name] = true;
-                                            }
-                                        }
-                                        const current = toolUse.autoApproveTools ?? {};
-                                        for (const name of EXPERIMENTAL_TOOLS) {
-                                            if (current[name] !== undefined) all[name] = current[name];
-                                        }
-                                        updateAi('toolUse', { ...toolUse, autoApproveTools: all });
-                                    }}
-                                    className="text-xs px-3 py-1 rounded border border-theme-border text-theme-text-muted hover:bg-theme-bg-hover/50 transition-colors cursor-pointer"
-                                >
-                                    {t('settings_view.ai.tool_use_approve_all')}
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        const none: Record<string, boolean> = {};
-                                        for (const group of TOOL_GROUPS) {
-                                            for (const name of [...group.readOnly, ...group.write]) {
-                                                if (!EXPERIMENTAL_TOOLS.has(name)) none[name] = false;
-                                            }
-                                        }
-                                        const current = toolUse.autoApproveTools ?? {};
-                                        for (const name of EXPERIMENTAL_TOOLS) {
-                                            if (current[name] !== undefined) none[name] = current[name];
-                                        }
-                                        updateAi('toolUse', { ...toolUse, autoApproveTools: none });
-                                    }}
-                                    className="text-xs px-3 py-1 rounded border border-theme-border text-theme-text-muted hover:bg-theme-bg-hover/50 transition-colors cursor-pointer"
-                                >
-                                    {t('settings_view.ai.tool_use_approve_none')}
-                                </button>
+                            <div className="grid gap-3 md:grid-cols-2">
+                                {[
+                                    {
+                                        title: t('settings_view.ai.tool_policy_read_title', { defaultValue: 'Read-only discovery' }),
+                                        description: t('settings_view.ai.tool_policy_read_desc', { defaultValue: 'Targets, terminal observation, settings reads, and preference recall are always allowed automatically.' }),
+                                        value: true,
+                                        locked: true,
+                                    },
+                                    {
+                                        title: t('settings_view.ai.tool_policy_execute_title', { defaultValue: 'Run commands' }),
+                                        description: t('settings_view.ai.tool_policy_execute_desc', { defaultValue: 'Allow run_command without asking each time. Destructive commands still require confirmation.' }),
+                                        value: approveTools.run_command === true,
+                                        onChange: (checked: boolean) => setToolApproval('run_command', checked),
+                                    },
+                                    {
+                                        title: t('settings_view.ai.tool_policy_interactive_title', { defaultValue: 'Terminal input' }),
+                                        description: t('settings_view.ai.tool_policy_interactive_desc', { defaultValue: 'Allow sending input to visible terminals, including Enter and control sequences.' }),
+                                        value: approveTools.send_terminal_input === true,
+                                        onChange: (checked: boolean) => setToolApproval('send_terminal_input', checked),
+                                    },
+                                    {
+                                        title: t('settings_view.ai.tool_policy_write_title', { defaultValue: 'Files and settings writes' }),
+                                        description: t('settings_view.ai.tool_policy_write_desc', { defaultValue: 'Allow write_resource and transfer_resource without asking each time.' }),
+                                        value: approveTools.write_resource === true && approveTools.transfer_resource === true,
+                                        onChange: (checked: boolean) => {
+                                            updateAi('toolUse', {
+                                                ...toolUse,
+                                                autoApproveTools: {
+                                                    ...approveTools,
+                                                    write_resource: checked,
+                                                    transfer_resource: checked,
+                                                    remember_preference: checked,
+                                                },
+                                            });
+                                        },
+                                    },
+                                    {
+                                        title: t('settings_view.ai.tool_policy_navigation_title', { defaultValue: 'Open app surfaces' }),
+                                        description: t('settings_view.ai.tool_policy_navigation_desc', { defaultValue: 'Allow opening tabs such as Settings, SFTP, IDE, or local terminal.' }),
+                                        value: approveTools.open_app_surface === true || approveTools.connect_target === true,
+                                        onChange: (checked: boolean) => {
+                                            updateAi('toolUse', {
+                                                ...toolUse,
+                                                autoApproveTools: {
+                                                    ...approveTools,
+                                                    open_app_surface: checked,
+                                                    connect_target: checked,
+                                                },
+                                            });
+                                        },
+                                    },
+                                ].map((policy) => (
+                                    <div key={policy.title} className="rounded-lg border border-theme-border/60 bg-theme-bg-panel/30 p-3">
+                                        <div className="flex items-start justify-between gap-3">
+                                            <div className="min-w-0">
+                                                <p className="text-sm font-medium text-theme-text">{policy.title}</p>
+                                                <p className="mt-1 text-xs leading-relaxed text-theme-text-muted">{policy.description}</p>
+                                            </div>
+                                            <Checkbox
+                                                checked={policy.value}
+                                                disabled={policy.locked}
+                                                onCheckedChange={(checked) => policy.onChange?.(!!checked)}
+                                            />
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
 
-                            {TOOL_GROUPS.map((group) => {
-                                const GroupIcon = TOOL_GROUP_ICONS[group.groupKey] ?? Wrench;
-                                const approveTools = toolUse.autoApproveTools ?? {};
-                                const toggleTool = (toolName: string) => {
-                                    const next = { ...approveTools, [toolName]: !approveTools[toolName] };
-                                    updateAi('toolUse', { ...toolUse, autoApproveTools: next });
-                                };
-
-                                const renderToolButton = (toolName: string) => {
-                                    const Icon = TOOL_ICON_MAP[toolName] ?? Wrench;
-                                    const checked = approveTools[toolName] === true;
-                                    const isWrite = WRITE_TOOLS.has(toolName);
-                                    const isExperimental = EXPERIMENTAL_TOOLS.has(toolName);
-                                    return (
-                                        <button
-                                            key={toolName}
-                                            type="button"
-                                            aria-pressed={checked}
-                                            onClick={() => toggleTool(toolName)}
-                                            className={cn(
-                                                'flex items-center gap-2 rounded-md border px-3 py-2 text-xs transition-colors cursor-pointer select-none',
-                                                checked
-                                                    ? isExperimental
-                                                        ? 'border-purple-500/60 bg-purple-500/10 text-purple-400'
-                                                        : isWrite
-                                                            ? 'border-amber-500/60 bg-amber-500/10 text-amber-400'
-                                                            : 'border-theme-accent/60 bg-theme-accent/10 text-theme-accent'
-                                                    : 'border-theme-border bg-theme-bg-panel/30 text-theme-text-muted hover:border-theme-border hover:bg-theme-bg-hover/50',
-                                            )}
-                                        >
-                                            <Icon className="size-3.5 shrink-0" />
-                                            <span className="truncate">{t(`ai.tool_use.tool_names.${toolName}`, { defaultValue: toolName })}</span>
-                                            {isExperimental && <FlaskConical className="size-3 shrink-0 text-purple-400/70" />}
-                                        </button>
-                                    );
-                                };
-
-                                const isExperimentalGroup = [...group.readOnly, ...group.write].some((name) => EXPERIMENTAL_TOOLS.has(name));
-                                return (
-                                    <div key={group.groupKey}>
-                                        <div className="flex items-center gap-1.5 mb-2">
-                                            <GroupIcon className="size-3.5 text-theme-text-muted" />
-                                            <span className="text-xs font-medium text-theme-text uppercase tracking-wider">{t(`settings_view.ai.tool_use_group_${group.groupKey}`)}</span>
-                                            {isExperimentalGroup && (
-                                                <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-purple-500/15 text-purple-400 font-medium uppercase tracking-wider">
-                                                    {t('settings_view.ai.experimental')}
-                                                </span>
-                                            )}
-                                        </div>
-                                        {group.readOnly.length > 0 && (
-                                            <div className="mb-2">
-                                                <span className="text-[10px] text-theme-text-muted/60 uppercase tracking-widest">{t('settings_view.ai.tool_use_subgroup_read_only')}</span>
-                                                <div className="grid grid-cols-3 gap-1.5 mt-1">{group.readOnly.map(renderToolButton)}</div>
-                                            </div>
-                                        )}
-                                        {group.write.length > 0 && (
-                                            <div>
-                                                <span className="text-[10px] text-amber-400/70 uppercase tracking-widest">{t('settings_view.ai.tool_use_subgroup_write')}</span>
-                                                <div className="grid grid-cols-3 gap-1.5 mt-1">{group.write.map(renderToolButton)}</div>
-                                            </div>
-                                        )}
-                                    </div>
-                                );
-                            })}
-
-                            {(() => {
-                                const approveTools = toolUse.autoApproveTools ?? {};
-                                const anyWriteApproved = [...WRITE_TOOLS].some((name) => approveTools[name] === true);
-                                return anyWriteApproved ? (
-                                    <div className="p-3 rounded bg-amber-500/10 border border-amber-500/20">
-                                        <p className="text-xs text-amber-400 leading-relaxed"><span className="font-semibold">⚠</span> {t('settings_view.ai.tool_use_write_warning')}</p>
-                                    </div>
-                                ) : null;
-                            })()}
+                            <div className="p-3 rounded bg-amber-500/10 border border-amber-500/20">
+                                <p className="text-xs text-amber-400 leading-relaxed">
+                                    {t('settings_view.ai.tool_policy_warning', {
+                                        defaultValue: 'Dangerous commands are never silently approved. Passwords, sudo prompts, passphrases, and credentials must always be handled by the user.',
+                                    })}
+                                </p>
+                            </div>
                         </div>
                         )}
                     </div>

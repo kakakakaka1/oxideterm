@@ -148,16 +148,16 @@ describe('settingsStore', () => {
     });
     expect(settings.ai.activeProviderId).toBe(settings.ai.providers[0].id);
     expect(settings.ai.activeModel).toBe('custom-model');
-    expect(settings.ai.toolUse?.autoApproveTools.read_file).toBe(true);
     expect(settings.ai.toolUse?.autoApproveTools.list_targets).toBe(true);
-    expect(settings.ai.toolUse?.autoApproveTools.list_capabilities).toBe(true);
-    expect(settings.ai.toolUse?.autoApproveTools.terminal_exec).toBe(false);
+    expect(settings.ai.toolUse?.autoApproveTools.select_target).toBe(true);
+    expect(settings.ai.toolUse?.autoApproveTools.read_resource).toBe(true);
+    expect(settings.ai.toolUse?.autoApproveTools.run_command).toBe(false);
     expect(settings.ai.toolUse?.maxRounds).toBe(10);
 
     const persisted = JSON.parse(localStorage.getItem('oxide-settings-v2') || '{}');
     expect(persisted.ai.providers.length).toBeGreaterThan(0);
-    expect(persisted.ai.toolUse.autoApproveTools.read_file).toBe(true);
     expect(persisted.ai.toolUse.autoApproveTools.list_targets).toBe(true);
+    expect(persisted.ai.toolUse.autoApproveTools.run_command).toBe(false);
     expect(persisted.ai.toolUse.maxRounds).toBe(10);
   });
 
