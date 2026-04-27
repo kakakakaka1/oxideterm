@@ -38,7 +38,7 @@ vi.mock('@/store/settingsStore', () => ({
   },
 }));
 
-import { executeOrchestratorTool } from '@/lib/ai/orchestrator';
+import { executeOrchestratorTool, getOrchestratorToolDefs } from '@/lib/ai/orchestrator';
 
 describe('orchestrator executor target consistency', () => {
   beforeEach(() => {
@@ -76,5 +76,44 @@ describe('orchestrator executor target consistency', () => {
         args: { target_id: 'ssh-node:node-1' },
       }),
     ]));
+    expect(result.envelope?.meta.runtimeEpoch).toEqual(expect.any(String));
+    expect(result.envelope?.meta.verified).toBe(false);
+  });
+
+  it('forwards target view filters to list_targets', async () => {
+    listAiTargetsMock.mockResolvedValue([]);
+
+    await executeOrchestratorTool(
+      'list_targets',
+      { view: 'connections', query: 'prod' },
+      {},
+      'tool-2',
+    );
+
+    expect(listAiTargetsMock).toHaveBeenCalledWith({
+      query: 'prod',
+      kind: 'all',
+      view: 'connections',
+    });
+  });
+
+  it('defines required intent and enum resources for model-facing tools', () => {
+    const defs = getOrchestratorToolDefs();
+    const selectTarget = defs.find((def) => def.name === 'select_target')!;
+    const readResource = defs.find((def) => def.name === 'read_resource')!;
+    const writeResource = defs.find((def) => def.name === 'write_resource')!;
+
+    expect(selectTarget.parameters).toMatchObject({
+      required: ['query', 'intent'],
+    });
+    expect((selectTarget.parameters.properties as Record<string, unknown>).intent).toMatchObject({
+      enum: expect.arrayContaining(['connection', 'command', 'settings']),
+    });
+    expect((readResource.parameters.properties as Record<string, unknown>).resource).toMatchObject({
+      enum: ['settings', 'file', 'directory', 'sftp', 'ide', 'rag'],
+    });
+    expect((writeResource.parameters.properties as Record<string, unknown>).resource).toMatchObject({
+      enum: ['settings', 'file', 'directory', 'sftp', 'ide', 'rag'],
+    });
   });
 });

@@ -62,6 +62,9 @@ export interface ToolResultMeta {
   targetId?: string;
   durationMs: number;
   truncated?: boolean;
+  verified?: boolean;
+  runtimeEpoch?: string;
+  stateVersion?: string;
 }
 
 export type ToolNextAction = {

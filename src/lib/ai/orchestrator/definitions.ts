@@ -4,6 +4,11 @@
 import type { AiToolDefinition } from '../providers';
 import { ORCHESTRATOR_TOOL_NAMES, type AiActionRisk, type OrchestratorToolName } from './types';
 
+const TARGET_KIND_ENUM = ['all', 'saved-connection', 'ssh-node', 'terminal-session', 'local-shell', 'sftp-session', 'ide-workspace', 'settings', 'app-surface', 'rag-index'] as const;
+const TARGET_VIEW_ENUM = ['connections', 'live_sessions', 'app_surfaces', 'files', 'all'] as const;
+const TARGET_INTENT_ENUM = ['connection', 'command', 'terminal', 'settings', 'file', 'sftp', 'app_surface', 'status', 'local', 'unknown'] as const;
+const RESOURCE_KIND_ENUM = ['settings', 'file', 'directory', 'sftp', 'ide', 'rag'] as const;
+
 export const ORCHESTRATOR_READ_TOOLS = new Set<OrchestratorToolName>([
   'list_targets',
   'select_target',
@@ -45,15 +50,20 @@ export function orchestratorRiskForTool(name: string, args: Record<string, unkno
 export const ORCHESTRATOR_TOOL_DEFS: AiToolDefinition[] = [
   {
     name: 'list_targets',
-    description: 'List available OxideTerm targets. Use this for broad discovery questions like which remote hosts, saved connections, terminals, SFTP sessions, settings, or local shells are available.',
+    description: 'List available OxideTerm targets by view. Default view is connections for remote host discovery. Use view=all only for debugging or last-resort fallback.',
     parameters: {
       type: 'object',
       properties: {
+        view: {
+          type: 'string',
+          enum: TARGET_VIEW_ENUM,
+          description: 'Target view. Default: connections. Use connections for remote hosts; live_sessions for active shells/SFTP; app_surfaces for settings/UI; files for file-capable targets; all only for debug/fallback.',
+        },
         query: { type: 'string', description: 'Optional filter text. Leave empty for broad discovery.' },
         kind: {
           type: 'string',
-          enum: ['all', 'saved-connection', 'ssh-node', 'terminal-session', 'local-shell', 'sftp-session', 'ide-workspace', 'settings', 'app-surface', 'rag-index'],
-          description: 'Optional target kind filter. Default: all.',
+          enum: TARGET_KIND_ENUM,
+          description: 'Optional legacy/fine-grained target kind filter. Prefer view for normal discovery.',
         },
       },
     },
@@ -65,14 +75,18 @@ export const ORCHESTRATOR_TOOL_DEFS: AiToolDefinition[] = [
       type: 'object',
       properties: {
         query: { type: 'string', description: 'Specific target name, host, user, session label, tab, or settings area.' },
-        intent: { type: 'string', description: 'Intended operation such as connection, command, terminal, settings, file, sftp, local, or status.' },
+        intent: {
+          type: 'string',
+          enum: TARGET_INTENT_ENUM,
+          description: 'Required intended operation. This constrains the candidate pool so commands are not mistaken for targets.',
+        },
         kind: {
           type: 'string',
-          enum: ['all', 'saved-connection', 'ssh-node', 'terminal-session', 'local-shell', 'sftp-session', 'ide-workspace', 'settings', 'app-surface', 'rag-index'],
+          enum: TARGET_KIND_ENUM,
           description: 'Optional target kind filter.',
         },
       },
-      required: ['query'],
+      required: ['query', 'intent'],
     },
   },
   {
@@ -134,7 +148,7 @@ export const ORCHESTRATOR_TOOL_DEFS: AiToolDefinition[] = [
       type: 'object',
       properties: {
         target_id: { type: 'string', description: 'Target ID.' },
-        resource: { type: 'string', description: 'Resource kind: settings, file, directory, sftp, ide, rag.' },
+        resource: { type: 'string', enum: RESOURCE_KIND_ENUM, description: 'Resource kind.' },
         path: { type: 'string', description: 'File or directory path when applicable.' },
         section: { type: 'string', description: 'Settings section when resource=settings.' },
         query: { type: 'string', description: 'Search query for RAG or target-specific searches.' },
@@ -149,7 +163,7 @@ export const ORCHESTRATOR_TOOL_DEFS: AiToolDefinition[] = [
       type: 'object',
       properties: {
         target_id: { type: 'string', description: 'Target ID.' },
-        resource: { type: 'string', description: 'Resource kind: settings or file.' },
+        resource: { type: 'string', enum: RESOURCE_KIND_ENUM, description: 'Resource kind. Only settings and file are writable.' },
         section: { type: 'string', description: 'Settings section.' },
         key: { type: 'string', description: 'Settings key.' },
         value: { description: 'Settings value or structured resource value.' },
@@ -220,4 +234,3 @@ export const ORCHESTRATOR_TOOL_DEFS: AiToolDefinition[] = [
     },
   },
 ];
-

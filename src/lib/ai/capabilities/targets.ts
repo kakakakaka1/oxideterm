@@ -7,7 +7,7 @@ import { useIdeStore } from '../../../store/ideStore';
 import { useLocalTerminalStore } from '../../../store/localTerminalStore';
 import { useSessionTreeStore } from '../../../store/sessionTreeStore';
 import { getAllEntries, getTerminalReadiness } from '../../terminalRegistry';
-import type { AiTarget, AiTargetKind } from '../orchestrator/types';
+import type { AiTarget, AiTargetKind, AiTargetView } from '../orchestrator/types';
 
 function includesQuery(target: AiTarget, query: string): boolean {
   if (!query) return true;
@@ -21,9 +21,42 @@ function includesQuery(target: AiTarget, query: string): boolean {
   return haystack.includes(query.toLowerCase());
 }
 
-export async function listAiTargets(options: { query?: string; kind?: AiTargetKind | 'all' } = {}): Promise<AiTarget[]> {
+function targetInView(target: AiTarget, view: AiTargetView): boolean {
+  switch (view) {
+    case 'connections':
+      return target.kind === 'saved-connection' || target.kind === 'ssh-node';
+    case 'live_sessions':
+      return target.kind === 'terminal-session'
+        || target.kind === 'sftp-session'
+        || (target.kind === 'ssh-node' && target.state === 'connected');
+    case 'app_surfaces':
+      return target.kind === 'settings'
+        || target.kind === 'app-surface'
+        || target.kind === 'local-shell'
+        || target.kind === 'rag-index';
+    case 'files':
+      return target.kind === 'sftp-session'
+        || target.kind === 'ide-workspace'
+        || target.kind === 'rag-index'
+        || (target.kind === 'ssh-node' && target.capabilities.some((capability) => capability.startsWith('filesystem.')));
+    case 'all':
+    default:
+      return true;
+  }
+}
+
+function nodeTargetState(status: unknown, connected: boolean): AiTarget['state'] {
+  if (connected) return 'connected';
+  if (status === 'connecting') return 'opening';
+  if (status === 'link-down' || status === 'error' || status === 'failed') return 'stale';
+  if (status === 'disconnected') return 'unavailable';
+  return 'available';
+}
+
+export async function listAiTargets(options: { query?: string; kind?: AiTargetKind | 'all'; view?: AiTargetView } = {}): Promise<AiTarget[]> {
   const query = options.query?.trim() ?? '';
   const kind = options.kind ?? 'all';
+  const view = options.view ?? 'connections';
   const targets: AiTarget[] = [];
 
   try {
@@ -67,14 +100,14 @@ export async function listAiTargets(options: { query?: string; kind?: AiTargetKi
   }
 
   for (const node of useSessionTreeStore.getState().nodes) {
-    const connected = node.runtime?.status === 'connected' || node.runtime?.status === 'active';
-    if (node.runtime?.connectionId || connected) {
+      const connected = node.runtime?.status === 'connected' || node.runtime?.status === 'active';
+      if (node.runtime?.connectionId || connected) {
       const host = typeof node.host === 'string' ? node.host : node.id;
       targets.push({
         id: `ssh-node:${node.id}`,
         kind: 'ssh-node',
         label: `${node.username ? `${node.username}@` : ''}${host}${node.port ? `:${node.port}` : ''}`,
-        state: connected ? 'connected' : 'available',
+        state: nodeTargetState(node.runtime?.status, connected),
         capabilities: ['command.run', 'filesystem.read', 'filesystem.write', 'state.list', 'navigation.open'],
         refs: {
           nodeId: node.id,
@@ -176,11 +209,12 @@ export async function listAiTargets(options: { query?: string; kind?: AiTargetKi
   const deduped = [...new Map(targets.map((target) => [target.id, target])).values()];
   return deduped.filter((target) => (
     (kind === 'all' || target.kind === kind)
+    && targetInView(target, view)
     && includesQuery(target, query)
   ));
 }
 
 export async function getAiTarget(targetId: string): Promise<AiTarget | null> {
-  const targets = await listAiTargets();
+  const targets = await listAiTargets({ view: 'all' });
   return targets.find((target) => target.id === targetId) ?? null;
 }

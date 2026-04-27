@@ -13,7 +13,7 @@ import {
   transferResource,
   writeResource,
 } from '../capabilities/resources';
-import type { AiActionResult, AiTarget, OrchestratorToolContext, OrchestratorToolName } from './types';
+import type { AiActionResult, AiResourceKind, AiTarget, AiTargetView, OrchestratorToolContext, OrchestratorToolName } from './types';
 import { actionResultToToolResult, failAction } from './result';
 import { isOrchestratorToolName, ORCHESTRATOR_TOOL_DEFS } from './definitions';
 import { useSettingsStore } from '../../../store/settingsStore';
@@ -31,6 +31,22 @@ function boolArg(args: Record<string, unknown>, key: string): boolean | undefine
 function numberArg(args: Record<string, unknown>, key: string): number | undefined {
   const value = args[key];
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function targetViewArg(args: Record<string, unknown>): AiTargetView | undefined {
+  const value = stringArg(args, 'view');
+  if (value === 'connections' || value === 'live_sessions' || value === 'app_surfaces' || value === 'files' || value === 'all') {
+    return value;
+  }
+  return undefined;
+}
+
+function resourceArg(args: Record<string, unknown>): AiResourceKind | undefined {
+  const value = stringArg(args, 'resource');
+  if (value === 'settings' || value === 'file' || value === 'directory' || value === 'sftp' || value === 'ide' || value === 'rag') {
+    return value;
+  }
+  return undefined;
 }
 
 function recoveryActionsForTarget(target: AiTarget): AiActionResult['nextActions'] {
@@ -89,6 +105,7 @@ async function executeAction(name: OrchestratorToolName, args: Record<string, un
       const targets = await listAiTargets({
         query: stringArg(args, 'query'),
         kind: (stringArg(args, 'kind') ?? 'all') as never,
+        view: targetViewArg(args),
       });
       return {
         ok: true,
@@ -149,7 +166,7 @@ async function executeAction(name: OrchestratorToolName, args: Record<string, un
       if (error) return error;
       return readResource({
         target: target!,
-        resource: stringArg(args, 'resource') ?? '',
+        resource: resourceArg(args) ?? '' as AiResourceKind,
         path: stringArg(args, 'path'),
         section: stringArg(args, 'section'),
         query: stringArg(args, 'query'),
@@ -163,7 +180,7 @@ async function executeAction(name: OrchestratorToolName, args: Record<string, un
       if (error) return error;
       return writeResource({
         target: target!,
-        resource: stringArg(args, 'resource') ?? '',
+        resource: resourceArg(args) ?? '' as AiResourceKind,
         section: stringArg(args, 'section'),
         key: stringArg(args, 'key'),
         value: args.value,

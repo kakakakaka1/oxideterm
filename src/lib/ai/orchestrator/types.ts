@@ -12,6 +12,22 @@ export type AiTargetKind =
   | 'app-surface'
   | 'rag-index';
 
+export type AiTargetView = 'connections' | 'live_sessions' | 'app_surfaces' | 'files' | 'all';
+
+export type AiTargetIntent =
+  | 'connection'
+  | 'command'
+  | 'terminal'
+  | 'settings'
+  | 'file'
+  | 'sftp'
+  | 'app_surface'
+  | 'status'
+  | 'local'
+  | 'unknown';
+
+export type AiResourceKind = 'settings' | 'file' | 'directory' | 'sftp' | 'ide' | 'rag';
+
 export type AiTargetState = 'available' | 'connected' | 'opening' | 'stale' | 'unavailable';
 
 export type AiActionRisk =
@@ -46,6 +62,15 @@ export type AiActionNextAction = {
 export type AiActionResult<T = unknown> = {
   ok: boolean;
   summary: string;
+  /**
+   * True when the result came from current runtime state or a completed action.
+   * False for dry-runs, recoverable errors, unsupported branches, or fallback-only observations.
+   */
+  verified?: boolean;
+  /** Frontend runtime epoch. Changes after WebView reload, making stale transcript facts visible to the model. */
+  runtimeEpoch?: string;
+  /** Optional lightweight state version for store snapshots. */
+  stateVersion?: string;
   data?: T;
   target?: AiTarget;
   targets?: AiTarget[];
@@ -85,4 +110,3 @@ export const ORCHESTRATOR_TOOL_NAMES = [
 ] as const;
 
 export type OrchestratorToolName = typeof ORCHESTRATOR_TOOL_NAMES[number];
-

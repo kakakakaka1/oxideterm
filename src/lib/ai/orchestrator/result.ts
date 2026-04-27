@@ -5,6 +5,7 @@ import type { AiToolResult } from '../../../types';
 import type { ToolCapability, ToolResultEnvelope } from '../tools/protocol';
 import { createToolResultEnvelope } from '../tools/protocol';
 import type { AiActionResult, AiActionRisk, AiTarget } from './types';
+import { getAiRuntimeEpoch } from './runtimeEpoch';
 
 const MODEL_OUTPUT_MAX_CHARS = 12000;
 
@@ -53,6 +54,8 @@ export function actionResultToToolResult(
 ): AiToolResult {
   const rawOutput = result.output ?? result.summary;
   const output = truncate(rawOutput);
+  const runtimeEpoch = result.runtimeEpoch ?? getAiRuntimeEpoch();
+  const verified = result.verified ?? (result.ok && !result.error);
   const targets = [
     ...(result.target ? [result.target] : []),
     ...(result.targets ?? []),
@@ -77,6 +80,9 @@ export function actionResultToToolResult(
     })),
     durationMs,
     truncated: output.truncated,
+    verified,
+    runtimeEpoch,
+    stateVersion: result.stateVersion,
   });
 
   return {
@@ -112,4 +118,3 @@ export function failAction(
     },
   };
 }
-

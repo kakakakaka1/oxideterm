@@ -43,6 +43,9 @@ export function createToolResultEnvelope<TData = unknown>(input: {
   targetId?: string;
   durationMs?: number;
   truncated?: boolean;
+  verified?: boolean;
+  runtimeEpoch?: string;
+  stateVersion?: string;
 }): ToolResultEnvelope<TData> {
   return {
     ok: input.ok,
@@ -63,6 +66,9 @@ export function createToolResultEnvelope<TData = unknown>(input: {
       ...(input.targetId ? { targetId: input.targetId } : {}),
       durationMs: input.durationMs ?? DEFAULT_DURATION_MS,
       ...(input.truncated !== undefined ? { truncated: input.truncated } : {}),
+      ...(input.verified !== undefined ? { verified: input.verified } : {}),
+      ...(input.runtimeEpoch ? { runtimeEpoch: input.runtimeEpoch } : {}),
+      ...(input.stateVersion ? { stateVersion: input.stateVersion } : {}),
     },
   };
 }
