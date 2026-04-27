@@ -5,6 +5,7 @@ const apiMocks = vi.hoisted(() => ({
   getSessionTree: vi.fn(),
   getTreeNodePath: vi.fn(),
   updateTreeNodeState: vi.fn(),
+  disconnectTreeNode: vi.fn(),
   closeTerminal: vi.fn(),
   createTerminal: vi.fn(),
   setTreeNodeTerminal: vi.fn(),
@@ -71,6 +72,20 @@ const appStoreMock = vi.hoisted(() => {
   };
 });
 
+const reconnectOrchestratorMock = vi.hoisted(() => ({
+  scheduleReconnect: vi.fn(),
+  cancel: vi.fn(),
+}));
+
+const eventLogMock = vi.hoisted(() => ({
+  addEvent: vi.fn(),
+  addEntry: vi.fn(),
+}));
+
+const topologyResolverMock = vi.hoisted(() => ({
+  unregister: vi.fn(),
+}));
+
 vi.mock('@/lib/api', () => ({
   api: apiMocks,
   nodeSftpInit: vi.fn(),
@@ -86,6 +101,10 @@ vi.mock('@/store/settingsStore', () => ({
 
 vi.mock('@/store/appStore', () => ({
   useAppStore: appStoreMock.store,
+  tabReferencesAnySession: (
+    tab: { sessionId?: string },
+    sessionIds: ReadonlySet<string>,
+  ) => Boolean(tab.sessionId && sessionIds.has(tab.sessionId)),
   removeConnectionsById: (connections: ReadonlyMap<string, Record<string, unknown>>, connectionIds: Iterable<string>) => {
     const next = new Map(connections);
     for (const connectionId of connectionIds) {
@@ -160,18 +179,18 @@ vi.mock('@/store/appStore', () => ({
 
 vi.mock('@/store/reconnectOrchestratorStore', () => ({
   useReconnectOrchestratorStore: {
-    getState: () => ({ scheduleReconnect: vi.fn() }),
+    getState: () => reconnectOrchestratorMock,
   },
 }));
 
 vi.mock('@/store/eventLogStore', () => ({
   useEventLogStore: {
-    getState: () => ({ addEvent: vi.fn() }),
+    getState: () => eventLogMock,
   },
 }));
 
 vi.mock('@/lib/topologyResolver', () => ({
-  topologyResolver: {},
+  topologyResolver: topologyResolverMock,
 }));
 
 import { useSessionTreeStore } from '@/store/sessionTreeStore';
@@ -236,7 +255,7 @@ describe('sessionTreeStore', () => {
     appStoreMock.state.connections = new Map();
     appStoreMock.state.tabs = [];
     appStoreMock.state.createTab = vi.fn();
-    appStoreMock.state.closeTab = vi.fn();
+    appStoreMock.state.closeTab = vi.fn().mockResolvedValue(undefined);
     appStoreMock.state.refreshConnections = vi.fn().mockResolvedValue(undefined);
   });
 
@@ -418,6 +437,39 @@ describe('sessionTreeStore', () => {
     expect(useSessionTreeStore.getState().reconnectProgress.size).toBe(0);
     expect(useSessionTreeStore.getState().getRawNode('node-1')?.state.status).toBe('pending');
     expect(useSessionTreeStore.getState().getRawNode('node-1')?.sshConnectionId).toBeNull();
+  });
+
+  it('disconnectNode closes node-scoped tabs even when the node has no terminal session', async () => {
+    const node = makeNode({
+      id: 'node-1',
+      state: { status: 'connected' },
+      sshConnectionId: 'conn-1',
+    });
+
+    useSessionTreeStore.setState({
+      rawNodes: [node],
+      nodeTerminalMap: new Map(),
+      terminalNodeMap: new Map(),
+    });
+    useSessionTreeStore.getState().rebuildUnifiedNodes();
+
+    appStoreMock.state.tabs = [
+      { id: 'sftp-tab', type: 'sftp', nodeId: 'node-1' },
+      { id: 'forwards-tab', type: 'forwards', nodeId: 'node-1' },
+      { id: 'other-tab', type: 'sftp', nodeId: 'other-node' },
+    ];
+    appStoreMock.state.connections = new Map([['conn-1', { id: 'conn-1' }]]);
+    apiMocks.disconnectTreeNode.mockResolvedValue(undefined);
+    apiMocks.getSessionTree.mockResolvedValue([
+      makeNode({ id: 'node-1', state: { status: 'pending' } }),
+    ]);
+
+    await useSessionTreeStore.getState().disconnectNode('node-1');
+
+    expect(appStoreMock.state.closeTab).toHaveBeenCalledWith('sftp-tab');
+    expect(appStoreMock.state.closeTab).toHaveBeenCalledWith('forwards-tab');
+    expect(appStoreMock.state.closeTab).not.toHaveBeenCalledWith('other-tab');
+    expect(apiMocks.disconnectTreeNode).toHaveBeenCalledWith('node-1');
   });
 
   it('createTerminalForNode upserts the connection locally before binding the terminal to the node', async () => {

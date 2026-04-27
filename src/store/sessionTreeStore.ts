@@ -837,18 +837,18 @@ export const useSessionTreeStore = create<SessionTreeStore>()(
       }
       
       // 4. 关闭 appStore 中的相关 Tab
-      if (sessionIdsToClose.length > 0) {
-        const { tabReferencesAnySession, useAppStore } = await import('./appStore');
-        const appStore = useAppStore.getState();
-        const sessionIdSet = new Set(sessionIdsToClose);
-        const affectedNodeIdSet = new Set(allAffectedNodes.map((n) => n.id));
-        const tabsToClose = appStore.tabs.filter((tab) =>
-          tabReferencesAnySession(tab, sessionIdSet) ||
-          (!!tab.nodeId && affectedNodeIdSet.has(tab.nodeId))
-        );
-        for (const tab of tabsToClose) {
-          appStore.closeTab(tab.id);
-        }
+      // Node-scoped tabs (SFTP/IDE/Forwards) may not have any terminal session.
+      // Always close by affected nodeId as well as legacy session references.
+      const { tabReferencesAnySession, useAppStore } = await import('./appStore');
+      const appStore = useAppStore.getState();
+      const sessionIdSet = new Set(sessionIdsToClose);
+      const affectedNodeIdSet = new Set(allAffectedNodes.map((n) => n.id));
+      const tabsToClose = appStore.tabs.filter((tab) =>
+        tabReferencesAnySession(tab, sessionIdSet) ||
+        (!!tab.nodeId && affectedNodeIdSet.has(tab.nodeId))
+      );
+      if (tabsToClose.length > 0) {
+        await Promise.all(tabsToClose.map((tab) => appStore.closeTab(tab.id)));
       }
       
       // 5. 标记所有子节点为 link-down（表示链路断开，需要父节点先恢复才能连接）
@@ -1547,11 +1547,6 @@ export const useSessionTreeStore = create<SessionTreeStore>()(
       }
       
       // Node-first: 通过 nodeId 直接初始化 SFTP，后端自动路由到正确的 ConnectionEntry
-      const terminalIds = get().getTerminalsForNode(nodeId);
-      if (terminalIds.length === 0) {
-        throw new Error('No terminal session found for SFTP initialization');
-      }
-      
       try {
         const sftpCwd = await nodeSftpInit(nodeId);
         
@@ -1561,8 +1556,7 @@ export const useSessionTreeStore = create<SessionTreeStore>()(
         // 刷新树
         await get().fetchTree();
         
-        // Return the first terminal sessionId for tab creation compatibility
-        return terminalIds[0];
+        return nodeId;
       } catch (err) {
         console.error(`[openSftpForNode] Failed for node ${nodeId}:`, err);
         return null;
