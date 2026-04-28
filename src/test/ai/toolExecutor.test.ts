@@ -25,6 +25,12 @@ const settingsState = vi.hoisted(() => ({
           transport: 'stdio',
           command: 'npx',
           args: ['-y', '@modelcontextprotocol/server-filesystem', '--api-key=secret-inline', '--token', 'secret-following'],
+          authHeaderName: 'X-API-Key',
+          authHeaderMode: 'raw',
+          headers: {
+            'X-Workspace': 'prod',
+            'X-Trace-Token': 'secret-header',
+          } as Record<string, string>,
           env: {
             API_TOKEN: 'super-secret',
             DEBUG: '1',
@@ -329,10 +335,16 @@ describe('toolExecutor get_settings sanitization', () => {
         name: 'ops',
         transport: 'stdio',
         command: 'npx',
+        authHeaderName: 'X-API-Key',
+        authHeaderMode: 'raw',
         args: ['-y', '@modelcontextprotocol/server-filesystem', '--api-key=[redacted]', '--token', '[redacted]'],
         env: {
           API_TOKEN: '[redacted]',
           DEBUG: '[redacted]',
+        },
+        headers: {
+          'X-Workspace': '[redacted]',
+          'X-Trace-Token': '[redacted]',
         },
         enabled: true,
         retryOnDisconnect: false,

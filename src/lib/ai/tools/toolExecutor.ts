@@ -3815,6 +3815,7 @@ function execGetSettings(args: Record<string, unknown>, startTime: number, toolC
     const mcpServers = Array.isArray(raw.mcpServers)
       ? (raw.mcpServers as Array<Record<string, unknown>>).map((server) => {
           const env = redactEnvValues(server.env);
+          const headers = redactEnvValues(server.headers);
           const args = redactSensitiveArgs(server.args);
           return {
             id: server.id,
@@ -3822,10 +3823,13 @@ function execGetSettings(args: Record<string, unknown>, startTime: number, toolC
             transport: server.transport,
             url: server.url,
             command: server.command,
+            authHeaderName: server.authHeaderName,
+            authHeaderMode: server.authHeaderMode,
             ...(args !== undefined ? { args } : {}),
             enabled: server.enabled,
             retryOnDisconnect: server.retryOnDisconnect,
             ...(env !== undefined ? { env } : {}),
+            ...(headers !== undefined ? { headers } : {}),
             ...(typeof server.authToken === 'string' && server.authToken.length > 0
               ? { hasLegacyAuthToken: true }
               : {}),
