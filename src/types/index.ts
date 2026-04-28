@@ -1551,6 +1551,8 @@ export interface AiChatMessage {
   content: string;
   /** Unix timestamp (ms) */
   timestamp: number;
+  /** Model that produced this assistant message */
+  model?: string;
   /** Terminal context attached to this message */
   context?: string;
   /** Whether the message is being streamed */

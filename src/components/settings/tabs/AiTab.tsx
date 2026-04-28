@@ -134,6 +134,7 @@ export const AiTab = ({
     const [collapsedContextProviders, setCollapsedContextProviders] = useState<Record<string, boolean>>({});
     const [modelReasoningExpanded, setModelReasoningExpanded] = useState(false);
     const [collapsedReasoningProviders, setCollapsedReasoningProviders] = useState<Record<string, boolean>>({});
+    const [providerSettingsExpanded, setProviderSettingsExpanded] = useState(true);
     const [expandedProviders, setExpandedProviders] = useState<Record<string, boolean>>({});
     const [expandedProviderModels, setExpandedProviderModels] = useState<Record<string, boolean>>({});
     const [toolUseExpanded, setToolUseExpanded] = useState(true);
@@ -206,9 +207,24 @@ export const AiTab = ({
                     <Separator className="my-6 opacity-50" />
 
                     <div className={ai.enabled ? '' : 'opacity-50 pointer-events-none'}>
-                        <h4 className="text-sm font-medium text-theme-text mb-4 uppercase tracking-wider">{t('settings_view.ai.provider_settings')}</h4>
+                        <button
+                            type="button"
+                            className="mb-4 flex w-full max-w-3xl items-center justify-between gap-3 rounded-md px-1 py-1 text-left text-theme-text-muted hover:bg-theme-bg-hover/40 hover:text-theme-text transition-colors"
+                            onClick={() => setProviderSettingsExpanded((current) => !current)}
+                            aria-expanded={providerSettingsExpanded}
+                        >
+                            <div>
+                                <h4 className="text-sm font-medium text-theme-text uppercase tracking-wider">{t('settings_view.ai.provider_settings')}</h4>
+                                <p className="mt-1 text-xs text-theme-text-muted">
+                                    {t('settings_view.ai.provider_settings_summary', { count: ai.providers.length })}
+                                </p>
+                            </div>
+                            {providerSettingsExpanded
+                                ? <ChevronDown className="mt-0.5 h-4 w-4 shrink-0" />
+                                : <ChevronRight className="mt-0.5 h-4 w-4 shrink-0" />}
+                        </button>
 
-                        <div className="space-y-3 max-w-3xl mb-6">
+                        {providerSettingsExpanded && <div className="space-y-3 max-w-3xl mb-6">
                             {ai.providers.map((provider) => {
                                 const isActiveProvider = provider.id === ai.activeProviderId;
                                 const isExpanded = expandedProviders[provider.id] ?? isActiveProvider;
@@ -357,6 +373,21 @@ export const AiTab = ({
 
                                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
                                                 <div className="grid gap-1">
+                                                    <Label className="text-xs text-theme-text-muted">{t('settings_view.ai.provider_name')}</Label>
+                                                    <Input
+                                                        value={provider.name}
+                                                        onChange={(event) => updateProvider(provider.id, { name: event.target.value })}
+                                                        onBlur={(event) => {
+                                                            const trimmedName = event.target.value.trim();
+                                                            if (trimmedName && trimmedName !== provider.name) {
+                                                                updateProvider(provider.id, { name: trimmedName });
+                                                            }
+                                                        }}
+                                                        className="bg-theme-bg h-8 text-xs"
+                                                        placeholder={t('settings_view.ai.provider_name')}
+                                                    />
+                                                </div>
+                                                <div className="grid gap-1">
                                                     <Label className="text-xs text-theme-text-muted">{t('settings_view.ai.base_url')}</Label>
                                                     <Input
                                                         value={provider.baseUrl}
@@ -446,9 +477,9 @@ export const AiTab = ({
                                 </div>
                                 );
                             })}
-                        </div>
+                        </div>}
 
-                        <div className="mb-6 flex flex-wrap items-end gap-3">
+                        {providerSettingsExpanded && <div className="mb-6 flex flex-wrap items-end gap-3">
                             <div className="grid gap-1">
                                 <Label className="text-xs text-theme-text-muted">{t('settings_view.ai.provider_template')}</Label>
                                 <Select value={newProviderType} onValueChange={(value) => setNewProviderType(value as AiProviderType)}>
@@ -483,7 +514,7 @@ export const AiTab = ({
                             >
                                 + {t('settings_view.ai.add_provider')}
                             </Button>
-                        </div>
+                        </div>}
 
                         <Separator className="my-6 opacity-50" />
 
@@ -650,7 +681,7 @@ export const AiTab = ({
                             ) : (
                                 <div className="space-y-4">
                                     {ai.providers.filter((provider) => provider.models.length > 0).map((provider) => {
-                                        const providerCollapsed = collapsedReasoningProviders[provider.id] === true;
+                                        const providerCollapsed = collapsedReasoningProviders[provider.id] ?? true;
                                         const overrideCount = provider.models.filter((model) => !!ai.reasoningModelOverrides?.[provider.id]?.[model]).length;
 
                                         return (
@@ -660,7 +691,7 @@ export const AiTab = ({
                                                     className="mb-1 flex w-full items-center justify-between gap-3 rounded px-1 py-1 text-left text-theme-text-muted hover:bg-theme-bg-hover/40 hover:text-theme-text transition-colors"
                                                     onClick={() => setCollapsedReasoningProviders((current) => ({
                                                         ...current,
-                                                        [provider.id]: !current[provider.id],
+                                                        [provider.id]: !(current[provider.id] ?? true),
                                                     }))}
                                                     aria-expanded={!providerCollapsed}
                                                 >
@@ -763,7 +794,7 @@ export const AiTab = ({
                             ) : (
                                 <div className="space-y-4 max-w-3xl">
                                     {ai.providers.filter((provider) => provider.models.length > 0).map((provider) => {
-                                        const providerCollapsed = collapsedContextProviders[provider.id] === true;
+                                        const providerCollapsed = collapsedContextProviders[provider.id] ?? true;
                                         const userOverrideCount = provider.models.filter((model) => !!ai.userContextWindows?.[provider.id]?.[model]).length;
 
                                         return (
@@ -773,7 +804,7 @@ export const AiTab = ({
                                                 className="mb-1 flex w-full items-center justify-between gap-3 rounded px-1 py-1 text-left text-theme-text-muted hover:bg-theme-bg-hover/40 hover:text-theme-text transition-colors"
                                                 onClick={() => setCollapsedContextProviders((current) => ({
                                                     ...current,
-                                                    [provider.id]: !current[provider.id],
+                                                    [provider.id]: !(current[provider.id] ?? true),
                                                 }))}
                                                 aria-expanded={!providerCollapsed}
                                             >

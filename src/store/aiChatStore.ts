@@ -371,6 +371,7 @@ function buildPersistedMessageRequest(
       ? encodeAnchorContent(normalizedMessage.content, normalizedMessage.metadata)
       : normalizedMessage.content,
     timestamp: normalizedMessage.timestamp,
+    model: normalizedMessage.model,
     projectionUpdatedAt: nextProjectionPersistAt(),
     toolCalls: normalizedMessage.toolCalls || [],
     contextSnapshot,
@@ -1304,6 +1305,7 @@ export const useAiChatStore = create<AiChatStore>()((set, get) => ({
       role: 'assistant',
       content: '',
       timestamp: Date.now(),
+      model: providerModel,
       isStreaming: true,
     };
     const conversationTurnId = generateId();
