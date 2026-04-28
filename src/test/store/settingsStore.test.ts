@@ -214,6 +214,22 @@ describe('settingsStore', () => {
     expect(localStorage.getItem('oxide-ui-state')).toBeNull();
   });
 
+  it('defaults prerelease builds to the beta update channel', async () => {
+    const useSettingsStore = await loadSettingsStore();
+
+    expect(useSettingsStore.getState().settings.general.updateChannel).toBe('beta');
+  });
+
+  it('preserves an explicitly selected stable update channel', async () => {
+    localStorage.setItem('oxide-settings-v2', JSON.stringify(buildSavedSettings({
+      general: { language: 'en', updateChannel: 'stable' },
+    })));
+
+    const useSettingsStore = await loadSettingsStore();
+
+    expect(useSettingsStore.getState().settings.general.updateChannel).toBe('stable');
+  });
+
   it('uses derived backend hot-buffer defaults', async () => {
     const useSettingsStore = await loadSettingsStore();
 

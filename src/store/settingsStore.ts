@@ -25,6 +25,7 @@ import { platform } from '../lib/platform';
 import { sanitizeHighlightRules } from '../lib/terminal/highlightPattern';
 import type { HighlightRule } from '../types';
 import type { AiReasoningEffort } from '../lib/ai/providers';
+import packageJson from '../../package.json';
 
 // ============================================================================
 // Constants
@@ -58,6 +59,14 @@ const IN_BAND_TRANSFER_TOTAL_BYTES_MAX = 100 * 1024 * 1024 * 1024;
 export const DEFAULT_AI_TOOL_MAX_ROUNDS = 10;
 export const MIN_AI_TOOL_MAX_ROUNDS = 1;
 export const MAX_AI_TOOL_MAX_ROUNDS = 30;
+
+function isPrereleaseVersion(version: string | undefined): boolean {
+  return /-(?:alpha|beta|rc|pre|preview)(?:[.-]|$)/i.test(version ?? '');
+}
+
+function getDefaultUpdateChannel(): UpdateChannel {
+  return isPrereleaseVersion(packageJson.version) ? 'beta' : 'stable';
+}
 
 function clampTerminalScrollback(scrollback: number): number {
   if (!Number.isFinite(scrollback)) {
@@ -443,7 +452,7 @@ const isWindows = platform.isWindows;
 
 const defaultGeneralSettings: GeneralSettings = {
   language: 'zh-CN',  // Default to Chinese
-  updateChannel: 'stable',
+  updateChannel: getDefaultUpdateChannel(),
 };
 
 const defaultTerminalSettings: TerminalSettings = {
@@ -726,7 +735,11 @@ function mergeWithDefaults(saved: OxidePartialSettingsSnapshot | Partial<Persist
   const defaults = createDefaultSettings();
   return normalizeHistorySettings({
     version: 2,
-    general: { ...defaults.general, ...saved.general },
+    general: {
+      ...defaults.general,
+      ...saved.general,
+      updateChannel: saved.general?.updateChannel ?? defaults.general.updateChannel,
+    },
     terminal: { ...defaults.terminal, ...saved.terminal },
     buffer: { ...defaults.buffer, ...saved.buffer },
     appearance: { ...defaults.appearance, ...saved.appearance },
