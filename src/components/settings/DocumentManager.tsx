@@ -9,7 +9,7 @@
  * and rebuild BM25 indexes.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { open } from '@tauri-apps/plugin-dialog';
 import { readTextFile, stat } from '@tauri-apps/plugin-fs';
@@ -79,7 +79,11 @@ function scopeLabel(scope: RagCollection['scope'], t: (key: string) => string): 
 // Main Component
 // ═══════════════════════════════════════════════════════════════════════════
 
-export function DocumentManager() {
+type DocumentManagerProps = {
+  embeddingConfigSection?: ReactNode;
+};
+
+export function DocumentManager({ embeddingConfigSection }: DocumentManagerProps = {}) {
   const { t } = useTranslation();
   const { error: toastError, success: toastSuccess } = useToast();
   const {
@@ -402,6 +406,8 @@ export function DocumentManager() {
         </p>
       </div>
       <Separator />
+
+      {embeddingConfigSection}
 
       {/* Error Toast */}
       {error && (

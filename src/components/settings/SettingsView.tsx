@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/dialog';
 import { BookOpen, Code2, HardDrive, HelpCircle, Key, Keyboard, Monitor, Shield, Sparkles, Square, Terminal as TerminalIcon, WifiOff } from 'lucide-react';
 import { DocumentManager } from '@/components/settings/DocumentManager';
+import { EmbeddingConfigSection } from '@/components/settings/EmbeddingConfigSection';
 import { KeybindingEditorSection } from '@/components/settings/KeybindingEditorSection';
 import { useToast } from '@/hooks/useToast';
 import { useConfirm } from '@/hooks/useConfirm';
@@ -255,7 +256,9 @@ export const SettingsView = () => {
                     )}
 
                     {activeTab === 'knowledge' && (
-                        <DocumentManager />
+                        <DocumentManager
+                            embeddingConfigSection={<EmbeddingConfigSection ai={ai} updateAi={updateAi} />}
+                        />
                     )}
 
                     {activeTab === 'local' && (
