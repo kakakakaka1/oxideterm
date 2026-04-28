@@ -114,6 +114,9 @@
       "offline": "離線",
       "manage_providers": "管理供應商",
       "no_provider": "未設定供應商",
+      "search_placeholder": "搜尋模型...",
+      "clear_search": "清空搜尋",
+      "no_search_results": "沒有符合的模型",
       "refresh_models": "重新整理",
       "api_key_not_found": "未找到 API 金鑰。請在設定 > AI 中配置。",
       "failed_to_get_api_key": "獲取 API 金鑰失敗。"

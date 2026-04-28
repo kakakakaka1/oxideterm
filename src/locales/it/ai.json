@@ -114,6 +114,9 @@
       "offline": "Offline",
       "manage_providers": "Gestisci provider",
       "no_provider": "Nessun provider configurato",
+      "search_placeholder": "Cerca modelli...",
+      "clear_search": "Cancella ricerca",
+      "no_search_results": "Nessun modello corrispondente",
       "refresh_models": "Aggiorna",
       "api_key_not_found": "Chiave API non trovata. Configurala in Impostazioni > IA.",
       "failed_to_get_api_key": "Impossibile recuperare la chiave API."

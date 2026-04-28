@@ -114,6 +114,9 @@
       "offline": "Offline",
       "manage_providers": "Manage Providers",
       "no_provider": "No provider configured",
+      "search_placeholder": "Search models...",
+      "clear_search": "Clear search",
+      "no_search_results": "No matching models",
       "refresh_models": "Refresh",
       "api_key_not_found": "API key not found. Please configure it in Settings > AI.",
       "failed_to_get_api_key": "Failed to get API key."

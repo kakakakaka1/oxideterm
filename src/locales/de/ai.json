@@ -114,6 +114,9 @@
       "offline": "Offline",
       "manage_providers": "Anbieter verwalten",
       "no_provider": "Kein Anbieter konfiguriert",
+      "search_placeholder": "Modelle suchen...",
+      "clear_search": "Suche löschen",
+      "no_search_results": "Keine passenden Modelle",
       "refresh_models": "Aktualisieren",
       "api_key_not_found": "API-Schlüssel nicht gefunden. Bitte konfigurieren Sie ihn in Einstellungen > KI.",
       "failed_to_get_api_key": "API-Schlüssel konnte nicht abgerufen werden."

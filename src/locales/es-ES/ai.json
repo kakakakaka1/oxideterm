@@ -114,6 +114,9 @@
       "offline": "Sin conexión",
       "manage_providers": "Gestionar proveedores",
       "no_provider": "Ningún proveedor configurado",
+      "search_placeholder": "Buscar modelos...",
+      "clear_search": "Borrar búsqueda",
+      "no_search_results": "No hay modelos coincidentes",
       "refresh_models": "Actualizar",
       "api_key_not_found": "Clave API no encontrada. Configúraela en Configuración > IA.",
       "failed_to_get_api_key": "Error al obtener la clave API."

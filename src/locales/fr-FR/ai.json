@@ -114,6 +114,9 @@
       "offline": "Hors ligne",
       "manage_providers": "Gérer les fournisseurs",
       "no_provider": "Aucun fournisseur configuré",
+      "search_placeholder": "Rechercher des modèles...",
+      "clear_search": "Effacer la recherche",
+      "no_search_results": "Aucun modèle correspondant",
       "refresh_models": "Actualiser",
       "api_key_not_found": "Clé API introuvable. Veuillez la configurer dans Paramètres > IA.",
       "failed_to_get_api_key": "Échec de la récupération de la clé API."

@@ -114,6 +114,9 @@
       "offline": "Ngoại tuyến",
       "manage_providers": "Quản lý nhà cung cấp",
       "no_provider": "Chưa cấu hình nhà cung cấp",
+      "search_placeholder": "Tìm kiếm mô hình...",
+      "clear_search": "Xóa tìm kiếm",
+      "no_search_results": "Không có mô hình phù hợp",
       "refresh_models": "Làm mới",
       "api_key_not_found": "Không tìm thấy khóa API. Vui lòng cấu hình trong Cài đặt > AI.",
       "failed_to_get_api_key": "Không thể lấy khóa API."
