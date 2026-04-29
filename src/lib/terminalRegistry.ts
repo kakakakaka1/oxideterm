@@ -15,11 +15,14 @@
  */
 
 import type { ScreenSnapshot } from '@/types';
+import type { TerminalCommandMarkRequest } from '@/lib/terminal/commandMarks';
+import { cleanupTerminalCommandMarks } from '@/lib/terminal/commandMarks';
 
 type BufferGetter = () => string;
 type SelectionGetter = () => string;
 type TerminalWriter = (data: string) => void;
 type ScreenReader = () => ScreenSnapshot | null;
+type CommandMarkCreator = (request: TerminalCommandMarkRequest) => void;
 
 interface TerminalEntry {
   getter: BufferGetter;
@@ -34,6 +37,7 @@ interface TerminalEntry {
   cwd?: string;
   /** Host part captured from OSC 7 file://host/path, if provided by the shell */
   cwdHost?: string;
+  commandMarkCreator?: CommandMarkCreator;
 }
 
 // Registry now uses paneId as key (supports split panes)
@@ -292,6 +296,7 @@ export function registerTerminalBuffer(
 export function unregisterTerminalBuffer(paneId: string): void {
   const removedEntry = registry.get(paneId);
   registry.delete(paneId);
+  cleanupTerminalCommandMarks(paneId);
   
   // Clear activePaneId if it was the unregistered one
   if (activePaneId === paneId) {
@@ -315,6 +320,25 @@ export function unregisterTerminalBuffer(paneId: string): void {
       renderBufferReady: false,
     });
   }
+}
+
+export function registerTerminalCommandMarkCreator(paneId: string, creator: CommandMarkCreator): void {
+  const entry = registry.get(paneId);
+  if (entry) {
+    entry.commandMarkCreator = creator;
+  }
+}
+
+export function unregisterTerminalCommandMarkCreator(paneId: string): void {
+  const entry = registry.get(paneId);
+  if (entry) {
+    entry.commandMarkCreator = undefined;
+  }
+}
+
+export function beginTerminalCommandMark(paneId: string, request: TerminalCommandMarkRequest): void {
+  const entry = registry.get(paneId);
+  entry?.commandMarkCreator?.(request);
 }
 
 /**
@@ -744,6 +768,7 @@ export function broadcastToTargets(
   sourcePaneId: string,
   data: string,
   targets: Set<string>,
+  options: { commandMark?: Omit<TerminalCommandMarkRequest, 'sessionId'> } = {},
 ): { sent: number; failed: number } {
   let sent = 0;
   let failed = 0;
@@ -761,6 +786,14 @@ export function broadcastToTargets(
   for (const targetPaneId of targetPaneIds) {
     if (targetPaneId === sourcePaneId) continue;
     if (writeToTerminal(targetPaneId, data)) {
+      const targetEntry = registry.get(targetPaneId);
+      if (options.commandMark && targetEntry) {
+        targetEntry.commandMarkCreator?.({
+          ...options.commandMark,
+          sessionId: targetEntry.sessionId,
+          cwd: targetEntry.cwd,
+        });
+      }
       sent++;
     } else {
       failed++;

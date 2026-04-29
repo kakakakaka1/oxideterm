@@ -3,6 +3,7 @@
 
 import { api, nodeIdeExecCommand } from '../../api';
 import {
+  beginTerminalCommandMark,
   findPaneBySessionId,
   getTerminalBuffer,
   readScreen,
@@ -196,6 +197,12 @@ export async function runCommandOnTarget(options: {
     if (!sent) {
       return failAction('Failed to send command to terminal.', 'terminal_send_failed', 'No terminal writer is registered for this session.', 'interactive', { target });
     }
+    beginTerminalCommandMark(paneId, {
+      command,
+      source: 'ai',
+      sessionId,
+      cwd: typeof options.target.metadata?.cwd === 'string' ? options.target.metadata.cwd : undefined,
+    });
     if (options.awaitOutput === false) {
       return {
         ok: true,

@@ -45,7 +45,9 @@ import {
   touchTerminalEntry,
   notifyTerminalOutput,
   updateTerminalReadiness,
+  registerTerminalCommandMarkCreator,
 } from '../../lib/terminalRegistry';
+import { cleanupTerminalCommandMarks, closeTerminalCommandMarks, createTerminalCommandMark } from '../../lib/terminal/commandMarks';
 import { onMapleRegularLoaded, ensureCJKFallback, prepareTerminalFontForOpen } from '../../lib/fontLoader';
 import { api } from '../../lib/api';
 import { installTerminalClipboardSupport, readSystemClipboardText } from '../../lib/clipboardSupport';
@@ -524,6 +526,7 @@ export const LocalTerminalView: React.FC<LocalTerminalViewProps> = ({
 
     if (!isActive) {
       if (rendererAddonRef.current) {
+        cleanupTerminalCommandMarks(effectivePaneId);
         try {
           rendererAddonRef.current.dispose();
         } catch {
@@ -734,6 +737,9 @@ export const LocalTerminalView: React.FC<LocalTerminalViewProps> = ({
       if (active !== prevMouseTracking) {
         prevMouseTracking = active;
         setMouseMode(active);
+        if (active) {
+          closeTerminalCommandMarks(effectivePaneId, 'interrupted_mode', 'unknown', true);
+        }
       }
       notifyTerminalOutput(sessionId);
     });
@@ -947,6 +953,14 @@ export const LocalTerminalView: React.FC<LocalTerminalViewProps> = ({
       },
       getScreenSnapshot,  // Screen reader for TUI interaction
     );
+    registerTerminalCommandMarkCreator(effectivePaneId, (request) => {
+      const current = terminalRef.current;
+      if (!current || !isRunningRef.current) return;
+      createTerminalCommandMark(current, effectivePaneId, {
+        ...request,
+        cwd: request.cwd ?? undefined,
+      });
+    });
 
     // Initial fit
     setTimeout(() => {
@@ -1023,6 +1037,7 @@ export const LocalTerminalView: React.FC<LocalTerminalViewProps> = ({
       // Dispose renderer addon first to avoid "onShowLinkUnderline" error
       // This is a known xterm.js canvas addon bug where dispose order matters
       if (rendererAddonRef.current) {
+        cleanupTerminalCommandMarks(effectivePaneId);
         try {
           rendererAddonRef.current.dispose();
         } catch (e) {
@@ -1217,6 +1232,7 @@ export const LocalTerminalView: React.FC<LocalTerminalViewProps> = ({
       setIsRunning(false);
       isRunningRef.current = false;
       updateTerminalState(sessionId, false);
+      closeTerminalCommandMarks(effectivePaneId, 'session_lost', 'unknown', true);
       
       terminalRef.current.writeln('');
       if (exitCode !== null) {

@@ -187,7 +187,6 @@ describe('settingsStore', () => {
     const useSettingsStore = await loadSettingsStore();
 
     expect(useSettingsStore.getState().settings.terminal.autosuggest).toEqual({
-      enabled: true,
       localShellHistory: true,
     });
   });
@@ -203,6 +202,21 @@ describe('settingsStore', () => {
       enabled: true,
       showLegacyToolbar: false,
       gitStatus: true,
+    });
+  });
+
+  it('merges terminal command mark defaults for existing settings', async () => {
+    localStorage.setItem('oxide-settings-v2', JSON.stringify(buildSavedSettings({
+      terminal: { theme: 'default', renderer: 'auto' },
+    })));
+
+    const useSettingsStore = await loadSettingsStore();
+
+    expect(useSettingsStore.getState().settings.terminal.commandMarks).toEqual({
+      enabled: true,
+      userInputObserved: false,
+      heuristicDetection: false,
+      showHoverActions: true,
     });
   });
 

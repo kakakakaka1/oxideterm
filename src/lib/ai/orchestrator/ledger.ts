@@ -14,7 +14,7 @@ export type AiCommandRecord = {
   nodeId?: string;
   command: string;
   cwd?: string;
-  source: 'ai.run_command' | 'ai.terminal_input' | 'user.terminal_input';
+  source: 'ai.run_command' | 'ai.terminal_input' | 'user.terminal_input' | 'command_bar' | 'broadcast' | 'shell_integration' | 'user_promoted';
   status: AiCommandStatus;
   exitCode?: number | null;
   startedAt: number;
@@ -24,6 +24,11 @@ export type AiCommandRecord = {
   risk: AiActionRisk;
   outputPreview?: ToolOutputPreview;
   rawOutputRef?: string;
+  startLine?: number;
+  endLine?: number;
+  detectionSource?: string;
+  outputConfidence?: string;
+  stale?: boolean;
 };
 
 const MAX_GLOBAL_RECORDS = 200;

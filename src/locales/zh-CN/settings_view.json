@@ -306,14 +306,20 @@
           "empty-match": "正则不能匹配空文本。"
         }
       },
-      "autosuggest": "命令建议",
-      "autosuggest_hint": "根据最近命令历史显示非侵入式 ghost text。默认不接管 Tab 和 Ctrl+R，仍交给 shell。",
-      "autosuggest_local_history": "读取本地 Shell 历史",
-      "autosuggest_local_history_hint": "仅为本地终端读取 zsh/bash/fish 历史。远程终端只使用 OxideTerm 实际观察到的命令。",
+      "autosuggest_local_history": "命令栏：本地 Shell 历史",
+      "autosuggest_local_history_hint": "将本地 zsh/bash/fish 历史作为命令栏历史面板的来源。不会启用终端内 ghost text。",
       "command_bar": "底部命令栏",
       "command_bar_hint": "在终端底部显示 OxideTerm 命令栏，用于命令建议、AI 询问、广播、录制、播放和分栏操作。",
       "command_bar_legacy_toolbar": "显示旧顶部工具栏",
-      "command_bar_legacy_toolbar_hint": "启用底部命令栏时，仍保留旧的标签栏终端操作按钮。"
+      "command_bar_legacy_toolbar_hint": "启用底部命令栏时，仍保留旧的标签栏终端操作按钮。",
+      "command_marks": "命令标记",
+      "command_marks_hint": "为命令栏、AI 和广播发送的可靠命令添加 iTerm2 风格轻量标记。不会改写终端缓冲区。",
+      "command_marks_hover_actions": "悬停操作",
+      "command_marks_hover_actions_hint": "悬停命令标记时显示复制输出、询问 OxideSens 和逻辑折叠操作。",
+      "command_marks_user_input_observed": "标记手动输入（实验性）",
+      "command_marks_user_input_observed_hint": "为直接在终端里输入的命令做 best-effort 标记。默认关闭，避免 SSH、REPL、tmux 和 sudo 误判。",
+      "command_marks_heuristic": "提示符启发式（实验性）",
+      "command_marks_heuristic_hint": "在没有 shell integration 时尝试推断提示符和命令边界。默认保守关闭。"
     },
     "appearance": {
       "title": "外观",

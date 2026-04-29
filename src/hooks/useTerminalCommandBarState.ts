@@ -12,6 +12,7 @@ import {
   getCwd,
   getCwdHost,
   getTerminalBuffer,
+  beginTerminalCommandMark,
   broadcastToTargets,
   subscribeTerminalOutput,
 } from '@/lib/terminalRegistry';
@@ -112,14 +113,26 @@ export function useTerminalCommandBarState(options: UseTerminalCommandBarStateOp
     const command = value.trim();
     if (!command || !isActive) return false;
     const payload = `${command}\r`;
+    beginTerminalCommandMark(paneId, {
+      command,
+      source: 'command_bar',
+      sessionId,
+      cwd,
+    });
     sendInput(payload);
     const broadcast = useBroadcastStore.getState();
     if (broadcast.enabled) {
-      broadcastToTargets(paneId, payload, broadcast.targets);
+      broadcastToTargets(paneId, payload, broadcast.targets, {
+        commandMark: {
+          command,
+          source: 'broadcast',
+          cwd,
+        },
+      });
     }
     setValue('');
     return true;
-  }, [isActive, paneId, sendInput, value]);
+  }, [cwd, isActive, paneId, sendInput, sessionId, value]);
 
   const acceptSuggestion = useCallback((candidate?: TerminalAutosuggestCandidate) => {
     const next = candidate?.command ?? suggestions[0]?.command;

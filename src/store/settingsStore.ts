@@ -204,7 +204,6 @@ export interface InBandTransferSettings {
 }
 
 export interface TerminalAutosuggestSettings {
-  enabled: boolean;
   localShellHistory: boolean;
 }
 
@@ -212,6 +211,13 @@ export interface TerminalCommandBarSettings {
   enabled: boolean;
   showLegacyToolbar: boolean;
   gitStatus: boolean;
+}
+
+export interface TerminalCommandMarksSettings {
+  enabled: boolean;
+  userInputObserved: boolean;
+  heuristicDetection: boolean;
+  showHoverActions: boolean;
 }
 
 /** Terminal settings */
@@ -234,8 +240,9 @@ export interface TerminalSettings {
   copyOnSelect: boolean; // Copy terminal selection to the system clipboard when it stabilizes
   middleClickPaste: boolean; // Paste clipboard contents on middle-click when mouse tracking is inactive
   selectionRequiresShift: boolean; // Require Shift + drag before starting text selection
-  autosuggest: TerminalAutosuggestSettings; // Client-side ghost command suggestions
+  autosuggest: TerminalAutosuggestSettings; // Command Bar history suggestion sources
   commandBar: TerminalCommandBarSettings; // Bottom command bar for client-side command editing/actions
+  commandMarks: TerminalCommandMarksSettings; // Lightweight iTerm2-style command marks
   // Background image settings
   backgroundEnabled: boolean;        // Master toggle — false = no bg image anywhere
   backgroundImage: string | null;    // Stored image path (app_data_dir/backgrounds/...)
@@ -495,13 +502,18 @@ const defaultTerminalSettings: TerminalSettings = {
   middleClickPaste: false,
   selectionRequiresShift: false,
   autosuggest: {
-    enabled: true,
     localShellHistory: true,
   },
   commandBar: {
     enabled: true,
     showLegacyToolbar: false,
     gitStatus: true,
+  },
+  commandMarks: {
+    enabled: true,
+    userInputObserved: false,
+    heuristicDetection: false,
+    showHoverActions: true,
   },
   // Background image defaults
   backgroundEnabled: true,

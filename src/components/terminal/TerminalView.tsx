@@ -38,7 +38,9 @@ import {
   touchTerminalEntry,
   notifyTerminalOutput,
   updateTerminalReadiness,
+  registerTerminalCommandMarkCreator,
 } from '../../lib/terminalRegistry';
+import { cleanupTerminalCommandMarks, closeTerminalCommandMarks, createTerminalCommandMark } from '../../lib/terminal/commandMarks';
 import { onMapleRegularLoaded, ensureCJKFallback, prepareTerminalFontForOpen } from '../../lib/fontLoader';
 import { runInputPipeline, runOutputPipeline } from '../../lib/plugin/pluginTerminalHooks';
 import { useSessionTreeStore } from '../../store/sessionTreeStore';
@@ -597,6 +599,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
 
   const cleanupWebSocket = useCallback((ws: WebSocket | null, reason?: string) => {
     if (!ws) return;
+    closeTerminalCommandMarks(effectivePaneId, reason === 'Reconnect' ? 'interrupted_mode' : 'session_lost', 'unknown', true);
     ws.onopen = null;
     ws.onmessage = null;
     ws.onerror = null;
@@ -606,7 +609,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
     } catch {
       // Ignore close errors
     }
-  }, []);
+  }, [effectivePaneId]);
 
   const writeServerOutputToTerminal = useCallback((payload: Uint8Array) => {
     adaptiveRendererRef.current.scheduleWrite(payload);
@@ -1204,6 +1207,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
         // Entering Standby mode
         inputLockedRef.current = true;
         setInputLocked(true);
+        closeTerminalCommandMarks(effectivePaneId, 'interrupted_mode', 'unknown', true);
       }
 
       if (shouldHoldRuntimeGate) {
@@ -1326,6 +1330,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
 
     if (!isActive) {
       if (rendererAddonRef.current) {
+        cleanupTerminalCommandMarks(effectivePaneId);
         try {
           rendererAddonRef.current.dispose();
         } catch {
@@ -1685,6 +1690,9 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
       if (active !== prevMouseTracking) {
         prevMouseTracking = active;
         setMouseMode(active);
+        if (active) {
+          closeTerminalCommandMarks(effectivePaneId, 'interrupted_mode', 'unknown', true);
+        }
       }
       notifyTerminalOutput(sessionId);
     });
@@ -1923,6 +1931,15 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
       },
       getScreenSnapshot,  // Screen reader for TUI interaction
     );
+    registerTerminalCommandMarkCreator(effectivePaneId, (request) => {
+      const current = terminalRef.current;
+      if (!current || inputLockedRef.current || controllerRuntimePendingRef.current) return;
+      createTerminalCommandMark(current, effectivePaneId, {
+        ...request,
+        nodeId,
+        cwd: request.cwd ?? undefined,
+      });
+    });
     
     // Font loading detection - ensure fonts are loaded before connecting
     const ensureFontsLoaded = async () => {
@@ -2352,6 +2369,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
         // Dispose renderer addon first to avoid "onShowLinkUnderline" error
         // This is a known xterm.js canvas addon bug where dispose order matters
         if (rendererAddonRef.current) {
+          cleanupTerminalCommandMarks(effectivePaneId);
           try {
             rendererAddonRef.current.dispose();
           } catch (e) {

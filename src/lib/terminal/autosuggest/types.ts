@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 export interface TerminalAutosuggestSettings {
-  enabled: boolean;
   localShellHistory: boolean;
 }
 
