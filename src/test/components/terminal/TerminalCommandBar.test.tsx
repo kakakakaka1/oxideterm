@@ -5,6 +5,7 @@ const commandBarStateMock = vi.hoisted(() => ({
   submitCommand: vi.fn(),
   setValue: vi.fn(),
   setFocused: vi.fn(),
+  setInputComposing: vi.fn(),
   acceptSuggestion: vi.fn(),
   revealHistorySuggestions: vi.fn(),
   suggestions: [] as unknown[],
@@ -42,6 +43,8 @@ vi.mock('@/hooks/useTerminalCommandBarState', () => ({
     setCursorIndex: vi.fn(),
     focused: true,
     setFocused: commandBarStateMock.setFocused,
+    inputComposing: false,
+    setInputComposing: commandBarStateMock.setInputComposing,
     ghostText: '',
     suggestions: commandBarStateMock.suggestions,
     revealHistorySuggestions: commandBarStateMock.revealHistorySuggestions,
@@ -127,6 +130,27 @@ describe('TerminalCommandBar', () => {
     commandBarStateMock.revealHistorySuggestions.mockResolvedValue(0);
   });
 
+  it('keeps the popup closed while typing until the user explicitly opens suggestions', () => {
+    render(
+      <TerminalCommandBar
+        paneId="pane-1"
+        sessionId="session-1"
+        tabId="tab-1"
+        terminalType="local_terminal"
+        isActive
+        sendInput={vi.fn()}
+        focusTerminal={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByText('ls -l')).not.toBeInTheDocument();
+
+    const input = screen.getByPlaceholderText('terminal.command_bar.command_placeholder');
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(commandBarStateMock.submitCommand).toHaveBeenCalledWith(undefined);
+  });
+
   it('submits the highlighted suggestion when Enter is pressed with suggestions open', () => {
     render(
       <TerminalCommandBar
@@ -199,5 +223,31 @@ describe('TerminalCommandBar', () => {
     fireEvent.keyDown(input, { key: 'ArrowUp' });
 
     await waitFor(() => expect(commandBarStateMock.revealHistorySuggestions).toHaveBeenCalled());
+  });
+
+  it('silences suggestions while IME composition is active and resumes after commit', async () => {
+    render(
+      <TerminalCommandBar
+        paneId="pane-1"
+        sessionId="session-1"
+        tabId="tab-1"
+        terminalType="local_terminal"
+        isActive
+        sendInput={vi.fn()}
+        focusTerminal={vi.fn()}
+      />,
+    );
+
+    const input = screen.getByPlaceholderText('terminal.command_bar.command_placeholder');
+    fireEvent.compositionStart(input);
+    fireEvent.change(input, { target: { value: 'ls', selectionStart: 2 } });
+
+    expect(commandBarStateMock.setInputComposing).toHaveBeenCalledWith(true);
+    expect(commandBarStateMock.submitCommand).not.toHaveBeenCalled();
+
+    fireEvent.compositionEnd(input, { data: 'ls' });
+
+    expect(commandBarStateMock.setValue).toHaveBeenCalledWith('ls');
+    await waitFor(() => expect(commandBarStateMock.setInputComposing).toHaveBeenCalledWith(false));
   });
 });

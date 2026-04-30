@@ -51,12 +51,11 @@ export const TerminalCommandBar: React.FC<TerminalCommandBarProps> = (props) => 
     isActive,
     sendInput,
   });
-  const [highlightedSuggestion, setHighlightedSuggestion] = useState(0);
+  const [highlightedSuggestion, setHighlightedSuggestion] = useState(-1);
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const composingRef = useRef(false);
-  const dismissedSuggestionsForValueRef = useRef<string | null>(null);
 
   const placeholder = t('terminal.command_bar.command_placeholder');
 
@@ -67,7 +66,6 @@ export const TerminalCommandBar: React.FC<TerminalCommandBarProps> = (props) => 
     if (event.key === 'Escape') {
       if (suggestionsOpen) {
         event.preventDefault();
-        dismissedSuggestionsForValueRef.current = state.value;
         setSuggestionsOpen(false);
         return;
       }
@@ -76,8 +74,9 @@ export const TerminalCommandBar: React.FC<TerminalCommandBarProps> = (props) => 
       return;
     }
     if (event.key === 'Tab') {
-      if (suggestionsOpen && state.acceptSuggestion(state.suggestions[highlightedSuggestion] ?? state.suggestions[0])) {
+      if (suggestionsOpen && state.acceptSuggestion(highlightedSuggestion >= 0 ? state.suggestions[highlightedSuggestion] : state.suggestions[0])) {
         event.preventDefault();
+        setHighlightedSuggestion(-1);
         setSuggestionsOpen(false);
       }
       return;
@@ -86,6 +85,7 @@ export const TerminalCommandBar: React.FC<TerminalCommandBarProps> = (props) => 
       const inlineSuggestion = state.suggestions.find((candidate) => candidate.inlineSafe);
       if (state.acceptSuggestion(inlineSuggestion)) {
         event.preventDefault();
+        setHighlightedSuggestion(-1);
         setSuggestionsOpen(false);
       }
       return;
@@ -109,7 +109,7 @@ export const TerminalCommandBar: React.FC<TerminalCommandBarProps> = (props) => 
     if (event.key === 'ArrowUp' && state.suggestions.length > 0) {
       event.preventDefault();
       setSuggestionsOpen(true);
-      setHighlightedSuggestion((current) => suggestionsOpen ? Math.max(current - 1, 0) : state.suggestions.length - 1);
+      setHighlightedSuggestion((current) => suggestionsOpen && current >= 0 ? Math.max(current - 1, 0) : state.suggestions.length - 1);
       return;
     }
     if (event.key === 'ArrowUp') {
@@ -125,13 +125,17 @@ export const TerminalCommandBar: React.FC<TerminalCommandBarProps> = (props) => 
     if (event.key === 'Enter') {
       event.preventDefault();
       setSuggestionsOpen(false);
-      const selectedSuggestion = suggestionsOpen
+      // Auto-opened completions are only suggestions, not a selection. Enter
+      // must run the typed command unless ArrowUp/ArrowDown picked an item.
+      const selectedSuggestion = suggestionsOpen && highlightedSuggestion >= 0
         ? state.suggestions[highlightedSuggestion] ?? state.suggestions[0]
         : undefined;
       if (selectedSuggestion && !selectedSuggestion.executable) {
         state.acceptSuggestion(selectedSuggestion);
+        setHighlightedSuggestion(-1);
         return;
       }
+      setHighlightedSuggestion(-1);
       state.submitCommand(selectedSuggestion?.insertText);
     }
   }, [focusTerminal, highlightedSuggestion, state, suggestionsOpen]);
@@ -157,17 +161,17 @@ export const TerminalCommandBar: React.FC<TerminalCommandBarProps> = (props) => 
 
   useLayoutEffect(() => {
     const input = inputRef.current;
+    if (composingRef.current || state.inputComposing) return;
     if (!input || document.activeElement !== input) return;
     const cursor = Math.max(0, Math.min(state.value.length, state.cursorIndex));
     input.setSelectionRange(cursor, cursor);
-  }, [state.cursorIndex, state.value]);
+  }, [state.cursorIndex, state.inputComposing, state.value]);
 
   useEffect(() => {
-    if (!state.focused || state.suggestions.length === 0) return;
-    if (dismissedSuggestionsForValueRef.current === state.value) return;
-    setSuggestionsOpen(true);
-    setHighlightedSuggestion((current) => Math.min(current, state.suggestions.length - 1));
-  }, [state.focused, state.suggestions.length, state.value]);
+    if (state.suggestions.length > 0 || suggestionsOpen) return;
+    setHighlightedSuggestion(-1);
+    setSuggestionsOpen(false);
+  }, [state.suggestions.length, suggestionsOpen]);
 
   return (
     <div ref={rootRef} className="relative z-20 flex-shrink-0 border-t border-theme-border/70 bg-theme-bg/95 px-3 py-1 shadow-[0_-6px_18px_rgba(0,0,0,0.16)]">
@@ -177,7 +181,7 @@ export const TerminalCommandBar: React.FC<TerminalCommandBarProps> = (props) => 
           highlightedIndex={highlightedSuggestion}
           onPick={(candidate) => {
             state.acceptSuggestion(candidate);
-            setHighlightedSuggestion(0);
+            setHighlightedSuggestion(-1);
             setSuggestionsOpen(false);
             inputRef.current?.focus();
           }}
@@ -225,12 +229,19 @@ export const TerminalCommandBar: React.FC<TerminalCommandBarProps> = (props) => 
           onChange={(event) => {
             state.setValue(event.target.value);
             state.setCursorIndex(event.target.selectionStart ?? event.target.value.length);
-            dismissedSuggestionsForValueRef.current = null;
-            setHighlightedSuggestion(0);
+            setHighlightedSuggestion(-1);
             setSuggestionsOpen(false);
           }}
-          onSelect={(event) => state.setCursorIndex(event.currentTarget.selectionStart ?? state.value.length)}
-          onKeyUp={(event) => state.setCursorIndex(event.currentTarget.selectionStart ?? state.value.length)}
+          onSelect={(event) => {
+            if (!composingRef.current) {
+              state.setCursorIndex(event.currentTarget.selectionStart ?? state.value.length);
+            }
+          }}
+          onKeyUp={(event) => {
+            if (!composingRef.current) {
+              state.setCursorIndex(event.currentTarget.selectionStart ?? state.value.length);
+            }
+          }}
           onClick={(event) => state.setCursorIndex(event.currentTarget.selectionStart ?? state.value.length)}
           onFocus={() => state.setFocused(true)}
           onBlur={() => window.setTimeout(() => {
@@ -239,10 +250,17 @@ export const TerminalCommandBar: React.FC<TerminalCommandBarProps> = (props) => 
           }, 120)}
           onCompositionStart={() => {
             composingRef.current = true;
+            state.setInputComposing(true);
+            setHighlightedSuggestion(-1);
+            setSuggestionsOpen(false);
           }}
-          onCompositionEnd={() => {
+          onCompositionEnd={(event) => {
+            const nextValue = event.currentTarget.value;
+            state.setValue(nextValue);
+            state.setCursorIndex(event.currentTarget.selectionStart ?? nextValue.length);
             window.setTimeout(() => {
               composingRef.current = false;
+              state.setInputComposing(false);
             }, 0);
           }}
           onKeyDown={handleKeyDown}

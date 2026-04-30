@@ -40,6 +40,7 @@ export function useTerminalCommandBarState(options: UseTerminalCommandBarStateOp
   const [cursorIndex, setCursorIndex] = useState(0);
   const [suggestions, setSuggestions] = useState<CommandBarCompletion[]>([]);
   const [focused, setFocused] = useState(false);
+  const [inputComposing, setInputComposing] = useState(false);
   const [gitBranch, setGitBranch] = useState<string | null>(null);
   const [terminalActivityTick, setTerminalActivityTick] = useState(0);
   const completionRequestRef = useRef(0);
@@ -84,7 +85,7 @@ export function useTerminalCommandBarState(options: UseTerminalCommandBarStateOp
   }, [sessionId]);
 
   useEffect(() => {
-    if (!commandBarSettings.enabled || !commandBarSettings.smartCompletion || !focused) {
+    if (!commandBarSettings.enabled || !commandBarSettings.smartCompletion || !focused || inputComposing) {
       setSuggestions([]);
       return;
     }
@@ -110,6 +111,7 @@ export function useTerminalCommandBarState(options: UseTerminalCommandBarStateOp
     cwd,
     cwdHost,
     focused,
+    inputComposing,
     nodeId,
     paneId,
     sessionId,
@@ -119,7 +121,7 @@ export function useTerminalCommandBarState(options: UseTerminalCommandBarStateOp
   ]);
 
   const revealHistorySuggestions = useCallback(async () => {
-    if (!commandBarSettings.enabled || !commandBarSettings.smartCompletion || !focused) return 0;
+    if (!commandBarSettings.enabled || !commandBarSettings.smartCompletion || !focused || inputComposing) return 0;
     const controller = new AbortController();
     const requestId = ++completionRequestRef.current;
     const nextSuggestions = await getCommandBarCompletions(
@@ -145,6 +147,7 @@ export function useTerminalCommandBarState(options: UseTerminalCommandBarStateOp
     cwd,
     cwdHost,
     focused,
+    inputComposing,
     nodeId,
     paneId,
     sessionId,
@@ -200,19 +203,24 @@ export function useTerminalCommandBarState(options: UseTerminalCommandBarStateOp
       });
     }
     setValue('');
+    setCursorIndex(0);
+    setSuggestions([]);
     return true;
   }, [cwd, isActive, paneId, sendInput, sessionId, value]);
 
   const acceptSuggestion = useCallback((candidate?: CommandBarCompletion) => {
     const completion = candidate ?? suggestions[0];
     if (!completion) return false;
+    const start = Math.max(0, Math.min(value.length, completion.replacement.start));
+    const end = Math.max(start, Math.min(value.length, completion.replacement.end));
     const next = [
-      value.slice(0, completion.replacement.start),
+      value.slice(0, start),
       completion.insertText,
-      value.slice(completion.replacement.end),
+      value.slice(end),
     ].join('');
     setValue(next);
-    setCursorIndex(completion.replacement.start + completion.insertText.length);
+    setCursorIndex(start + completion.insertText.length);
+    setSuggestions([]);
     return true;
   }, [suggestions, value]);
 
@@ -231,6 +239,8 @@ export function useTerminalCommandBarState(options: UseTerminalCommandBarStateOp
     setCursorIndex,
     focused,
     setFocused,
+    inputComposing,
+    setInputComposing,
     suggestions,
     ghostText,
     revealHistorySuggestions,

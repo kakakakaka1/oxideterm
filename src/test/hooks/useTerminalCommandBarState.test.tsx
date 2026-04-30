@@ -7,6 +7,10 @@ const terminalRegistryMocks = vi.hoisted(() => ({
   subscribeTerminalOutput: vi.fn(() => vi.fn()),
 }));
 
+const completionMocks = vi.hoisted(() => ({
+  getCommandBarCompletions: vi.fn(() => Promise.resolve([])),
+}));
+
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }));
@@ -67,12 +71,17 @@ vi.mock('@/lib/terminalRegistry', () => ({
 }));
 
 vi.mock('@/lib/terminal/completion', () => ({
-  getCommandBarCompletions: vi.fn(() => Promise.resolve([])),
+  getCommandBarCompletions: completionMocks.getCommandBarCompletions,
 }));
 
 import { useTerminalCommandBarState } from '@/hooks/useTerminalCommandBarState';
 
 describe('useTerminalCommandBarState', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    completionMocks.getCommandBarCompletions.mockResolvedValue([]);
+  });
+
   it('submits an explicit suggestion command instead of the typed input', () => {
     const sendInput = vi.fn();
     const { result } = renderHook(() => useTerminalCommandBarState({
@@ -100,5 +109,57 @@ describe('useTerminalCommandBarState', () => {
       cwd: '/tmp',
     });
     expect(result.current.value).toBe('');
+  });
+
+  it('clamps stale completion replacement ranges when accepting suggestions', () => {
+    const { result } = renderHook(() => useTerminalCommandBarState({
+      paneId: 'pane-1',
+      sessionId: 'session-1',
+      tabId: 'tab-1',
+      terminalType: 'local_terminal',
+      isActive: true,
+      sendInput: vi.fn(),
+    }));
+
+    act(() => {
+      result.current.setValue('ls');
+    });
+
+    act(() => {
+      expect(result.current.acceptSuggestion({
+        kind: 'option',
+        label: '-l',
+        insertText: '-l',
+        source: 'fig',
+        executable: false,
+        replacement: { start: 3, end: 99 },
+        score: 1,
+      })).toBe(true);
+    });
+
+    expect(result.current.value).toBe('ls-l');
+    expect(result.current.cursorIndex).toBe(4);
+  });
+
+  it('does not fetch completions while IME composition is active', async () => {
+    const { result } = renderHook(() => useTerminalCommandBarState({
+      paneId: 'pane-1',
+      sessionId: 'session-1',
+      tabId: 'tab-1',
+      terminalType: 'local_terminal',
+      isActive: true,
+      sendInput: vi.fn(),
+    }));
+
+    act(() => {
+      result.current.setFocused(true);
+      result.current.setInputComposing(true);
+      result.current.setValue('ls');
+    });
+
+    await Promise.resolve();
+
+    expect(completionMocks.getCommandBarCompletions).not.toHaveBeenCalled();
+    expect(await result.current.revealHistorySuggestions()).toBe(0);
   });
 });
