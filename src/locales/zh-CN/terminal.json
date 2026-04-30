@@ -218,6 +218,33 @@
       "actions": "命令选区操作",
       "copy": "复制",
       "copy_title": "复制命令输出"
+    },
+    "scrollback_viewer": {
+      "title": "Scrollback Viewer",
+      "open": "打开 Scrollback Viewer",
+      "live_hint": "正在显示实时回滚缓冲区。归档命中会以摘录形式打开。",
+      "stats": "{{current}} 行实时 / {{total}} 行累计 · 上限 {{max}} · {{memory}} MB",
+      "search_placeholder": "搜索实时与归档历史...",
+      "search": "搜索",
+      "case_sensitive": "区分大小写",
+      "regex": "正则表达式",
+      "whole_word": "全字匹配",
+      "previous_match": "上一个匹配项",
+      "next_match": "下一个匹配项",
+      "refresh": "刷新",
+      "clear": "清除回滚缓冲区",
+      "close": "关闭",
+      "empty_title": "暂无实时回滚内容",
+      "empty_description": "终端输出进入回滚缓冲区后会显示在这里。",
+      "loading_line": "加载中...",
+      "matches": "匹配项",
+      "live_buffer_badge": "实时缓冲区",
+      "archive_badge": "归档",
+      "line_number": "第 {{line}} 行",
+      "archive_excerpt": "归档摘录",
+      "clear_confirm_title": "清除当前回滚缓冲区？",
+      "clear_confirm_description": "归档历史不会被删除。",
+      "clear_confirm_action": "清除回滚"
     }
   }
 }

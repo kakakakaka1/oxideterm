@@ -24,6 +24,7 @@ import { terminalLinkHandler } from '../../lib/safeUrl';
 import { listen } from '@tauri-apps/api/event';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { useTranslation } from 'react-i18next';
+import { ScrollText } from 'lucide-react';
 import {
   hexToRgba,
   getBackgroundFitStyles,
@@ -73,6 +74,7 @@ import { observeCliAgentTerminalInput } from '../../lib/ai/orchestrator/cliAgent
 import { RecordingControls } from './RecordingControls';
 import { FpsOverlay } from './FpsOverlay';
 import { TerminalCommandBar } from './TerminalCommandBar';
+import { ScrollbackViewer } from './ScrollbackViewer';
 import { useToastStore } from '../../hooks/useToast';
 import { HighlightEngine } from '../../lib/terminal/highlightEngine';
 import {
@@ -150,6 +152,7 @@ export const LocalTerminalView: React.FC<LocalTerminalViewProps> = ({
   const isActiveRef = useRef(isActive);
   const [searchOpen, setSearchOpen] = useState(false);
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
+  const [scrollbackOpen, setScrollbackOpen] = useState(false);
   const [aiCursorPosition, setAiCursorPosition] = useState<CursorPosition | null>(null);
   const [isRunning, setIsRunning] = useState(true);
   const isRunningRef = useRef(true);
@@ -231,7 +234,7 @@ export const LocalTerminalView: React.FC<LocalTerminalViewProps> = ({
 
   const focusTerminal = useCallback((mode: 'soft' | 'strong' = 'soft') => {
     const term = terminalRef.current;
-    if (!term || searchOpen || aiPanelOpen || !isTerminalContainerRenderable(containerRef.current)) {
+    if (!term || searchOpen || aiPanelOpen || scrollbackOpen || !isTerminalContainerRenderable(containerRef.current)) {
       return false;
     }
     if (mode === 'soft' && !shouldAutoFocusTerminal(containerRef.current)) {
@@ -239,7 +242,7 @@ export const LocalTerminalView: React.FC<LocalTerminalViewProps> = ({
     }
     term.focus();
     return true;
-  }, [searchOpen, aiPanelOpen]);
+  }, [searchOpen, aiPanelOpen, scrollbackOpen]);
 
   const { writeTerminal, resizeTerminal, getTerminal, updateTerminalState } = useLocalTerminalStore();
   const terminalInfo = getTerminal(sessionId);
@@ -509,7 +512,7 @@ export const LocalTerminalView: React.FC<LocalTerminalViewProps> = ({
 
   // Focus terminal when active
   useEffect(() => {
-    if (isActive && terminalRef.current && !searchOpen && !aiPanelOpen) {
+    if (isActive && terminalRef.current && !searchOpen && !aiPanelOpen && !scrollbackOpen) {
       const focusTimeout = setTimeout(() => {
         focusTerminal('soft');
         if (!isTerminalContainerRenderable(containerRef.current)) return;
@@ -518,7 +521,7 @@ export const LocalTerminalView: React.FC<LocalTerminalViewProps> = ({
       }, 50);
       return () => clearTimeout(focusTimeout);
     }
-  }, [focusTerminal, isActive, searchOpen, aiPanelOpen, syncLocalPtySize]);
+  }, [focusTerminal, isActive, searchOpen, aiPanelOpen, scrollbackOpen, syncLocalPtySize]);
 
   // Suspend heavy renderer while tab is inactive, and restore on activation.
   useEffect(() => {
@@ -1614,7 +1617,7 @@ export const LocalTerminalView: React.FC<LocalTerminalViewProps> = ({
   // Only handles shortcuts when this terminal is active
   useTerminalViewShortcuts(
     isActive,
-    searchOpen || aiPanelOpen,
+    searchOpen || aiPanelOpen || scrollbackOpen,
     {
       onOpenSearch: () => setSearchOpen(true),
       onCloseSearch: handleSearchClose,
@@ -1713,7 +1716,7 @@ export const LocalTerminalView: React.FC<LocalTerminalViewProps> = ({
 
   return (
     <div 
-      className="relative flex-1 w-full h-full flex flex-col overflow-hidden"
+      className="group relative flex-1 w-full h-full flex flex-col overflow-hidden"
       style={{ backgroundColor: currentTheme.background }}
       onClick={handleContainerClick}
       onMouseDownCapture={handleCommandMarkPointerDown}
@@ -1798,6 +1801,27 @@ export const LocalTerminalView: React.FC<LocalTerminalViewProps> = ({
           contain: 'strict',
           isolation: 'isolate',
         }}
+      />
+      {!scrollbackOpen && (
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            setScrollbackOpen(true);
+          }}
+          className="absolute right-2 top-2 z-20 rounded border border-theme-border/70 bg-theme-bg-panel/85 p-1.5 text-theme-text-muted opacity-0 shadow-lg transition-all hover:text-theme-accent focus:opacity-100 group-hover:opacity-100"
+          title={t('terminal.scrollback_viewer.open')}
+          aria-label={t('terminal.scrollback_viewer.open')}
+        >
+          <ScrollText className="h-4 w-4" />
+        </button>
+      )}
+
+      <ScrollbackViewer
+        sessionId={sessionId}
+        nodeId={effectivePaneId}
+        isOpen={scrollbackOpen}
+        onClose={() => setScrollbackOpen(false)}
       />
       {/* Recording status overlay (shown only during active recording) */}
       {isSessionRecording && (

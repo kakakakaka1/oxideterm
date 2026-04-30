@@ -218,6 +218,33 @@
       "actions": "Command selection actions",
       "copy": "Copy",
       "copy_title": "Copy command output"
+    },
+    "scrollback_viewer": {
+      "title": "Scrollback Viewer",
+      "open": "Open Scrollback Viewer",
+      "live_hint": "Showing live scrollback. Archived matches open as excerpts.",
+      "stats": "{{current}} live / {{total}} total · max {{max}} · {{memory}} MB",
+      "search_placeholder": "Search live and archived history...",
+      "search": "Search",
+      "case_sensitive": "Case sensitive",
+      "regex": "Regular expression",
+      "whole_word": "Whole word",
+      "previous_match": "Previous match",
+      "next_match": "Next match",
+      "refresh": "Refresh",
+      "clear": "Clear scrollback",
+      "close": "Close",
+      "empty_title": "No live scrollback yet",
+      "empty_description": "Terminal output will appear here after it scrolls into the buffer.",
+      "loading_line": "Loading...",
+      "matches": "Matches",
+      "live_buffer_badge": "Live buffer",
+      "archive_badge": "Archive",
+      "line_number": "Line {{line}}",
+      "archive_excerpt": "Archive excerpt",
+      "clear_confirm_title": "Clear current scrollback buffer?",
+      "clear_confirm_description": "Archived history is not removed.",
+      "clear_confirm_action": "Clear scrollback"
     }
   }
 }

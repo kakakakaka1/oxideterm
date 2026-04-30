@@ -218,6 +218,33 @@
       "actions": "命令選區操作",
       "copy": "複製",
       "copy_title": "複製命令輸出"
+    },
+    "scrollback_viewer": {
+      "title": "Scrollback Viewer",
+      "open": "開啟 Scrollback Viewer",
+      "live_hint": "正在顯示即時回滾緩衝區。歸檔命中會以摘錄形式開啟。",
+      "stats": "{{current}} 行即時 / {{total}} 行累計 · 上限 {{max}} · {{memory}} MB",
+      "search_placeholder": "搜尋即時與歸檔歷史...",
+      "search": "搜尋",
+      "case_sensitive": "區分大小寫",
+      "regex": "正規表示式",
+      "whole_word": "全字符合",
+      "previous_match": "上一個符合項",
+      "next_match": "下一個符合項",
+      "refresh": "重新整理",
+      "clear": "清除回滾緩衝區",
+      "close": "關閉",
+      "empty_title": "尚無即時回滾內容",
+      "empty_description": "終端輸出進入回滾緩衝區後會顯示在這裡。",
+      "loading_line": "載入中...",
+      "matches": "符合項",
+      "live_buffer_badge": "即時緩衝區",
+      "archive_badge": "歸檔",
+      "line_number": "第 {{line}} 行",
+      "archive_excerpt": "歸檔摘錄",
+      "clear_confirm_title": "清除目前回滾緩衝區？",
+      "clear_confirm_description": "歸檔歷史不會被刪除。",
+      "clear_confirm_action": "清除回滾"
     }
   }
 }

@@ -27,7 +27,7 @@ import { terminalLinkHandler } from '../../lib/safeUrl';
 import { SessionInfo } from '../../types';
 import { listen } from '@tauri-apps/api/event';
 import { convertFileSrc } from '@tauri-apps/api/core';
-import { Lock, Loader2, RefreshCw, AlertTriangle } from 'lucide-react';
+import { Lock, Loader2, RefreshCw, AlertTriangle, ScrollText } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import i18n from '../../i18n';
 import { cn } from '../../lib/utils';
@@ -87,6 +87,7 @@ import { observeCliAgentTerminalInput } from '../../lib/ai/orchestrator/cliAgent
 import { RecordingControls } from './RecordingControls';
 import { FpsOverlay } from './FpsOverlay';
 import { TerminalCommandBar } from './TerminalCommandBar';
+import { ScrollbackViewer } from './ScrollbackViewer';
 import { useToastStore, type ToastVariant } from '../../hooks/useToast';
 import { HighlightEngine } from '../../lib/terminal/highlightEngine';
 import {
@@ -202,6 +203,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
   const gitRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
+  const [scrollbackOpen, setScrollbackOpen] = useState(false);
   const [aiCursorPosition, setAiCursorPosition] = useState<CursorPosition | null>(null);
   const prefillHistoryRef = useRef(false);
   
@@ -734,7 +736,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
 
   const focusTerminal = useCallback((mode: 'soft' | 'strong' = 'soft') => {
     const term = terminalRef.current;
-    if (!term || searchOpen || aiPanelOpen || !isTerminalContainerRenderable(containerRef.current)) {
+    if (!term || searchOpen || aiPanelOpen || scrollbackOpen || !isTerminalContainerRenderable(containerRef.current)) {
       return false;
     }
     if (mode === 'soft' && !shouldAutoFocusTerminal(containerRef.current)) {
@@ -742,7 +744,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
     }
     term.focus();
     return true;
-  }, [searchOpen, aiPanelOpen]);
+  }, [searchOpen, aiPanelOpen, scrollbackOpen]);
 
   const unlockRuntimeGateIfReady = useCallback(() => {
     if (controllerRuntimePendingRef.current || connectionStatusRef.current !== 'connected' || !inputLockedRef.current) {
@@ -1312,7 +1314,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
 
   // Focus terminal when it becomes active (tab switch)
   useEffect(() => {
-    if (isActive && terminalRef.current && !searchOpen && !aiPanelOpen) {
+    if (isActive && terminalRef.current && !searchOpen && !aiPanelOpen && !scrollbackOpen) {
       // Small delay to ensure DOM is ready
       const focusTimeout = setTimeout(() => {
         focusTerminal('soft');
@@ -1322,7 +1324,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
       }, 50);
       return () => clearTimeout(focusTimeout);
     }
-  }, [focusTerminal, isActive, searchOpen, aiPanelOpen, syncRemotePtySize]);
+  }, [focusTerminal, isActive, searchOpen, aiPanelOpen, scrollbackOpen, syncRemotePtySize]);
 
   // Suspend heavy renderer while tab is inactive, and restore on activation.
   useEffect(() => {
@@ -3069,7 +3071,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
   // Only handles shortcuts when this terminal is active
   useTerminalViewShortcuts(
     isActive,
-    searchOpen || aiPanelOpen,
+    searchOpen || aiPanelOpen || scrollbackOpen,
     {
       onOpenSearch: () => setSearchOpen(true),
       onCloseSearch: handleCloseSearch,
@@ -3103,7 +3105,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
   
   return (
     <div 
-      className="terminal-container h-full w-full overflow-hidden relative flex flex-col"
+      className="terminal-container group h-full w-full overflow-hidden relative flex flex-col"
       style={{ 
         backgroundColor: currentTheme.background 
       }}
@@ -3154,6 +3156,28 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
            position: 'relative',
            zIndex: 1,
          }}
+       />
+
+       {!scrollbackOpen && (
+         <button
+           type="button"
+           onClick={(event) => {
+             event.stopPropagation();
+             setScrollbackOpen(true);
+           }}
+           className="absolute right-2 top-2 z-20 rounded border border-theme-border/70 bg-theme-bg-panel/85 p-1.5 text-theme-text-muted opacity-0 shadow-lg transition-all hover:text-theme-accent focus:opacity-100 group-hover:opacity-100"
+           title={t('terminal.scrollback_viewer.open')}
+           aria-label={t('terminal.scrollback_viewer.open')}
+         >
+           <ScrollText className="h-4 w-4" />
+         </button>
+       )}
+
+       <ScrollbackViewer
+         sessionId={sessionId}
+         nodeId={nodeId ?? effectivePaneId}
+         isOpen={scrollbackOpen}
+         onClose={() => setScrollbackOpen(false)}
        />
        {/* Input Lock Overlay - shown during reconnection */}
        {inputLocked && (
