@@ -124,6 +124,8 @@ sysinfo = { version = "0.33", default-features = false, features = ["disk", "sys
 thiserror = "2.0"
 tokio = { version = "1.52", features = ["rt-multi-thread", "sync", "time", "io-util", "net", "fs", "process", "macros"] }
 tracing = "0.1"
+tracing-appender = "0.2"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 tree-sitter = "0.25.10"
 tree-sitter-bash = "0.23.3"
 tree-sitter-c = "0.24.2"

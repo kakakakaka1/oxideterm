@@ -444,6 +444,10 @@ pub fn set_quick_commands_toast(settings: &mut PersistedSettings, value: bool) {
     settings.terminal.command_bar.quick_commands_show_toast = value;
 }
 
+pub fn set_diagnostics_debug_logging(settings: &mut PersistedSettings, value: bool) {
+    settings.diagnostics.debug_logging = value;
+}
+
 pub fn set_autosuggest_local_history(settings: &mut PersistedSettings, value: bool) {
     settings.terminal.autosuggest.local_shell_history = value;
 }

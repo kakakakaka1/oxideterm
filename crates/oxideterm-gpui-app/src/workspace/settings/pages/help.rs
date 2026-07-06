@@ -103,10 +103,18 @@ impl WorkspaceApp {
 
     fn help_diagnostics_card(&self, cx: &mut Context<Self>) -> AnyElement {
         // MemoryDiagnosticsPanel and the keyboard-shortcut reference are Tauri-only Help blocks.
-        // GPUI keeps diagnostics limited to log discovery so the page does not start samplers or
-        // duplicate the dedicated keybindings settings surface.
+        // GPUI keeps diagnostics lightweight: file logging is always available, while verbose
+        // debug output is opt-in so normal sessions do not generate oversized logs.
         self.plain_settings_card(vec![
             self.card_title("settings_view.help.diagnostics"),
+            self.bool_row(
+                "settings_view.help.debug_logs",
+                "settings_view.help.debug_logs_hint",
+                self.settings_store.settings().diagnostics.debug_logging,
+                set_diagnostics_debug_logging,
+                cx,
+            ),
+            self.card_separator(),
             self.help_action_row(
                 "settings_view.help.open_logs",
                 "settings_view.help.open_logs_hint",

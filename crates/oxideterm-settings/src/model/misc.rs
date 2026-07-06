@@ -210,6 +210,12 @@ pub struct NewConnectionSettings {
     pub save_connection: bool,
 }
 
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiagnosticsSettings {
+    pub debug_logging: bool,
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PersistedSettings {
@@ -245,6 +251,8 @@ pub struct PersistedSettings {
     pub agent_roles: Option<Value>,
     #[serde(default)]
     pub new_connection: NewConnectionSettings,
+    #[serde(default)]
+    pub diagnostics: DiagnosticsSettings,
     #[serde(flatten)]
     pub extra: ExtraFields,
 }
@@ -275,6 +283,7 @@ impl Default for PersistedSettings {
             launcher: LauncherSettings::default(),
             agent_roles: None,
             new_connection: NewConnectionSettings::default(),
+            diagnostics: DiagnosticsSettings::default(),
             extra: ExtraFields::new(),
         }
     }

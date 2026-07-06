@@ -7,6 +7,7 @@ mod app_icon;
 mod assets;
 mod bundled_fonts;
 mod keybindings;
+mod logging;
 mod platform;
 mod workspace;
 
@@ -108,6 +109,24 @@ fn main() {
         eprintln!("failed to read SSH launch request: {error}");
         std::process::exit(2);
     });
+    let startup_settings_store = SettingsStore::load_default();
+    let startup_settings = startup_settings_store
+        .as_ref()
+        .map(|store| store.settings().clone())
+        .unwrap_or_default();
+    let _log_guard = match logging::init_file_logging(
+        &startup_settings,
+        startup_settings_store
+            .as_ref()
+            .ok()
+            .map(SettingsStore::path),
+    ) {
+        Ok(guard) => guard,
+        Err(error) => {
+            eprintln!("failed to initialize OxideTerm file logging: {error:#}");
+            None
+        }
+    };
 
     let application = Application::new().with_assets(NativeAssets);
     application.on_reopen(|cx| {
@@ -131,9 +150,6 @@ fn main() {
     });
 
     application.run(move |cx: &mut App| {
-        let startup_settings = SettingsStore::load_default()
-            .map(|store| store.settings().clone())
-            .unwrap_or_default();
         oxideterm_desktop_presence::set_keep_running_on_close(
             startup_settings.general.minimize_to_tray_on_close,
         );
