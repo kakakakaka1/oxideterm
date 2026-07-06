@@ -38,5 +38,3 @@ AGENTS.md
 tasks/*
 .deepseek/*
 docs/design/*
-.deepseek/state/subagents.v1.json
-.deepseek/state/subagents.v1.json

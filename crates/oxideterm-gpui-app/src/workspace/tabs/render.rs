@@ -487,27 +487,77 @@ impl WorkspaceApp {
     }
 
     fn render_welcome_brand(&self) -> AnyElement {
+        const BRAND_GLOW_BG_ALPHA: u32 = 0x12;
+        const BRAND_GLOW_INNER_ALPHA: u32 = 0x33;
+        const BRAND_GLOW_OUTER_ALPHA: u32 = 0x1a;
+        const BRAND_CARET_GLOW_ALPHA: u32 = 0x66;
+
+        let theme = self.tokens.ui;
+        let brand_glow = vec![
+            gpui::BoxShadow {
+                color: rgba((theme.accent << 8) | BRAND_GLOW_INNER_ALPHA).into(),
+                offset: gpui::point(px(0.0), px(0.0)),
+                blur_radius: px(40.0),
+                spread_radius: px(0.0),
+            },
+            gpui::BoxShadow {
+                color: rgba((theme.accent << 8) | BRAND_GLOW_OUTER_ALPHA).into(),
+                offset: gpui::point(px(0.0), px(0.0)),
+                blur_radius: px(80.0),
+                spread_radius: px(0.0),
+            },
+        ];
+        let caret_glow = vec![gpui::BoxShadow {
+            color: rgba((theme.accent << 8) | BRAND_CARET_GLOW_ALPHA).into(),
+            offset: gpui::point(px(0.0), px(0.0)),
+            blur_radius: px(14.0),
+            spread_radius: px(0.0),
+        }];
+
         div()
             .flex()
             .items_center()
             .justify_center()
             .child(
                 div()
+                    .relative()
                     .flex()
                     .items_center()
-                    .text_size(px(48.0))
-                    .line_height(px(48.0))
-                    .font_weight(gpui::FontWeight::BOLD)
-                    .text_color(rgb(self.tokens.ui.text))
-                    .child(self.i18n.t("layout.empty.title"))
+                    .px(px(20.0))
+                    .py(px(6.0))
+                    // GPUI does not expose CSS text-shadow; a static shadowed
+                    // backing quad keeps the Tauri brand glow without realtime blur.
                     .child(
                         div()
-                            .w(px(3.0))
-                            .h(px(34.0))
-                            .ml(px(6.0))
-                            .rounded(px(self.tokens.radii.active_indicator))
-                            .bg(rgb(self.tokens.ui.accent)),
-                    ),
+                            .absolute()
+                            .top_0()
+                            .left_0()
+                            .right_0()
+                            .bottom_0()
+                            .rounded_full()
+                            .bg(rgba((theme.accent << 8) | BRAND_GLOW_BG_ALPHA))
+                            .shadow(brand_glow),
+                    )
+                    .child(
+                        div()
+                            .relative()
+                            .flex()
+                            .items_center()
+                            .text_size(px(48.0))
+                            .line_height(px(48.0))
+                            .font_weight(gpui::FontWeight::BOLD)
+                            .text_color(rgb(theme.text))
+                            .child(self.i18n.t("layout.empty.title"))
+                            .child(
+                                div()
+                                    .w(px(3.0))
+                                    .h(px(34.0))
+                                    .ml(px(6.0))
+                                    .rounded(px(self.tokens.radii.active_indicator))
+                                    .bg(rgb(theme.accent))
+                                    .shadow(caret_glow),
+                            ),
+                    )
             )
             .into_any_element()
     }
