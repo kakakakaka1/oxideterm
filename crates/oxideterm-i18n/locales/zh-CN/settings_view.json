@@ -63,7 +63,7 @@
       "help": "帮助与关于",
       "keybindings": "快捷键",
       "graphics": "图形",
-      "network": "网络"
+      "network": "网络与代理"
     },
     "general": {
       "title": "常规",
@@ -519,6 +519,8 @@
     "connections": {
       "title": "连接默认值",
       "description": "新连接的默认设置。",
+      "keys_and_connections_title": "密钥与连接",
+      "keys_and_connections_description": "集中管理已保存连接、导入、连接池和 SSH 密钥。",
       "default_username": "默认用户名",
       "default_port": "默认端口",
       "groups": {
@@ -1272,8 +1274,8 @@
       }
     },
     "network": {
-      "title": "网络",
-      "description": "配置已保存 SSH 连接使用的全局网络出口。",
+      "title": "网络与代理",
+      "description": "配置已保存 SSH 连接使用的全局网络出口和代理设置。",
       "disclaimer": "我理解代理路由行为",
       "disclaimer_hint": "使用全局代理的连接，其 SSH 和 SFTP 流量会通过此上游代理转发。",
       "enabled": "启用全局上游代理",

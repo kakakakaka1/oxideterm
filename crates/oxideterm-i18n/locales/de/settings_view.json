@@ -63,7 +63,7 @@
       "help": "Hilfe & Info",
       "keybindings": "Tastenkürzel",
       "graphics": "Grafik",
-      "network": "Network"
+      "network": "Netzwerk und Proxy"
     },
     "general": {
       "title": "Allgemein",
@@ -519,6 +519,8 @@
     "connections": {
       "title": "Verbindungsstandards",
       "description": "Standardeinstellungen für neue Verbindungen.",
+      "keys_and_connections_title": "Schlüssel und Verbindungen",
+      "keys_and_connections_description": "Verwalten Sie gespeicherte Verbindungen, Importe, Verbindungspools und SSH-Schlüssel an einem Ort.",
       "default_username": "Standard-Benutzername",
       "default_port": "Standard-Port",
       "groups": {
@@ -1272,8 +1274,8 @@
       }
     },
     "network": {
-      "title": "Netzwerk",
-      "description": "Globale Netzwerkweiterleitung für gespeicherte SSH-Verbindungen konfigurieren.",
+      "title": "Netzwerk und Proxy",
+      "description": "Globale Netzwerkweiterleitung und Proxy-Einstellungen für gespeicherte SSH-Verbindungen konfigurieren.",
       "disclaimer": "Ich verstehe das Proxy-Routing-Verhalten",
       "disclaimer_hint": "SSH- und SFTP-Datenverkehr für Verbindungen mit globalem Proxy wird über diesen Upstream-Proxy geleitet.",
       "enabled": "Globalen Upstream-Proxy aktivieren",

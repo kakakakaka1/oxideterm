@@ -11,7 +11,7 @@ use crate::workspace::new_connection::{
 use crate::workspace::quick_commands::QuickCommandImportStrategy;
 use crate::workspace::session_icons;
 use chrono::{DateTime, Datelike, Local, Utc};
-use gpui::{Div, prelude::*};
+use gpui::{Div, prelude::*, rgba};
 use oxideterm_connections::{
     AuthType, ConnectionAuthDraft, ConnectionAuthDraftKind, ConnectionDraft, ConnectionInfo,
     ConnectionStore, ProxyHopDraft, RawTcpProfile, RawUdpProfile, SaveConnectionRequest, SavedAuth,
@@ -37,7 +37,7 @@ use oxideterm_gpui_ui::{
     checkbox, confirm_dialog,
     context_menu::{ContextMenuActionableStyle, context_menu_event_boundary},
     dropdown_menu::{DropdownMenuItemKind, dropdown_menu_content, dropdown_menu_item},
-    modal::{dismissible_dialog_backdrop, overlay_content_boundary},
+    modal::{dismissible_dialog_backdrop, modal_backdrop, overlay_content_boundary},
     modal_body, modal_container, modal_footer, modal_overlay,
     surface::{color_for_background, color_for_background_or_alpha},
     text_input::{
@@ -63,6 +63,7 @@ const BG_ACTIVE_THEME_ALPHA: u32 = 0x66; // Tauri [data-bg-active] color-mix(...
 const BG_ACTIVE_HOVER_ALPHA: u32 = 0x80; // Tauri bg-hover 50%
 const BG_ACTIVE_BORDER_ALPHA: u32 = 0xbf; // Tauri border 75%
 const BG_ACTIVE_BORDER_HALF_ALPHA: u32 = 0x60; // Tauri border/50 after active border mix
+const SESSION_MANAGER_LIGHT_DIALOG_BACKDROP_ALPHA: u32 = 0x66; // Keep lightweight manager dialogs readable without heavy blur.
 const MANAGER_TOOLBAR_SEARCH_WIDTH: f32 = 384.0; // Tauri max-w-sm
 const MANAGER_ROW_TEXT_SIZE: f32 = 14.0;
 const MANAGER_ROW_META_TEXT_SIZE: f32 = 12.0;

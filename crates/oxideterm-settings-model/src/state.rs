@@ -67,7 +67,6 @@ pub struct SettingsPageModel {
     pub background_blur_preview: Option<i64>,
     pub background_blur_commit_generation: u64,
     pub background_cache_poll_scheduled: bool,
-    pub settings_connection_new_group: String,
     pub settings_selected_ssh_hosts: HashSet<String>,
     pub settings_connection_status: Option<String>,
     pub privilege_scope_id: Option<String>,
@@ -118,7 +117,6 @@ impl Default for SettingsPageModel {
             background_blur_preview: None,
             background_blur_commit_generation: 0,
             background_cache_poll_scheduled: false,
-            settings_connection_new_group: String::new(),
             settings_selected_ssh_hosts: HashSet::new(),
             settings_connection_status: None,
             privilege_scope_id: None,
@@ -493,7 +491,6 @@ impl SettingsPageModel {
     /// Returns the draft text for inputs whose state is owned by the settings page model.
     pub fn page_input_value(&self, input: SettingsInput) -> Option<String> {
         let value = match input {
-            SettingsInput::ConnectionNewGroup => self.settings_connection_new_group.clone(),
             SettingsInput::KeybindingSearch => self.keybinding_search_query.clone(),
             SettingsInput::CustomThemeName => self
                 .theme_editor
@@ -520,10 +517,6 @@ impl SettingsPageModel {
     /// Applies a draft to inputs whose state is page-local rather than persisted settings.
     pub fn apply_page_input_draft(&mut self, input: SettingsInput, draft: &str) -> bool {
         match input {
-            SettingsInput::ConnectionNewGroup => {
-                self.set_connection_new_group(draft.to_string());
-                true
-            }
             SettingsInput::KeybindingSearch => {
                 self.set_keybinding_search_query(draft.to_string());
                 true
@@ -631,16 +624,6 @@ impl SettingsPageModel {
     /// Updates the connection import status shown on the settings page.
     pub fn set_connection_status(&mut self, status: Option<String>) {
         self.settings_connection_status = status;
-    }
-
-    /// Updates the connection group draft from the shared settings input.
-    pub fn set_connection_new_group(&mut self, group: impl Into<String>) {
-        self.settings_connection_new_group = group.into();
-    }
-
-    /// Clears the connection group draft after a successful group create.
-    pub fn clear_connection_new_group(&mut self) {
-        self.settings_connection_new_group.clear();
     }
 
     /// Toggles a model reasoning provider panel.

@@ -9,14 +9,17 @@ impl WorkspaceApp {
     ) -> AnyElement {
         let settings = self.settings_store.settings();
         match section_index {
-            0 => self.connection_defaults_section(settings, cx),
-            1 => self.connection_groups_section(cx),
+            0 => self.settings_ssh_section(0, cx),
+            1 => self.connection_defaults_section(settings, cx),
             2 => self.connection_section(
                 "settings_view.connections.idle_timeout.title",
                 "settings_view.connections.idle_timeout.description",
                 vec![self.connection_idle_timeout_control(settings, cx)],
             ),
-            3 => {
+            3 => self.settings_reconnect_section(0, cx),
+            4 => self.settings_reconnect_section(1, cx),
+            5 => self.settings_reconnect_section(2, cx),
+            6 => {
                 let existing_names = self
                     .connection_store
                     .connections()
@@ -26,7 +29,7 @@ impl WorkspaceApp {
                 let ssh_hosts = list_ssh_config_hosts(&existing_names).unwrap_or_default();
                 self.ssh_config_import_section(ssh_hosts, cx)
             }
-            4 => self.connection_importers_section(cx),
+            7 => self.connection_importers_section(cx),
             _ => div().into_any_element(),
         }
     }
@@ -165,128 +168,6 @@ impl WorkspaceApp {
                     .text_color(rgb(self.tokens.ui.text_muted))
                     .child(self.i18n.t("settings_view.connections.idle_timeout.hint")),
             )
-            .into_any_element()
-    }
-
-    fn connection_groups_section(&self, cx: &mut Context<Self>) -> AnyElement {
-        let mut rows = vec![
-            div()
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap(px(8.0))
-                .max_w(px(448.0))
-                .child(
-                    self.settings_text_input_control(
-                        SettingsInput::ConnectionNewGroup,
-                        self.settings_page.settings_connection_new_group.clone(),
-                        self.i18n
-                            .t("settings_view.connections.groups.new_placeholder"),
-                        self.tokens.metrics.settings_select_width,
-                        cx,
-                    )
-                    .into_any_element(),
-                )
-                .child(self.connection_add_group_button(cx))
-                .into_any_element(),
-        ];
-
-        for group in self.connection_store.groups() {
-            rows.push(self.connection_group_row(group.clone(), cx));
-        }
-        if let Some(status) = self.settings_page.settings_connection_status.clone() {
-            rows.push(self.connection_status_row(status));
-        }
-
-        self.connection_section(
-            "settings_view.connections.groups.title",
-            "settings_view.connections.groups.description",
-            rows,
-        )
-    }
-
-    fn connection_add_group_button(&self, cx: &mut Context<Self>) -> AnyElement {
-        let disabled = self.connection_new_group_text().trim().is_empty();
-        // Tauri ConnectionsTab renders Add Group as the default shadcn Button
-        // with a leading Plus icon. Route activation through the workspace
-        // wrapper so disabled state follows the same browser Button guard as
-        // other settings actions.
-        self.workspace_toolbar_action_button(
-            self.i18n.t("settings_view.connections.groups.add"),
-            Some(Self::render_lucide_icon(
-                LucideIcon::Plus,
-                16.0,
-                rgb(if disabled {
-                    self.tokens.ui.text_muted
-                } else {
-                    self.tokens.ui.bg
-                }),
-            )),
-            ToolbarButtonOptions {
-                button: ButtonOptions {
-                    variant: ButtonVariant::Default,
-                    size: ButtonSize::Default,
-                    radius: ButtonRadius::Md,
-                    disabled,
-                },
-                ..ToolbarButtonOptions::default()
-            },
-            cx.listener(|this, _event, _window, cx| {
-                this.create_settings_connection_group(cx);
-                cx.stop_propagation();
-            }),
-        )
-        .into_any_element()
-    }
-
-    fn connection_new_group_text(&self) -> &str {
-        if self.focused_settings_input == Some(SettingsInput::ConnectionNewGroup) {
-            &self.settings_input_draft
-        } else {
-            &self.settings_page.settings_connection_new_group
-        }
-    }
-
-    fn connection_group_row(&self, group: String, cx: &mut Context<Self>) -> AnyElement {
-        let theme = self.tokens.ui;
-        div()
-            .w_full()
-            .flex()
-            .flex_row()
-            .items_center()
-            .justify_between()
-            .gap(px(12.0))
-            .rounded(px(self.tokens.radii.md))
-            .border_1()
-            .border_color(rgba((theme.border << 8) | 0x80))
-            .bg(self.settings_panel_background(theme.bg_panel))
-            .p(px(12.0))
-            .child(
-                div()
-                    .min_w(px(0.0))
-                    .flex_1()
-                    .truncate()
-                    .text_size(px(self.tokens.metrics.ui_text_sm))
-                    .text_color(rgb(theme.text))
-                    .child(group.clone()),
-            )
-            .child(self.workspace_icon_action_button(
-                LucideIcon::Trash2,
-                15.0,
-                rgb(theme.error),
-                IconButtonOptions {
-                    hover_background: Some(rgba((self.tokens.ui.error << 8) | 0x14)),
-                    // ConnectionsTab uses an icon-only ghost Button for group
-                    // delete. Keep the size/radius on the shared icon primitive
-                    // so settings action affordances do not hand-roll div buttons.
-                    ..IconButtonOptions::opaque_toolbar(30.0, ButtonRadius::Md)
-                },
-                move |this, _event, _window, cx| {
-                    this.delete_settings_connection_group(group.clone(), cx);
-                    cx.stop_propagation();
-                },
-                cx,
-            ))
             .into_any_element()
     }
 
@@ -2135,55 +2016,6 @@ impl WorkspaceApp {
             .text_color(rgb(self.tokens.ui.info))
             .child(status)
             .into_any_element()
-    }
-
-    fn create_settings_connection_group(&mut self, cx: &mut Context<Self>) -> bool {
-        let group = if self.focused_settings_input == Some(SettingsInput::ConnectionNewGroup) {
-            self.settings_input_draft.trim().to_string()
-        } else {
-            self.settings_page.settings_connection_new_group.trim().to_string()
-        };
-        if group.is_empty() {
-            return false;
-        }
-        let created = match self.connection_store.create_group(group.clone()) {
-            Ok(()) => {
-                self.settings_page.clear_connection_new_group();
-                self.settings_input_draft.clear();
-                self.settings_page.set_connection_status(None);
-                true
-            }
-            Err(error) => {
-                self.settings_page.set_connection_status(Some(
-                    self.i18n
-                        .t("settings_view.errors.create_group_failed")
-                        .replace("{{error}}", &error.to_string()),
-                ));
-                false
-            }
-        };
-        if created {
-            self.queue_cloud_sync_dirty_refresh(cx);
-        }
-        cx.notify();
-        created
-    }
-
-    fn delete_settings_connection_group(&mut self, group: String, cx: &mut Context<Self>) {
-        match self.connection_store.delete_group(&group) {
-            Ok(()) => {
-                self.settings_page.set_connection_status(None);
-                self.queue_cloud_sync_dirty_refresh(cx);
-            }
-            Err(error) => {
-                self.settings_page.set_connection_status(Some(
-                    self.i18n
-                        .t("settings_view.errors.delete_group_failed")
-                        .replace("{{error}}", &error.to_string()),
-                ));
-            }
-        }
-        cx.notify();
     }
 
     fn toggle_settings_ssh_config_host(&mut self, alias: String, cx: &mut Context<Self>) {

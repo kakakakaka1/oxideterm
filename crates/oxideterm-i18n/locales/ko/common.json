@@ -108,6 +108,7 @@
     "cmd_open_serial_terminal": "시리얼 터미널 열기",
     "cmd_open_telnet_terminal": "Telnet 터미널 열기",
     "cmd_open_raw_tcp_terminal": "Raw TCP 터미널 열기",
+    "cmd_open_raw_udp_terminal": "Raw UDP 터미널 열기",
     "cmd_open_rdp_preview": "RDP 미리보기 열기",
     "cmd_open_vnc_preview": "VNC 미리보기 열기"
   },
@@ -331,6 +332,7 @@
         "sync_quick_commands": "빠른 명령 동기화",
         "sync_serial_profiles": "시리얼 프로필 동기화",
         "sync_raw_tcp_profiles": "Raw TCP 프로필 동기화",
+        "sync_raw_udp_profiles": "Raw UDP 프로필 동기화",
         "sync_app_settings": "앱 설정 동기화",
         "include_local_terminal_env_vars": "로컬 터미널 환경 변수 포함",
         "sync_plugin_settings": "플러그인 설정 동기화",
@@ -372,6 +374,7 @@
         "quick_commands_detail": "빠른 명령 정의가 포함됩니다.",
         "serial_profiles_detail": "시리얼 연결 프로필이 포함됩니다.",
         "raw_tcp_profiles_detail": "Raw TCP 연결 프로필이 포함됩니다.",
+        "raw_udp_profiles_detail": "Raw UDP 연결 프로필이 포함됩니다.",
         "app_settings_sections_detail": "선택한 섹션: {{sections}}",
         "app_settings_disabled_detail": "현재 동기화 범위에서 애플리케이션 설정이 제외됩니다.",
         "plugin_settings_all_detail": "동기화 가능한 모든 플러그인 설정이 포함됩니다.",
@@ -394,7 +397,7 @@
       },
       "backup": {
         "description": "Oxide 클라우드 동기화 롤백 백업",
-        "summary_line": "연결 {{connections}}개, 포워딩 {{forwards}}개, 빠른 명령 {{quickCommands}}개, 시리얼 프로필 {{serialProfiles}}개, Raw TCP 프로필 {{rawTcpProfiles}}개, 플러그인 설정 {{pluginSettingsCount}}개, {{size}}, 민감한 자격 증명 {{sensitiveCredentials}}개"
+        "summary_line": "연결 {{connections}}개, 포워딩 {{forwards}}개, 빠른 명령 {{quickCommands}}개, 시리얼 프로필 {{serialProfiles}}개, Raw TCP 프로필 {{rawTcpProfiles}}개, Raw UDP 프로필 {{rawUdpProfiles}}개, 플러그인 설정 {{pluginSettingsCount}}개, {{size}}, 민감한 자격 증명 {{sensitiveCredentials}}개"
       },
       "history": {
         "action_upload": "업로드",
@@ -542,6 +545,7 @@
         "quick_commands_label": "빠른 명령",
         "serial_profiles_label": "시리얼 프로필",
         "raw_tcp_profiles_label": "Raw TCP 프로필",
+        "raw_udp_profiles_label": "Raw UDP 프로필",
         "will_import": "가져올 항목",
         "will_merge": "병합 대상",
         "will_replace": "대체 대상",
@@ -561,6 +565,7 @@
         "toggle_quick_commands": "빠른 명령 가져오기 ({{count}})",
         "toggle_serial_profiles": "시리얼 프로필 가져오기 ({{count}})",
         "toggle_raw_tcp_profiles": "Raw TCP 프로필 가져오기 ({{count}})",
+        "toggle_raw_udp_profiles": "Raw UDP 프로필 가져오기 ({{count}})",
         "section_field_count": "{{count}}개 필드",
         "section_general": "일반",
         "section_terminal_appearance": "터미널 모양",

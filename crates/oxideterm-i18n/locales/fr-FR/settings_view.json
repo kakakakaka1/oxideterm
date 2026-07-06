@@ -63,7 +63,7 @@
       "help": "Aide et À propos",
       "keybindings": "Raccourcis clavier",
       "graphics": "Graphiques",
-      "network": "Network"
+      "network": "Réseau et proxy"
     },
     "general": {
       "title": "Général",
@@ -519,6 +519,8 @@
     "connections": {
       "title": "Valeurs par défaut des connexions",
       "description": "Paramètres par défaut pour les nouvelles connexions.",
+      "keys_and_connections_title": "Clés et connexions",
+      "keys_and_connections_description": "Gérez au même endroit les connexions enregistrées, les imports, le pool de connexions et les clés SSH.",
       "default_username": "Nom d'utilisateur par défaut",
       "default_port": "Port par défaut",
       "groups": {
@@ -1057,23 +1059,23 @@
       "memory_export_warning": "Exported diagnostics contain counts, estimates, paths or session identifiers only. Terminal output, AI message text, API keys and environment values are not included.",
       "memory_open": "Open",
       "memory_close": "Close",
-      "update_proxy": "Proxy de mise a jour",
-      "update_proxy_hint": "Utilise uniquement pour verifier les mises a jour et telecharger les paquets.",
+      "update_proxy": "Proxy de mise à jour",
+      "update_proxy_hint": "Utilisé uniquement pour vérifier les mises à jour et télécharger les paquets.",
       "update_proxy_mode_direct": "Direct",
-      "update_proxy_mode_system": "Systeme",
-      "update_proxy_mode_custom": "Personnalise",
+      "update_proxy_mode_system": "Système",
+      "update_proxy_mode_custom": "Personnalisé",
       "update_proxy_protocol": "Protocole du proxy",
-      "update_proxy_protocol_hint": "Protocole du proxy de mise a jour personnalise.",
+      "update_proxy_protocol_hint": "Protocole du proxy de mise à jour personnalisé.",
       "update_proxy_protocol_http": "HTTP",
       "update_proxy_protocol_https": "HTTPS",
       "update_proxy_protocol_socks5": "SOCKS5",
-      "update_proxy_host": "Hote du proxy",
-      "update_proxy_host_hint": "Nom d hote ou adresse IP du proxy de mise a jour.",
+      "update_proxy_host": "Hôte du proxy",
+      "update_proxy_host_hint": "Nom d’hôte ou adresse IP du proxy de mise à jour.",
       "update_proxy_port": "Port du proxy",
-      "update_proxy_port_hint": "Port utilise par le proxy de mise a jour.",
+      "update_proxy_port_hint": "Port utilisé par le proxy de mise à jour.",
       "update_proxy_no_proxy": "Contourner le proxy pour",
-      "update_proxy_no_proxy_hint": "Hotes separes par des virgules qui doivent contourner le proxy.",
-      "update_proxy_legal_hint": "Veuillez utiliser la fonction proxy conformement aux lois et reglementations locales."
+      "update_proxy_no_proxy_hint": "Hôtes séparés par des virgules qui doivent contourner le proxy.",
+      "update_proxy_legal_hint": "Veuillez utiliser la fonction proxy conformément aux lois et réglementations locales."
     },
     "errors": {
       "create_group_failed": "Échec de la création du groupe : {{error}}",
@@ -1272,8 +1274,8 @@
       }
     },
     "network": {
-      "title": "Réseau",
-      "description": "Configurer le routage réseau global utilisé par les connexions SSH enregistrées.",
+      "title": "Réseau et proxy",
+      "description": "Configurer le routage réseau global et les paramètres de proxy utilisés par les connexions SSH enregistrées.",
       "disclaimer": "Je comprends le comportement du routage par proxy",
       "disclaimer_hint": "Le trafic SSH et SFTP des connexions utilisant le proxy global passera par ce proxy amont.",
       "enabled": "Activer le proxy amont global",

@@ -238,10 +238,8 @@ mod tests {
         ] {
             assert_ne!(i18n.t(key), key, "unresolved export i18n key: {key}");
         }
-        assert_eq!(
-            i18n.t("modals.export.select_connections"),
-            "modals.export.select_connections"
-        );
+        let tauri_namespace_key = ["modals", "export", "select_connections"].join(".");
+        assert_eq!(i18n.t(&tauri_namespace_key), tauri_namespace_key);
     }
 
     #[test]

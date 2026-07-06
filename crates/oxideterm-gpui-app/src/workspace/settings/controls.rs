@@ -709,7 +709,7 @@ impl WorkspaceApp {
                 }
                 Some(popup)
             }
-            (SettingsTab::Reconnect, SettingsSelect::ReconnectMaxAttempts) => {
+            (SettingsTab::Connections, SettingsSelect::ReconnectMaxAttempts) => {
                 let mut popup = select_overlay_popup(&self.tokens, width);
                 for attempts in reconnect_max_attempt_options() {
                     popup = popup.child(
@@ -734,7 +734,7 @@ impl WorkspaceApp {
                 }
                 Some(popup)
             }
-            (SettingsTab::Reconnect, SettingsSelect::ReconnectBaseDelay) => {
+            (SettingsTab::Connections, SettingsSelect::ReconnectBaseDelay) => {
                 let mut popup = select_overlay_popup(&self.tokens, width);
                 for (delay_ms, label) in reconnect_base_delay_options() {
                     popup = popup.child(
@@ -759,7 +759,7 @@ impl WorkspaceApp {
                 }
                 Some(popup)
             }
-            (SettingsTab::Reconnect, SettingsSelect::ReconnectMaxDelay) => {
+            (SettingsTab::Connections, SettingsSelect::ReconnectMaxDelay) => {
                 let mut popup = select_overlay_popup(&self.tokens, width);
                 for (delay_ms, label) in reconnect_max_delay_options() {
                     popup = popup.child(

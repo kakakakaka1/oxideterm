@@ -27,8 +27,8 @@ pub fn settings_tab_from_ai_section(section: &str) -> Option<SettingsTab> {
         "local" | "local_terminal" => Some(SettingsTab::Terminal),
         "connections" | "connection_manager" => Some(SettingsTab::Connections),
         "privilege" | "privilege_credentials" | "sudo" | "su" => Some(SettingsTab::Privilege),
-        "ssh" => Some(SettingsTab::Ssh),
-        "reconnect" => Some(SettingsTab::Reconnect),
+        "ssh" | "ssh_keys" => Some(SettingsTab::Connections),
+        "reconnect" => Some(SettingsTab::Connections),
         "sftp" => Some(SettingsTab::Sftp),
         "ide" => Some(SettingsTab::Ide),
         "ai" | "assistant" => Some(SettingsTab::Ai),
@@ -124,6 +124,14 @@ mod tests {
         assert_eq!(
             settings_tab_from_ai_section("keyboard"),
             Some(SettingsTab::Keybindings)
+        );
+        assert_eq!(
+            settings_tab_from_ai_section("ssh_keys"),
+            Some(SettingsTab::Connections)
+        );
+        assert_eq!(
+            settings_tab_from_ai_section("reconnect"),
+            Some(SettingsTab::Connections)
         );
         assert_eq!(settings_tab_from_ai_section("missing"), None);
     }

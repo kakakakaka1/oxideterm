@@ -63,7 +63,7 @@
       "help": "Aiuto e Info",
       "keybindings": "Scorciatoie da tastiera",
       "graphics": "Grafica",
-      "network": "Network"
+      "network": "Rete e proxy"
     },
     "general": {
       "title": "Generale",
@@ -519,6 +519,8 @@
     "connections": {
       "title": "Impostazioni Connessione Predefinite",
       "description": "Impostazioni predefinite per nuove connessioni.",
+      "keys_and_connections_title": "Chiavi e connessioni",
+      "keys_and_connections_description": "Gestisci in un unico punto connessioni salvate, importazioni, pool di connessioni e chiavi SSH.",
       "default_username": "Nome Utente Predefinito",
       "default_port": "Porta Predefinita",
       "groups": {
@@ -1272,8 +1274,8 @@
       }
     },
     "network": {
-      "title": "Rete",
-      "description": "Configura il routing di rete globale usato dalle connessioni SSH salvate.",
+      "title": "Rete e proxy",
+      "description": "Configura il routing di rete globale e le impostazioni proxy usati dalle connessioni SSH salvate.",
       "disclaimer": "Comprendo il comportamento del routing tramite proxy",
       "disclaimer_hint": "Il traffico SSH e SFTP delle connessioni che usano il proxy globale verrà instradato tramite questo proxy upstream.",
       "enabled": "Abilita proxy upstream globale",

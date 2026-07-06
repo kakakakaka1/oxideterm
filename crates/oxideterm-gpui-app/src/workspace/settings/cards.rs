@@ -427,9 +427,16 @@ impl WorkspaceApp {
             let page_id = *page;
             let active = self.settings_page.terminal_page == page_id;
             let item = div()
+                .flex()
+                .flex_1()
+                .min_w(px(96.0))
+                .items_center()
+                .justify_center()
                 .rounded(px(self.tokens.radii.md))
                 .px(px(12.0))
                 .py(px(6.0))
+                .whitespace_nowrap()
+                .text_align(gpui::TextAlign::Center)
                 .text_size(px(self.tokens.metrics.ui_text_sm))
                 .text_color(if active {
                     rgb(theme.accent)
@@ -449,7 +456,12 @@ impl WorkspaceApp {
                         style.bg(rgb(theme.bg_hover)).text_color(rgb(theme.text))
                     }
                 })
-                .child(self.i18n.t(page_id.label_key()))
+                .child(
+                    div()
+                        .w_full()
+                        .text_align(gpui::TextAlign::Center)
+                        .child(self.i18n.t(page_id.label_key())),
+                )
                 .on_mouse_down(
                     MouseButton::Left,
                     cx.listener(move |this, _event, _window, cx| {
@@ -483,9 +495,16 @@ impl WorkspaceApp {
             let page_id = *page;
             let active = self.settings_page.ai_page == page_id;
             let item = div()
+                .flex()
+                .flex_1()
+                .min_w(px(96.0))
+                .items_center()
+                .justify_center()
                 .rounded(px(self.tokens.radii.md))
                 .px(px(12.0))
                 .py(px(6.0))
+                .whitespace_nowrap()
+                .text_align(gpui::TextAlign::Center)
                 .text_size(px(self.tokens.metrics.ui_text_sm))
                 .text_color(if active {
                     rgb(theme.accent)
@@ -505,7 +524,12 @@ impl WorkspaceApp {
                         style.bg(rgb(theme.bg_hover)).text_color(rgb(theme.text))
                     }
                 })
-                .child(self.i18n.t(page_id.label_key()))
+                .child(
+                    div()
+                        .w_full()
+                        .text_align(gpui::TextAlign::Center)
+                        .child(self.i18n.t(page_id.label_key())),
+                )
                 .on_mouse_down(
                     MouseButton::Left,
                     cx.listener(move |this, _event, _window, cx| {
@@ -713,14 +737,6 @@ impl WorkspaceApp {
                 true
             }
             "enter" => {
-                if input == SettingsInput::ConnectionNewGroup {
-                    if self.create_settings_connection_group(cx) {
-                        self.focused_settings_input = None;
-                    }
-                    self.new_connection_caret_visible = true;
-                    cx.notify();
-                    return true;
-                }
                 if input.accepts_newline() {
                     self.settings_input_draft.push('\n');
                     self.apply_settings_input_draft(input, cx);

@@ -119,37 +119,37 @@
       "passphrase_hint": "키 경로가 변경되지 않은 경우 비워 두면 저장된 패스프레이즈를 유지합니다."
     },
     "auto_route": {
-      "title": "Auto-Route Connection",
-      "description": "Select a target server from saved connections. The system will automatically calculate the best jump host path.",
-      "loading": "Loading topology...",
-      "select_target": "Select target server",
-      "display_name": "Display name",
-      "connection_info": "Connection info",
-      "cancel": "Cancel",
-      "connect": "Connect",
+      "title": "자동 경로 연결",
+      "description": "저장된 연결에서 대상 서버를 선택합니다. 시스템이 최적의 점프 호스트 경로를 자동으로 계산합니다.",
+      "loading": "토폴로지를 불러오는 중...",
+      "select_target": "대상 서버 선택",
+      "display_name": "표시 이름",
+      "connection_info": "연결 정보",
+      "cancel": "취소",
+      "connect": "연결",
       "empty": {
-        "title": "No saved connections found",
-        "description": "Please save some connections first. The topology graph is automatically generated from saved connections and their proxy chain settings."
+        "title": "저장된 연결을 찾을 수 없습니다",
+        "description": "먼저 연결을 저장하세요. 토폴로지 그래프는 저장된 연결과 해당 프록시 체인 설정에서 자동으로 생성됩니다."
       },
       "auth": {
-        "label": "Auth",
-        "password": "Password",
-        "key": "SSH Key",
-        "managed_key": "Managed Key",
-        "certificate": "Certificate",
+        "label": "인증",
+        "password": "비밀번호",
+        "key": "SSH 키",
+        "managed_key": "관리 키",
+        "certificate": "인증서",
         "keyboard_interactive": "키보드 대화형",
         "agent": "Agent",
-        "password_warning": "Password authentication requires a password, which is not stored in topology. Use key or Agent authentication instead."
+        "password_warning": "비밀번호 인증에는 비밀번호가 필요하지만 토폴로지에는 저장되지 않습니다. 대신 키 또는 Agent 인증을 사용하세요."
       },
       "errors": {
-        "target_not_found": "Target node not found",
-        "invalid_route_node": "Invalid route node {{id}}",
-        "password_auth": "Password authentication requires a password which is not stored in topology",
-        "key_path_required": "Key path is required for key authentication",
-        "unsupported_auth": "Unsupported auth type for topology drill-down: {{type}}"
+        "target_not_found": "대상 노드를 찾을 수 없습니다",
+        "invalid_route_node": "잘못된 경로 노드 {{id}}",
+        "password_auth": "비밀번호 인증에는 토폴로지에 저장되지 않는 비밀번호가 필요합니다",
+        "key_path_required": "키 인증에는 키 경로가 필요합니다",
+        "unsupported_auth": "토폴로지 드릴다운에서 지원되지 않는 인증 유형입니다: {{type}}"
       },
       "status": {
-        "connecting": "Connecting {{name}}..."
+        "connecting": "{{name}}에 연결 중..."
       }
     },
     "serial_profiles": {
@@ -219,6 +219,15 @@
       "list_header": "저장된 세션",
       "expand_all": "모두 펼치기",
       "collapse_all": "모두 접기"
+    },
+    "raw_udp_profiles": {
+      "title": "Raw UDP 프로필",
+      "count": "{{count}}개 프로필",
+      "open": "열기",
+      "delete": "삭제",
+      "open_failed": "Raw UDP 프로필을 열지 못했습니다",
+      "delete_failed": "Raw UDP 프로필을 삭제하지 못했습니다",
+      "confirm_delete": "Raw UDP 프로필 \"{{name}}\"을 삭제할까요?"
     }
   }
 }

@@ -108,6 +108,7 @@
     "cmd_open_serial_terminal": "開啟序列埠終端機",
     "cmd_open_telnet_terminal": "開啟 Telnet 終端機",
     "cmd_open_raw_tcp_terminal": "開啟 Raw TCP 終端",
+    "cmd_open_raw_udp_terminal": "開啟 Raw UDP 終端",
     "cmd_open_rdp_preview": "開啟 RDP 預覽",
     "cmd_open_vnc_preview": "開啟 VNC 預覽"
   },
@@ -331,6 +332,7 @@
         "sync_quick_commands": "同步快捷命令",
         "sync_serial_profiles": "同步序列埠設定",
         "sync_raw_tcp_profiles": "同步 Raw TCP 設定",
+        "sync_raw_udp_profiles": "同步 Raw UDP 設定",
         "sync_app_settings": "同步應用程式設定",
         "include_local_terminal_env_vars": "包含本機終端環境變數",
         "sync_plugin_settings": "同步外掛設定",
@@ -372,6 +374,7 @@
         "quick_commands_detail": "快捷命令定義會參與同步。",
         "serial_profiles_detail": "序列埠連線設定會參與同步。",
         "raw_tcp_profiles_detail": "Raw TCP 連線設定會參與同步。",
+        "raw_udp_profiles_detail": "Raw UDP 連線設定會參與同步。",
         "app_settings_sections_detail": "已選取分組：{{sections}}",
         "app_settings_disabled_detail": "目前同步範圍已排除應用程式設定。",
         "plugin_settings_all_detail": "所有可同步外掛設定都會參與同步。",
@@ -394,7 +397,7 @@
       },
       "backup": {
         "description": "Oxide 雲端同步回滾備份",
-        "summary_line": "{{connections}} 個連線，{{forwards}} 個轉送，{{quickCommands}} 條快捷命令，{{serialProfiles}} 個序列埠設定，{{rawTcpProfiles}} 個 Raw TCP 設定，{{pluginSettingsCount}} 項外掛偏好設定，{{size}}，{{sensitiveCredentials}} 個敏感憑證"
+        "summary_line": "{{connections}} 個連線，{{forwards}} 個轉送，{{quickCommands}} 條快捷命令，{{serialProfiles}} 個序列埠設定，{{rawTcpProfiles}} 個 Raw TCP 設定，{{rawUdpProfiles}} 個 Raw UDP 設定，{{pluginSettingsCount}} 項外掛偏好設定，{{size}}，{{sensitiveCredentials}} 個敏感憑證"
       },
       "history": {
         "action_upload": "上傳",
@@ -542,6 +545,7 @@
         "quick_commands_label": "快捷命令",
         "serial_profiles_label": "序列埠設定",
         "raw_tcp_profiles_label": "Raw TCP 設定",
+        "raw_udp_profiles_label": "Raw UDP 設定",
         "will_import": "將匯入",
         "will_merge": "將合併",
         "will_replace": "將取代",
@@ -561,6 +565,7 @@
         "toggle_quick_commands": "匯入快捷命令（{{count}}）",
         "toggle_serial_profiles": "匯入序列埠設定（{{count}}）",
         "toggle_raw_tcp_profiles": "匯入 Raw TCP 設定（{{count}}）",
+        "toggle_raw_udp_profiles": "匯入 Raw UDP 設定（{{count}}）",
         "section_field_count": "{{count}} 個欄位",
         "section_general": "一般",
         "section_terminal_appearance": "終端外觀",

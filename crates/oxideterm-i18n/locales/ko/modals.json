@@ -193,7 +193,13 @@
       "section_raw_tcp_profiles": "Raw TCP 프로필({{count}}개)",
       "toggle_raw_tcp_profiles": "Raw TCP 연결 프로필 가져오기",
       "imported_raw_tcp_profiles": "Raw TCP 프로필 {{count}}개를 가져왔습니다.",
-      "skipped_raw_tcp_profiles": "Raw TCP 프로필을 건너뜀"
+      "skipped_raw_tcp_profiles": "Raw TCP 프로필을 건너뜀",
+      "contains_raw_udp_profiles": "Raw UDP 프로필:",
+      "raw_udp_profiles_count": "{{count}}개 프로필",
+      "section_raw_udp_profiles": "Raw UDP 프로필({{count}}개)",
+      "toggle_raw_udp_profiles": "Raw UDP 연결 프로필 가져오기",
+      "imported_raw_udp_profiles": "Raw UDP 프로필 {{count}}개를 가져왔습니다.",
+      "skipped_raw_udp_profiles": "Raw UDP 프로필을 건너뜀"
     },
     "reconnect": {
       "title": "세션 재연결",
@@ -457,7 +463,37 @@
       "serial_profile_name_placeholder": "랩 콘솔",
       "serial_save_failed": "시리얼 프로필 저장 실패",
       "serial_invalid_baud_rate": "전송 속도는 0보다 커야 합니다",
-      "serial_port_required": "시리얼 포트 경로를 선택하거나 입력하세요"
+      "serial_port_required": "시리얼 포트 경로를 선택하거나 입력하세요",
+      "transport_raw_udp": "Raw UDP",
+      "raw_udp_description": "로컬 터미널처럼 UDP 데이터그램을 주고받습니다.",
+      "raw_udp_section_title": "Raw UDP 터미널",
+      "raw_udp_connect_hint": "제출한 각 줄을 하나의 UDP 데이터그램으로 보냅니다. 원격 응답은 수신된 데이터그램으로 표시됩니다.",
+      "raw_udp_host": "원격 호스트",
+      "raw_udp_host_placeholder": "192.168.1.100 또는 device.local",
+      "raw_udp_port": "원격 포트",
+      "raw_udp_port_placeholder": "UDP 포트 입력",
+      "raw_udp_invalid_port": "포트는 1에서 65535 사이여야 합니다",
+      "raw_udp_host_required": "Raw UDP 원격 호스트를 입력하세요",
+      "raw_udp_profile_name": "프로필 이름",
+      "raw_udp_profile_name_placeholder": "장치 데이터그램 소켓",
+      "raw_udp_save_failed": "Raw UDP 프로필 저장 실패",
+      "raw_udp_local_bind_host": "로컬 바인드 호스트",
+      "raw_udp_local_bind_host_placeholder": "모든 로컬 주소를 사용하려면 비워 두세요",
+      "raw_udp_local_bind_port": "로컬 바인드 포트",
+      "raw_udp_local_bind_port_placeholder": "임시 포트는 0",
+      "raw_udp_invalid_local_bind_port": "로컬 바인드 포트는 0에서 65535 사이여야 합니다",
+      "raw_udp_line_ending": "줄 끝",
+      "raw_udp_line_ending_lf": "LF",
+      "raw_udp_line_ending_crlf": "CRLF",
+      "raw_udp_line_ending_cr": "CR",
+      "raw_udp_line_ending_none": "없음",
+      "raw_udp_display_mode": "표시",
+      "raw_udp_display_text": "텍스트",
+      "raw_udp_display_hex": "16진수",
+      "raw_udp_display_mixed": "16진수 + 텍스트",
+      "raw_udp_send_mode": "전송 형식",
+      "raw_udp_send_text": "텍스트",
+      "raw_udp_send_hex": "16진수 바이트"
     },
     "managed_key": {
       "selector": {
@@ -775,7 +811,10 @@
     "include_serial_profiles_description": "저장된 시리얼 연결 프로필을 내보냅니다({{count}}개).",
     "include_raw_tcp_profiles": "Raw TCP 프로필 포함",
     "include_raw_tcp_profiles_description": "저장된 Raw TCP 연결 프로필을 내보냅니다({{count}}개).",
+    "include_raw_udp_profiles": "Raw UDP 프로필 포함",
+    "include_raw_udp_profiles_description": "저장된 Raw UDP 연결 프로필을 내보냅니다({{count}}개).",
     "content_summary_serial_profiles": "시리얼 프로필: {{count}}개",
-    "content_summary_raw_tcp_profiles": "Raw TCP 프로필: {{count}}개"
+    "content_summary_raw_tcp_profiles": "Raw TCP 프로필: {{count}}개",
+    "content_summary_raw_udp_profiles": "Raw UDP 프로필: {{count}}개"
   }
 }

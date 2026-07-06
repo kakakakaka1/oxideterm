@@ -63,7 +63,7 @@
       "help": "Ayuda e Info",
       "keybindings": "Atajos de teclado",
       "graphics": "Gráficos",
-      "network": "Network"
+      "network": "Red y proxy"
     },
     "general": {
       "title": "General",
@@ -519,6 +519,8 @@
     "connections": {
       "title": "Valores predeterminados de conexión",
       "description": "Configuración predeterminada para nuevas conexiones.",
+      "keys_and_connections_title": "Claves y conexiones",
+      "keys_and_connections_description": "Gestiona en un solo lugar las conexiones guardadas, las importaciones, el pool de conexiones y las claves SSH.",
       "default_username": "Usuario predeterminado",
       "default_port": "Puerto predeterminado",
       "groups": {
@@ -1272,8 +1274,8 @@
       }
     },
     "network": {
-      "title": "Red",
-      "description": "Configura el enrutamiento de red global usado por las conexiones SSH guardadas.",
+      "title": "Red y proxy",
+      "description": "Configura el enrutamiento de red global y los ajustes de proxy usados por las conexiones SSH guardadas.",
       "disclaimer": "Entiendo el comportamiento del enrutamiento por proxy",
       "disclaimer_hint": "El tráfico SSH y SFTP de las conexiones que usen el proxy global se enrutará a través de este proxy ascendente.",
       "enabled": "Activar proxy ascendente global",

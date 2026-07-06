@@ -63,7 +63,7 @@
       "help": "Ajuda e Sobre",
       "keybindings": "Atalhos de teclado",
       "graphics": "Gráficos",
-      "network": "Network"
+      "network": "Rede e proxy"
     },
     "general": {
       "title": "Geral",
@@ -519,6 +519,8 @@
     "connections": {
       "title": "Padrões de conexão",
       "description": "Configurações padrão para novas conexões.",
+      "keys_and_connections_title": "Chaves e conexões",
+      "keys_and_connections_description": "Gerencie conexões salvas, importações, pool de conexões e chaves SSH em um só lugar.",
       "default_username": "Usuário padrão",
       "default_port": "Porta padrão",
       "groups": {
@@ -1272,8 +1274,8 @@
       }
     },
     "network": {
-      "title": "Rede",
-      "description": "Configure o roteamento de rede global usado por conexões SSH salvas.",
+      "title": "Rede e proxy",
+      "description": "Configure o roteamento de rede global e as configurações de proxy usadas por conexões SSH salvas.",
       "disclaimer": "Eu entendo o comportamento de roteamento por proxy",
       "disclaimer_hint": "O tráfego SSH e SFTP das conexões que usam o proxy global será roteado por este proxy upstream.",
       "enabled": "Ativar proxy upstream global",

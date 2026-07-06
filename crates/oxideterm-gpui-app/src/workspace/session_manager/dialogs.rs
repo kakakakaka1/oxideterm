@@ -55,7 +55,9 @@ impl WorkspaceApp {
     fn render_new_group_dialog(&self, cx: &mut Context<Self>) -> AnyElement {
         let theme = self.tokens.ui;
         let can_create_group = !self.session_manager.new_group_name.trim().is_empty();
-        dismissible_dialog_backdrop()
+        modal_backdrop(rgba(
+            (0x000000 << 8) | SESSION_MANAGER_LIGHT_DIALOG_BACKDROP_ALPHA,
+        ))
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, _event, _window, cx| {

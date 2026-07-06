@@ -358,8 +358,9 @@ impl WorkspaceApp {
             }
             SettingsTab::Connections => {
                 self.connection_store.connections().len().hash(&mut hasher);
-                self.settings_connection_groups_signature().hash(&mut hasher);
+                self.connection_store.managed_ssh_keys().len().hash(&mut hasher);
                 self.settings_page.settings_connection_status.is_some().hash(&mut hasher);
+                self.settings_managed_key_status.is_some().hash(&mut hasher);
                 self.settings_connection_import_source.tag().hash(&mut hasher);
                 self.settings_connection_import_paths.len().hash(&mut hasher);
                 self.settings_connection_import_preview
@@ -425,14 +426,6 @@ impl WorkspaceApp {
         }
 
         hasher.finish()
-    }
-
-    fn settings_connection_groups_signature(&self) -> usize {
-        self.connection_store
-            .connections()
-            .iter()
-            .map(|connection| connection.group.as_deref().unwrap_or_default().len())
-            .sum()
     }
 
     fn settings_section_list_item_count(&self) -> usize {
@@ -514,8 +507,6 @@ impl WorkspaceApp {
             SettingsTab::Appearance => self.settings_appearance_section(section_index, cx),
             SettingsTab::Connections => self.settings_connections_section(section_index, cx),
             SettingsTab::Privilege => self.settings_privilege_credentials_section(section_index, cx),
-            SettingsTab::Ssh => self.settings_ssh_section(section_index, cx),
-            SettingsTab::Reconnect => self.settings_reconnect_section(section_index, cx),
             SettingsTab::Network => self.settings_network_section(section_index, cx),
             SettingsTab::Sftp => self.settings_sftp_section(section_index, cx),
             SettingsTab::Ide => self.settings_ide_section(section_index, cx),
@@ -546,9 +537,12 @@ impl WorkspaceApp {
     fn render_settings_nav(&self, cx: &mut Context<Self>) -> AnyElement {
         let theme = self.tokens.ui;
         let settings_nav_scroll = self.selectable_text_scroll_handle("settings-nav-scroll");
+        let settings_nav_width = self.tokens.metrics.settings_nav_width;
         let mut nav = div()
-            .w(px(self.tokens.metrics.settings_nav_width))
+            .w(px(settings_nav_width))
+            .min_w(px(settings_nav_width))
             .h_full()
+            .flex_none()
             // Mirrors Tauri's `min-h-0` settings sidebar contract: the title
             // stays fixed and the tab list owns vertical overflow instead of
             // forcing the sidebar to grow with every added settings category.
@@ -563,6 +557,7 @@ impl WorkspaceApp {
 
         nav = nav.child(
             div()
+                .flex_none()
                 .px(px(20.0))
                 .mb(px(24.0))
                 .text_size(px(20.0))
@@ -584,6 +579,7 @@ impl WorkspaceApp {
             if group_index > 0 {
                 list = list.child(
                     div()
+                        .flex_none()
                         .py_2()
                         .child(separator(&self.tokens, SeparatorOrientation::Horizontal)),
                 );
@@ -611,8 +607,11 @@ impl WorkspaceApp {
         let theme = self.tokens.ui;
         let active = self.settings_page.active_tab == tab;
         div()
-            .h(px(40.0))
+            // Nav rows share spare vertical space, then stop shrinking and let
+            // the scroll owner take over once the sidebar becomes too short.
+            .min_h(px(40.0))
             .w_full()
+            .flex_1()
             .mb(px(4.0))
             .px_3()
             .flex()
@@ -645,15 +644,16 @@ impl WorkspaceApp {
                     item.bg(rgba((theme.bg_hover << 8) | 0x80))
                 }
             })
-            .child(Self::render_lucide_icon(
+            .child(div().flex_none().child(Self::render_lucide_icon(
                 settings_tab_lucide(tab.icon()),
                 18.0,
                 rgb(theme.accent),
-            ))
+            )))
             .child(
                 div()
                     .min_w(px(0.0))
                     .flex_1()
+                    .truncate()
                     .child(self.i18n.t(tab.label_key())),
             )
             .on_mouse_down(

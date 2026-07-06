@@ -119,37 +119,37 @@
       "passphrase_hint": "キーのパスが変わっていない場合、空のままにすると保存済みのパスフレーズを保持します。"
     },
     "auto_route": {
-      "title": "Auto-Route Connection",
-      "description": "Select a target server from saved connections. The system will automatically calculate the best jump host path.",
-      "loading": "Loading topology...",
-      "select_target": "Select target server",
-      "display_name": "Display name",
-      "connection_info": "Connection info",
-      "cancel": "Cancel",
-      "connect": "Connect",
+      "title": "自動ルート接続",
+      "description": "保存済み接続から接続先サーバーを選択します。システムが最適な踏み台ホスト経路を自動的に計算します。",
+      "loading": "トポロジーを読み込み中...",
+      "select_target": "接続先サーバーを選択",
+      "display_name": "表示名",
+      "connection_info": "接続情報",
+      "cancel": "キャンセル",
+      "connect": "接続",
       "empty": {
-        "title": "No saved connections found",
-        "description": "Please save some connections first. The topology graph is automatically generated from saved connections and their proxy chain settings."
+        "title": "保存済み接続が見つかりません",
+        "description": "先に接続を保存してください。トポロジーグラフは、保存済み接続とそのプロキシチェーン設定から自動生成されます。"
       },
       "auth": {
-        "label": "Auth",
-        "password": "Password",
-        "key": "SSH Key",
-        "managed_key": "Managed Key",
-        "certificate": "Certificate",
+        "label": "認証",
+        "password": "パスワード",
+        "key": "SSH キー",
+        "managed_key": "管理キー",
+        "certificate": "証明書",
         "keyboard_interactive": "キーボードインタラクティブ",
         "agent": "Agent",
-        "password_warning": "Password authentication requires a password, which is not stored in topology. Use key or Agent authentication instead."
+        "password_warning": "パスワード認証にはパスワードが必要ですが、トポロジーには保存されません。代わりにキーまたは Agent 認証を使用してください。"
       },
       "errors": {
-        "target_not_found": "Target node not found",
-        "invalid_route_node": "Invalid route node {{id}}",
-        "password_auth": "Password authentication requires a password which is not stored in topology",
-        "key_path_required": "Key path is required for key authentication",
-        "unsupported_auth": "Unsupported auth type for topology drill-down: {{type}}"
+        "target_not_found": "接続先ノードが見つかりません",
+        "invalid_route_node": "無効なルートノード {{id}}",
+        "password_auth": "パスワード認証には、トポロジーに保存されないパスワードが必要です",
+        "key_path_required": "キー認証にはキーパスが必要です",
+        "unsupported_auth": "トポロジーのドリルダウンでサポートされない認証タイプです: {{type}}"
       },
       "status": {
-        "connecting": "Connecting {{name}}..."
+        "connecting": "{{name}} に接続中..."
       }
     },
     "serial_profiles": {

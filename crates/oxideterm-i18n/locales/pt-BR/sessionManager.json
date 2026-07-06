@@ -119,37 +119,37 @@
       "passphrase_hint": "Deixe em branco para manter a frase secreta salva quando o caminho da chave não mudar."
     },
     "auto_route": {
-      "title": "Auto-Route Connection",
-      "description": "Select a target server from saved connections. The system will automatically calculate the best jump host path.",
-      "loading": "Loading topology...",
-      "select_target": "Select target server",
-      "display_name": "Display name",
-      "connection_info": "Connection info",
-      "cancel": "Cancel",
-      "connect": "Connect",
+      "title": "Conexão com rota automática",
+      "description": "Selecione um servidor de destino entre as conexões salvas. O sistema calculará automaticamente o melhor caminho de jump host.",
+      "loading": "Carregando topologia...",
+      "select_target": "Selecionar servidor de destino",
+      "display_name": "Nome de exibição",
+      "connection_info": "Informações da conexão",
+      "cancel": "Cancelar",
+      "connect": "Conectar",
       "empty": {
-        "title": "No saved connections found",
-        "description": "Please save some connections first. The topology graph is automatically generated from saved connections and their proxy chain settings."
+        "title": "Nenhuma conexão salva encontrada",
+        "description": "Salve algumas conexões primeiro. O grafo de topologia é gerado automaticamente a partir das conexões salvas e das configurações de cadeia de proxy."
       },
       "auth": {
-        "label": "Auth",
-        "password": "Password",
-        "key": "SSH Key",
-        "managed_key": "Managed Key",
-        "certificate": "Certificate",
+        "label": "Autenticação",
+        "password": "Senha",
+        "key": "Chave SSH",
+        "managed_key": "Chave gerenciada",
+        "certificate": "Certificado",
         "keyboard_interactive": "Interativo por teclado",
         "agent": "Agent",
-        "password_warning": "Password authentication requires a password, which is not stored in topology. Use key or Agent authentication instead."
+        "password_warning": "A autenticação por senha exige uma senha, que não é armazenada na topologia. Use autenticação por chave ou agente em vez disso."
       },
       "errors": {
-        "target_not_found": "Target node not found",
-        "invalid_route_node": "Invalid route node {{id}}",
-        "password_auth": "Password authentication requires a password which is not stored in topology",
-        "key_path_required": "Key path is required for key authentication",
-        "unsupported_auth": "Unsupported auth type for topology drill-down: {{type}}"
+        "target_not_found": "Nó de destino não encontrado",
+        "invalid_route_node": "Nó de rota inválido {{id}}",
+        "password_auth": "A autenticação por senha exige uma senha que não é armazenada na topologia",
+        "key_path_required": "O caminho da chave é obrigatório para autenticação por chave",
+        "unsupported_auth": "Tipo de autenticação não suportado para exploração da topologia: {{type}}"
       },
       "status": {
-        "connecting": "Connecting {{name}}..."
+        "connecting": "Conectando a {{name}}..."
       }
     },
     "serial_profiles": {
@@ -219,6 +219,15 @@
       "list_header": "Sessões salvas",
       "expand_all": "Expandir tudo",
       "collapse_all": "Recolher tudo"
+    },
+    "raw_udp_profiles": {
+      "title": "Perfis Raw UDP",
+      "count": "{{count}} perfil(is)",
+      "open": "Abrir",
+      "delete": "Excluir",
+      "open_failed": "Falha ao abrir perfil Raw UDP",
+      "delete_failed": "Falha ao excluir perfil Raw UDP",
+      "confirm_delete": "Excluir perfil Raw UDP \"{{name}}\"?"
     }
   }
 }

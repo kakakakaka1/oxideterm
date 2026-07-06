@@ -63,7 +63,7 @@
       "help": "Trợ giúp & Giới thiệu",
       "keybindings": "Phím tắt",
       "graphics": "Đồ họa",
-      "network": "Network"
+      "network": "Mạng và proxy"
     },
     "general": {
       "title": "Chung",
@@ -519,6 +519,8 @@
     "connections": {
       "title": "Mặc định kết nối",
       "description": "Cài đặt mặc định cho kết nối mới.",
+      "keys_and_connections_title": "Khóa và kết nối",
+      "keys_and_connections_description": "Quản lý kết nối đã lưu, nhập dữ liệu, nhóm kết nối và khóa SSH ở cùng một nơi.",
       "default_username": "Tên người dùng mặc định",
       "default_port": "Cổng mặc định",
       "groups": {
@@ -1272,8 +1274,8 @@
       }
     },
     "network": {
-      "title": "Mạng",
-      "description": "Cấu hình định tuyến mạng toàn cục dùng cho các kết nối SSH đã lưu.",
+      "title": "Mạng và proxy",
+      "description": "Cấu hình định tuyến mạng toàn cục và thiết lập proxy dùng cho các kết nối SSH đã lưu.",
       "disclaimer": "Tôi hiểu cách hoạt động của định tuyến qua proxy",
       "disclaimer_hint": "Lưu lượng SSH và SFTP của các kết nối dùng proxy toàn cục sẽ được định tuyến qua proxy upstream này.",
       "enabled": "Bật proxy upstream toàn cục",

@@ -63,7 +63,7 @@
       "help": "Help & About",
       "keybindings": "Keybindings",
       "graphics": "Graphics",
-      "network": "Network"
+      "network": "Network & Proxy"
     },
     "general": {
       "title": "General",
@@ -519,6 +519,8 @@
     "connections": {
       "title": "Connection Defaults",
       "description": "Default settings for new connections.",
+      "keys_and_connections_title": "Keys & Connections",
+      "keys_and_connections_description": "Manage saved connections, imports, connection pooling, and SSH keys in one place.",
       "default_username": "Default Username",
       "default_port": "Default Port",
       "groups": {
@@ -1272,8 +1274,8 @@
       }
     },
     "network": {
-      "title": "Network",
-      "description": "Configure global network routing used by saved SSH connections.",
+      "title": "Network & Proxy",
+      "description": "Configure global network routing and proxy settings used by saved SSH connections.",
       "disclaimer": "I understand the proxy routing behavior",
       "disclaimer_hint": "SSH and SFTP traffic for connections using the global proxy will be routed through this upstream proxy.",
       "enabled": "Enable Global Upstream Proxy",

@@ -63,7 +63,7 @@
       "help": "ヘルプと詳細",
       "keybindings": "キーバインド",
       "graphics": "グラフィックス",
-      "network": "Network"
+      "network": "ネットワークとプロキシ"
     },
     "general": {
       "title": "一般",
@@ -519,6 +519,8 @@
     "connections": {
       "title": "接続のデフォルト値",
       "description": "新しい接続のデフォルト設定。",
+      "keys_and_connections_title": "キーと接続",
+      "keys_and_connections_description": "保存済み接続、インポート、接続プール、SSH キーをまとめて管理します。",
       "default_username": "デフォルトユーザー名",
       "default_port": "デフォルトポート",
       "groups": {
@@ -1272,8 +1274,8 @@
       }
     },
     "network": {
-      "title": "ネットワーク",
-      "description": "保存済み SSH 接続で使うグローバルなネットワーク経路を設定します。",
+      "title": "ネットワークとプロキシ",
+      "description": "保存済み SSH 接続で使うグローバルなネットワーク経路とプロキシ設定を構成します。",
       "disclaimer": "プロキシ経路の動作を理解しています",
       "disclaimer_hint": "グローバルプロキシを使う接続の SSH と SFTP トラフィックは、このアップストリームプロキシ経由で転送されます。",
       "enabled": "グローバルアップストリームプロキシを有効化",
