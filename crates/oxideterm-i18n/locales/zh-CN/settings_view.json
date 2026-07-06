@@ -384,7 +384,8 @@
       "page_commandBar": "命令栏",
       "page_history": "历史与标记",
       "page_transfer": "传输",
-      "page_highlight": "高亮"
+      "page_highlight": "高亮",
+      "page_local": "本地"
     },
     "appearance": {
       "title": "外观",

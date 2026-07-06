@@ -32,7 +32,6 @@ pub fn settings_tab_section_count(
         SettingsTab::Portable => 1,
         SettingsTab::Terminal => terminal_settings_section_count(dynamic.terminal_page),
         SettingsTab::Appearance => 4,
-        SettingsTab::Local => 6,
         SettingsTab::Connections => 5,
         SettingsTab::Privilege => 1,
         SettingsTab::Ssh => 1,
@@ -56,6 +55,7 @@ pub fn terminal_settings_section_count(page: TerminalSettingsPage) -> usize {
     let page_cards = match page {
         TerminalSettingsPage::Display => 2,
         TerminalSettingsPage::Input => 1,
+        TerminalSettingsPage::Local => 6,
         TerminalSettingsPage::CommandBar => 1,
         TerminalSettingsPage::History => 2,
         TerminalSettingsPage::Transfer => 1,

@@ -384,7 +384,8 @@
       "page_commandBar": "Barre de commande",
       "page_history": "Historique et marques",
       "page_transfer": "Transfert",
-      "page_highlight": "Surlignage"
+      "page_highlight": "Surlignage",
+      "page_local": "Local"
     },
     "appearance": {
       "title": "Apparence",

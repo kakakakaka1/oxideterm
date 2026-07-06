@@ -384,7 +384,8 @@
       "page_commandBar": "명령 막대",
       "page_history": "기록 및 표시",
       "page_transfer": "전송",
-      "page_highlight": "강조"
+      "page_highlight": "강조",
+      "page_local": "로컬"
     },
     "appearance": {
       "title": "외관",

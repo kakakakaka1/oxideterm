@@ -384,7 +384,8 @@
       "page_commandBar": "Befehlsleiste",
       "page_history": "Verlauf & Markierungen",
       "page_transfer": "Übertragung",
-      "page_highlight": "Hervorhebung"
+      "page_highlight": "Hervorhebung",
+      "page_local": "Lokal"
     },
     "appearance": {
       "title": "Erscheinungsbild",

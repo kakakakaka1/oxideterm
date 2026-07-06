@@ -576,7 +576,7 @@ impl WorkspaceApp {
                 }
                 Some(popup)
             }
-            (SettingsTab::Local, SettingsSelect::LocalShell) => {
+            (SettingsTab::Terminal, SettingsSelect::LocalShell) => {
                 let mut popup = select_overlay_popup(&self.tokens, width);
                 let selected = settings.local_terminal.default_shell_id.as_deref();
                 for shell in self.effective_local_shells_for_settings(settings) {
@@ -606,7 +606,7 @@ impl WorkspaceApp {
                 }
                 Some(popup)
             }
-            (SettingsTab::Local | SettingsTab::Privilege, SettingsSelect::LocalPrivilegeKind) => {
+            (SettingsTab::Privilege, SettingsSelect::LocalPrivilegeKind) => {
                 let mut popup = select_overlay_popup(&self.tokens, width);
                 for kind in [
                     PrivilegeCredentialKind::SudoPassword,

@@ -384,7 +384,8 @@
       "page_commandBar": "Barra de comandos",
       "page_history": "Historial y marcas",
       "page_transfer": "Transferencia",
-      "page_highlight": "Resaltado"
+      "page_highlight": "Resaltado",
+      "page_local": "Local"
     },
     "appearance": {
       "title": "Apariencia",

@@ -384,7 +384,8 @@
       "page_commandBar": "命令列",
       "page_history": "歷史與標記",
       "page_transfer": "傳輸",
-      "page_highlight": "醒目標示"
+      "page_highlight": "醒目標示",
+      "page_local": "本機"
     },
     "appearance": {
       "title": "外觀",

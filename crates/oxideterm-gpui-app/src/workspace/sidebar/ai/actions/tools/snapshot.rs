@@ -1642,6 +1642,11 @@ impl WorkspaceApp {
                 {
                     self.settings_page.set_active_tab(tab);
                 }
+                if let Some(page) =
+                    oxideterm_gpui_settings_view::terminal_settings_page_from_ai_section(section)
+                {
+                    self.settings_page.set_terminal_page(page);
+                }
                 self.open_settings_tab(window, cx);
                 snapshot.ok(
                     format!("Updated settings {section}.{key}."),
@@ -1850,11 +1855,17 @@ impl WorkspaceApp {
                 ),
             },
             "settings" => {
-                if let Some(section) = args.get("section").and_then(serde_json::Value::as_str)
-                    && let Some(tab) =
+                if let Some(section) = args.get("section").and_then(serde_json::Value::as_str) {
+                    if let Some(tab) =
                         oxideterm_gpui_settings_view::settings_tab_from_ai_section(section)
-                {
-                    self.settings_page.set_active_tab(tab);
+                    {
+                        self.settings_page.set_active_tab(tab);
+                    }
+                    if let Some(page) =
+                        oxideterm_gpui_settings_view::terminal_settings_page_from_ai_section(section)
+                    {
+                        self.settings_page.set_terminal_page(page);
+                    }
                 }
                 self.open_settings_tab(window, cx);
                 snapshot

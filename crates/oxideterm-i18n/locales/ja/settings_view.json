@@ -384,7 +384,8 @@
       "page_commandBar": "コマンドバー",
       "page_history": "履歴とマーク",
       "page_transfer": "転送",
-      "page_highlight": "ハイライト"
+      "page_highlight": "ハイライト",
+      "page_local": "ローカル"
     },
     "appearance": {
       "title": "外観",

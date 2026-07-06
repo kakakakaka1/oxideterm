@@ -384,7 +384,8 @@
       "page_commandBar": "Barra de comandos",
       "page_history": "Histórico e marcas",
       "page_transfer": "Transferência",
-      "page_highlight": "Realce"
+      "page_highlight": "Realce",
+      "page_local": "Local"
     },
     "appearance": {
       "title": "Aparência",

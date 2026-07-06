@@ -17,7 +17,6 @@ pub enum SettingsTab {
     Portable,
     Terminal,
     Appearance,
-    Local,
     Connections,
     Privilege,
     Ssh,
@@ -35,6 +34,7 @@ pub enum SettingsTab {
 pub enum TerminalSettingsPage {
     Display,
     Input,
+    Local,
     CommandBar,
     History,
     Transfer,
@@ -224,6 +224,7 @@ impl TerminalSettingsPage {
         &[
             Self::Display,
             Self::Input,
+            Self::Local,
             Self::CommandBar,
             Self::History,
             Self::Transfer,
@@ -235,6 +236,7 @@ impl TerminalSettingsPage {
         match self {
             Self::Display => "settings_view.terminal.page_display",
             Self::Input => "settings_view.terminal.page_input",
+            Self::Local => "settings_view.terminal.page_local",
             Self::CommandBar => "settings_view.terminal.page_commandBar",
             Self::History => "settings_view.terminal.page_history",
             Self::Transfer => "settings_view.terminal.page_transfer",
@@ -291,7 +293,7 @@ impl SettingsTab {
     pub fn groups() -> &'static [&'static [Self]] {
         &[
             &[Self::General, Self::Portable],
-            &[Self::Terminal, Self::Appearance, Self::Local],
+            &[Self::Terminal, Self::Appearance],
             &[
                 Self::Connections,
                 Self::Privilege,
@@ -316,7 +318,6 @@ impl SettingsTab {
             Self::Portable => "settings_view.general.portable_runtime",
             Self::Terminal => "settings.terminal.title",
             Self::Appearance => "settings_view.tabs.appearance",
-            Self::Local => "settings_view.tabs.local",
             Self::Connections => "settings_view.tabs.connections",
             Self::Privilege => "settings_view.tabs.privilege",
             Self::Ssh => "settings_view.tabs.ssh",
@@ -337,7 +338,6 @@ impl SettingsTab {
             Self::Portable => "settings_view.general.portable_runtime",
             Self::Terminal => "settings_view.terminal.title",
             Self::Appearance => "settings_view.appearance.title",
-            Self::Local => "settings_view.local_terminal.title",
             Self::Connections => "settings_view.connections.title",
             Self::Privilege => "settings_view.privilege_credentials.title",
             Self::Ssh => "settings_view.tabs.ssh",
@@ -358,7 +358,6 @@ impl SettingsTab {
             Self::Portable => "settings_view.general.portable_runtime_disabled_hint",
             Self::Terminal => "settings_view.terminal.description",
             Self::Appearance => "settings_view.appearance.description",
-            Self::Local => "settings_view.local_terminal.description",
             Self::Connections => "settings_view.connections.description",
             Self::Privilege => "settings_view.privilege_credentials.description",
             Self::Ssh => "ssh.form.subtitle",
@@ -377,7 +376,6 @@ impl SettingsTab {
         match self {
             Self::General | Self::Appearance => SettingsTabIcon::Monitor,
             Self::Portable | Self::Sftp => SettingsTabIcon::HardDrive,
-            Self::Local => SettingsTabIcon::Square,
             Self::Terminal => SettingsTabIcon::Terminal,
             Self::Connections => SettingsTabIcon::Shield,
             Self::Privilege => SettingsTabIcon::Key,

@@ -384,7 +384,8 @@
       "page_commandBar": "Barra comandi",
       "page_history": "Cronologia e marcatori",
       "page_transfer": "Trasferimento",
-      "page_highlight": "Evidenziazione"
+      "page_highlight": "Evidenziazione",
+      "page_local": "Locale"
     },
     "appearance": {
       "title": "Aspetto",

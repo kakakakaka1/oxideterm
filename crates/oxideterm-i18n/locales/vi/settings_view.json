@@ -384,7 +384,8 @@
       "page_commandBar": "Thanh lệnh",
       "page_history": "Lịch sử và đánh dấu",
       "page_transfer": "Truyền",
-      "page_highlight": "Tô sáng"
+      "page_highlight": "Tô sáng",
+      "page_local": "Cục bộ"
     },
     "appearance": {
       "title": "Giao diện",

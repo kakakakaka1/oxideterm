@@ -324,17 +324,19 @@ impl WorkspaceApp {
                     .focus_handoff_commands
                     .len()
                     .hash(&mut hasher);
-            }
-            SettingsTab::Local => {
-                settings.local_terminal.oh_my_posh_enabled.hash(&mut hasher);
-                settings.local_terminal.default_shell_id.hash(&mut hasher);
-                self.local_shells.len().hash(&mut hasher);
+                if self.settings_page.terminal_page == TerminalSettingsPage::Local {
+                    settings.local_terminal.oh_my_posh_enabled.hash(&mut hasher);
+                    settings.local_terminal.default_shell_id.hash(&mut hasher);
+                    self.local_shells.len().hash(&mut hasher);
+                }
             }
             SettingsTab::Sftp => {
                 settings.sftp.speed_limit_enabled.hash(&mut hasher);
             }
             SettingsTab::Appearance => {
-                settings.appearance.app_icon.hash(&mut hasher);
+                // App icon selection only changes paint state. Keeping it out
+                // of the height signature prevents scroll anchoring from
+                // jumping when the icon picker updates its selected badge.
             }
             SettingsTab::Network => {
                 settings.network.upstream_proxy.is_some().hash(&mut hasher);
@@ -510,7 +512,6 @@ impl WorkspaceApp {
             SettingsTab::Portable => self.settings_portable_section(section_index, cx),
             SettingsTab::Terminal => self.settings_terminal_section(section_index, cx),
             SettingsTab::Appearance => self.settings_appearance_section(section_index, cx),
-            SettingsTab::Local => self.settings_local_section(section_index, cx),
             SettingsTab::Connections => self.settings_connections_section(section_index, cx),
             SettingsTab::Privilege => self.settings_privilege_credentials_section(section_index, cx),
             SettingsTab::Ssh => self.settings_ssh_section(section_index, cx),

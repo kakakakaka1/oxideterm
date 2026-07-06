@@ -632,6 +632,9 @@ impl WorkspaceApp {
                 ],
             ),
             (TerminalSettingsPage::Input, 0) => self.terminal_input_settings_card(settings, cx),
+            (TerminalSettingsPage::Local, local_section_index) => {
+                self.settings_local_section(local_section_index, cx)
+            }
             (TerminalSettingsPage::CommandBar, 0) => self.settings_card(
                 "settings_view.terminal.command_bar",
                 "settings_view.terminal.command_bar_hint",

@@ -24,7 +24,7 @@ pub fn settings_tab_from_ai_section(section: &str) -> Option<SettingsTab> {
         "portable" => Some(SettingsTab::Portable),
         "terminal" => Some(SettingsTab::Terminal),
         "appearance" => Some(SettingsTab::Appearance),
-        "local" | "local_terminal" => Some(SettingsTab::Local),
+        "local" | "local_terminal" => Some(SettingsTab::Terminal),
         "connections" | "connection_manager" => Some(SettingsTab::Connections),
         "privilege" | "privilege_credentials" | "sudo" | "su" => Some(SettingsTab::Privilege),
         "ssh" => Some(SettingsTab::Ssh),
@@ -35,6 +35,13 @@ pub fn settings_tab_from_ai_section(section: &str) -> Option<SettingsTab> {
         "knowledge" | "rag" => Some(SettingsTab::Knowledge),
         "keybindings" | "keyboard" => Some(SettingsTab::Keybindings),
         "help" => Some(SettingsTab::Help),
+        _ => None,
+    }
+}
+
+pub fn terminal_settings_page_from_ai_section(section: &str) -> Option<TerminalSettingsPage> {
+    match section {
+        "local" | "local_terminal" => Some(TerminalSettingsPage::Local),
         _ => None,
     }
 }
@@ -104,7 +111,11 @@ mod tests {
     fn ai_section_aliases_map_to_settings_tabs() {
         assert_eq!(
             settings_tab_from_ai_section("local_terminal"),
-            Some(SettingsTab::Local)
+            Some(SettingsTab::Terminal)
+        );
+        assert_eq!(
+            terminal_settings_page_from_ai_section("local_terminal"),
+            Some(TerminalSettingsPage::Local)
         );
         assert_eq!(
             settings_tab_from_ai_section("assistant"),
