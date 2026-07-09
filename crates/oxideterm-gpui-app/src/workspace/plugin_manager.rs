@@ -20,6 +20,8 @@ const PLUGIN_MANAGER_HINT_TEXT_SIZE: f32 = 11.0;
 const PLUGIN_MANAGER_ROW_META_TEXT_SIZE: f32 = 10.0;
 const PLUGIN_MANAGER_ACTION_ICON_SIZE: f32 = 14.0;
 const PLUGIN_MANAGER_ROW_ACTION_SIZE: f32 = 28.0;
+#[cfg(windows)]
+const PLUGIN_MANAGER_EXTERNAL_BRIDGE_CREATE_NO_WINDOW: u32 = 0x08000000;
 const PLUGIN_MANAGER_TW_ALPHA_10: u32 = 0x1a;
 const PLUGIN_MANAGER_TW_ALPHA_20: u32 = 0x33;
 const PLUGIN_MANAGER_TW_ALPHA_30: u32 = 0x4d;
@@ -2143,7 +2145,9 @@ fn open_native_plugins_dir(settings_path: &std::path::Path, i18n: &I18n) -> Resu
     let status = if cfg!(target_os = "macos") {
         Command::new("open").arg(&plugins_dir).status()
     } else if cfg!(target_os = "windows") {
-        Command::new("explorer").arg(&plugins_dir).status()
+        let mut command = Command::new("explorer");
+        configure_plugin_manager_external_bridge(&mut command);
+        command.arg(&plugins_dir).status()
     } else {
         Command::new("xdg-open").arg(&plugins_dir).status()
     }
@@ -2158,6 +2162,20 @@ fn open_native_plugins_dir(settings_path: &std::path::Path, i18n: &I18n) -> Resu
             .t("plugin.open_dir_status_failed")
             .replace("{{status}}", &status.to_string()))
     }
+}
+
+#[cfg(target_os = "windows")]
+fn configure_plugin_manager_external_bridge(command: &mut Command) {
+    use std::os::windows::process::CommandExt;
+
+    // Explorer is the visible target; hide the short-lived launcher process so
+    // opening the plugins directory does not flash a console.
+    command.creation_flags(PLUGIN_MANAGER_EXTERNAL_BRIDGE_CREATE_NO_WINDOW);
+}
+
+#[cfg(not(target_os = "windows"))]
+fn configure_plugin_manager_external_bridge(command: &mut Command) {
+    let _ = command;
 }
 
 async fn install_wasm_runtime_sidecar(

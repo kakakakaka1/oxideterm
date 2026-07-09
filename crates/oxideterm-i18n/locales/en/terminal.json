@@ -211,6 +211,7 @@
       "search_tasks": "Search project tasks...",
       "no_project": "No project detected.",
       "no_tasks": "No matching project tasks",
+      "git_root": "Git root",
       "group_develop": "Development",
       "group_test": "Test",
       "group_build": "Build",

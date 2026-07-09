@@ -68,4 +68,5 @@ mod tests {
 
         assert_eq!(settings_ui_font_family("").as_ref(), expected);
     }
+
 }

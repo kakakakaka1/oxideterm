@@ -6,6 +6,9 @@ use std::{fs, path::Path};
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 
+#[cfg(target_os = "windows")]
+const WINDOWS_SHELL_DISCOVERY_CREATE_NO_WINDOW: u32 = 0x08000000;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ShellInfo {
     pub id: String,
@@ -355,7 +358,7 @@ fn scan_windows_shells() -> Vec<ShellInfo> {
 fn windows_command_path(command: &str) -> Option<PathBuf> {
     let output = Command::new("where")
         .arg(command)
-        .creation_flags(0x08000000)
+        .creation_flags(WINDOWS_SHELL_DISCOVERY_CREATE_NO_WINDOW)
         .output()
         .ok()?;
     if !output.status.success() {
@@ -382,7 +385,7 @@ fn scan_wsl_distributions(shells: &mut Vec<ShellInfo>) {
 
     let output = match Command::new(&wsl_path)
         .args(["--list", "--quiet"])
-        .creation_flags(0x08000000)
+        .creation_flags(WINDOWS_SHELL_DISCOVERY_CREATE_NO_WINDOW)
         .output()
     {
         Ok(output) if output.status.success() => output,

@@ -76,6 +76,7 @@ pub enum TerminalPaneEvent {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TerminalWorkingDirectorySource {
     ShellIntegration,
+    SessionDefault,
     VisibleCommand,
 }
 
@@ -717,6 +718,23 @@ impl TerminalPane {
         self.cwd = Some(cwd.to_string());
         self.cwd_source = Some(TerminalWorkingDirectorySource::VisibleCommand);
         self.pending_cwd = None;
+        cx.notify();
+    }
+
+    pub fn set_current_working_directory_from_session_default(
+        &mut self,
+        cwd: &str,
+        cx: &mut Context<Self>,
+    ) {
+        let cwd = cwd.trim();
+        if cwd.is_empty() || cwd.chars().any(char::is_control) || self.cwd.is_some() {
+            return;
+        }
+        // SSH does not expose the login shell cwd through the PTY protocol.
+        // Seed the standard login default without writing probe bytes into the
+        // shell; OSC 7 or a visible user `cd` will replace it when available.
+        self.cwd = Some(cwd.to_string());
+        self.cwd_source = Some(TerminalWorkingDirectorySource::SessionDefault);
         cx.notify();
     }
 
@@ -1989,8 +2007,7 @@ impl TerminalPane {
         command: &str,
         cx: &mut Context<Self>,
     ) {
-        if !self.settings.current_directory_awareness_enabled || self.shell_integration_status.detected
-        {
+        if !self.settings.current_directory_awareness_enabled || self.cwd_is_shell_integrated() {
             return;
         }
         let cwd = self
@@ -2007,6 +2024,10 @@ impl TerminalPane {
                 cx,
             );
         }
+    }
+
+    fn cwd_is_shell_integrated(&self) -> bool {
+        self.cwd_source == Some(TerminalWorkingDirectorySource::ShellIntegration)
     }
 
     fn terminal_accepts_input(&self) -> bool {

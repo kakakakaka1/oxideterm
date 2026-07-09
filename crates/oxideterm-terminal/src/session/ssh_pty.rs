@@ -82,6 +82,7 @@ impl SshPtySession {
             let consumer = config.consumer.clone();
             let prompt_handler = config.prompt_handler.clone();
             let managed_key_resolver = config.managed_key_resolver.clone();
+            let shell_startup_input = config.remote_metadata_startup_input();
             runtime_handle.spawn(async move {
                 let mut client = SshTransportClient::new(ssh_config);
                 if let Some(prompt_handler) = prompt_handler {
@@ -90,6 +91,7 @@ impl SshPtySession {
                 if let Some(resolver) = managed_key_resolver {
                     client = client.with_managed_key_resolver(resolver);
                 }
+                client = client.with_shell_startup_input(shell_startup_input);
                 let result = match (registry, consumer) {
                     (Some(registry), Some(consumer)) => {
                         client.connect_shell_with_registry(registry, consumer).await
@@ -104,6 +106,7 @@ impl SshPtySession {
         }
 
         let trzsz_consumer = config.trzsz_policy().map(TrzszConsumer::new);
+        let remote_metadata_token = config.remote_metadata_token().map(str::to_string);
 
         Self {
             config,
@@ -133,7 +136,9 @@ impl SshPtySession {
             encoding_detector: EncodingMismatchDetector::new(encoding),
             trzsz_consumer,
             modem_consumer: ModemConsumer::new(),
-            shell_integration: TerminalShellIntegration::default(),
+            shell_integration: TerminalShellIntegration::with_oxideterm_remote_metadata_token(
+                remote_metadata_token,
+            ),
         }
     }
 

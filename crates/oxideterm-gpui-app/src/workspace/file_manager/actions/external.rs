@@ -1,5 +1,8 @@
 use super::*;
 
+#[cfg(windows)]
+const FILE_MANAGER_EXTERNAL_BRIDGE_CREATE_NO_WINDOW: u32 = 0x08000000;
+
 pub(in crate::workspace::file_manager) fn open_path_external(path: &str) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     let mut command = {
@@ -11,6 +14,7 @@ pub(in crate::workspace::file_manager) fn open_path_external(path: &str) -> Resu
     #[cfg(target_os = "windows")]
     let mut command = {
         let mut command = std::process::Command::new("cmd");
+        configure_file_manager_external_bridge(&mut command);
         command.args(["/C", "start", "", path]);
         command
     };
@@ -43,6 +47,7 @@ pub(in crate::workspace::file_manager) fn reveal_path_external(path: &str) -> Re
     #[cfg(target_os = "windows")]
     let mut command = {
         let mut command = std::process::Command::new("explorer");
+        configure_file_manager_external_bridge(&mut command);
         command.arg(format!("/select,{path}"));
         command
     };
@@ -65,4 +70,13 @@ pub(in crate::workspace::file_manager) fn reveal_path_external(path: &str) -> Re
     } else {
         Err(format!("reveal exited with status {status}"))
     }
+}
+
+#[cfg(target_os = "windows")]
+fn configure_file_manager_external_bridge(command: &mut std::process::Command) {
+    use std::os::windows::process::CommandExt;
+
+    // Keep Windows launcher bridges hidden while they hand off to Explorer or
+    // the user's associated application.
+    command.creation_flags(FILE_MANAGER_EXTERNAL_BRIDGE_CREATE_NO_WINDOW);
 }

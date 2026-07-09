@@ -11,6 +11,7 @@ use alacritty_terminal::{
 const MAX_COMMAND_TEXT_LENGTH: usize = 4096;
 const MAX_MARKS: usize = 2000;
 const OSC_LIMIT: usize = MAX_COMMAND_TEXT_LENGTH * 4;
+const OXIDETERM_REMOTE_METADATA_OSC: &str = "7719";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ShellIntegrationSource {
@@ -160,9 +161,17 @@ pub(crate) struct TerminalShellIntegration {
     marks: Vec<TerminalCommandMark>,
     pending_osc: Option<OscCapture>,
     next_command_sequence: u64,
+    oxideterm_remote_metadata_token: Option<String>,
 }
 
 impl TerminalShellIntegration {
+    pub(crate) fn with_oxideterm_remote_metadata_token(token: Option<String>) -> Self {
+        Self {
+            oxideterm_remote_metadata_token: token.filter(|value| !value.trim().is_empty()),
+            ..Self::default()
+        }
+    }
+
     pub(crate) fn advance<T: EventListener>(
         &mut self,
         parser: &mut Processor,
@@ -288,6 +297,14 @@ impl TerminalShellIntegration {
         let Some((code, data)) = text.split_once(';') else {
             return false;
         };
+        if code == OXIDETERM_REMOTE_METADATA_OSC {
+            if let Some((cwd, host)) = self.parse_oxideterm_remote_metadata(data) {
+                emit(crate::TerminalEvent::CwdChanged { cwd, host });
+            }
+            // OxideTerm private OSC payloads are control metadata and should
+            // never be rendered, even when a malformed payload is ignored.
+            return true;
+        }
         if code == "7" {
             if let Some((cwd, host)) = parse_osc7_cwd(data) {
                 emit(crate::TerminalEvent::CwdChanged { cwd, host });
@@ -447,6 +464,36 @@ impl TerminalShellIntegration {
         command_events
     }
 
+    fn parse_oxideterm_remote_metadata(&self, data: &str) -> Option<(String, Option<String>)> {
+        let expected_token = self.oxideterm_remote_metadata_token.as_deref()?;
+        let fields = parse_key_value_fields(data);
+        let version = fields
+            .iter()
+            .find_map(|(key, value)| (*key == "v").then_some(*value))?;
+        if version != "1" {
+            return None;
+        }
+        let token = fields
+            .iter()
+            .find_map(|(key, value)| (*key == "id").then_some(*value))?;
+        if token != expected_token {
+            return None;
+        }
+        let cwd = fields
+            .iter()
+            .find_map(|(key, value)| (*key == "cwd").then_some(*value))
+            .and_then(percent_decode)?;
+        if !cwd.starts_with('/') {
+            return None;
+        }
+        let host = fields
+            .iter()
+            .find_map(|(key, value)| (*key == "host").then_some(*value))
+            .and_then(percent_decode)
+            .filter(|value| !value.is_empty());
+        Some((cwd, host))
+    }
+
     fn create_shell_integrated_mark(
         &mut self,
         command: Option<String>,
@@ -592,6 +639,12 @@ fn split_sequence(data: &str) -> (String, Vec<String>) {
     let sequence = parts.next().unwrap_or_default().to_string();
     let args = parts.map(ToOwned::to_owned).collect();
     (sequence, args)
+}
+
+fn parse_key_value_fields(data: &str) -> Vec<(&str, &str)> {
+    data.split(';')
+        .filter_map(|field| field.split_once('='))
+        .collect()
 }
 
 fn parse_exit_code(args: &[String]) -> Option<i32> {

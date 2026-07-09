@@ -201,6 +201,7 @@
       "search_tasks": "프로젝트 작업 검색...",
       "no_project": "프로젝트를 감지하지 못했습니다.",
       "no_tasks": "일치하는 프로젝트 작업이 없습니다",
+      "git_root": "Git 루트",
       "group_develop": "개발",
       "group_test": "테스트",
       "group_build": "빌드",

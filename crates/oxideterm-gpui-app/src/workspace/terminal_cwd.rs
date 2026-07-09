@@ -211,9 +211,13 @@ impl WorkspaceApp {
                 Some(TerminalWorkingDirectorySource::ShellIntegration) => {
                     CurrentDirectorySource::ShellIntegration
                 }
-                Some(TerminalWorkingDirectorySource::VisibleCommand) | None => {
-                    CurrentDirectorySource::VisibleText
+                Some(TerminalWorkingDirectorySource::VisibleCommand) => {
+                    CurrentDirectorySource::UserAction
                 }
+                Some(TerminalWorkingDirectorySource::SessionDefault) => {
+                    CurrentDirectorySource::SessionDefault
+                }
+                None => CurrentDirectorySource::VisibleText,
             };
             return CurrentDirectorySnapshot::new(scope, cwd, source);
         }
@@ -256,6 +260,23 @@ impl WorkspaceApp {
         self.terminal_cwd_picker.error = None;
         self.terminal_cwd_picker.probe_scope = Some(scope);
         self.terminal_cwd_picker.probe_pane_id = Some(pane_id);
+
+        if matches!(
+            self.terminal_cwd_picker.probe_scope,
+            Some(CurrentDirectoryScope::SshNode(_))
+        ) {
+            // SSH fallback probes used to write a hidden-looking command into the
+            // interactive PTY, but remote shells can echo it visibly. Until the
+            // prompt-owned hook is installed, unknown remote cwd must degrade
+            // instead of mutating the user's terminal input stream.
+            self.terminal_cwd_picker.loading = false;
+            self.terminal_cwd_picker.error =
+                Some(self.i18n.t("terminal.cwd.unavailable").to_string());
+            self.terminal_cwd_picker.probe_scope = None;
+            self.terminal_cwd_picker.probe_pane_id = None;
+            cx.notify();
+            return;
+        }
 
         if self.request_terminal_cwd_report(pane_id, cx) {
             self.spawn_terminal_cwd_report_poll(generation, cx);

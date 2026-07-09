@@ -258,6 +258,9 @@ impl WorkspaceApp {
         let scope = match snapshot.scope() {
             oxideterm_environment::CurrentDirectoryScope::Local => ProjectProbeScope::Local,
             oxideterm_environment::CurrentDirectoryScope::SshNode(node_id) => {
+                if !terminal_project_remote_cwd_source_is_trusted(snapshot.source()) {
+                    return None;
+                }
                 ProjectProbeScope::ssh_node(node_id.clone())
             }
         };
@@ -366,6 +369,16 @@ impl WorkspaceApp {
         self.terminal_project_panel.highlighted_task_id =
             if last { tasks.last() } else { tasks.first() }.map(|task| task.id().to_string());
     }
+}
+
+fn terminal_project_remote_cwd_source_is_trusted(
+    source: oxideterm_environment::CurrentDirectorySource,
+) -> bool {
+    matches!(
+        source,
+        oxideterm_environment::CurrentDirectorySource::ShellIntegration
+            | oxideterm_environment::CurrentDirectorySource::UserAction
+    )
 }
 
 fn run_local_project_probe(cwd: &str) -> ProjectProbeOutcome {

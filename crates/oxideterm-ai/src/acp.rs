@@ -37,7 +37,13 @@ use tokio::{
     sync::{Mutex, mpsc, oneshot, watch},
 };
 
+#[cfg(windows)]
+use async_process::windows::CommandExt as AsyncProcessCommandExt;
+
 use crate::types::AiStreamEvent;
+
+#[cfg(windows)]
+const ACP_BACKGROUND_PROCESS_CREATE_NO_WINDOW: u32 = 0x08000000;
 
 #[derive(Clone, PartialEq)]
 pub struct AcpLaunchConfig {
@@ -336,6 +342,7 @@ impl AcpTerminalRegistry {
             ACP_TERMINAL_COUNTER.fetch_add(1, Ordering::Relaxed)
         );
         let mut command = tokio::process::Command::new(request.command.trim());
+        configure_acp_tokio_process(&mut command);
         command.args(&request.args);
         command.current_dir(cwd);
         for variable in &request.env {
@@ -686,6 +693,7 @@ impl AcpStdioLauncher {
     > {
         let command_path = resolve_acp_command(self.config.command.trim());
         let mut command = async_process::Command::new(command_path);
+        configure_acp_async_process(&mut command);
         command.args(&self.config.args);
         command.envs(&self.config.env);
         if let Some(cwd) = &self.config.cwd {
@@ -709,6 +717,32 @@ impl AcpStdioLauncher {
             .ok_or_else(|| agent_client_protocol::util::internal_error("Failed to open stdout"))?;
         let stderr = child.stderr.take();
         Ok((stdin, stdout, stderr, child))
+    }
+}
+
+fn configure_acp_tokio_process(command: &mut tokio::process::Command) {
+    #[cfg(windows)]
+    {
+        // ACP managed terminals are protocol-managed background processes, not
+        // visible OxideTerm panes. Keep their captured stdio off the desktop.
+        command.creation_flags(ACP_BACKGROUND_PROCESS_CREATE_NO_WINDOW);
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = command;
+    }
+}
+
+fn configure_acp_async_process(command: &mut async_process::Command) {
+    #[cfg(windows)]
+    {
+        // ACP stdio agents communicate over captured pipes and should not flash
+        // a console when spawned from the Windows GUI app.
+        command.creation_flags(ACP_BACKGROUND_PROCESS_CREATE_NO_WINDOW);
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = command;
     }
 }
 

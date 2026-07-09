@@ -671,6 +671,51 @@ wait
     }
 
     #[test]
+    fn shell_integration_private_remote_metadata_requires_matching_token() {
+        let size = TerminalSize {
+            cols: 80,
+            rows: 8,
+            cell_width: 8,
+            cell_height: 17,
+        };
+        let mut term = Term::new(Config::default(), &size, VoidListener);
+        let mut parser = Processor::<StdSyncHandler>::new();
+        let mut integration =
+            crate::shell_integration::TerminalShellIntegration::with_oxideterm_remote_metadata_token(
+                Some("session-1".to_string()),
+            );
+        let mut events = Vec::new();
+
+        integration.advance(
+            &mut parser,
+            &mut term,
+            b"\x1b]7719;v=1;id=other;cwd=%2fwrong;host=%62%61%64\x07\x1b]7719;v=1;id=session-1;cwd=%2fhome%2fdev%2fAstrBot;host=%62%75%69%6c%64\x07$ ",
+            |event| events.push(event),
+        );
+
+        assert!(events.iter().any(|event| matches!(
+            event,
+            TerminalEvent::CwdChanged {
+                cwd,
+                host: Some(host),
+            } if cwd == "/home/dev/AstrBot" && host == "build"
+        )));
+        assert!(!events.iter().any(|event| matches!(
+            event,
+            TerminalEvent::CwdChanged { cwd, .. } if cwd == "/wrong"
+        )));
+        let snapshot = snapshot_from_term(&term, size, &TerminalGraphicsState::default());
+        let visible_text = snapshot
+            .lines
+            .iter()
+            .map(|row| row.text())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(!visible_text.contains("7719;"));
+        assert!(visible_text.contains("$"));
+    }
+
+    #[test]
     fn shell_integration_osc7_accepts_raw_path_compatibility() {
         let size = TerminalSize {
             cols: 80,

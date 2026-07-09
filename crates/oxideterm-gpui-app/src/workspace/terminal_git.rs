@@ -9,12 +9,12 @@ use oxideterm_ai::{
     provider_chat_requires_key as ai_provider_chat_requires_key, stream_chat_completion,
 };
 use oxideterm_environment::{
-    CurrentDirectoryScope, CurrentDirectorySnapshot, GitBranchListOutcome, GitBranchReference,
-    GitCommandOutput, GitOperationKind, GitProbeKey, GitProbeOutcome, GitProbeScope,
-    GitRepositorySnapshot, GitStagedDiffContext, GitStagedDiffOutcome, git_absolute_git_dir_args,
-    git_branch_args, git_branch_list_args, git_head_args, git_repo_root_args,
-    git_staged_diff_patch_args, git_staged_diff_stat_args, git_status_args, git_worktree_list_args,
-    infer_terminal_cwd_from_text, interpret_git_branch_list_outputs,
+    CurrentDirectoryScope, CurrentDirectorySnapshot, CurrentDirectorySource, GitBranchListOutcome,
+    GitBranchReference, GitCommandOutput, GitOperationKind, GitProbeKey, GitProbeOutcome,
+    GitProbeScope, GitRepositorySnapshot, GitStagedDiffContext, GitStagedDiffOutcome,
+    git_absolute_git_dir_args, git_branch_args, git_branch_list_args, git_head_args,
+    git_repo_root_args, git_staged_diff_patch_args, git_staged_diff_stat_args, git_status_args,
+    git_worktree_list_args, infer_terminal_cwd_from_text, interpret_git_branch_list_outputs,
     interpret_git_command_outputs_with_status_and_operation, interpret_git_staged_diff_outputs,
     parse_shell_branch_list_output, parse_shell_probe_output, parse_shell_staged_diff_output,
     remote_shell_branch_list_command, remote_shell_probe_command, remote_shell_staged_diff_command,
@@ -25,6 +25,8 @@ use tokio::process::Command;
 
 use super::*;
 
+#[cfg(windows)]
+const TERMINAL_GIT_CREATE_NO_WINDOW: u32 = 0x08000000;
 const TERMINAL_GIT_PROBE_TTL_MS: u64 = 5_000;
 const TERMINAL_GIT_PROBE_TIMEOUT: Duration = Duration::from_secs(4);
 const TERMINAL_GIT_BRANCH_LIST_TIMEOUT: Duration = Duration::from_secs(4);
@@ -978,11 +980,10 @@ impl WorkspaceApp {
             .and_then(|snapshot| terminal_git_cwd_from_directory_snapshot(scope, &snapshot));
         let pane = self.panes.get(&pane_id)?;
         let pane = pane.read(cx);
-        let shell_cwd = pane.current_working_directory();
         let visible_cwd = matches!(scope, GitProbeScope::Local)
             .then(|| infer_terminal_cwd_from_text(&pane.visible_text_snapshot()))
             .flatten();
-        let cwd = terminal_git_preferred_cwd(scope, snapshot_cwd, shell_cwd, visible_cwd)?;
+        let cwd = terminal_git_preferred_cwd(scope, snapshot_cwd, visible_cwd)?;
         Some(match scope {
             GitProbeScope::Local => terminal_git_expand_local_home(&cwd),
             GitProbeScope::SshNode(_) => cwd,
@@ -1236,7 +1237,8 @@ fn terminal_git_cwd_from_directory_snapshot(
             Some(terminal_git_expand_local_home(snapshot.path()))
         }
         (GitProbeScope::SshNode(expected), CurrentDirectoryScope::SshNode(actual))
-            if expected == actual =>
+            if expected == actual
+                && terminal_git_remote_cwd_source_is_trusted(snapshot.source()) =>
         {
             Some(snapshot.path().to_string())
         }
@@ -1247,15 +1249,21 @@ fn terminal_git_cwd_from_directory_snapshot(
 fn terminal_git_preferred_cwd(
     scope: &GitProbeScope,
     snapshot_cwd: Option<String>,
-    shell_cwd: Option<String>,
     visible_cwd: Option<String>,
 ) -> Option<String> {
     if matches!(scope, GitProbeScope::SshNode(_)) {
-        // Remote Git probing must not infer paths from visible prompt text:
-        // typed commands and command output are not authoritative cwd reports.
-        return snapshot_cwd.or(shell_cwd);
+        // Remote Git probing must use scoped, trusted cwd snapshots. Unscoped
+        // pane cwd would bypass the source check above.
+        return snapshot_cwd;
     }
-    snapshot_cwd.or(shell_cwd).or(visible_cwd)
+    snapshot_cwd.or(visible_cwd)
+}
+
+fn terminal_git_remote_cwd_source_is_trusted(source: CurrentDirectorySource) -> bool {
+    matches!(
+        source,
+        CurrentDirectorySource::ShellIntegration | CurrentDirectorySource::UserAction
+    )
 }
 
 async fn run_local_git_probe(cwd: &str) -> GitProbeOutcome {
@@ -1504,6 +1512,7 @@ async fn run_local_git_command_with_timeout(
     timeout: Duration,
 ) -> Result<GitCommandOutput, LocalGitProbeError> {
     let mut command = Command::new("git");
+    configure_local_git_command(&mut command);
     command
         .env("GIT_OPTIONAL_LOCKS", "0")
         .arg("-C")
@@ -1527,6 +1536,19 @@ async fn run_local_git_command_with_timeout(
         success: output.status.success(),
         stdout: String::from_utf8_lossy(&output.stdout).to_string(),
     })
+}
+
+fn configure_local_git_command(command: &mut Command) {
+    #[cfg(windows)]
+    {
+        // Local Git probes run from the GUI process in the background. Hide the
+        // child console so branch/status refreshes do not flash git.exe windows.
+        command.creation_flags(TERMINAL_GIT_CREATE_NO_WINDOW);
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = command;
+    }
 }
 
 fn terminal_git_now_ms() -> u64 {
@@ -1791,11 +1813,56 @@ mod tests {
     }
 
     #[test]
-    fn remote_git_uses_matching_snapshot_before_shell_cwd() {
+    fn remote_git_cwd_accepts_user_action_snapshot() {
+        let snapshot = CurrentDirectorySnapshot::new(
+            CurrentDirectoryScope::ssh_node("node-1"),
+            "/home/dev/project",
+            CurrentDirectorySource::UserAction,
+        )
+        .unwrap();
+
+        assert_eq!(
+            terminal_git_cwd_from_directory_snapshot(&GitProbeScope::ssh_node("node-1"), &snapshot)
+                .as_deref(),
+            Some("/home/dev/project")
+        );
+    }
+
+    #[test]
+    fn remote_git_cwd_rejects_session_default_snapshot() {
+        let snapshot = CurrentDirectorySnapshot::new(
+            CurrentDirectoryScope::ssh_node("node-1"),
+            "~",
+            CurrentDirectorySource::SessionDefault,
+        )
+        .unwrap();
+
+        assert!(
+            terminal_git_cwd_from_directory_snapshot(&GitProbeScope::ssh_node("node-1"), &snapshot)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn remote_git_cwd_rejects_visible_text_snapshot() {
+        let snapshot = CurrentDirectorySnapshot::new(
+            CurrentDirectoryScope::ssh_node("node-1"),
+            "/home/dev/project",
+            CurrentDirectorySource::VisibleText,
+        )
+        .unwrap();
+
+        assert!(
+            terminal_git_cwd_from_directory_snapshot(&GitProbeScope::ssh_node("node-1"), &snapshot)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn remote_git_uses_matching_trusted_snapshot() {
         let cwd = terminal_git_preferred_cwd(
             &GitProbeScope::ssh_node("node-1"),
             Some("~/oxideterm.cloud-sync-server".to_string()),
-            Some("/home/lipsc".to_string()),
             Some("/wrong/from-visible-text".to_string()),
         );
 
@@ -1803,22 +1870,27 @@ mod tests {
     }
 
     #[test]
-    fn remote_git_falls_back_to_shell_cwd_without_snapshot() {
+    fn local_git_can_use_visible_text_cwd_without_snapshot() {
         let cwd = terminal_git_preferred_cwd(
-            &GitProbeScope::ssh_node("node-1"),
+            &GitProbeScope::Local,
             None,
             Some("/home/lipsc".to_string()),
-            Some("/wrong/from-visible-text".to_string()),
         );
 
         assert_eq!(cwd.as_deref(), Some("/home/lipsc"));
     }
 
     #[test]
+    fn local_git_command_platform_options_are_applied() {
+        let mut command = Command::new("git");
+
+        configure_local_git_command(&mut command);
+    }
+
+    #[test]
     fn remote_git_ignores_visible_text_cwd_without_authoritative_source() {
         let cwd = terminal_git_preferred_cwd(
             &GitProbeScope::ssh_node("node-1"),
-            None,
             None,
             Some("/wrong/from-visible-text".to_string()),
         );

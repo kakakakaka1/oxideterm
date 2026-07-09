@@ -201,6 +201,7 @@
       "search_tasks": "Rechercher des tâches du projet...",
       "no_project": "Aucun projet détecté.",
       "no_tasks": "Aucune tâche de projet correspondante",
+      "git_root": "Racine Git",
       "group_develop": "Développement",
       "group_test": "Test",
       "group_build": "Build",

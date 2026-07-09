@@ -491,9 +491,35 @@ def create_windows_installer(
     script_path = DIST_DIR / f"OxideTerm_{version}_{label}.nsi"
     icon_path = RESOURCE_DIR / "icons" / "icon.ico"
 
+    script = windows_installer_script(
+        binary=binary,
+        version=version,
+        identity=identity,
+        installer_root=installer_root,
+        installer_path=installer_path,
+        icon_path=icon_path,
+    )
+    script_path.write_text(script + "\n", encoding="utf-8")
+    run([makensis, str(script_path)])
+    shutil.rmtree(installer_root)
+    script_path.unlink(missing_ok=True)
+
+
+def windows_installer_script(
+    *,
+    binary: Path,
+    version: str,
+    identity: ReleaseIdentity,
+    installer_root: Path,
+    installer_path: Path,
+    icon_path: Path,
+) -> str:
     # The NSIS package mirrors Tauri's current-user install mode while keeping
     # each native release channel isolated in its own registry/install scope.
-    script = f"""
+    # Existing installs are upgraded in place; uninstalling during an update can
+    # leave the running app's directory locked and abort before the new build is
+    # copied.
+    return f"""
 Unicode true
 RequestExecutionLevel user
 !include MUI2.nsh
@@ -514,33 +540,9 @@ BrandingText "{identity.app_name}"
 !insertmacro MUI_UNPAGE_INSTFILES
 !insertmacro MUI_LANGUAGE "English"
 
-Function .onInit
-  ReadRegStr $0 HKCU "Software\\{identity.windows_registry_key}" "InstallDir"
-  StrCmp $0 "" install_ready
-  IfFileExists "$0\\Uninstall.exe" 0 install_ready
-  MessageBox MB_ICONQUESTION|MB_YESNO "{nsis_string(identity.app_name)} is already installed.$\\r$\\n$\\r$\\nUninstall the existing installation before continuing?" IDYES uninstall_existing
-  Abort
-
-uninstall_existing:
-  ClearErrors
-  ExecWait '"$0\\Uninstall.exe" _?=$0' $1
-  IfErrors uninstall_failed check_uninstall_exit
-
-check_uninstall_exit:
-  IntCmp $1 0 verify_uninstalled uninstall_failed uninstall_failed
-
-verify_uninstalled:
-  IfFileExists "$0\\Uninstall.exe" uninstall_failed install_ready
-
-uninstall_failed:
-  MessageBox MB_ICONEXCLAMATION "The existing {nsis_string(identity.app_name)} installation was not uninstalled. Setup will exit."
-  Abort
-
-install_ready:
-FunctionEnd
-
 Section "Install"
   SetOutPath "$INSTDIR"
+  SetOverwrite on
   File /r "{nsis_path(installer_root)}\\*"
   WriteUninstaller "$INSTDIR\\Uninstall.exe"
   WriteRegStr HKCU "Software\\{identity.windows_registry_key}" "InstallDir" "$INSTDIR"
@@ -560,10 +562,6 @@ Section "Uninstall"
   RMDir /r "$INSTDIR"
 SectionEnd
 """.strip()
-    script_path.write_text(script + "\n", encoding="utf-8")
-    run([makensis, str(script_path)])
-    shutil.rmtree(installer_root)
-    script_path.unlink(missing_ok=True)
 
 
 def create_macos_app(

@@ -1,7 +1,10 @@
 // Copyright (C) 2026 AnalyseDeCircuit
 // SPDX-License-Identifier: GPL-3.0-only
 
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    sync::{Arc, OnceLock},
+};
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -172,6 +175,66 @@ impl ProgressStore for DummyProgressStore {
 
     async fn delete_for_session(&self, _session_id: &str) -> Result<(), SftpError> {
         Ok(())
+    }
+}
+
+pub struct LazyProgressStore {
+    db_path: PathBuf,
+    store: OnceLock<Arc<dyn ProgressStore>>,
+}
+
+impl LazyProgressStore {
+    pub fn new(db_path: impl Into<PathBuf>) -> Self {
+        Self {
+            db_path: db_path.into(),
+            store: OnceLock::new(),
+        }
+    }
+
+    fn store(&self) -> Arc<dyn ProgressStore> {
+        self.store
+            .get_or_init(|| match RedbProgressStore::new(&self.db_path) {
+                Ok(store) => Arc::new(store),
+                Err(error) => {
+                    warn!(
+                        path = %self.db_path.display(),
+                        error = %error,
+                        "falling back to in-memory SFTP progress store"
+                    );
+                    Arc::new(DummyProgressStore)
+                }
+            })
+            .clone()
+    }
+}
+
+#[async_trait]
+impl ProgressStore for LazyProgressStore {
+    async fn save(&self, progress: &StoredTransferProgress) -> Result<(), SftpError> {
+        self.store().save(progress).await
+    }
+
+    async fn load(&self, transfer_id: &str) -> Result<Option<StoredTransferProgress>, SftpError> {
+        self.store().load(transfer_id).await
+    }
+
+    async fn list_incomplete(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<StoredTransferProgress>, SftpError> {
+        self.store().list_incomplete(session_id).await
+    }
+
+    async fn list_all_incomplete(&self) -> Result<Vec<StoredTransferProgress>, SftpError> {
+        self.store().list_all_incomplete().await
+    }
+
+    async fn delete(&self, transfer_id: &str) -> Result<(), SftpError> {
+        self.store().delete(transfer_id).await
+    }
+
+    async fn delete_for_session(&self, session_id: &str) -> Result<(), SftpError> {
+        self.store().delete_for_session(session_id).await
     }
 }
 
@@ -639,6 +702,26 @@ mod tests {
         drop(progress_table);
         drop(read_txn);
         drop(store);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn lazy_progress_store_opens_database_on_first_use() {
+        let path = temp_progress_path("lazy-open");
+        let store = LazyProgressStore::new(&path);
+        assert!(!path.exists());
+
+        let progress = StoredTransferProgress::new(
+            "transfer-1".to_string(),
+            TransferType::Download,
+            PathBuf::from("/remote/file.txt"),
+            PathBuf::from("/local/file.txt"),
+            128,
+            "session-1".to_string(),
+        );
+        store.save(&progress).await.expect("save progress");
+
+        assert!(path.exists());
         let _ = std::fs::remove_file(path);
     }
 }

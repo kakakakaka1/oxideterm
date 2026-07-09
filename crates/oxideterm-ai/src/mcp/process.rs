@@ -1,3 +1,6 @@
+#[cfg(windows)]
+const MCP_STDIO_CREATE_NO_WINDOW: u32 = 0x08000000;
+
 impl McpProcessRegistry {
     async fn stop_all(&self) {
         let ids = self
@@ -23,6 +26,7 @@ impl McpProcessRegistry {
         let server_id = format!("mcp-{}", uuid::Uuid::new_v4());
 
         let mut cmd = Command::new(command);
+        configure_mcp_stdio_command(&mut cmd);
         cmd.args(args)
             .env_clear()
             .envs(env)
@@ -166,6 +170,19 @@ impl McpProcessRegistry {
             let _ = tx.send(Err(McpError::Message("MCP server closed".to_string())));
         }
         Ok(())
+    }
+}
+
+fn configure_mcp_stdio_command(command: &mut Command) {
+    #[cfg(windows)]
+    {
+        // Stdio MCP servers are protocol children owned by the app. Hide their
+        // console windows while keeping stdin/stdout/stderr pipes captured.
+        command.creation_flags(MCP_STDIO_CREATE_NO_WINDOW);
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = command;
     }
 }
 

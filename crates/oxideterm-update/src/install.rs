@@ -6,7 +6,13 @@ use std::{
     process::Command,
 };
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
 use crate::{NativeUpdateError, PlatformTarget, current_platform_target};
+
+#[cfg(windows)]
+const WINDOWS_BACKGROUND_PROCESS_CREATE_NO_WINDOW: u32 = 0x08000000;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum InstallPackageKind {
@@ -287,15 +293,12 @@ fn open_package(path: &Path) -> Result<(), NativeUpdateError> {
     }
     #[cfg(target_os = "windows")]
     {
-        Command::new("cmd")
-            .arg("/C")
-            .arg("start")
-            .arg("")
-            .arg(path)
-            .spawn()
-            .map_err(|error| {
-                NativeUpdateError::State(format!("open update package failed: {error}"))
-            })?;
+        let mut command = Command::new("cmd");
+        configure_windows_background_process(&mut command);
+        command.arg("/C").arg("start").arg("").arg(path);
+        command.spawn().map_err(|error| {
+            NativeUpdateError::State(format!("open update package failed: {error}"))
+        })?;
         return Ok(());
     }
     #[cfg(all(unix, not(target_os = "macos")))]
@@ -378,20 +381,22 @@ fn launch_windows_installer_elevated(
     // Start-Process with runas is the Windows shell boundary that displays UAC
     // when OxideTerm itself is not already elevated.
     let script = windows_start_process_script(file_path, arguments);
-    let status = Command::new("powershell")
-        .arg("-NoProfile")
-        .arg("-ExecutionPolicy")
-        .arg("Bypass")
-        .arg("-Command")
-        .arg(script)
-        .status()
-        .map_err(|error| {
-            reveal_windows_update_package(retained_package_path);
-            NativeUpdateError::State(format!(
-                "launch Windows installer with elevation failed: {error}; update package retained at {}",
-                retained_package_path.display()
-            ))
-        })?;
+    let mut command = Command::new("powershell");
+    configure_windows_background_process(&mut command);
+    let status = command
+            .arg("-NoProfile")
+            .arg("-ExecutionPolicy")
+            .arg("Bypass")
+            .arg("-Command")
+            .arg(script)
+            .status()
+            .map_err(|error| {
+                reveal_windows_update_package(retained_package_path);
+                NativeUpdateError::State(format!(
+                    "launch Windows installer with elevation failed: {error}; update package retained at {}",
+                    retained_package_path.display()
+                ))
+            })?;
     if !status.success() {
         reveal_windows_update_package(retained_package_path);
         return Err(NativeUpdateError::State(format!(
@@ -400,6 +405,13 @@ fn launch_windows_installer_elevated(
         )));
     }
     Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn configure_windows_background_process(command: &mut Command) {
+    // PowerShell/cmd are launch bridges for hidden updater work. The installer
+    // or Explorer can still show UI, but the bridge console must not flash.
+    command.creation_flags(WINDOWS_BACKGROUND_PROCESS_CREATE_NO_WINDOW);
 }
 
 #[cfg(target_os = "windows")]
@@ -432,7 +444,9 @@ fn execute_windows_archive_installer(
             "create Windows installer directory failed: {error}"
         ))
     })?;
-    let status = Command::new("powershell")
+    let mut command = Command::new("powershell");
+    configure_windows_background_process(&mut command);
+    let status = command
         .arg("-NoProfile")
         .arg("-Command")
         .arg("Expand-Archive")

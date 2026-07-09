@@ -156,17 +156,18 @@ fn shell_branch_list_body() -> &'static str {
         "  if [ \"$marker\" = \"*\" ]; then current=1; fi\n",
         "  printf 'branch\\0%s\\0current\\0%s\\0' \"$name\" \"$current\"\n",
         "done\n",
-        "worktree_path=\n",
-        "git worktree list --porcelain 2>/dev/null | while IFS= read -r line; do\n",
+        "emit_worktree_record() {\n",
+        "  if [ -n \"$worktree_branch\" ] && [ -n \"$worktree_path\" ] && [ -z \"$worktree_prunable\" ]; then\n",
+        "    case \"$worktree_path\" in */.git/modules/*|*/.git/worktrees/*) ;; *) printf 'worktree\\0%s\\0path\\0%s\\0' \"$worktree_branch\" \"$worktree_path\" ;; esac\n",
+        "  fi\n",
+        "}\n",
+        "worktree_path=; worktree_branch=; worktree_prunable=\n",
+        "{ git worktree list --porcelain 2>/dev/null; printf '\\n'; } | while IFS= read -r line; do\n",
         "  case \"$line\" in\n",
+        "    '') emit_worktree_record; worktree_path=; worktree_branch=; worktree_prunable= ;;\n",
         "    'worktree '*) worktree_path=${line#worktree } ;;\n",
-        "    'branch refs/heads/'*)\n",
-        "      worktree_branch=${line#branch refs/heads/}\n",
-        "      if [ -n \"$worktree_branch\" ] && [ -n \"$worktree_path\" ]; then\n",
-        "        printf 'worktree\\0%s\\0path\\0%s\\0' \"$worktree_branch\" \"$worktree_path\"\n",
-        "      fi\n",
-        "      ;;\n",
-        "    '') worktree_path= ;;\n",
+        "    'branch refs/heads/'*) worktree_branch=${line#branch refs/heads/} ;;\n",
+        "    'prunable'*) worktree_prunable=1 ;;\n",
         "  esac\n",
         "done\n",
     )
@@ -236,12 +237,23 @@ mod tests {
     }
 
     #[test]
+    fn remote_shell_probe_uses_git_path_for_git_file_worktrees() {
+        let command = remote_shell_probe_command("/repo-linked");
+
+        assert!(command.contains("git rev-parse --git-path MERGE_HEAD"));
+        assert!(command.contains("git rev-parse --git-path rebase-merge"));
+        assert!(!command.contains(".git/MERGE_HEAD"));
+    }
+
+    #[test]
     fn remote_branch_list_command_quotes_cwd() {
         let list = remote_shell_branch_list_command("/tmp/project");
         assert!(list.contains(SHELL_BRANCH_LIST_SENTINEL));
         assert!(list.contains("git branch --format='%(HEAD)%09%(refname:short)'"));
         assert!(list.contains("git worktree list --porcelain"));
         assert!(list.contains("tab=$(printf '\\t')"));
+        assert!(list.contains("emit_worktree_record()"));
+        assert!(list.contains("*/.git/modules/*|*/.git/worktrees/*"));
     }
 
     #[test]

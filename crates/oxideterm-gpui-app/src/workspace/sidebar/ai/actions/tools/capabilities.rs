@@ -27,6 +27,9 @@ fn ai_run_command_requires_ui_thread_target(target: &AiOrchestratorTarget) -> bo
     matches!(target.kind.as_str(), "terminal-session" | "ssh-node" | "local-shell")
 }
 
+#[cfg(windows)]
+const AI_LOCAL_COMMAND_CREATE_NO_WINDOW: u32 = 0x08000000;
+
 #[derive(Clone, Debug)]
 struct AiActionResultLite {
     ok: bool,
@@ -109,7 +112,9 @@ async fn run_local_ai_command(
             state_version: None,
         };
     }
-    let mut process = tokio::process::Command::new(if cfg!(target_os = "windows") { "cmd" } else { "sh" });
+    let mut process =
+        tokio::process::Command::new(if cfg!(target_os = "windows") { "cmd" } else { "sh" });
+    configure_ai_local_command_process(&mut process);
     if cfg!(target_os = "windows") {
         process.arg("/C").arg(command);
     } else {
@@ -220,6 +225,19 @@ async fn run_local_ai_command(
             verified: None,
             state_version: None,
         },
+    }
+}
+
+fn configure_ai_local_command_process(process: &mut tokio::process::Command) {
+    #[cfg(windows)]
+    {
+        // AI local commands capture stdout/stderr in the app. Hide the bridge
+        // shell so cmd.exe, pwsh.exe, and child console programs do not flash.
+        process.creation_flags(AI_LOCAL_COMMAND_CREATE_NO_WINDOW);
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = process;
     }
 }
 

@@ -13,9 +13,10 @@ impl TerminalPane {
         if !self.settings.current_directory_awareness_enabled {
             return;
         }
-        // Once shell integration is present, OSC 7 owns cwd updates; the
-        // visible-command parser is only a fallback for non-integrated shells.
-        if self.shell_integration_status.detected {
+        // OSC 7 owns cwd updates once it has actually reported a cwd. Some
+        // shells emit command marks without cwd metadata; keep simple `cd`
+        // actions usable for those partially integrated sessions.
+        if self.cwd_is_shell_integrated() {
             return;
         }
         let Some(command) = mark.command.as_deref() else {
@@ -853,11 +854,14 @@ fn resolve_cd_target(
         return None;
     }
 
-    let raw = if matches!(target, "" | "~") {
-        "~".to_string()
-    } else if target.starts_with('/') || target.starts_with("~/") {
+    let raw = if matches!(target, "" | "~") || target.starts_with("~/") {
+        return None;
+    } else if target.starts_with('/') {
         target.to_string()
     } else {
+        // Relative cd tracking is only authoritative after a shell-integrated
+        // or process-owned absolute cwd exists. Guessing from "~" makes remote
+        // Git/SFTP probes look valid while they still lack a real path.
         join_posix_display_path(current_cwd?, target)?
     };
     normalize_posix_display_path(&raw)
@@ -865,13 +869,11 @@ fn resolve_cd_target(
 
 fn join_posix_display_path(base: &str, relative: &str) -> Option<String> {
     let base = base.trim_end_matches('/');
-    if base.is_empty() || (!base.starts_with('/') && base != "~" && !base.starts_with("~/")) {
+    if base.is_empty() || !base.starts_with('/') {
         return None;
     }
     let joined = if base == "/" {
         format!("/{relative}")
-    } else if base == "~" {
-        format!("~/{relative}")
     } else {
         format!("{base}/{relative}")
     };
@@ -965,7 +967,7 @@ mod input_tracker_tests {
     }
 
     #[test]
-    fn cd_cwd_action_resolves_plain_paths_without_prompt_inference() {
+    fn cd_cwd_action_resolves_plain_paths_from_absolute_cwd() {
         assert_eq!(
             cwd_after_simple_cd_command("cd /var/log/../tmp", Some("/home/lipsc")).as_deref(),
             Some("/var/tmp")
@@ -975,17 +977,14 @@ mod input_tracker_tests {
             Some("/home/lipsc/.oxideterm")
         );
         assert_eq!(
-            cwd_after_simple_cd_command("cd ..", Some("~/Documents/OxideTerm")).as_deref(),
-            Some("~/Documents")
+            cwd_after_simple_cd_command("cd ..", Some("/home/lipsc/OxideTerm")).as_deref(),
+            Some("/home/lipsc")
         );
     }
 
     #[test]
-    fn cd_cwd_action_handles_home_and_quoted_paths() {
-        assert_eq!(
-            cwd_after_simple_cd_command("cd", Some("/home/lipsc")).as_deref(),
-            Some("~")
-        );
+    fn cd_cwd_action_rejects_unknown_home_and_handles_quoted_paths() {
+        assert_eq!(cwd_after_simple_cd_command("cd", Some("/home/lipsc")), None);
         assert_eq!(
             cwd_after_simple_cd_command("cd 'dir with spaces'", Some("/home/lipsc")).as_deref(),
             Some("/home/lipsc/dir with spaces")
@@ -1017,6 +1016,7 @@ mod input_tracker_tests {
     #[test]
     fn cd_cwd_action_requires_current_cwd_for_relative_paths() {
         assert_eq!(cwd_after_simple_cd_command("cd src", None), None);
+        assert_eq!(cwd_after_simple_cd_command("cd src", Some("~")), None);
         assert_eq!(
             cwd_after_simple_cd_command("cd /tmp/src", None).as_deref(),
             Some("/tmp/src")

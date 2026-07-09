@@ -409,11 +409,15 @@ fn terminal_cwd_chip_tooltip(
     };
     let source = match snapshot.source() {
         CurrentDirectorySource::ProcessFallback => i18n.t("terminal.cwd.source_process"),
+        CurrentDirectorySource::SessionDefault => i18n.t("terminal.cwd.source_manual"),
+        CurrentDirectorySource::UserAction => i18n.t("terminal.cwd.source_manual"),
         CurrentDirectorySource::VisibleText => i18n.t("terminal.cwd.source_manual"),
         CurrentDirectorySource::ShellIntegration => i18n.t("terminal.cwd.source_shell"),
     };
     let quality = match snapshot.source() {
         CurrentDirectorySource::ProcessFallback => i18n.t("terminal.cwd.quality_process"),
+        CurrentDirectorySource::SessionDefault => i18n.t("terminal.cwd.quality_manual"),
+        CurrentDirectorySource::UserAction => i18n.t("terminal.cwd.quality_manual"),
         CurrentDirectorySource::VisibleText => i18n.t("terminal.cwd.quality_manual"),
         CurrentDirectorySource::ShellIntegration => i18n.t("terminal.cwd.quality_cwd_only"),
     };
@@ -1386,6 +1390,13 @@ impl WorkspaceApp {
         } else {
             64.0
         };
+        let git_root_disagreement = self
+            .active_terminal_project_snapshot(cx)
+            .and_then(|project| {
+                self.active_terminal_git_snapshot(cx).and_then(|git| {
+                    terminal_project_git_root_disagreement(project.root_path(), &git.repo_root)
+                })
+            });
 
         let mut panel = context_menu_pointer_event_boundary(
             command_panel(
@@ -1410,7 +1421,9 @@ impl WorkspaceApp {
         .child(self.render_terminal_project_search(cx));
 
         let body = if let Some(snapshot) = self.active_terminal_project_snapshot(cx) {
-            panel = panel.child(self.render_terminal_project_header(&snapshot));
+            panel = panel.child(
+                self.render_terminal_project_header(&snapshot, git_root_disagreement.as_deref()),
+            );
             let tasks = self.visible_terminal_project_tasks(cx);
             if tasks.is_empty() {
                 self.render_terminal_project_message(
@@ -1430,8 +1443,29 @@ impl WorkspaceApp {
         panel.into_any_element()
     }
 
-    fn render_terminal_project_header(&self, snapshot: &ProjectSnapshot) -> AnyElement {
+    fn render_terminal_project_header(
+        &self,
+        snapshot: &ProjectSnapshot,
+        git_root_disagreement: Option<&str>,
+    ) -> AnyElement {
         let theme = self.tokens.ui;
+        let trailing = git_root_disagreement
+            .map(|git_root| {
+                vec![
+                    div()
+                        .truncate()
+                        .max_w(px(260.0))
+                        .font_family(settings_mono_font_family(self.settings_store.settings()))
+                        .text_size(px(10.0))
+                        .text_color(rgb(theme.text_muted))
+                        .child(format!(
+                            "{}: {git_root}",
+                            self.i18n.t("terminal.project.git_root")
+                        ))
+                        .into_any_element(),
+                ]
+            })
+            .unwrap_or_default();
         entity_list_row(
             &self.tokens,
             EntityListRowOptions::new().compact(),
@@ -1455,7 +1489,7 @@ impl WorkspaceApp {
                     .child(snapshot.display_label())
                     .into_any_element(),
             ),
-            Vec::new(),
+            trailing,
             Vec::new(),
         )
         .into_any_element()
@@ -4436,6 +4470,28 @@ fn terminal_cwd_visible_entry_kind_signature(
     }
 }
 
+fn terminal_project_git_root_disagreement(project_root: &str, git_root: &str) -> Option<String> {
+    let project_root = project_root.trim();
+    let git_root = git_root.trim();
+    if project_root.is_empty() || git_root.is_empty() {
+        return None;
+    }
+
+    // Project detection is manifest-based while Git detection is repository
+    // based. Compare normalized display paths so nested packages surface their
+    // distinct Git root without rewriting the project root.
+    (terminal_display_path_key(project_root) != terminal_display_path_key(git_root))
+        .then(|| git_root.to_string())
+}
+
+fn terminal_display_path_key(path: &str) -> String {
+    let mut path = path.trim().replace('\\', "/");
+    while path.len() > 1 && path.ends_with('/') {
+        path.pop();
+    }
+    path
+}
+
 #[cfg(test)]
 mod terminal_broadcast_menu_tests {
     use super::*;
@@ -4448,6 +4504,27 @@ mod terminal_broadcast_menu_tests {
     #[test]
     fn broadcast_menu_keeps_left_viewport_margin_when_trigger_is_narrow() {
         assert_eq!(terminal_broadcast_menu_left_for_trigger_right(120.0), 12.0);
+    }
+}
+
+#[cfg(test)]
+mod terminal_project_git_root_tests {
+    use super::*;
+
+    #[test]
+    fn project_git_root_disagreement_ignores_trailing_separators() {
+        assert_eq!(
+            terminal_project_git_root_disagreement("/repo/app/", "/repo/app").as_deref(),
+            None
+        );
+    }
+
+    #[test]
+    fn project_git_root_disagreement_reports_distinct_git_root() {
+        assert_eq!(
+            terminal_project_git_root_disagreement("/repo/app", "/repo").as_deref(),
+            Some("/repo")
+        );
     }
 }
 

@@ -13,12 +13,38 @@ async fn request_x11_forwarding_for_shell(
         .await
 }
 
+fn pty_modes_for_shell_startup_input(hidden_startup_input: bool) -> Vec<(Pty, u32)> {
+    if !hidden_startup_input {
+        return DEFAULT_PTY_MODES.to_vec();
+    }
+
+    DEFAULT_PTY_MODES
+        .iter()
+        .map(|(mode, value)| {
+            // Initial echo-off keeps app-owned bootstrap input out of the
+            // visible terminal while preserving normal server MOTD output.
+            (*mode, if *mode == Pty::ECHO { 0 } else { *value })
+        })
+        .collect()
+}
+
+async fn send_shell_startup_input(
+    channel: &russh::Channel<client::Msg>,
+    shell_startup_input: Option<&str>,
+) -> Result<(), russh::Error> {
+    if let Some(input) = shell_startup_input {
+        channel.data(input.as_bytes()).await?;
+    }
+    Ok(())
+}
+
 impl SshTransportClient {
     pub fn new(config: SshConfig) -> Self {
         Self {
             config,
             prompt_handler: None,
             managed_key_resolver: None,
+            shell_startup_input: None,
         }
     }
 
@@ -29,6 +55,12 @@ impl SshTransportClient {
 
     pub fn with_managed_key_resolver(mut self, resolver: ManagedKeyResolver) -> Self {
         self.managed_key_resolver = Some(resolver);
+        self
+    }
+
+    pub fn with_shell_startup_input(mut self, input: Option<String>) -> Self {
+        self.shell_startup_input =
+            input.and_then(|input| (!input.trim().is_empty()).then_some(input));
         self
     }
 
@@ -636,6 +668,8 @@ impl SshTransportClient {
         let task_session_id = session_id.clone();
         let agent_forwarding = self.config.agent_forwarding;
         let x11_forwarding = self.config.x11_forwarding.clone();
+        let shell_startup_input = self.shell_startup_input.clone();
+        let pty_modes = pty_modes_for_shell_startup_input(shell_startup_input.is_some());
         let deferred_pty = self.config.cols == 0 || self.config.rows == 0;
         let initial_cols = self.config.cols.clamp(1, 500);
         let initial_rows = self.config.rows.clamp(1, 200);
@@ -661,7 +695,7 @@ impl SshTransportClient {
                     initial_rows,
                     0,
                     0,
-                    DEFAULT_PTY_MODES,
+                    &pty_modes,
                 )
                 .await
                 .map_err(|error| SshTransportError::Channel(error.to_string()))?;
@@ -675,6 +709,9 @@ impl SshTransportClient {
             }
             channel
                 .request_shell(false)
+                .await
+                .map_err(|error| SshTransportError::Channel(error.to_string()))?;
+            send_shell_startup_input(&channel, shell_startup_input.as_deref())
                 .await
                 .map_err(|error| SshTransportError::Channel(error.to_string()))?;
         }
@@ -739,7 +776,7 @@ impl SshTransportClient {
                         pty_rows,
                         0,
                         0,
-                        DEFAULT_PTY_MODES,
+                        &pty_modes,
                     )
                     .await
                 {
@@ -774,6 +811,18 @@ impl SshTransportClient {
                     }
                     let _ = output_tx
                         .send(format!("\r\nFailed to request shell: {error}\r\n").into_bytes())
+                        .await;
+                    return;
+                }
+                if let Err(error) =
+                    send_shell_startup_input(&channel, shell_startup_input.as_deref()).await
+                {
+                    if ssh_channel_error_is_transport_lost(&error.to_string()) {
+                        mark_transport_lost(format!("deferred startup input failed: {error}"))
+                            .await;
+                    }
+                    let _ = output_tx
+                        .send(format!("\r\nFailed to initialize shell: {error}\r\n").into_bytes())
                         .await;
                     return;
                 }

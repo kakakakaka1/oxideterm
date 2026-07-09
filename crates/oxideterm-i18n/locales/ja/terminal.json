@@ -201,6 +201,7 @@
       "search_tasks": "プロジェクトタスクを検索...",
       "no_project": "プロジェクトが検出されていません。",
       "no_tasks": "一致するプロジェクトタスクはありません",
+      "git_root": "Git ルート",
       "group_develop": "開発",
       "group_test": "テスト",
       "group_build": "ビルド",

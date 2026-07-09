@@ -13,6 +13,9 @@ use std::{
     time::{Duration, Instant, SystemTime},
 };
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
 use oxideterm_gpui_remote_desktop::{
     RemoteDesktopFrameApplyStats, RemoteDesktopMappedPoint, RemoteDesktopViewState,
     SharedRemoteDesktopGeometry, remote_desktop_surface_with_geometry,
@@ -43,6 +46,8 @@ const REMOTE_DESKTOP_WORKER_WAKE_POLL_INTERVAL: Duration = Duration::from_millis
 const REMOTE_DESKTOP_RESIZE_DEBOUNCE: Duration = Duration::from_millis(120);
 const REMOTE_DESKTOP_RESIZE_DELTA_THRESHOLD: u32 = 16;
 const REMOTE_DESKTOP_DEFAULT_SCALE_FACTOR_PERCENT: u32 = 100;
+#[cfg(windows)]
+const REMOTE_DESKTOP_HELPER_CREATE_NO_WINDOW: u32 = 0x08000000;
 const REMOTE_DESKTOP_MIN_SCALE_FACTOR_PERCENT: u32 = 100;
 const REMOTE_DESKTOP_MAX_SCALE_FACTOR_PERCENT: u32 = 500;
 const REMOTE_DESKTOP_SCALE_PERCENT_MULTIPLIER: f32 = 100.0;
@@ -2538,6 +2543,7 @@ fn spawn_remote_desktop_helper(
 ) -> Result<(Child, ChildStdin), std::io::Error> {
     let resolved = resolve_remote_desktop_helper_command(&provider.entry.command);
     let mut command = Command::new(&resolved.command);
+    configure_remote_desktop_helper_command(&mut command);
     command
         .args(&resolved.prefix_args)
         .args(&provider.entry.args)
@@ -2557,6 +2563,19 @@ fn spawn_remote_desktop_helper(
         )
     })?;
     Ok((child, stdin))
+}
+
+fn configure_remote_desktop_helper_command(command: &mut Command) {
+    #[cfg(windows)]
+    {
+        // Remote desktop helpers are background protocol bridges with captured
+        // stdio. They must not create a separate console window on Windows.
+        command.creation_flags(REMOTE_DESKTOP_HELPER_CREATE_NO_WINDOW);
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = command;
+    }
 }
 
 struct ResolvedRemoteDesktopHelper {

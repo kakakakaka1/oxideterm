@@ -201,6 +201,7 @@
       "search_tasks": "Projektaufgaben suchen...",
       "no_project": "Kein Projekt erkannt.",
       "no_tasks": "Keine passenden Projektaufgaben",
+      "git_root": "Git-Stamm",
       "group_develop": "Entwicklung",
       "group_test": "Test",
       "group_build": "Build",

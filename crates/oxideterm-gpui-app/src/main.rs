@@ -165,23 +165,16 @@ fn main() {
         let foreground = cx.foreground_executor();
         foreground
             .spawn(async move {
-                // Mirrors Tauri's delayed CJK fallback warmup: keep window
-                // and terminal startup responsive, then register Maple
-                // Regular only.
+                // Keep the idle native window lean by registering only the
+                // baseline CJK fallback. Secondary CJK weights are large and
+                // should be loaded from an explicit terminal-font path instead
+                // of being warmed unconditionally after startup.
                 Timer::after(Duration::from_millis(500)).await;
                 if let Err(error) =
                     bundled_fonts::load_terminal_cjk_fallback_regular(&cjk_fallback_text_system)
                 {
                     eprintln!(
                         "failed to load bundled CJK terminal fallback; falling back to system fonts: {error}"
-                    );
-                }
-                Timer::after(Duration::from_millis(5_000)).await;
-                if let Err(error) =
-                    bundled_fonts::load_terminal_cjk_secondary_faces(&cjk_fallback_text_system)
-                {
-                    eprintln!(
-                        "failed to load secondary bundled CJK terminal fonts; falling back to system fonts: {error}"
                     );
                 }
             })

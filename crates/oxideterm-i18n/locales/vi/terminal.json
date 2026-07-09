@@ -201,6 +201,7 @@
       "search_tasks": "Tìm tác vụ dự án...",
       "no_project": "Không phát hiện dự án.",
       "no_tasks": "Không có tác vụ dự án phù hợp",
+      "git_root": "Gốc Git",
       "group_develop": "Phát triển",
       "group_test": "Kiểm thử",
       "group_build": "Build",

@@ -178,10 +178,9 @@ use oxideterm_settings_model::{
 };
 use oxideterm_sftp::{
     BackgroundTransferDirection, BackgroundTransferKind, BackgroundTransferSnapshot,
-    BackgroundTransferState, DummyProgressStore, ProgressStore, RedbProgressStore,
-    SftpTransferGuard, SftpTransferManager, SftpTransferRuntimeSettings, StoredTransferProgress,
-    TransferStrategy, probe_tar_compression, probe_tar_support, tar_download_directory,
-    tar_upload_directory,
+    BackgroundTransferState, LazyProgressStore, ProgressStore, SftpTransferGuard,
+    SftpTransferManager, SftpTransferRuntimeSettings, StoredTransferProgress, TransferStrategy,
+    probe_tar_compression, probe_tar_support, tar_download_directory, tar_upload_directory,
 };
 use oxideterm_ssh::{
     AuthMethod, ConnectionConsumer, ConnectionPoolConfig, ConnectionState,

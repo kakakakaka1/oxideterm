@@ -1,4 +1,6 @@
 impl WorkspaceApp {
+    const WORKSPACE_ASYNC_RUNTIME_WORKER_THREADS: usize = 2;
+
     pub(crate) fn new(
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -73,18 +75,19 @@ impl WorkspaceApp {
                 .parent()
                 .map(|parent| parent.join("sftp_progress.redb"))
                 .unwrap_or_else(|| std::path::PathBuf::from("sftp_progress.redb"));
-            match RedbProgressStore::new(path) {
-                Ok(store) => Arc::new(store),
-                Err(error) => {
-                    eprintln!("failed to load SFTP progress store: {error}");
-                    Arc::new(DummyProgressStore)
-                }
-            }
+            // Opening redb can allocate and rebuild indexes, so defer it until
+            // a transfer actually needs persisted progress.
+            Arc::new(LazyProgressStore::new(path))
         };
         let forwarding_runtime = Arc::new(
             tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .thread_name("oxideterm-forwarding")
+                // Most workspace backend jobs are async IO; keep idle thread
+                // stacks bounded. Features that need CPU-heavy parallelism
+                // should use a dedicated pool instead of expanding this
+                // shared runtime.
+                .worker_threads(Self::WORKSPACE_ASYNC_RUNTIME_WORKER_THREADS)
                 .build()?,
         );
         // The SSH pool idle timer is long-lived backend work, matching Tauri's

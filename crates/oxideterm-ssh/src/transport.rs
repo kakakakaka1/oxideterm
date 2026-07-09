@@ -529,6 +529,7 @@ pub struct SshTransportClient {
     config: SshConfig,
     prompt_handler: Option<Arc<dyn SshPromptHandler>>,
     managed_key_resolver: Option<ManagedKeyResolver>,
+    shell_startup_input: Option<String>,
 }
 
 include!("transport/connection.rs");

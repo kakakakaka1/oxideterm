@@ -211,6 +211,7 @@
       "search_tasks": "搜索项目任务...",
       "no_project": "未检测到项目。",
       "no_tasks": "没有匹配的项目任务",
+      "git_root": "Git 根目录",
       "group_develop": "开发",
       "group_test": "测试",
       "group_build": "构建",

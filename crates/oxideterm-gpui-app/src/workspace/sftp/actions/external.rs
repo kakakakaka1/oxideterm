@@ -1,3 +1,6 @@
+#[cfg(windows)]
+const SFTP_EXTERNAL_BRIDGE_CREATE_NO_WINDOW: u32 = 0x08000000;
+
 fn open_path_in_external_app(path: &str) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     let mut command = {
@@ -9,6 +12,7 @@ fn open_path_in_external_app(path: &str) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     let mut command = {
         let mut command = std::process::Command::new("cmd");
+        configure_sftp_external_bridge(&mut command);
         command.args(["/C", "start", "", path]);
         command
     };
@@ -28,6 +32,15 @@ fn open_path_in_external_app(path: &str) -> Result<(), String> {
     } else {
         Err(format!("external app exited with status {status}"))
     }
+}
+
+#[cfg(target_os = "windows")]
+fn configure_sftp_external_bridge(command: &mut std::process::Command) {
+    use std::os::windows::process::CommandExt;
+
+    // The selected file/folder may open visibly, but the cmd.exe handoff should
+    // not flash a separate console window in the GUI app.
+    command.creation_flags(SFTP_EXTERNAL_BRIDGE_CREATE_NO_WINDOW);
 }
 
 impl WorkspaceApp {

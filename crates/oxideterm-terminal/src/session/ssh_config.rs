@@ -8,6 +8,7 @@ pub struct SshSessionConfig {
     runtime_handle: Option<tokio::runtime::Handle>,
     defer_pty_until_resize: bool,
     post_connect_command: Option<String>,
+    remote_metadata_token: Option<String>,
 }
 
 const POST_CONNECT_COMMAND_MAX_BYTES: usize = 8192;
@@ -24,6 +25,7 @@ impl SshSessionConfig {
             runtime_handle: None,
             defer_pty_until_resize: false,
             post_connect_command: None,
+            remote_metadata_token: None,
         }
     }
 
@@ -82,6 +84,14 @@ impl SshSessionConfig {
         self
     }
 
+    pub fn with_remote_metadata_token(mut self, token: Option<String>) -> Self {
+        self.remote_metadata_token = token.and_then(|token| {
+            let token = token.trim().to_string();
+            (!token.is_empty()).then_some(token)
+        });
+        self
+    }
+
     pub fn defer_pty_until_resize(&self) -> bool {
         self.defer_pty_until_resize
     }
@@ -97,6 +107,16 @@ impl SshSessionConfig {
     pub fn post_connect_input(&self) -> Result<Option<Vec<u8>>, String> {
         normalize_post_connect_command(self.post_connect_command.as_deref())
     }
+
+    pub fn remote_metadata_token(&self) -> Option<&str> {
+        self.remote_metadata_token.as_deref()
+    }
+
+    pub fn remote_metadata_startup_input(&self) -> Option<String> {
+        self.remote_metadata_token
+            .as_deref()
+            .map(build_remote_metadata_startup_input)
+    }
 }
 
 impl From<oxideterm_ssh::SshConfig> for SshSessionConfig {
@@ -111,8 +131,154 @@ impl From<oxideterm_ssh::SshConfig> for SshSessionConfig {
             trzsz_policy: None,
             runtime_handle: None,
             defer_pty_until_resize: false,
+            remote_metadata_token: None,
         }
     }
+}
+
+fn build_remote_metadata_startup_input(token: &str) -> String {
+    let token = shell_single_quote(token);
+    let bash_rc = shell_single_quote(&remote_bash_metadata_rc());
+    let zsh_rc = shell_single_quote(&remote_zsh_metadata_rc());
+    let fish_rc = shell_single_quote(&remote_fish_metadata_rc());
+    let nushell_config = shell_single_quote(&remote_nushell_metadata_config());
+    let powershell_profile = shell_single_quote(&remote_powershell_metadata_profile());
+
+    let script = format!(
+        "__oxide_shell=${{SHELL:-/bin/sh}}; \
+__oxide_base=${{__oxide_shell##*/}}; \
+case \"$__oxide_base\" in \
+bash) __oxide_rc=\"${{TMPDIR:-/tmp}}/.oxideterm-bashrc-$$\"; umask 077; printf '%s\\n' {bash_rc} > \"$__oxide_rc\" && OXIDETERM_REMOTE_METADATA_ID={token} OXIDETERM_BOOTSTRAP_RC=\"$__oxide_rc\" exec bash --rcfile \"$__oxide_rc\" -i; exec \"$__oxide_shell\" -i ;; \
+zsh) __oxide_dir=\"${{TMPDIR:-/tmp}}/.oxideterm-zdot-$$\"; mkdir -m 700 \"$__oxide_dir\" 2>/dev/null || __oxide_dir=\"\"; if [ -n \"$__oxide_dir\" ]; then printf '%s\\n' {zsh_rc} > \"$__oxide_dir/.zshrc\" && OXIDETERM_REMOTE_METADATA_ID={token} OXIDETERM_BOOTSTRAP_ZDOT=\"$__oxide_dir\" ZDOTDIR=\"$__oxide_dir\" exec zsh -i; fi; exec \"$__oxide_shell\" -i ;; \
+fish) __oxide_rc=\"${{TMPDIR:-/tmp}}/.oxideterm-fish-$$.fish\"; umask 077; printf '%s\\n' {fish_rc} > \"$__oxide_rc\" && OXIDETERM_REMOTE_METADATA_ID={token} OXIDETERM_BOOTSTRAP_FISH=\"$__oxide_rc\" exec fish --init-command \"source $__oxide_rc\" -i; exec \"$__oxide_shell\" -i ;; \
+nu|nushell) __oxide_config=\"${{TMPDIR:-/tmp}}/.oxideterm-nu-config-$$.nu\"; umask 077; : > \"$__oxide_config\"; if [ -r \"$HOME/.config/nushell/config.nu\" ]; then printf '%s\\n' 'source ~/.config/nushell/config.nu' > \"$__oxide_config\"; elif [ -r \"$HOME/Library/Application Support/nushell/config.nu\" ]; then printf '%s\\n' 'source \"~/Library/Application Support/nushell/config.nu\"' > \"$__oxide_config\"; fi; printf '%s\\n' {nushell_config} >> \"$__oxide_config\" && OXIDETERM_REMOTE_METADATA_ID={token} OXIDETERM_BOOTSTRAP_NU_CONFIG=\"$__oxide_config\" exec \"$__oxide_shell\" --config \"$__oxide_config\"; exec \"$__oxide_shell\" ;; \
+pwsh|powershell) __oxide_profile=\"${{TMPDIR:-/tmp}}/.oxideterm-pwsh-$$.ps1\"; umask 077; printf '%s\\n' {powershell_profile} > \"$__oxide_profile\" && OXIDETERM_REMOTE_METADATA_ID={token} OXIDETERM_BOOTSTRAP_PWSH=\"$__oxide_profile\" exec \"$__oxide_shell\" -NoLogo -NoExit -File \"$__oxide_profile\"; exec \"$__oxide_shell\" ;; \
+*) exec \"$__oxide_shell\" -i ;; \
+esac"
+    );
+    // The SSH transport requests the shell with PTY echo disabled, sends this
+    // line as hidden bootstrap input, and then lets the line restore echo
+    // before replacing the login shell with an integrated interactive shell.
+    format!(" stty echo; /bin/sh -lc {}; exit\r", shell_single_quote(&script))
+}
+
+fn remote_bash_metadata_rc() -> String {
+    format!(
+        r#"[ -r "$HOME/.bashrc" ] && . "$HOME/.bashrc"
+{}
+if [ -n "${{OXIDETERM_BOOTSTRAP_RC:-}}" ]; then rm -f "$OXIDETERM_BOOTSTRAP_RC"; unset OXIDETERM_BOOTSTRAP_RC; fi
+__oxideterm_emit_remote_metadata
+PROMPT_COMMAND="__oxideterm_emit_remote_metadata${{PROMPT_COMMAND:+;$PROMPT_COMMAND}}""#,
+        remote_metadata_shell_functions()
+    )
+}
+
+fn remote_zsh_metadata_rc() -> String {
+    format!(
+        r#"[ -r "$HOME/.zshrc" ] && . "$HOME/.zshrc"
+{}
+if [ -n "${{OXIDETERM_BOOTSTRAP_ZDOT:-}}" ]; then rm -f "$OXIDETERM_BOOTSTRAP_ZDOT/.zshrc"; rmdir "$OXIDETERM_BOOTSTRAP_ZDOT" 2>/dev/null; unset OXIDETERM_BOOTSTRAP_ZDOT; fi
+__oxideterm_emit_remote_metadata
+precmd_functions=(${{precmd_functions[@]}} __oxideterm_emit_remote_metadata)"#,
+        remote_metadata_shell_functions()
+    )
+}
+
+fn remote_fish_metadata_rc() -> String {
+    r#"function __oxideterm_pct
+    command printf '%s' "$argv[1]" | command od -An -tx1 -v | command tr -d ' \n' | command sed 's/../%&/g'
+end
+function __oxideterm_emit_remote_metadata --on-event fish_prompt
+    test -n "$OXIDETERM_REMOTE_METADATA_ID"; or return
+    set -l __oxideterm_cwd (pwd -P 2>/dev/null; or pwd 2>/dev/null)
+    set -l __oxideterm_host "$HOSTNAME"
+    test -n "$__oxideterm_host"; or set __oxideterm_host (hostname 2>/dev/null; or command printf '')
+    command printf '\033]7719;v=1;id=%s;cwd=%s;host=%s\007' "$OXIDETERM_REMOTE_METADATA_ID" (__oxideterm_pct "$__oxideterm_cwd") (__oxideterm_pct "$__oxideterm_host")
+end
+if test -n "$OXIDETERM_BOOTSTRAP_FISH"
+    command rm -f -- "$OXIDETERM_BOOTSTRAP_FISH"
+    set -e OXIDETERM_BOOTSTRAP_FISH
+end
+__oxideterm_emit_remote_metadata"#
+        .to_string()
+}
+
+fn remote_nushell_metadata_config() -> String {
+    r#"def __oxideterm_pct [value: string] {
+    ^printf '%s' $value | ^od -An -tx1 -v | ^tr -d ' \n' | ^sed 's/../%&/g'
+}
+def __oxideterm_emit_remote_metadata [] {
+    if (($env.OXIDETERM_REMOTE_METADATA_ID? | default '') == '') { return }
+    let __oxideterm_host = ($env.HOSTNAME? | default (^hostname | str trim))
+    print --no-newline $"\u{1b}]7719;v=1;id=($env.OXIDETERM_REMOTE_METADATA_ID);cwd=(__oxideterm_pct (pwd));host=(__oxideterm_pct $__oxideterm_host)\u{07}"
+}
+$env.config = ($env.config | upsert hooks.pre_prompt (($env.config.hooks.pre_prompt? | default []) | append {|| __oxideterm_emit_remote_metadata }))
+if (($env.OXIDETERM_BOOTSTRAP_NU_CONFIG? | default '') != '') {
+    rm --force $env.OXIDETERM_BOOTSTRAP_NU_CONFIG
+    hide-env OXIDETERM_BOOTSTRAP_NU_CONFIG
+}
+__oxideterm_emit_remote_metadata"#
+        .to_string()
+}
+
+fn remote_powershell_metadata_profile() -> String {
+    r#"$script:__oxideterm_original_prompt = $null
+if (Test-Path Function:\prompt) {
+    $script:__oxideterm_original_prompt = (Get-Command prompt).ScriptBlock
+}
+function global:__oxideterm_pct {
+    param([string]$Value)
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($Value)
+    $parts = foreach ($byte in $bytes) { '%' + $byte.ToString('x2') }
+    -join $parts
+}
+function global:__oxideterm_emit_remote_metadata {
+    $id = $env:OXIDETERM_REMOTE_METADATA_ID
+    if ([string]::IsNullOrEmpty($id)) { return }
+    $location = Get-Location
+    $cwd = if ($location.ProviderPath) { $location.ProviderPath } else { $location.Path }
+    $hostName = if ($env:HOSTNAME) { $env:HOSTNAME } elseif ($env:COMPUTERNAME) { $env:COMPUTERNAME } else { [System.Net.Dns]::GetHostName() }
+    [Console]::Out.Write("`e]7719;v=1;id=$id;cwd=$(__oxideterm_pct $cwd);host=$(__oxideterm_pct $hostName)`a")
+}
+function global:prompt {
+    __oxideterm_emit_remote_metadata
+    if ($script:__oxideterm_original_prompt) {
+        & $script:__oxideterm_original_prompt
+    } else {
+        "PS $($executionContext.SessionState.Path.CurrentLocation)$('>' * ($nestedPromptLevel + 1)) "
+    }
+}
+if ($env:OXIDETERM_BOOTSTRAP_PWSH) {
+    Remove-Item -Force $env:OXIDETERM_BOOTSTRAP_PWSH -ErrorAction SilentlyContinue
+    Remove-Item Env:OXIDETERM_BOOTSTRAP_PWSH -ErrorAction SilentlyContinue
+}
+__oxideterm_emit_remote_metadata"#
+        .to_string()
+}
+
+fn remote_metadata_shell_functions() -> &'static str {
+    r#"__oxideterm_pct() {
+  printf '%s' "$1" | od -An -tx1 -v | tr -d ' \n' | sed 's/../%&/g'
+}
+__oxideterm_emit_remote_metadata() {
+  [ -n "${OXIDETERM_REMOTE_METADATA_ID:-}" ] || return
+  __oxideterm_cwd=$(pwd -P 2>/dev/null || pwd 2>/dev/null) || return
+  __oxideterm_host=${HOSTNAME:-$(hostname 2>/dev/null || printf '')}
+  printf '\033]7719;v=1;id=%s;cwd=%s;host=%s\007' "$OXIDETERM_REMOTE_METADATA_ID" "$(__oxideterm_pct "$__oxideterm_cwd")" "$(__oxideterm_pct "$__oxideterm_host")"
+}"#
+}
+
+fn shell_single_quote(value: &str) -> String {
+    let mut quoted = String::from("'");
+    for ch in value.chars() {
+        if ch == '\'' {
+            quoted.push_str("'\"'\"'");
+        } else {
+            quoted.push(ch);
+        }
+    }
+    quoted.push('\'');
+    quoted
 }
 
 fn normalize_post_connect_command(command: Option<&str>) -> Result<Option<Vec<u8>>, String> {
@@ -190,6 +356,25 @@ mod ssh_config_tests {
             .runtime_handle
             .is_some());
     }
+
+    #[test]
+    fn remote_metadata_startup_input_includes_supported_shell_hooks() {
+        let input = SshSessionConfig::new("example.com", 22, "alice")
+            .with_remote_metadata_token(Some("token-1".to_string()))
+            .remote_metadata_startup_input()
+            .unwrap();
+
+        assert!(input.starts_with(" stty echo; /bin/sh -lc "));
+        assert!(input.contains("fish)"));
+        assert!(input.contains("fish --init-command"));
+        assert!(input.contains("function __oxideterm_emit_remote_metadata --on-event fish_prompt"));
+        assert!(input.contains("nu|nushell)"));
+        assert!(input.contains("hooks.pre_prompt"));
+        assert!(input.contains("pwsh|powershell)"));
+        assert!(input.contains("function global:prompt"));
+        assert!(input.contains("OXIDETERM_BOOTSTRAP_PWSH"));
+        assert!(!input.contains("2>/dev/null; exec /bin/sh"));
+    }
 }
 
 impl std::fmt::Debug for SshSessionConfig {
@@ -204,6 +389,7 @@ impl std::fmt::Debug for SshSessionConfig {
             .field("runtime_handle", &self.runtime_handle.is_some())
             .field("defer_pty_until_resize", &self.defer_pty_until_resize)
             .field("post_connect_command", &self.post_connect_command.is_some())
+            .field("remote_metadata_token", &self.remote_metadata_token.is_some())
             .finish()
     }
 }

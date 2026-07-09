@@ -399,6 +399,7 @@ fn parse_branch_fields(fields: &[&str]) -> Vec<GitBranchReference> {
                 if let Some(path) = path
                     && !name.trim().is_empty()
                     && !path.trim().is_empty()
+                    && !git_worktree_path_is_administrative(path)
                 {
                     worktree_paths.insert(name.to_string(), path.to_string());
                 }
@@ -437,28 +438,72 @@ fn branch_references_from_candidates(
 fn parse_worktree_branch_paths(output: &str) -> HashMap<String, String> {
     let mut branch_paths = HashMap::new();
     let mut worktree_path: Option<&str> = None;
+    let mut worktree_branch: Option<&str> = None;
+    let mut worktree_prunable = false;
 
     for line in output.lines() {
         if line.is_empty() {
+            insert_worktree_branch_path(
+                &mut branch_paths,
+                worktree_branch,
+                worktree_path,
+                worktree_prunable,
+            );
             worktree_path = None;
+            worktree_branch = None;
+            worktree_prunable = false;
             continue;
         }
         if let Some(path) = line.strip_prefix("worktree ") {
             worktree_path = Some(path);
             continue;
         }
-        let Some(branch) = line.strip_prefix("branch refs/heads/") else {
+        if let Some(branch) = line.strip_prefix("branch refs/heads/") {
+            worktree_branch = Some(branch);
             continue;
-        };
-        let Some(path) = worktree_path else {
+        }
+        if line.starts_with("prunable") {
+            worktree_prunable = true;
             continue;
-        };
-        if !branch.trim().is_empty() && !path.trim().is_empty() {
-            branch_paths.insert(branch.to_string(), path.to_string());
         }
     }
+    insert_worktree_branch_path(
+        &mut branch_paths,
+        worktree_branch,
+        worktree_path,
+        worktree_prunable,
+    );
 
     branch_paths
+}
+
+fn insert_worktree_branch_path(
+    branch_paths: &mut HashMap<String, String>,
+    branch: Option<&str>,
+    path: Option<&str>,
+    prunable: bool,
+) {
+    let (Some(branch), Some(path)) = (branch, path) else {
+        return;
+    };
+    if prunable
+        || branch.trim().is_empty()
+        || path.trim().is_empty()
+        || git_worktree_path_is_administrative(path)
+    {
+        return;
+    }
+    branch_paths.insert(branch.to_string(), path.to_string());
+}
+
+fn git_worktree_path_is_administrative(path: &str) -> bool {
+    let components = path
+        .split(['/', '\\'])
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>();
+    components
+        .windows(3)
+        .any(|window| window[0] == ".git" && matches!(window[1], "modules" | "worktrees"))
 }
 
 fn parse_successful_git_status(status: GitCommandOutput) -> GitRepositoryStatus {
@@ -748,6 +793,40 @@ mod tests {
     }
 
     #[test]
+    fn branch_list_output_ignores_detached_prunable_and_git_admin_worktrees() {
+        let outcome = interpret_git_branch_list_outputs(
+            GitCommandOutput::success("*\tmain\n \tfeature/live\n \tsubmodule-main\n"),
+            GitCommandOutput::success(
+                "worktree /repo/main\n\
+                 HEAD 1111111\n\
+                 branch refs/heads/main\n\
+                 \n\
+                 worktree /repo/detached\n\
+                 HEAD 2222222\n\
+                 detached\n\
+                 \n\
+                 worktree /repo/prunable\n\
+                 HEAD 3333333\n\
+                 branch refs/heads/feature/live\n\
+                 prunable gitdir file points to non-existent location\n\
+                 \n\
+                 worktree /repo/.git/modules/vendor/child\n\
+                 HEAD 4444444\n\
+                 branch refs/heads/submodule-main\n",
+            ),
+        );
+
+        assert_eq!(
+            outcome,
+            GitBranchListOutcome::Ready(vec![
+                GitBranchReference::with_worktree_path("main", true, Some("/repo/main")).unwrap(),
+                GitBranchReference::new("feature/live", false).unwrap(),
+                GitBranchReference::new("submodule-main", false).unwrap(),
+            ])
+        );
+    }
+
+    #[test]
     fn branch_list_output_ignores_remote_refs() {
         let outcome = interpret_git_branch_list_output(GitCommandOutput::success(
             "\trefs/heads/main\tmain\n\
@@ -773,6 +852,28 @@ mod tests {
                     .unwrap(),
             ])
         );
+    }
+
+    #[test]
+    fn shell_branch_list_output_ignores_submodule_git_admin_paths() {
+        let output = "OXIDETERM_GIT_BRANCH_LIST_V1\0state\0ok\0branch\0master\0current\01\0worktree\0master\0path\0/repo/.git/modules/vendor/child\0";
+
+        assert_eq!(
+            parse_shell_branch_list_output(output),
+            GitBranchListOutcome::Ready(vec![GitBranchReference::new("master", true).unwrap()])
+        );
+    }
+
+    #[test]
+    fn shell_probe_output_parses_git_file_worktree_operation() {
+        let output = "OXIDETERM_GIT_PROBE_V1\0state\0repo\0root\0/repo-linked\0branch\0feature/worktree\0operation\0merge\0";
+
+        let GitProbeOutcome::Ready(snapshot) = parse_shell_probe_output(output) else {
+            panic!("expected ready git worktree snapshot");
+        };
+        assert_eq!(snapshot.repo_root, "/repo-linked");
+        assert_eq!(snapshot.branch.display_text(), "feature/worktree");
+        assert_eq!(snapshot.status.operation(), Some(GitOperationKind::Merge));
     }
 
     #[test]
