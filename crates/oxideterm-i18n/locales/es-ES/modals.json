@@ -300,7 +300,7 @@
     },
     "new_connection": {
       "title": "Nueva conexión",
-      "description": "Configura un perfil SSH para terminales, SFTP, reenvío de puertos y edición de archivos remotos.",
+      "description": "Configura un host SSH para terminales, SFTP, reenvío de puertos y edición de archivos remotos.",
       "twofa_error": "Error 2FA: {{error}}",
       "name": "Nombre (opcional)",
       "name_placeholder": "Mi servidor",
@@ -373,7 +373,7 @@
       "connecting": "Conectando...",
       "connect_failed": "Error de conexión",
       "save_failed": "Error al guardar la conexión",
-      "transport_ssh": "SSH",
+      "transport_ssh": "Host SSH",
       "transport_telnet": "Telnet",
       "transport_raw_tcp": "Raw TCP",
       "transport_serial": "Serie",

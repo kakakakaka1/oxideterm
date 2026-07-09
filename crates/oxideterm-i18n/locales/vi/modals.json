@@ -300,7 +300,7 @@
     },
     "new_connection": {
       "title": "Kết nối mới",
-      "description": "Cấu hình một hồ sơ SSH cho terminal, SFTP, chuyển tiếp cổng và chỉnh sửa tệp từ xa.",
+      "description": "Cấu hình một máy chủ SSH cho terminal, SFTP, chuyển tiếp cổng và chỉnh sửa tệp từ xa.",
       "twofa_error": "Lỗi 2FA: {{error}}",
       "name": "Tên (Tùy chọn)",
       "name_placeholder": "Máy chủ của tôi",
@@ -373,7 +373,7 @@
       "connecting": "Đang kết nối...",
       "connect_failed": "Kết nối thất bại",
       "save_failed": "Lưu kết nối thất bại",
-      "transport_ssh": "SSH",
+      "transport_ssh": "Máy chủ SSH",
       "transport_telnet": "Telnet",
       "transport_raw_tcp": "Raw TCP",
       "transport_serial": "Serial",

@@ -300,7 +300,7 @@
     },
     "new_connection": {
       "title": "Nouvelle connexion",
-      "description": "Configurez un profil SSH pour les terminaux, SFTP, les redirections de ports et l’édition de fichiers distants.",
+      "description": "Configurez un hôte SSH pour les terminaux, SFTP, les redirections de ports et l’édition de fichiers distants.",
       "twofa_error": "Erreur 2FA : {{error}}",
       "name": "Nom (optionnel)",
       "name_placeholder": "Mon serveur",
@@ -373,7 +373,7 @@
       "connecting": "Connexion en cours...",
       "connect_failed": "Échec de la connexion",
       "save_failed": "Échec de l'enregistrement",
-      "transport_ssh": "SSH",
+      "transport_ssh": "Hôte SSH",
       "transport_telnet": "Telnet",
       "transport_raw_tcp": "Raw TCP",
       "transport_serial": "Série",

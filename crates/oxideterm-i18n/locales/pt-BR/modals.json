@@ -300,7 +300,7 @@
     },
     "new_connection": {
       "title": "Nova conexão",
-      "description": "Configure um perfil SSH para terminais, SFTP, encaminhamento de portas e edição de arquivos remotos.",
+      "description": "Configure um host SSH para terminais, SFTP, encaminhamento de portas e edição de arquivos remotos.",
       "twofa_error": "Erro 2FA: {{error}}",
       "name": "Nome (opcional)",
       "name_placeholder": "Meu servidor",
@@ -373,7 +373,7 @@
       "connecting": "Conectando...",
       "connect_failed": "Falha na conexão",
       "save_failed": "Falha ao salvar conexão",
-      "transport_ssh": "SSH",
+      "transport_ssh": "Host SSH",
       "transport_telnet": "Telnet",
       "transport_raw_tcp": "Raw TCP",
       "transport_serial": "Serial",
