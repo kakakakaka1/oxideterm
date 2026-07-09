@@ -654,6 +654,24 @@ impl WorkspaceApp {
             self.submit_remote_desktop_connection_form(window, cx);
             return;
         }
+        if self
+            .new_connection_form
+            .as_ref()
+            .is_some_and(|form| form.transport == NewConnectionTransport::WslGraphics)
+            && self.drill_down_parent_node_id.is_none()
+            && matches!(
+                new_connection_form_mode(
+                    self.editing_saved_connection_id.as_deref(),
+                    self.duplicating_saved_connection_id.as_deref(),
+                    self.saved_connection_prompt_action,
+                ),
+                NewConnectionFormMode::NewConnection
+            )
+        {
+            self.close_new_connection_form(window, cx);
+            self.open_graphics_tab(window, cx);
+            return;
+        }
         if let Some(parent_id) = self.drill_down_parent_node_id.clone() {
             match action {
                 NewConnectionSubmitAction::Save => {

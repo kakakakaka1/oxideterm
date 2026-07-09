@@ -70,9 +70,15 @@ impl WorkspaceApp {
         } else {
             None
         };
+        let wsl_graphics_mode = !prompt_mode
+            && !duplicate_mode
+            && !edit_properties_mode
+            && !drill_down_mode
+            && form.transport == NewConnectionTransport::WslGraphics;
         let local_transport_mode = serial_mode || telnet_mode || raw_tcp_mode || raw_udp_mode;
         let remote_desktop_mode = remote_desktop_protocol.is_some();
-        let ssh_submission_mode = !local_transport_mode && !remote_desktop_mode;
+        let ssh_submission_mode =
+            !local_transport_mode && !remote_desktop_mode && !wsl_graphics_mode;
         let shows_transport_selector = !prompt_mode
             && !duplicate_mode
             && !edit_properties_mode
@@ -128,6 +134,9 @@ impl WorkspaceApp {
             == Some(oxideterm_remote_desktop::RemoteDesktopProtocol::Vnc)
         {
             self.i18n.t("modals.new_connection.vnc_description")
+        } else if wsl_graphics_mode {
+            self.i18n
+                .t("modals.new_connection.wsl_graphics_description")
         } else {
             self.i18n.t("ssh.form.subtitle")
         };
@@ -153,6 +162,8 @@ impl WorkspaceApp {
         } else if remote_desktop_mode {
             !form.host.trim().is_empty()
                 && form.port.trim().parse::<u16>().is_ok_and(|port| port > 0)
+        } else if wsl_graphics_mode {
+            true
         } else {
             !form.host.trim().is_empty()
                 && !form.username.trim().is_empty()
@@ -249,6 +260,9 @@ impl WorkspaceApp {
                                         .when(raw_udp_mode, |content| {
                                             content.child(self.render_raw_udp_form_branch(cx))
                                         })
+                                        .when(wsl_graphics_mode, |content| {
+                                            content.child(self.render_wsl_graphics_form_branch(cx))
+                                        })
                                         .when_some(remote_desktop_protocol, |content, protocol| {
                                             content
                                                 .child(self.render_remote_desktop_form_branch(protocol, cx))
@@ -258,6 +272,7 @@ impl WorkspaceApp {
                                                 && !telnet_mode
                                                 && !raw_tcp_mode
                                                 && !raw_udp_mode
+                                                && !wsl_graphics_mode
                                                 && !remote_desktop_mode,
                                             |content| {
                                                 content
@@ -885,6 +900,7 @@ impl WorkspaceApp {
                             !edit_properties_mode
                                 && self.saved_connection_prompt_action.is_none()
                                 && !remote_desktop_mode
+                                && !wsl_graphics_mode
                                 && !raw_tcp_edit_mode,
                             |footer| {
                                 footer
@@ -977,6 +993,20 @@ impl WorkspaceApp {
                             |footer| {
                                 footer.child(self.render_connection_button(
                                     self.i18n.t("ssh.form.connect"),
+                                    true,
+                                    ConnectionButtonAction::Connect,
+                                    primary_disabled,
+                                    cx,
+                                ))
+                            },
+                        )
+                        .when(
+                            wsl_graphics_mode
+                                && !edit_properties_mode
+                                && self.saved_connection_prompt_action.is_none(),
+                            |footer| {
+                                footer.child(self.render_connection_button(
+                                    self.i18n.t("modals.new_connection.wsl_graphics_open"),
                                     true,
                                     ConnectionButtonAction::Connect,
                                     primary_disabled,

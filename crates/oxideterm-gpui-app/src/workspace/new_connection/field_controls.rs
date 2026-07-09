@@ -1261,7 +1261,7 @@ impl WorkspaceApp {
             .as_ref()
             .map(|form| form.transport)
             .unwrap_or(NewConnectionTransport::Ssh);
-        let choices = [
+        let mut choices = vec![
             (
                 NewConnectionTransport::Ssh,
                 self.i18n.t("modals.new_connection.transport_ssh"),
@@ -1305,6 +1305,15 @@ impl WorkspaceApp {
                 LucideIcon::Monitor,
             ),
         ];
+        if cfg!(target_os = "windows") {
+            choices.push((
+                NewConnectionTransport::WslGraphics,
+                self.i18n
+                    .t("modals.new_connection.transport_wsl_graphics"),
+                NewConnectionField::Name,
+                LucideIcon::AppWindow,
+            ));
+        }
         let mut sidebar = div()
             .w(px(NEW_CONNECTION_TYPE_SIDEBAR_WIDTH))
             .flex_none()
@@ -1374,6 +1383,49 @@ impl WorkspaceApp {
             sidebar = sidebar.child(row);
         }
         sidebar.into_any_element()
+    }
+
+    fn render_wsl_graphics_form_branch(&self, _cx: &mut Context<Self>) -> AnyElement {
+        let theme = self.tokens.ui;
+        div()
+            .rounded(px(self.tokens.radii.md))
+            .border_1()
+            .border_color(rgb(theme.border))
+            .bg(rgb(theme.bg_panel))
+            .p(px(self.tokens.spacing.three))
+            .flex()
+            .flex_col()
+            .gap(px(self.tokens.spacing.two))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(self.tokens.spacing.two))
+                    .child(Self::render_lucide_icon(
+                        LucideIcon::AppWindow,
+                        18.0,
+                        rgb(theme.accent),
+                    ))
+                    .child(
+                        div()
+                            .text_size(px(self.tokens.metrics.ui_text_base))
+                            .font_weight(gpui::FontWeight::SEMIBOLD)
+                            .text_color(rgb(theme.text_heading))
+                            .child(self.i18n.t("modals.new_connection.transport_wsl_graphics")),
+                    ),
+            )
+            .child(self.render_connection_hint(
+                self.i18n
+                    .t("modals.new_connection.wsl_graphics_detail"),
+            ))
+            .when(!cfg!(target_os = "windows"), |panel| {
+                panel.child(self.render_connection_hint_with_color(
+                    self.i18n
+                        .t("modals.new_connection.wsl_graphics_windows_only"),
+                    theme.error,
+                ))
+            })
+            .into_any_element()
     }
 
     fn render_remote_desktop_form_branch(

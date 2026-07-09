@@ -91,6 +91,7 @@ pub(in crate::workspace) enum NewConnectionTransport {
     Serial,
     Rdp,
     Vnc,
+    WslGraphics,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -600,7 +601,7 @@ fn default_port_for_transport(transport: NewConnectionTransport) -> Option<&'sta
         NewConnectionTransport::RawUdp => Some(RAW_UDP_DEFAULT_PORT_TEXT),
         NewConnectionTransport::Rdp => Some(RDP_DEFAULT_PORT_TEXT),
         NewConnectionTransport::Vnc => Some(VNC_DEFAULT_PORT_TEXT),
-        NewConnectionTransport::Serial => None,
+        NewConnectionTransport::Serial | NewConnectionTransport::WslGraphics => None,
     }
 }
 
@@ -658,6 +659,7 @@ pub(in crate::workspace) fn apply_transport_default_username(
         {
             form.username = "root".to_string();
         }
+        NewConnectionTransport::WslGraphics => {}
         _ => {}
     }
 }
@@ -670,6 +672,9 @@ pub(in crate::workspace) fn next_connection_field(
     upstream_proxy_auth: NewConnectionUpstreamProxyAuth,
     forward: bool,
 ) -> NewConnectionField {
+    if transport == NewConnectionTransport::WslGraphics {
+        return NewConnectionField::Name;
+    }
     if transport == NewConnectionTransport::Serial {
         let fields = [
             NewConnectionField::SerialPortPath,
