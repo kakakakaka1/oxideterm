@@ -1075,6 +1075,20 @@ mod tests {
     }
 
     #[test]
+    fn saved_connection_sync_snapshot_revision_tracks_record_updated_at() {
+        let mut store = load_empty_store("sync-updated-at-revision");
+        store.upsert(request("conn-1", SavedAuth::Agent)).unwrap();
+        let first = store.export_saved_connections_snapshot().unwrap();
+        let first_record_revision = first.records[0].revision.clone();
+
+        store.data.connections[0].updated_at = Some(Utc::now() + chrono::Duration::seconds(1));
+        let second = store.export_saved_connections_snapshot().unwrap();
+
+        assert_eq!(second.records[0].revision, first_record_revision);
+        assert_ne!(second.revision, first.revision);
+    }
+
+    #[test]
     fn saved_connection_sync_apply_delete_removes_connection() {
         let mut target = load_empty_store("sync-delete-target");
         target.upsert(request("conn-1", SavedAuth::Agent)).unwrap();

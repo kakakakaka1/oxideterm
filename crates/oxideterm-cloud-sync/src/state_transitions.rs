@@ -105,8 +105,14 @@ pub fn structured_apply_covers_full_remote(
     manifest: &StructuredManifest,
     selection: &StructuredApplySelection,
 ) -> bool {
+    // A complete structured pull must apply every manifest object that can advance the remote baseline.
     (manifest.sections.connections.is_none() || selection.connections)
         && (manifest.sections.forwards.is_none() || selection.forwards)
+        && (manifest.sections.quick_commands.is_none() || selection.quick_commands)
+        && (manifest.sections.serial_profiles.is_none() || selection.serial_profiles)
+        && (manifest.sections.raw_tcp_profiles.is_none() || selection.raw_tcp_profiles)
+        && (manifest.sections.raw_udp_profiles.is_none() || selection.raw_udp_profiles)
+        && (manifest.sections.sensitive_credentials.is_none() || selection.sensitive_credentials)
         && manifest
             .sections
             .app_settings
@@ -131,6 +137,21 @@ pub fn merge_structured_remote_baseline(
     }
     if selection.forwards {
         merged.forwards = next.forwards.clone();
+    }
+    if selection.quick_commands {
+        merged.quick_commands = next.quick_commands.clone();
+    }
+    if selection.serial_profiles {
+        merged.serial_profiles = next.serial_profiles.clone();
+    }
+    if selection.raw_tcp_profiles {
+        merged.raw_tcp_profiles = next.raw_tcp_profiles.clone();
+    }
+    if selection.raw_udp_profiles {
+        merged.raw_udp_profiles = next.raw_udp_profiles.clone();
+    }
+    if selection.sensitive_credentials {
+        merged.sensitive_credentials = next.sensitive_credentials.clone();
     }
     for section_id in &selection.app_settings_sections {
         if let Some(revision) = next.app_settings.get(section_id) {
@@ -283,8 +304,8 @@ mod tests {
     use std::collections::BTreeMap;
 
     use crate::{
-        CloudSyncStatus, StructuredDirtyInfo, StructuredDirtySections, StructuredLocalState,
-        StructuredObjectEntry,
+        CloudSyncStatus, StructuredApplySelection, StructuredDirtyInfo, StructuredDirtySections,
+        StructuredLocalState, StructuredObjectEntry, StructuredSectionRevisions,
         backend::RemoteMetadata,
         create_manifest_base,
         operation::{ApplyStructuredPreviewOutcome, UploadOutcome},
@@ -294,7 +315,7 @@ mod tests {
 
     use super::{
         LegacyApplyStateInput, finish_legacy_apply_state, finish_structured_apply_state,
-        finish_upload_state,
+        finish_upload_state, merge_structured_remote_baseline, structured_apply_covers_full_remote,
     };
 
     #[test]
@@ -506,6 +527,98 @@ mod tests {
         );
         assert!(state.last_known_remote_revision.is_none());
         assert_eq!(state.sync_history[0].action, "pull");
+    }
+
+    #[test]
+    fn structured_apply_remote_baseline_helpers_cover_all_object_sections() {
+        let mut manifest = create_manifest_base(
+            "rev-remote",
+            "2026-05-27T01:00:00Z",
+            "remote-device",
+            Default::default(),
+        );
+        let entry = |revision: &str| StructuredObjectEntry {
+            revision: revision.to_string(),
+            path: format!("objects/{revision}.json"),
+            record_count: Some(1),
+            content_type: "application/json".to_string(),
+        };
+        manifest.sections.quick_commands = Some(entry("quick-remote"));
+        manifest.sections.serial_profiles = Some(entry("serial-remote"));
+        manifest.sections.raw_tcp_profiles = Some(entry("raw-tcp-remote"));
+        manifest.sections.raw_udp_profiles = Some(entry("raw-udp-remote"));
+        manifest.sections.sensitive_credentials = Some(entry("sensitive-remote"));
+
+        let partial_selection = StructuredApplySelection {
+            quick_commands: true,
+            serial_profiles: true,
+            raw_tcp_profiles: true,
+            raw_udp_profiles: true,
+            sensitive_credentials: false,
+            ..StructuredApplySelection::default()
+        };
+        assert!(!structured_apply_covers_full_remote(
+            &manifest,
+            &partial_selection
+        ));
+
+        let full_selection = StructuredApplySelection {
+            sensitive_credentials: true,
+            ..partial_selection.clone()
+        };
+        assert!(structured_apply_covers_full_remote(
+            &manifest,
+            &full_selection
+        ));
+
+        let previous_sections = StructuredSectionRevisions {
+            sensitive_credentials: Some("sensitive-old".to_string()),
+            ..StructuredSectionRevisions::default()
+        };
+        let next_sections = StructuredSectionRevisions {
+            quick_commands: Some("quick-remote".to_string()),
+            serial_profiles: Some("serial-remote".to_string()),
+            raw_tcp_profiles: Some("raw-tcp-remote".to_string()),
+            raw_udp_profiles: Some("raw-udp-remote".to_string()),
+            sensitive_credentials: Some("sensitive-remote".to_string()),
+            ..StructuredSectionRevisions::default()
+        };
+
+        let partial_baseline = merge_structured_remote_baseline(
+            Some(&previous_sections),
+            &next_sections,
+            &partial_selection,
+        );
+        assert_eq!(
+            partial_baseline.quick_commands.as_deref(),
+            Some("quick-remote")
+        );
+        assert_eq!(
+            partial_baseline.serial_profiles.as_deref(),
+            Some("serial-remote")
+        );
+        assert_eq!(
+            partial_baseline.raw_tcp_profiles.as_deref(),
+            Some("raw-tcp-remote")
+        );
+        assert_eq!(
+            partial_baseline.raw_udp_profiles.as_deref(),
+            Some("raw-udp-remote")
+        );
+        assert_eq!(
+            partial_baseline.sensitive_credentials.as_deref(),
+            Some("sensitive-old")
+        );
+
+        let full_baseline = merge_structured_remote_baseline(
+            Some(&previous_sections),
+            &next_sections,
+            &full_selection,
+        );
+        assert_eq!(
+            full_baseline.sensitive_credentials.as_deref(),
+            Some("sensitive-remote")
+        );
     }
 
     #[test]

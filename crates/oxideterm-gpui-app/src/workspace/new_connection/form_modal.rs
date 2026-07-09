@@ -374,7 +374,9 @@ impl WorkspaceApp {
                                     cx,
                                 ))
                                 .when(form.auth_tab == SshAuthTab::Password, |content| {
-                                    if edit_properties_mode {
+                                    if edit_properties_mode
+                                        && form.saved_password_keychain_id.is_some()
+                                    {
                                         content
                                             .child(self.render_edit_saved_password_field(form, cx))
                                             .child(self.render_connection_hint(
@@ -396,6 +398,15 @@ impl WorkspaceApp {
                                                     )
                                                 },
                                             )
+                                    } else if edit_properties_mode {
+                                        content.child(self.render_connection_field(
+                                            self.i18n.t("ssh.form.password"),
+                                            &form.password,
+                                            String::new(),
+                                            NewConnectionField::Password,
+                                            true,
+                                            cx,
+                                        ))
                                     } else if prompt_mode {
                                         content.child(self.render_connection_field(
                                             self.i18n.t("ssh.form.password"),

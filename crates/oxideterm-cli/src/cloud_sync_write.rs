@@ -357,8 +357,10 @@ fn apply_pull_preview(
     match preview {
         PullPreview::Structured(preview) => {
             let selection = preview.full_selection();
+            // Encrypted structured sections share the sync password, including sensitive credentials.
             let needs_password = !preview.app_settings_entries.is_empty()
-                || !preview.plugin_settings_entries.is_empty();
+                || !preview.plugin_settings_entries.is_empty()
+                || preview.sensitive_credentials_entry.is_some();
             let sync_password =
                 read_sync_password_if_needed(settings, provider, needs_password, json)?;
             let outcome = service
@@ -395,6 +397,7 @@ fn apply_pull_preview(
                     sync_password.as_ref().map(|value| value.as_str()),
                     true,
                     None,
+                    true,
                     true,
                     conflict_strategy(strategy),
                     None,

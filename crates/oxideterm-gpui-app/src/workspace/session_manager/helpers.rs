@@ -328,7 +328,9 @@ pub(super) fn form_from_saved_connection(
             SavedAuth::Password { keychain_id, .. } => keychain_id.clone(),
             _ => None,
         },
-        password_loaded: false,
+        // Only keychain-backed saved passwords start locked. Other auth modes
+        // need an editable password draft if the user switches to password auth.
+        password_loaded: !connection_has_unloaded_keychain_password(conn),
         password_visible: false,
         password_loading: false,
         password_error: None,
@@ -356,6 +358,16 @@ pub(super) fn form_from_saved_connection(
         error,
         ..NewConnectionForm::default()
     }
+}
+
+fn connection_has_unloaded_keychain_password(conn: &SavedConnection) -> bool {
+    matches!(
+        &conn.auth,
+        SavedAuth::Password {
+            keychain_id: Some(_),
+            plaintext_password: None,
+        }
+    )
 }
 
 struct UpstreamProxyFormFields {

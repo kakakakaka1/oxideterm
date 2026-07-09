@@ -393,7 +393,7 @@ pub fn cloud_sync_legacy_import_options(
     summary: &CloudSyncPreviewSummary,
     selection: &CloudSyncPreviewSelection,
 ) -> CloudSyncLegacyImportOptions {
-    let import_portable_secrets = selection.effective_import_connections(summary);
+    let import_portable_secrets = selection.import_sensitive_credentials;
     CloudSyncLegacyImportOptions {
         oxide_options: OxideImportOptions {
             selected_names: selection.selected_connection_names_for_import(summary),
@@ -1268,5 +1268,44 @@ mod tests {
         );
         assert!(!selection.can_apply(&summary));
         assert!(!legacy_apply_covers_full_remote(&summary, &selection));
+    }
+
+    #[test]
+    fn legacy_import_options_bind_portable_secrets_to_sensitive_credentials() {
+        let summary = CloudSyncPreviewSummary {
+            connections: 1,
+            sensitive_credentials: 1,
+            records: vec![connection_record("Prod")],
+            ..CloudSyncPreviewSummary::default()
+        };
+        let mut selection = CloudSyncPreviewSelection {
+            import_connections: false,
+            selected_connection_names: BTreeSet::new(),
+            selected_connection_ids: BTreeSet::new(),
+            import_quick_commands: false,
+            selected_quick_command_ids: BTreeSet::new(),
+            import_serial_profiles: false,
+            selected_serial_profile_ids: BTreeSet::new(),
+            import_raw_tcp_profiles: false,
+            selected_raw_tcp_profile_ids: BTreeSet::new(),
+            import_raw_udp_profiles: false,
+            selected_raw_udp_profile_ids: BTreeSet::new(),
+            import_sensitive_credentials: true,
+            import_app_settings: false,
+            selected_app_settings_sections: BTreeSet::new(),
+            import_plugin_settings: false,
+            selected_plugin_ids: BTreeSet::new(),
+            import_forwards: false,
+            selected_forward_ids: BTreeSet::new(),
+            conflict_strategy: ConflictStrategy::Rename,
+        };
+
+        let options = cloud_sync_legacy_import_options(&summary, &selection);
+        assert!(options.oxide_options.import_portable_secrets);
+        assert_eq!(options.oxide_options.selected_names, Some(Vec::new()));
+
+        selection.import_sensitive_credentials = false;
+        let options = cloud_sync_legacy_import_options(&summary, &selection);
+        assert!(!options.oxide_options.import_portable_secrets);
     }
 }

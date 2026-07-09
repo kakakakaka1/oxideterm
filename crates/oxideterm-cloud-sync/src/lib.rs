@@ -481,10 +481,11 @@ pub fn normalize_sync_scope(
             }
         });
 
+    let sync_connections = scope
+        .and_then(|scope| scope.sync_connections)
+        .unwrap_or(true);
     SyncScope {
-        sync_connections: scope
-            .and_then(|scope| scope.sync_connections)
-            .unwrap_or(true),
+        sync_connections,
         sync_forwards: scope.and_then(|scope| scope.sync_forwards).unwrap_or(true),
         sync_quick_commands: scope
             .and_then(|scope| scope.sync_quick_commands)
@@ -498,9 +499,12 @@ pub fn normalize_sync_scope(
         sync_raw_udp_profiles: scope
             .and_then(|scope| scope.sync_raw_udp_profiles)
             .unwrap_or(true),
-        sync_sensitive_credentials: scope
-            .and_then(|scope| scope.sync_sensitive_credentials)
-            .unwrap_or(false),
+        // Sensitive credentials currently reuse the encrypted connection archive, so they must not
+        // be synced when connection sync is disabled.
+        sync_sensitive_credentials: sync_connections
+            && scope
+                .and_then(|scope| scope.sync_sensitive_credentials)
+                .unwrap_or(false),
         sync_app_settings: scope
             .and_then(|scope| scope.sync_app_settings)
             .unwrap_or(true),
@@ -1031,6 +1035,7 @@ mod tests {
     fn normalizes_partial_scope_and_filters_unknown_sections() {
         let raw = RawSyncScope {
             sync_connections: Some(false),
+            sync_sensitive_credentials: Some(true),
             app_settings_sections: Some(strings(&[
                 "general",
                 "unknown",
@@ -1050,6 +1055,7 @@ mod tests {
         let scope = normalize_sync_scope(Some(&raw), &[]);
 
         assert!(!scope.sync_connections);
+        assert!(!scope.sync_sensitive_credentials);
         assert!(scope.sync_forwards);
         assert_eq!(
             scope.app_settings_sections,

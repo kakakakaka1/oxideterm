@@ -87,6 +87,31 @@ mod tests {
         }
     }
 
+    fn saved_connection_fixture(auth: SavedAuth) -> SavedConnection {
+        let now = Utc::now();
+        SavedConnection {
+            id: "conn-1".to_string(),
+            version: 1,
+            name: "Home".to_string(),
+            group: Some("Ungrouped".to_string()),
+            host: "192.168.1.2".to_string(),
+            port: 22,
+            username: "me".to_string(),
+            auth,
+            proxy_chain: Vec::new(),
+            upstream_proxy: SavedUpstreamProxyPolicy::UseGlobal,
+            options: oxideterm_connections::ConnectionOptions::default(),
+            created_at: now,
+            last_used_at: None,
+            updated_at: Some(now),
+            color: None,
+            icon: None,
+            tags: Vec::new(),
+            post_connect_command: None,
+            privilege_credentials: Vec::new(),
+        }
+    }
+
     #[test]
     fn session_manager_table_width_matches_tauri_connection_table_columns() {
         // This locks the Tauri ConnectionTable min-w-fit contract that keeps
@@ -307,6 +332,43 @@ mod tests {
             } => assert_eq!(keychain_id, "kc-password"),
             other => panic!("unexpected auth: {other:?}"),
         }
+    }
+
+    #[test]
+    fn edit_properties_switch_from_agent_to_password_submits_new_password() {
+        let existing = SavedAuth::Agent;
+        let saved_connection = saved_connection_fixture(existing.clone());
+        let mut form = form_from_saved_connection(&saved_connection, None);
+        form.auth_tab = SshAuthTab::Password;
+        form.password = "new-secret".to_string();
+
+        let request = save_request_from_form_with_existing_auth(
+            &form,
+            Some(saved_connection.id.clone()),
+            Some(&existing),
+        )
+        .unwrap();
+
+        match request.auth {
+            SavedAuth::Password {
+                keychain_id: None,
+                plaintext_password: Some(password),
+            } => assert_eq!(password, "new-secret"),
+            other => panic!("unexpected auth: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn edit_properties_saved_keychain_password_starts_unloaded() {
+        let saved_connection = saved_connection_fixture(SavedAuth::Password {
+            keychain_id: Some("kc-password".to_string()),
+            plaintext_password: None,
+        });
+
+        let form = form_from_saved_connection(&saved_connection, None);
+
+        assert!(!form.password_loaded);
+        assert_eq!(form.saved_password_keychain_id.as_deref(), Some("kc-password"));
     }
 
     #[test]

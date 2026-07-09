@@ -333,7 +333,8 @@ fn build_saved_connections_sync_snapshot(
     let revision = sha256_hex(
         &records
             .iter()
-            .map(|record| (&record.id, &record.revision, record.deleted))
+            // The exported record includes updated_at, so the snapshot revision must change with it.
+            .map(|record| (&record.id, &record.revision, &record.updated_at, record.deleted))
             .collect::<Vec<_>>(),
     )?;
 

@@ -342,7 +342,13 @@ impl CloudSyncOperationService {
                         .is_none_or(|ids| ids.contains(connection_id))
                 })
                 .collect::<Vec<_>>();
-            let preflight = preflight_export(connection_store, &connection_ids, false, false, 0);
+            let preflight = preflight_export(
+                connection_store,
+                &connection_ids,
+                false,
+                include_managed_keys_in_connection_preflight(&local_snapshot.scope),
+                0,
+            );
             if !preflight.can_export {
                 return Err(anyhow::anyhow!("preflight_failed: export preflight failed").into());
             }
@@ -1224,6 +1230,7 @@ impl CloudSyncOperationService {
         import_connections: bool,
         selected_connection_names: Option<Vec<String>>,
         import_forwards: bool,
+        import_portable_secrets: bool,
         conflict_strategy: ConflictStrategy,
         progress: Option<&mut dyn CloudSyncProgressSink>,
     ) -> Result<Option<ApplyLegacyPreviewOutcome>> {
@@ -1257,7 +1264,7 @@ impl CloudSyncOperationService {
                 ),
                 conflict_strategy: import_strategy_from_cloud(conflict_strategy),
                 import_forwards,
-                import_portable_secrets: import_connections,
+                import_portable_secrets,
                 ..OxideImportOptions::default()
             },
             &mut import_progress,
@@ -2581,6 +2588,7 @@ fn has_structured_conflict(
             || dirty_sections.serial_profiles
             || dirty_sections.raw_tcp_profiles
             || dirty_sections.raw_udp_profiles
+            || dirty_sections.sensitive_credentials
             || dirty_sections.app_settings.values().any(|dirty| *dirty)
             || dirty_sections.plugin_settings.values().any(|dirty| *dirty);
     };
@@ -2601,6 +2609,11 @@ fn has_structured_conflict(
         return true;
     }
     if dirty_sections.raw_udp_profiles && remote.raw_udp_profiles != previous.raw_udp_profiles {
+        return true;
+    }
+    if dirty_sections.sensitive_credentials
+        && remote.sensitive_credentials != previous.sensitive_credentials
+    {
         return true;
     }
     for (section_id, dirty) in &dirty_sections.app_settings {
@@ -2663,6 +2676,11 @@ fn plugin_id_from_setting_storage_key(storage_key: &str) -> Option<String> {
     let plugin_id = &remainder[..separator_index];
     let setting_id = &remainder[separator_index + SEPARATOR.len()..];
     (!plugin_id.is_empty() && !setting_id.is_empty()).then(|| plugin_id.to_string())
+}
+
+fn include_managed_keys_in_connection_preflight(scope: &crate::SyncScope) -> bool {
+    // Managed key material is exported only through the encrypted sensitive credentials object.
+    scope.sync_sensitive_credentials
 }
 
 #[cfg(test)]
@@ -2778,6 +2796,25 @@ mod tests {
     }
 
     #[test]
+    fn connection_preflight_allows_managed_keys_only_with_sensitive_credentials_scope() {
+        let without_sensitive_credentials = crate::SyncScope {
+            sync_sensitive_credentials: false,
+            ..crate::SyncScope::default()
+        };
+        let with_sensitive_credentials = crate::SyncScope {
+            sync_sensitive_credentials: true,
+            ..crate::SyncScope::default()
+        };
+
+        assert!(!include_managed_keys_in_connection_preflight(
+            &without_sensitive_credentials
+        ));
+        assert!(include_managed_keys_in_connection_preflight(
+            &with_sensitive_credentials
+        ));
+    }
+
+    #[test]
     fn upload_conflict_check_rejects_changed_legacy_snapshot_like_tauri() {
         let metadata = RemoteMetadata {
             exists: true,
@@ -2805,6 +2842,56 @@ mod tests {
 
         ensure_no_remote_conflict(&dirty_snapshot(), &metadata, Some("remote-current"), None)
             .unwrap();
+    }
+
+    #[test]
+    fn upload_conflict_check_rejects_changed_sensitive_credentials_section() {
+        let local_snapshot = CloudSyncLocalSnapshot {
+            metadata: crate::LocalSyncMetadata::default(),
+            scope: crate::SyncScope {
+                sync_sensitive_credentials: true,
+                ..crate::SyncScope::default()
+            },
+            dirty: crate::StructuredDirtyInfo {
+                current_state: crate::StructuredLocalState {
+                    sensitive_credentials: Some("local-sensitive".to_string()),
+                    ..crate::StructuredLocalState::default()
+                },
+                dirty_sections: crate::StructuredDirtySections {
+                    sensitive_credentials: true,
+                    ..crate::StructuredDirtySections::default()
+                },
+                has_dirty: true,
+            },
+            upload_units: 1,
+            connections_record_count: 0,
+            forwards_record_count: 0,
+            quick_commands_record_count: 0,
+            serial_profiles_record_count: 0,
+            raw_tcp_profiles_record_count: 0,
+            raw_udp_profiles_record_count: 0,
+            sensitive_credentials_record_count: 1,
+        };
+        let metadata = RemoteMetadata {
+            exists: true,
+            format: Some(STRUCTURED_MANIFEST_FORMAT.to_string()),
+            section_revisions: Some(StructuredSectionRevisions {
+                sensitive_credentials: Some("remote-new".to_string()),
+                ..StructuredSectionRevisions::default()
+            }),
+            ..RemoteMetadata::default()
+        };
+        let previous_sections = StructuredSectionRevisions {
+            sensitive_credentials: Some("remote-old".to_string()),
+            ..StructuredSectionRevisions::default()
+        };
+
+        let error =
+            ensure_no_remote_conflict(&local_snapshot, &metadata, None, Some(&previous_sections))
+                .unwrap_err()
+                .to_string();
+
+        assert!(error.contains("remote_changed_before_upload"));
     }
 
     #[test]

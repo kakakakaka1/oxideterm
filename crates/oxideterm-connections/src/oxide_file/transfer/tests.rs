@@ -950,6 +950,32 @@ mod tests {
     }
 
     #[test]
+    fn preflight_allows_managed_key_connections_when_included() {
+        let mut source = temp_store("preflight-managed-key-included");
+        let managed_key = source
+            .create_managed_ssh_key_from_text(
+                SecretString::from(generated_private_key_text()),
+                Some("Deploy key".to_string()),
+                None,
+            )
+            .unwrap();
+        let mut connection = saved_connection("conn-1", "Prod");
+        connection.auth = SavedAuth::ManagedKey {
+            key_id: managed_key.id,
+            passphrase_keychain_id: None,
+            plaintext_passphrase: None,
+        };
+        connection.proxy_chain.clear();
+        source.upsert_imported_connection(connection).unwrap();
+
+        let result = preflight_export(&source, &["conn-1".to_string()], false, true, 0);
+
+        assert!(result.can_export);
+        assert_eq!(result.managed_key_count, 1);
+        assert!(result.blocked_managed_key_connections.is_empty());
+    }
+
+    #[test]
     fn import_options_filter_selection_and_skip_forward_persistence() {
         let mut source = temp_store("selected-source");
         source

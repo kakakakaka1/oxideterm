@@ -579,6 +579,7 @@ pub async fn deliver_cloud_sync_apply_preview(
         &settings,
         &mut provider,
         &preview,
+        &selection,
         create_rollback_backup,
     ) else {
         return;
@@ -662,6 +663,7 @@ pub async fn deliver_cloud_sync_apply_preview(
                     selection.effective_import_connections(&summary),
                     selection.selected_connection_names_for_import(&summary),
                     selection.import_forwards,
+                    selection.import_sensitive_credentials,
                     selection.conflict_strategy.clone(),
                     Some(&mut apply_progress),
                 )
@@ -730,11 +732,21 @@ fn read_apply_sync_password(
     settings: &CloudSyncSettings,
     provider: &mut CloudSyncKeychainSecretProvider,
     preview: &CloudSyncPendingPreview,
+    selection: &CloudSyncPreviewSelection,
     create_rollback_backup: bool,
 ) -> Option<Option<CloudSyncSecretValue>> {
     let apply_requires_password = match preview {
         CloudSyncPendingPreview::Structured(preview) => {
-            !preview.app_settings_entries.is_empty() || !preview.plugin_settings_entries.is_empty()
+            // Only selected encrypted structured sections require the sync password.
+            selection.import_sensitive_credentials && preview.sensitive_credentials_entry.is_some()
+                || selection
+                    .selected_app_settings_sections
+                    .iter()
+                    .any(|section_id| preview.app_settings_entries.contains_key(section_id))
+                || selection
+                    .selected_plugin_ids
+                    .iter()
+                    .any(|plugin_id| preview.plugin_settings_entries.contains_key(plugin_id))
         }
         CloudSyncPendingPreview::Legacy { .. } => true,
     };

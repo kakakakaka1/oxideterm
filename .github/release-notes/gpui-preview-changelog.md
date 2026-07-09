@@ -4,6 +4,16 @@ Keep the newest GPUI preview entry first. The native package workflow extracts
 the section whose heading matches the release version, so older preview entries
 can remain in this file.
 
+## 2.0.0-gpui-preview.15
+
+This preview focuses on cloud sync reliability and a saved connection editing fix.
+
+- Cloud sync export preflight now handles managed SSH keys correctly, so connections that reference locally managed key material no longer block Gist upload with a missing key material error.
+- Cloud sync upload, pull, conflict preview, rollback, and delivery-state handling received tighter state transitions and clearer failure accounting.
+- Cloud sync selection now keeps unchanged local records out of write requests while still preserving remote tombstone and conflict handling semantics.
+- Editing an existing saved connection can now switch from Agent or key-based authentication to password authentication and submit the newly entered password.
+- Existing keychain-backed passwords still remain unloaded until explicitly revealed, preserving the previous secret-handling boundary.
+
 ## 2.0.0-gpui-preview.14
 
 This preview focuses on diagnostics, terminal workflow polish, settings cleanup, and remote SSH project detection reliability.

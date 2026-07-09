@@ -5,9 +5,9 @@ use std::collections::{BTreeMap, HashSet};
 
 use anyhow::{Context, Result};
 use oxideterm_connections::{
-    ApplySavedConnectionsSyncOutcome, ConnectionStore, RawTcpProfilesSyncSnapshot,
-    RawUdpProfilesSyncSnapshot, SavedConnectionsConflictStrategy, SavedConnectionsSyncSnapshot,
-    SerialProfilesSyncSnapshot, oxide_file::EncryptedPluginSetting,
+    ApplySavedConnectionsSyncOutcome, ConnectionStore, ManagedSshKeyInfo,
+    RawTcpProfilesSyncSnapshot, RawUdpProfilesSyncSnapshot, SavedConnectionsConflictStrategy,
+    SavedConnectionsSyncSnapshot, SerialProfilesSyncSnapshot, oxide_file::EncryptedPluginSetting,
 };
 use oxideterm_forwarding::{
     ApplySavedForwardsSyncSnapshotResult, ForwardingRegistry, SavedForwardsSyncSnapshot,
@@ -84,6 +84,7 @@ pub fn build_local_snapshot(
         tauri_simple_stable_hash(&build_sensitive_credentials_revision_payload(
             &connections_snapshot,
             &settings_store.settings().ai.providers,
+            &referenced_managed_key_revision_payload(connection_store, &connections_snapshot),
         )?)?;
 
     let metadata = LocalSyncMetadata {
@@ -262,6 +263,7 @@ fn build_syncable_settings_payload(settings_store: &SettingsStore) -> Value {
 fn build_sensitive_credentials_revision_payload(
     connections_snapshot: &SavedConnectionsSyncSnapshot,
     ai_providers: &[Value],
+    managed_keys: &[Value],
 ) -> Result<Value> {
     let provider_ids = ai_providers
         .iter()
@@ -271,7 +273,51 @@ fn build_sensitive_credentials_revision_payload(
     Ok(json!({
         "connectionsRevision": connections_snapshot.revision,
         "aiProviderIds": provider_ids,
+        "managedKeys": managed_keys,
     }))
+}
+
+fn referenced_managed_key_revision_payload(
+    connection_store: &ConnectionStore,
+    connections_snapshot: &SavedConnectionsSyncSnapshot,
+) -> Vec<Value> {
+    let referenced_ids = connections_snapshot
+        .records
+        .iter()
+        .filter_map(|record| record.payload.as_ref())
+        .flat_map(|payload| {
+            std::iter::once(payload.managed_key_id.as_ref()).chain(
+                payload
+                    .proxy_chain
+                    .iter()
+                    .map(|hop| hop.managed_key_id.as_ref()),
+            )
+        })
+        .flatten()
+        .cloned()
+        .collect::<HashSet<_>>();
+    let mut managed_keys = connection_store
+        .managed_ssh_keys()
+        .into_iter()
+        .filter(|key| referenced_ids.contains(&key.id))
+        .collect::<Vec<_>>();
+    managed_keys.sort_by(|left, right| left.id.cmp(&right.id));
+    managed_keys
+        .into_iter()
+        .map(managed_key_revision_payload)
+        .collect()
+}
+
+fn managed_key_revision_payload(key: ManagedSshKeyInfo) -> Value {
+    json!({
+        "id": key.id,
+        "name": key.name,
+        "fingerprint": key.fingerprint,
+        "publicKey": key.public_key,
+        "requiresPassphrase": key.requires_passphrase,
+        "origin": key.origin,
+        "updatedAt": key.updated_at,
+    })
 }
 
 fn tauri_simple_stable_hash<T: Serialize>(value: &T) -> Result<String> {
