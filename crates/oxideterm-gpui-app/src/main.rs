@@ -9,6 +9,7 @@ mod bundled_fonts;
 mod keybindings;
 mod logging;
 mod platform;
+mod single_instance;
 mod workspace;
 
 use std::{path::PathBuf, time::Duration};
@@ -97,18 +98,33 @@ fn main() {
         std::process::exit(2);
     });
 
-    // Match Tauri's startup ordering: portable detection and instance locking
+    // Match Tauri's startup ordering: portable detection and instance handling
     // happen before any settings or connection stores choose their data path.
-    if let Err(error) = oxideterm_portable_runtime::initialize_portable_runtime()
-        .and_then(|_| oxideterm_portable_runtime::acquire_portable_instance_lock())
-    {
+    if let Err(error) = oxideterm_portable_runtime::initialize_portable_runtime() {
         eprintln!("failed to initialize OxideTerm portable runtime: {error}");
         std::process::exit(1);
     }
-    let ssh_launch = read_ssh_launch_file(ssh_launch_path).unwrap_or_else(|error| {
-        eprintln!("failed to read SSH launch request: {error}");
-        std::process::exit(2);
-    });
+    let single_instance = single_instance::acquire_or_forward(ssh_launch_path.clone())
+        .unwrap_or_else(|error| {
+            eprintln!("failed to initialize OxideTerm single-instance guard: {error}");
+            std::process::exit(1);
+        });
+    let single_instance::SingleInstanceOutcome::Primary {
+        _guard: _single_instance_guard,
+        receiver: single_instance_rx,
+    } = single_instance
+    else {
+        return;
+    };
+    if let Err(error) = oxideterm_portable_runtime::acquire_portable_instance_lock() {
+        eprintln!("failed to initialize OxideTerm portable runtime: {error}");
+        std::process::exit(1);
+    }
+    let ssh_launch =
+        single_instance::read_ssh_launch_file(ssh_launch_path).unwrap_or_else(|error| {
+            eprintln!("failed to read SSH launch request: {error}");
+            std::process::exit(2);
+        });
     let startup_settings_store = SettingsStore::load_default();
     let startup_settings = startup_settings_store
         .as_ref()
@@ -139,7 +155,7 @@ fn main() {
         // Reopening from the Dock should create a fresh workspace window
         // instead of leaving the app windowless.
         if let Err(error) =
-            open_main_workspace_window(cx, None, desktop_presence_menu_from_settings())
+            open_main_workspace_window(cx, None, desktop_presence_menu_from_settings(), None)
         {
             eprintln!(
                 "OxideTerm could not reopen a native GPUI window: {error:#}\n\
@@ -149,6 +165,7 @@ fn main() {
         }
     });
 
+    let mut single_instance_rx = Some(single_instance_rx);
     application.run(move |cx: &mut App| {
         oxideterm_desktop_presence::set_keep_running_on_close(
             startup_settings.general.minimize_to_tray_on_close,
@@ -187,7 +204,13 @@ fn main() {
         let desktop_presence_menu = desktop_presence_menu(&I18n::new(locale_from_settings(
             startup_settings.general.language,
         )));
-        if let Err(err) = open_main_workspace_window(cx, ssh_launch, desktop_presence_menu) {
+        let initial_single_instance_rx = single_instance_rx.take();
+        if let Err(err) = open_main_workspace_window(
+            cx,
+            ssh_launch,
+            desktop_presence_menu,
+            initial_single_instance_rx,
+        ) {
             eprintln!(
                 "OxideTerm could not open a native GPUI window: {err:#}\n\
                  GPUI 0.2.2 does not expose a CPU renderer fallback. \
@@ -214,6 +237,7 @@ fn open_main_workspace_window(
     cx: &mut App,
     ssh_launch: Option<oxideterm_ssh_launch::TemporarySshLaunch>,
     desktop_presence_menu: oxideterm_desktop_presence::DesktopPresenceMenu,
+    single_instance_rx: Option<single_instance::SingleInstanceReceiver>,
 ) -> anyhow::Result<()> {
     let bounds = default_window_bounds(cx);
     cx.open_window(platform::window_options(bounds), |window, cx| {
@@ -230,17 +254,20 @@ fn open_main_workspace_window(
             };
 
         let workspace = cx.new(|cx| {
-            WorkspaceApp::new(window, cx, desktop_presence_rx).unwrap_or_else(|err| {
-                panic!(
-                    "failed to initialize OxideTerm workspace: {err:#}\n\
+            WorkspaceApp::new(window, cx, desktop_presence_rx, single_instance_rx).unwrap_or_else(
+                |err| {
+                    panic!(
+                        "failed to initialize OxideTerm workspace: {err:#}\n\
                      OxideTerm native uses GPUI's GPU-backed renderer. \
                      To retry with lightweight visual effects, launch with \
                      OXIDETERM_RENDER_PROFILE=compatibility."
-                )
-            })
+                    )
+                },
+            )
         });
         let _ = workspace.update(cx, |workspace, cx| {
             workspace.start_desktop_presence_polling(cx);
+            workspace.start_single_instance_polling(window, cx);
         });
         if let Some(launch) = ssh_launch
             && let Err(error) = workspace.update(cx, |workspace, cx| {
@@ -267,23 +294,6 @@ fn ssh_launch_path_arg() -> Result<Option<PathBuf>, String> {
         }
     }
     Ok(None)
-}
-
-fn read_ssh_launch_file(
-    path: Option<PathBuf>,
-) -> Result<Option<oxideterm_ssh_launch::TemporarySshLaunch>, String> {
-    let Some(path) = path else {
-        return Ok(None);
-    };
-    let bytes = std::fs::read(&path)
-        .map_err(|error| format!("failed to read {}: {error}", path.display()))?;
-    // The CLI handoff file may contain a stdin password. Delete it only after
-    // the app owns the single-instance lock, otherwise a second process would
-    // discard a request that it cannot open.
-    let _ = std::fs::remove_file(&path);
-    serde_json::from_slice(&bytes)
-        .map(Some)
-        .map_err(|error| format!("invalid SSH launch request: {error}"))
 }
 
 fn quit(_: &Quit, cx: &mut App) {

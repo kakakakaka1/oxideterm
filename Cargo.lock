@@ -7176,6 +7176,7 @@ dependencies = [
  "chrono",
  "embed-resource",
  "flate2",
+ "fs2",
  "gpui",
  "gstreamer",
  "gstreamer-video",

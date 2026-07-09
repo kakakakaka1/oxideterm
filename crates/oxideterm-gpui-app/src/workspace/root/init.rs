@@ -5,6 +5,7 @@ impl WorkspaceApp {
         window: &mut Window,
         cx: &mut Context<Self>,
         desktop_presence_rx: Option<oxideterm_desktop_presence::DesktopPresenceReceiver>,
+        single_instance_rx: Option<crate::single_instance::SingleInstanceReceiver>,
     ) -> Result<Self> {
         let focus_handle = cx.focus_handle();
         let mut settings_store = SettingsStore::load_default()?;
@@ -478,6 +479,8 @@ impl WorkspaceApp {
             settings_legal_notice_scroll: MarkdownVirtualListScrollHandle::new(),
             desktop_presence_rx,
             desktop_presence_polling: false,
+            single_instance_rx,
+            single_instance_polling: false,
             portable_current_password: String::new(),
             portable_new_password: String::new(),
             portable_confirm_password: String::new(),

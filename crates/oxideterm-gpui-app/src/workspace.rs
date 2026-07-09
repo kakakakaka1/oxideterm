@@ -32,6 +32,7 @@ mod session_manager;
 mod settings;
 mod sftp;
 mod sidebar;
+mod single_instance;
 mod tabs;
 mod terminal_cast;
 mod terminal_command_bar;
@@ -869,6 +870,8 @@ pub(crate) struct WorkspaceApp {
     settings_legal_notice_scroll: MarkdownVirtualListScrollHandle,
     desktop_presence_rx: Option<oxideterm_desktop_presence::DesktopPresenceReceiver>,
     desktop_presence_polling: bool,
+    single_instance_rx: Option<crate::single_instance::SingleInstanceReceiver>,
+    single_instance_polling: bool,
     portable_current_password: String,
     portable_new_password: String,
     portable_confirm_password: String,
