@@ -163,6 +163,8 @@
       "font_preview": "Aperçu de la police",
       "font_size": "Taille de police",
       "font_size_hint": "Taille des caractères du terminal",
+      "font_ligatures": "Ligatures de police",
+      "font_ligatures_hint": "Utiliser les ligatures de programmation lorsque la police choisie les prend en charge.",
       "line_height": "Hauteur de ligne",
       "line_height_hint": "Espacement entre les lignes",
       "smooth_scroll": "Défilement fluide",

@@ -10,6 +10,10 @@ use std::{
 use std::os::windows::process::CommandExt;
 
 use crate::{NativeUpdateError, PlatformTarget, current_platform_target};
+#[cfg(target_os = "windows")]
+use crate::{
+    WindowsUpdateHelperOptions, windows_update_helper_arguments, windows_update_helper_path,
+};
 
 #[cfg(windows)]
 const WINDOWS_BACKGROUND_PROCESS_CREATE_NO_WINDOW: u32 = 0x08000000;
@@ -148,11 +152,17 @@ pub fn plan_native_install(
             true,
             "Schedule archived .app bundle replacement after OxideTerm exits.",
         ),
-        ("windows", InstallPackageKind::WindowsMsi | InstallPackageKind::WindowsExe) => (
+        ("windows", InstallPackageKind::WindowsMsi) => (
             InstallStrategy::WindowsRunInstaller,
             InstallActionKind::LaunchInstaller,
             false,
             "Launch the Windows installer with elevation.",
+        ),
+        ("windows", InstallPackageKind::WindowsExe) => (
+            InstallStrategy::WindowsRunInstaller,
+            InstallActionKind::LaunchInstaller,
+            true,
+            "Stage the Windows installer and apply it after OxideTerm exits.",
         ),
         ("windows", InstallPackageKind::WindowsInstallerArchive) => (
             InstallStrategy::WindowsExtractAndRunInstaller,
@@ -326,23 +336,38 @@ fn execute_windows_installer(
                 "/promptrestart".to_string(),
             ],
             &plan.package_path,
+            false,
         )?,
-        InstallPackageKind::WindowsExe => launch_windows_installer_elevated(
-            &plan.package_path.to_string_lossy(),
-            &[],
-            &plan.package_path,
-        )?,
+        InstallPackageKind::WindowsExe => {
+            launch_windows_installer_elevated(
+                &plan.package_path.to_string_lossy(),
+                &["/S".to_string(), "/OXIDETERM_UPDATE=1".to_string()],
+                &plan.package_path,
+                true,
+            )?;
+            launch_windows_update_helper(plan)?;
+        }
         _ => open_package(&plan.package_path)?,
     }
     Ok(NativeInstallOutcome {
-        status: NativeInstallStatus::InstallerLaunched,
-        message: windows_installer_launched_message(&plan.package_path),
+        status: match plan.package_kind {
+            InstallPackageKind::WindowsExe => NativeInstallStatus::ReplacementScheduled,
+            _ => NativeInstallStatus::InstallerLaunched,
+        },
+        message: windows_installer_launched_message(&plan.package_path, plan.package_kind),
         should_quit_app: true,
     })
 }
 
 #[cfg(any(target_os = "windows", test))]
-fn windows_installer_launched_message(package_path: &Path) -> String {
+fn windows_installer_launched_message(
+    package_path: &Path,
+    package_kind: InstallPackageKind,
+) -> String {
+    if package_kind == InstallPackageKind::WindowsExe {
+        return "Windows update staged. OxideTerm will quit and the update helper will finish replacement."
+            .to_string();
+    }
     format!(
         "Windows installer launched with elevation. If setup is cancelled or fails, rerun the retained update package from: {}",
         package_path.display()
@@ -355,7 +380,7 @@ fn powershell_single_quoted(value: &str) -> String {
 }
 
 #[cfg(any(target_os = "windows", test))]
-fn windows_start_process_script(file_path: &str, arguments: &[String]) -> String {
+fn windows_start_process_script(file_path: &str, arguments: &[String], wait: bool) -> String {
     let mut script = format!(
         "Start-Process -FilePath {}",
         powershell_single_quoted(file_path)
@@ -369,7 +394,43 @@ fn windows_start_process_script(file_path: &str, arguments: &[String]) -> String
         script.push_str(&format!(" -ArgumentList @({argument_list})"));
     }
     script.push_str(" -Verb RunAs");
+    if wait {
+        script.push_str(" -Wait");
+    }
     script
+}
+
+#[cfg(target_os = "windows")]
+fn launch_windows_update_helper(plan: &NativeInstallPlan) -> Result<(), NativeUpdateError> {
+    let helper_path = windows_update_helper_path(&plan.current_exe).ok_or_else(|| {
+        NativeUpdateError::State("resolve Windows update helper path failed".to_string())
+    })?;
+    if !helper_path.is_file() {
+        reveal_windows_update_package(&plan.package_path);
+        return Err(NativeUpdateError::State(format!(
+            "Windows update helper not found at {}; update package retained at {}",
+            helper_path.display(),
+            plan.package_path.display()
+        )));
+    }
+    let install_dir = plan.current_exe.parent().ok_or_else(|| {
+        NativeUpdateError::State("resolve Windows install directory failed".to_string())
+    })?;
+    let options = WindowsUpdateHelperOptions {
+        install_dir: install_dir.to_path_buf(),
+        app_exe: plan.current_exe.clone(),
+        wait_pid: Some(plan.process_id),
+        launch_after_apply: true,
+    };
+    let mut command = Command::new(helper_path);
+    configure_windows_background_process(&mut command);
+    command
+        .args(windows_update_helper_arguments(&options))
+        .spawn()
+        .map_err(|error| {
+            NativeUpdateError::State(format!("launch Windows update helper failed: {error}"))
+        })?;
+    Ok(())
 }
 
 #[cfg(target_os = "windows")]
@@ -377,10 +438,11 @@ fn launch_windows_installer_elevated(
     file_path: &str,
     arguments: &[String],
     retained_package_path: &Path,
+    wait: bool,
 ) -> Result<(), NativeUpdateError> {
     // Start-Process with runas is the Windows shell boundary that displays UAC
     // when OxideTerm itself is not already elevated.
-    let script = windows_start_process_script(file_path, arguments);
+    let script = windows_start_process_script(file_path, arguments, wait);
     let mut command = Command::new("powershell");
     configure_windows_background_process(&mut command);
     let status = command
@@ -470,14 +532,15 @@ fn execute_windows_archive_installer(
             "Windows installer archive did not contain .msi or .exe".to_string(),
         )
     })?;
+    let package_kind = classify_package(&installer);
     let nested_plan = NativeInstallPlan {
         strategy: InstallStrategy::WindowsRunInstaller,
         action: InstallActionKind::LaunchInstaller,
-        package_kind: classify_package(&installer),
+        package_kind,
         package_path: installer,
         current_exe: plan.current_exe.clone(),
         process_id: plan.process_id,
-        requires_app_exit: plan.requires_app_exit,
+        requires_app_exit: matches!(package_kind, InstallPackageKind::WindowsExe),
         summary: plan.summary.clone(),
     };
     execute_windows_installer(&nested_plan)
@@ -771,6 +834,25 @@ mod tests {
     }
 
     #[test]
+    fn windows_exe_installer_uses_helper_replacement_strategy() {
+        let plan = plan_native_install(
+            "C:/Temp/OxideTerm_setup.exe",
+            &context(
+                "windows",
+                false,
+                "C:/Users/me/AppData/Local/Programs/OxideTerm/oxideterm-native.exe",
+            ),
+        );
+        assert_eq!(plan.strategy, InstallStrategy::WindowsRunInstaller);
+        assert_eq!(plan.package_kind, InstallPackageKind::WindowsExe);
+        assert!(plan.requires_app_exit);
+        assert_eq!(
+            plan.summary,
+            "Stage the Windows installer and apply it after OxideTerm exits."
+        );
+    }
+
+    #[test]
     fn windows_installer_archive_is_extracted_before_launch() {
         let plan = plan_native_install(
             "C:/Temp/OxideTerm_1.0.0_x64.msi.zip",
@@ -808,16 +890,32 @@ mod tests {
                     "C:/Temp/OxideTerm Setup.msi".to_string(),
                     "/promptrestart".to_string(),
                 ],
+                false,
             ),
             "Start-Process -FilePath 'msiexec.exe' -ArgumentList @('/i', 'C:/Temp/OxideTerm Setup.msi', '/promptrestart') -Verb RunAs"
         );
     }
 
     #[test]
+    fn windows_start_process_script_can_wait_for_staging() {
+        assert_eq!(
+            windows_start_process_script(
+                "C:/Temp/OxideTerm Setup.exe",
+                &["/S".to_string(), "/OXIDETERM_UPDATE=1".to_string()],
+                true,
+            ),
+            "Start-Process -FilePath 'C:/Temp/OxideTerm Setup.exe' -ArgumentList @('/S', '/OXIDETERM_UPDATE=1') -Verb RunAs -Wait"
+        );
+    }
+
+    #[test]
     fn windows_installer_message_includes_retained_package_path() {
         assert!(
-            windows_installer_launched_message(Path::new("C:/Temp/OxideTerm Setup.exe"))
-                .contains("C:/Temp/OxideTerm Setup.exe")
+            windows_installer_launched_message(
+                Path::new("C:/Temp/OxideTerm Setup.msi"),
+                InstallPackageKind::WindowsMsi,
+            )
+            .contains("C:/Temp/OxideTerm Setup.msi")
         );
     }
 

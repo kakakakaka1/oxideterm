@@ -6,13 +6,17 @@ can remain in this file.
 
 ## 2.0.0-gpui-preview.15
 
-This preview focuses on cloud sync reliability and a saved connection editing fix.
+This preview focuses on cloud sync reliability, saved connection editing, terminal font ligatures, and Windows auto-update reliability.
 
 - Cloud sync export preflight now handles managed SSH keys correctly, so connections that reference locally managed key material no longer block Gist upload with a missing key material error.
 - Cloud sync upload, pull, conflict preview, rollback, and delivery-state handling received tighter state transitions and clearer failure accounting.
 - Cloud sync selection now keeps unchanged local records out of write requests while still preserving remote tombstone and conflict handling semantics.
 - Editing an existing saved connection can now switch from Agent or key-based authentication to password authentication and submit the newly entered password.
 - Existing keychain-backed passwords still remain unloaded until explicitly revealed, preserving the previous secret-handling boundary.
+- Terminal settings now include a Font Ligatures toggle. It is off by default and enables programming ligatures when the selected terminal font supports them.
+- Terminal font features now flow from persisted settings into GPUI terminal rendering instead of always disabling ligature shaping.
+- Windows native auto-update now stages NSIS payloads first and lets a small update helper finish replacement after OxideTerm exits.
+- The Windows update helper keeps an `old` rollback directory during replacement and uses Restart Manager best-effort handle release before moving staged files into place.
 
 ## 2.0.0-gpui-preview.14
 

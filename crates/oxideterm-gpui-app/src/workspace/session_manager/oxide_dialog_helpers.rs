@@ -278,6 +278,7 @@ fn oxide_settings_field_label(field: &str, i18n: &oxideterm_i18n::I18n) -> Strin
         "customFontFamily" => i18n.t("settings_view.terminal.custom_font_stack"),
         "cjkFontFamily" => i18n.t("settings_view.terminal.cjk_font_family"),
         "fontSize" => i18n.t("settings_view.terminal.font_size"),
+        "fontLigatures" => i18n.t("settings_view.terminal.font_ligatures"),
         "lineHeight" => i18n.t("settings_view.terminal.line_height"),
         "cursorStyle" => i18n.t("settings_view.terminal.cursor_style"),
         "cursorBlink" => i18n.t("settings_view.terminal.cursor_blink"),

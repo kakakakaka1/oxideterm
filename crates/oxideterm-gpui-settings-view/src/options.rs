@@ -51,6 +51,10 @@ pub fn set_free_type_cursor_positioning(settings: &mut PersistedSettings, value:
     settings.terminal.free_type_cursor_positioning = value;
 }
 
+pub fn set_font_ligatures(settings: &mut PersistedSettings, value: bool) {
+    settings.terminal.font_ligatures = value;
+}
+
 pub fn compact_decimal(value: f64) -> String {
     let text = format!("{value:.1}");
     text.trim_end_matches('0').trim_end_matches('.').to_string()

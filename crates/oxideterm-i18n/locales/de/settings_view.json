@@ -163,6 +163,8 @@
       "font_preview": "Schriftartvorschau",
       "font_size": "Schriftgröße",
       "font_size_hint": "Größe der Terminalzeichen",
+      "font_ligatures": "Schriftligaturen",
+      "font_ligatures_hint": "Programmierligaturen verwenden, wenn die ausgewählte Schrift sie unterstützt.",
       "line_height": "Zeilenhöhe",
       "line_height_hint": "Abstand zwischen Zeilen",
       "smooth_scroll": "Sanftes Scrollen",

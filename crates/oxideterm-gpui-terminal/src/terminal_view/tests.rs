@@ -449,10 +449,20 @@ fn terminal_font_uses_real_nerd_font_family_and_fallbacks() {
 }
 
 #[test]
+fn terminal_font_ligature_preference_controls_font_features() {
+    let disabled = terminal_font_features(false);
+    let enabled = terminal_font_features(true);
+
+    assert_eq!(disabled, FontFeatures::disable_ligatures());
+    assert_eq!(enabled, FontFeatures::default());
+}
+
+#[test]
 fn terminal_font_places_explicit_cjk_fallback_before_defaults() {
     let font = terminal_font_with_family_and_cjk(
         oxideterm_settings::JETBRAINS_MONO_SUBSET_FAMILY,
         Some("Noto Sans Mono CJK SC"),
+        false,
     );
     let fallbacks = font.fallbacks.as_ref().unwrap().fallback_list();
     let explicit_cjk = fallbacks

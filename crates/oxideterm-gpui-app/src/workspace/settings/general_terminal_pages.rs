@@ -568,6 +568,14 @@ impl WorkspaceApp {
                 rows.extend([
                     self.terminal_preview(settings),
                     self.card_separator(),
+                    self.checkbox_row(
+                        "settings_view.terminal.font_ligatures",
+                        "settings_view.terminal.font_ligatures_hint",
+                        settings.terminal.font_ligatures,
+                        set_font_ligatures,
+                        cx,
+                    ),
+                    self.card_separator(),
                     self.font_size_row(settings, cx),
                     self.card_separator(),
                     self.decimal_row(

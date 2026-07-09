@@ -17,6 +17,7 @@ mod manifest;
 mod platform;
 mod state;
 mod version;
+mod windows_update_helper;
 
 pub use channel::{
     BETA_UPDATE_ENDPOINT, GPUI_PREVIEW_UPDATE_ENDPOINT, STABLE_UPDATE_ENDPOINT, UpdateEndpoint,
@@ -37,3 +38,8 @@ pub use state::{
     NativeUpdateStage, PersistedUpdateState, ResumableUpdateStatus, TauriUpdaterEvent,
 };
 pub use version::{VersionOrdering, compare_versions, is_update_newer};
+pub use windows_update_helper::{
+    WINDOWS_UPDATE_HELPER_RELATIVE, WINDOWS_UPDATE_OLD_DIR, WINDOWS_UPDATE_STAGING_DIR,
+    WindowsUpdateHelperOptions, apply_staged_windows_update, parse_windows_update_helper_options,
+    run_windows_update_helper, windows_update_helper_arguments, windows_update_helper_path,
+};

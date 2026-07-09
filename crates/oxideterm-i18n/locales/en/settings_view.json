@@ -163,6 +163,8 @@
       "font_preview": "Font Preview",
       "font_size": "Font Size",
       "font_size_hint": "Size of terminal characters",
+      "font_ligatures": "Font Ligatures",
+      "font_ligatures_hint": "Use programming ligatures when the selected font supports them.",
       "line_height": "Line Height",
       "line_height_hint": "Spacing between lines",
       "smooth_scroll": "Smooth Scrolling",

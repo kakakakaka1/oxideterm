@@ -224,6 +224,9 @@ pub struct TerminalSettings {
     #[serde(default)]
     pub cjk_font_family: String,
     pub font_size: i64,
+    // Terminal ligatures stay opt-in so existing monospace rendering remains stable.
+    #[serde(default)]
+    pub font_ligatures: bool,
     pub line_height: f64,
     pub cursor_style: CursorStyle,
     pub cursor_blink: bool,
@@ -267,6 +270,7 @@ impl Default for TerminalSettings {
             custom_font_family: String::new(),
             cjk_font_family: String::new(),
             font_size: 14,
+            font_ligatures: false,
             line_height: 1.2,
             cursor_style: CursorStyle::Block,
             cursor_blink: true,
@@ -326,6 +330,16 @@ mod tests {
         let settings: TerminalSettings = serde_json::from_value(value).unwrap();
 
         assert!(!settings.free_type_cursor_positioning);
+    }
+
+    #[test]
+    fn terminal_settings_default_font_ligatures_when_missing() {
+        let mut value = serde_json::to_value(TerminalSettings::default()).unwrap();
+        value.as_object_mut().unwrap().remove("fontLigatures");
+
+        let settings: TerminalSettings = serde_json::from_value(value).unwrap();
+
+        assert!(!settings.font_ligatures);
     }
 
     #[test]

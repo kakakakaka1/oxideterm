@@ -163,6 +163,8 @@
       "font_preview": "Anteprima font",
       "font_size": "Dimensione Font",
       "font_size_hint": "Dimensione dei caratteri del terminale",
+      "font_ligatures": "Legature del font",
+      "font_ligatures_hint": "Usa le legature di programmazione quando il font selezionato le supporta.",
       "line_height": "Altezza Linea",
       "line_height_hint": "Spaziatura tra le linee",
       "smooth_scroll": "Scorrimento fluido",

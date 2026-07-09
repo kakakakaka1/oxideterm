@@ -42,6 +42,7 @@ pub(crate) const TERMINAL_MIDDLE_CLICK_PASTE: bool = false;
 pub(crate) const TERMINAL_KEEP_SELECTION_ON_COPY: bool = true;
 pub(crate) const TERMINAL_SELECTION_REQUIRES_SHIFT: bool = false;
 pub(crate) const TERMINAL_FREE_TYPE_CURSOR_POSITIONING: bool = false;
+pub(crate) const TERMINAL_FONT_LIGATURES: bool = false;
 pub(crate) const TERMINAL_BIDI_ENABLED: bool = true;
 pub(crate) const TERMINAL_COMMAND_MARKS_ENABLED: bool = true;
 pub(crate) const TERMINAL_COMMAND_MARKS_SHOW_HOVER_ACTIONS: bool = true;
@@ -50,6 +51,7 @@ pub(crate) const TERMINAL_COMMAND_MARKS_SHOW_HOVER_ACTIONS: bool = true;
 pub struct TerminalUiPreferences {
     pub font_family: String,
     pub cjk_font_family: Option<String>,
+    pub font_ligatures: bool,
     pub font_size: f32,
     pub line_height: f32,
     pub cursor_shape: TerminalCursorShape,
@@ -89,6 +91,7 @@ impl Default for TerminalUiPreferences {
         Self {
             font_family: TERMINAL_FONT.to_string(),
             cjk_font_family: None,
+            font_ligatures: TERMINAL_FONT_LIGATURES,
             font_size: TERMINAL_FONT_SIZE,
             line_height: TERMINAL_LINE_HEIGHT_RATIO,
             cursor_shape: TerminalCursorShape::Block,
@@ -624,6 +627,7 @@ impl TerminalMetrics {
         let font = terminal_font_with_family_and_cjk(
             &preferences.font_family,
             preferences.cjk_font_family.as_deref(),
+            preferences.font_ligatures,
         );
         let font_id = window.text_system().resolve_font(&font);
         let measured_width = window
@@ -677,10 +681,14 @@ pub(crate) fn fallback_cell_width(window: &mut Window, font: &Font, font_size: P
 
 #[cfg(test)]
 pub(crate) fn terminal_font() -> Font {
-    terminal_font_with_family_and_cjk(TERMINAL_FONT, None)
+    terminal_font_with_family_and_cjk(TERMINAL_FONT, None, TERMINAL_FONT_LIGATURES)
 }
 
-pub(crate) fn terminal_font_with_family_and_cjk(family: &str, cjk_family: Option<&str>) -> Font {
+pub(crate) fn terminal_font_with_family_and_cjk(
+    family: &str,
+    cjk_family: Option<&str>,
+    font_ligatures: bool,
+) -> Font {
     let mut fallback_families = Vec::new();
     push_font_fallback(&mut fallback_families, family);
     if let Some(cjk_family) = cjk_family {
@@ -714,7 +722,7 @@ pub(crate) fn terminal_font_with_family_and_cjk(family: &str, cjk_family: Option
 
     Font {
         family: SharedString::from(family.to_string()),
-        features: terminal_font_features(),
+        features: terminal_font_features(font_ligatures),
         fallbacks: Some(FontFallbacks::from_fonts(fallback_families)),
         weight: FontWeight::default(),
         style: FontStyle::Normal,
@@ -729,6 +737,11 @@ fn push_font_fallback(fallbacks: &mut Vec<String>, family: &str) {
     fallbacks.push(family.to_string());
 }
 
-pub(crate) fn terminal_font_features() -> FontFeatures {
-    FontFeatures::disable_ligatures()
+pub(crate) fn terminal_font_features(font_ligatures: bool) -> FontFeatures {
+    if font_ligatures {
+        // GPUI enables the font's default OpenType features when no override is supplied.
+        FontFeatures::default()
+    } else {
+        FontFeatures::disable_ligatures()
+    }
 }

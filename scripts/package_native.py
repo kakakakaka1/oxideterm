@@ -27,10 +27,15 @@ STABLE_APP_IDENTIFIER = "com.oxideterm.app"
 APP_BIN = "oxideterm-native"
 CLI_BIN = "oxideterm"
 HELPER_BINS = ("oxideterm-rdp-helper", "oxideterm-vnc-helper")
+UPDATE_HELPER_PACKAGE = "oxideterm-update"
+UPDATE_HELPER_BIN = "oxideterm-update-helper"
 AGENT_RESOURCE_DIR = "agents"
 AGENT_BINARY_PREFIX = "oxideterm-agent-"
 ENCODED_AGENT_SUFFIX = ".b64"
 HELPER_RESOURCE_DIR = "helpers"
+WINDOWS_UPDATE_HELPER_DIR = "tools"
+WINDOWS_UPDATE_STAGING_DIR = "install"
+WINDOWS_UPDATE_FLAG = "OXIDETERM_UPDATE"
 PORTABLE_MARKER_FILENAME = "portable"
 
 
@@ -282,6 +287,26 @@ def build_remote_desktop_helpers(target: str, target_was_explicit: bool) -> None
         build_helper(package, target, target_was_explicit)
 
 
+def build_windows_update_helper(target: str, target_was_explicit: bool) -> Path:
+    args = [
+        "cargo",
+        "build",
+        "-p",
+        UPDATE_HELPER_PACKAGE,
+        "--bin",
+        UPDATE_HELPER_BIN,
+        "--release",
+    ]
+    if target_was_explicit:
+        args.extend(["--target", target])
+    run(args)
+
+    source = release_binary(target, target_was_explicit, UPDATE_HELPER_BIN)
+    if not source.exists():
+        raise FileNotFoundError(f"Windows update helper binary not found: {source}")
+    return source
+
+
 def build_app(target: str, target_was_explicit: bool) -> Path:
     args = [
         "cargo",
@@ -466,13 +491,17 @@ def create_portable_package(binary: Path, target: str, version: str, label: str)
     shutil.rmtree(package_root)
 
 
-def stage_windows_installer_root(binary: Path, target: str, version: str, label: str) -> Path:
+def stage_windows_installer_root(
+    binary: Path, target: str, version: str, label: str, update_helper: Path
+) -> Path:
     installer_root = DIST_DIR / f"nsis-{label}"
     if installer_root.exists():
         shutil.rmtree(installer_root)
     (installer_root / "resources").mkdir(parents=True)
+    (installer_root / WINDOWS_UPDATE_HELPER_DIR).mkdir(parents=True)
 
     shutil.copy2(binary, installer_root / binary.name)
+    shutil.copy2(update_helper, installer_root / WINDOWS_UPDATE_HELPER_DIR / update_helper.name)
     copy_runtime_resources(installer_root / "resources", target)
     for name in ("LICENSE", "NOTICE", "README.md"):
         shutil.copy2(ROOT_DIR / name, installer_root / name)
@@ -480,13 +509,19 @@ def stage_windows_installer_root(binary: Path, target: str, version: str, label:
 
 
 def create_windows_installer(
-    binary: Path, target: str, version: str, label: str, identity: ReleaseIdentity
+    binary: Path,
+    target: str,
+    target_was_explicit: bool,
+    version: str,
+    label: str,
+    identity: ReleaseIdentity,
 ) -> None:
     makensis = find_makensis()
     if not makensis:
         raise RuntimeError("makensis not found; install NSIS before packaging Windows installers")
 
-    installer_root = stage_windows_installer_root(binary, target, version, label)
+    update_helper = build_windows_update_helper(target, target_was_explicit)
+    installer_root = stage_windows_installer_root(binary, target, version, label, update_helper)
     installer_path = DIST_DIR / f"OxideTerm_{version}_{label}-setup.exe"
     script_path = DIST_DIR / f"OxideTerm_{version}_{label}.nsi"
     icon_path = RESOURCE_DIR / "icons" / "icon.ico"
@@ -516,13 +551,13 @@ def windows_installer_script(
 ) -> str:
     # The NSIS package mirrors Tauri's current-user install mode while keeping
     # each native release channel isolated in its own registry/install scope.
-    # Existing installs are upgraded in place; uninstalling during an update can
-    # leave the running app's directory locked and abort before the new build is
-    # copied.
+    # Automatic updates stage payloads first; the helper performs the final
+    # replacement after the running app has exited.
     return f"""
 Unicode true
 RequestExecutionLevel user
 !include MUI2.nsh
+!include FileFunc.nsh
 
 Name "{identity.app_name}"
 OutFile "{nsis_path(installer_path)}"
@@ -540,7 +575,22 @@ BrandingText "{identity.app_name}"
 !insertmacro MUI_UNPAGE_INSTFILES
 !insertmacro MUI_LANGUAGE "English"
 
+Var IsOxideUpdate
+
+Function .onInit
+  ${{GetOptions}} "$CMDLINE" "/{WINDOWS_UPDATE_FLAG}=1" $IsOxideUpdate
+  IfErrors 0 oxide_update_mode
+  StrCpy $IsOxideUpdate "0"
+  Return
+oxide_update_mode:
+  StrCpy $IsOxideUpdate "1"
+  SetSilent silent
+FunctionEnd
+
 Section "Install"
+  StrCmp $IsOxideUpdate "1" update_install normal_install
+
+normal_install:
   SetOutPath "$INSTDIR"
   SetOverwrite on
   File /r "{nsis_path(installer_root)}\\*"
@@ -552,6 +602,23 @@ Section "Install"
   WriteRegStr HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{identity.windows_uninstall_key}" "UninstallString" "$\\"$INSTDIR\\Uninstall.exe$\\""
   CreateDirectory "$SMPROGRAMS\\{identity.app_name}"
   CreateShortcut "$SMPROGRAMS\\{identity.app_name}\\{identity.app_name}.lnk" "$INSTDIR\\{binary.name}" "" "$INSTDIR\\resources\\icons\\icon.ico"
+  Goto install_done
+
+update_install:
+  RMDir /r "$INSTDIR\\{WINDOWS_UPDATE_STAGING_DIR}"
+  CreateDirectory "$INSTDIR\\{WINDOWS_UPDATE_HELPER_DIR}"
+  SetOutPath "$INSTDIR\\{WINDOWS_UPDATE_HELPER_DIR}"
+  SetOverwrite on
+  File "{nsis_path(installer_root / WINDOWS_UPDATE_HELPER_DIR / (UPDATE_HELPER_BIN + '.exe'))}"
+  SetOutPath "$INSTDIR\\{WINDOWS_UPDATE_STAGING_DIR}"
+  File /r "{nsis_path(installer_root)}\\*"
+  WriteRegStr HKCU "Software\\{identity.windows_registry_key}" "InstallDir" "$INSTDIR"
+  WriteRegStr HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{identity.windows_uninstall_key}" "DisplayName" "{identity.app_name}"
+  WriteRegStr HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{identity.windows_uninstall_key}" "DisplayVersion" "{nsis_string(version)}"
+  WriteRegStr HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{identity.windows_uninstall_key}" "Publisher" "AnalyseDeCircuit"
+  WriteRegStr HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{identity.windows_uninstall_key}" "UninstallString" "$\\"$INSTDIR\\Uninstall.exe$\\""
+
+install_done:
 SectionEnd
 
 Section "Uninstall"
@@ -811,7 +878,7 @@ def main() -> None:
     build_remote_desktop_helpers(target, target_was_explicit)
     app_binary = build_app(target, target_was_explicit)
     if "windows" in target:
-        create_windows_installer(app_binary, target, version, label, identity)
+        create_windows_installer(app_binary, target, target_was_explicit, version, label, identity)
     # Every target should publish a self-contained portable artifact; Windows
     # additionally ships an NSIS installer for users who prefer installation.
     create_portable_package(app_binary, target, version, label)

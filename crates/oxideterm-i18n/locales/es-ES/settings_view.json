@@ -163,6 +163,8 @@
       "font_preview": "Vista previa de fuente",
       "font_size": "Tamaño de fuente",
       "font_size_hint": "Tamaño de los caracteres del terminal",
+      "font_ligatures": "Ligaduras de fuente",
+      "font_ligatures_hint": "Usar ligaduras de programación cuando la fuente seleccionada las admita.",
       "line_height": "Altura de línea",
       "line_height_hint": "Espacio entre líneas",
       "smooth_scroll": "Desplazamiento suave",
