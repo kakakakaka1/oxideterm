@@ -17,7 +17,7 @@ use windows::{
         System::LibraryLoader::GetModuleHandleW,
         UI::{
             Shell::{
-                NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_SETVERSION,
+                NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_SETVERSION, NIN_SELECT,
                 NOTIFYICON_VERSION_4, NOTIFYICONDATAW, Shell_NotifyIconW,
             },
             WindowsAndMessaging::{
@@ -28,7 +28,7 @@ use windows::{
                 SW_SHOW, SetForegroundWindow, ShowWindowAsync, TPM_NONOTIFY, TPM_RETURNCMD,
                 TPM_RIGHTBUTTON, TRACK_POPUP_MENU_FLAGS, TranslateMessage, WINDOW_EX_STYLE,
                 WINDOW_STYLE, WM_APP, WM_CONTEXTMENU, WM_DESTROY, WM_LBUTTONDBLCLK, WM_LBUTTONUP,
-                WM_RBUTTONUP, WNDCLASSW, WS_OVERLAPPED,
+                WM_NULL, WM_RBUTTONUP, WNDCLASSW, WS_OVERLAPPED,
             },
         },
     },
@@ -40,6 +40,7 @@ use crate::{DesktopPresenceEvent, DesktopPresenceMenu};
 const TRAY_ICON_ID: u32 = 1;
 const TRAY_CALLBACK_MESSAGE: u32 = WM_APP + 0x51;
 const TRAY_SHUTDOWN_MESSAGE: u32 = WM_APP + 0x52;
+const TRAY_NIN_KEYSELECT: u32 = NIN_SELECT + 1;
 const TRAY_MENU_SHOW: u32 = 1001;
 const TRAY_MENU_HIDE: u32 = 1002;
 const TRAY_MENU_NEW_CONNECTION: u32 = 1003;
@@ -230,8 +231,10 @@ unsafe extern "system" fn tray_window_proc(
 ) -> LRESULT {
     match message {
         TRAY_CALLBACK_MESSAGE => {
-            match lparam.0 as u32 {
-                WM_LBUTTONUP | WM_LBUTTONDBLCLK => send_event(DesktopPresenceEvent::ShowMainWindow),
+            match tray_notification_code(lparam) {
+                NIN_SELECT | TRAY_NIN_KEYSELECT | WM_LBUTTONUP | WM_LBUTTONDBLCLK => {
+                    send_event(DesktopPresenceEvent::ShowMainWindow)
+                }
                 WM_RBUTTONUP | WM_CONTEXTMENU => show_tray_menu(hwnd),
                 _ => {}
             }
@@ -252,6 +255,13 @@ unsafe extern "system" fn tray_window_proc(
         }
         _ => unsafe { DefWindowProcW(hwnd, message, wparam, lparam) },
     }
+}
+
+fn tray_notification_code(lparam: LPARAM) -> u32 {
+    // NOTIFYICON_VERSION_4 can pack extra data into the high word of lParam.
+    // Routing by the low-word notification code keeps both modern NIN_* and
+    // older mouse-message callbacks working.
+    (lparam.0 as u32) & 0xffff
 }
 
 fn add_tray_icon(hwnd: HWND) -> anyhow::Result<()> {
@@ -352,8 +362,21 @@ fn show_tray_menu(hwnd: HWND) {
                 TRAY_MENU_QUIT => send_event(DesktopPresenceEvent::Quit),
                 _ => {}
             }
+            let _ = PostMessageW(Some(hwnd), WM_NULL, WPARAM(0), LPARAM(0));
         }
         let _ = DestroyMenu(menu);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tray_notification_code_uses_low_word_only() {
+        let packed_lparam = LPARAM(((0x4321_u32 << 16) | WM_CONTEXTMENU) as isize);
+
+        assert_eq!(tray_notification_code(packed_lparam), WM_CONTEXTMENU);
     }
 }
 
