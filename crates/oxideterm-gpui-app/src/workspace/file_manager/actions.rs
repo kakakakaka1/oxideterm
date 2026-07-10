@@ -1565,7 +1565,8 @@ impl WorkspaceApp {
         let session_id = self.alloc_session_id();
         let mut terminal_config = self.local_terminal_config();
         terminal_config.cwd = Some(PathBuf::from(self.file_manager.path.clone()));
-        let preferences = self.terminal_preferences_for_tab_kind(&TabKind::LocalTerminal);
+        let preferences =
+            self.prepare_terminal_preferences_for_tab_kind(&TabKind::LocalTerminal, cx);
         let pane = cx.new(|cx| {
             TerminalPane::new_local_with_config_and_preferences(
                 terminal_config,

@@ -23,7 +23,8 @@ impl WorkspaceApp {
         let tab_id = self.alloc_tab_id();
         let pane_id = self.alloc_pane_id();
         let session_id = self.alloc_session_id();
-        let preferences = self.terminal_preferences_for_tab_kind(&TabKind::LocalTerminal);
+        let preferences =
+            self.prepare_terminal_preferences_for_tab_kind(&TabKind::LocalTerminal, cx);
         let terminal_config = self.local_terminal_config();
         let pane = cx.new(|cx| {
             TerminalPane::new_local_with_config_and_preferences(
@@ -63,7 +64,8 @@ impl WorkspaceApp {
         let tab_id = self.alloc_tab_id();
         let pane_id = self.alloc_pane_id();
         let session_id = self.alloc_session_id();
-        let preferences = self.terminal_preferences_for_tab_kind(&TabKind::LocalTerminal);
+        let preferences =
+            self.prepare_terminal_preferences_for_tab_kind(&TabKind::LocalTerminal, cx);
         let title = format!("Telnet {}", config.endpoint_label());
         let pane_config = config.clone();
         let pane = cx.new(|cx| {
@@ -101,7 +103,8 @@ impl WorkspaceApp {
         let tab_id = self.alloc_tab_id();
         let pane_id = self.alloc_pane_id();
         let session_id = self.alloc_session_id();
-        let preferences = self.terminal_preferences_for_tab_kind(&TabKind::LocalTerminal);
+        let preferences =
+            self.prepare_terminal_preferences_for_tab_kind(&TabKind::LocalTerminal, cx);
         let title = format!("TCP {}", config.endpoint_label());
         let pane_config = config.clone();
         let pane = cx.new(|cx| {
@@ -140,7 +143,8 @@ impl WorkspaceApp {
         let tab_id = self.alloc_tab_id();
         let pane_id = self.alloc_pane_id();
         let session_id = self.alloc_session_id();
-        let preferences = self.terminal_preferences_for_tab_kind(&TabKind::LocalTerminal);
+        let preferences =
+            self.prepare_terminal_preferences_for_tab_kind(&TabKind::LocalTerminal, cx);
         let title = format!("UDP {}", config.remote_endpoint_label());
         let pane_config = config.clone();
         let pane = cx.new(|cx| {
@@ -179,7 +183,8 @@ impl WorkspaceApp {
         let tab_id = self.alloc_tab_id();
         let pane_id = self.alloc_pane_id();
         let session_id = self.alloc_session_id();
-        let preferences = self.terminal_preferences_for_tab_kind(&TabKind::LocalTerminal);
+        let preferences =
+            self.prepare_terminal_preferences_for_tab_kind(&TabKind::LocalTerminal, cx);
         let title = format!("Serial {}", config.port_path);
         let pane_config = config.clone();
         let pane = cx.new(|cx| {
@@ -607,7 +612,7 @@ impl WorkspaceApp {
                 trace_parent_id.as_ref(),
             );
         }
-        let preferences = self.terminal_preferences_for_tab_kind(&TabKind::SshTerminal);
+        let preferences = self.prepare_terminal_preferences_for_tab_kind(&TabKind::SshTerminal, cx);
         let consumer = ConnectionConsumer::Terminal(session_id.0.to_string());
         let prompt_handler =
             std::sync::Arc::new(NativeSshPromptHandler::new(self.ssh_worker_tx.clone()));
@@ -813,7 +818,7 @@ impl WorkspaceApp {
         // Tauri remounts terminal tabs by replacing the old session id in the
         // pane tree after reconnect. The new GPUI pane is only a consumer of
         // the node-owned SSH connection; node liveness stays with NodeRouter.
-        let preferences = self.terminal_preferences_for_tab_kind(&TabKind::SshTerminal);
+        let preferences = self.prepare_terminal_preferences_for_tab_kind(&TabKind::SshTerminal, cx);
         let consumer = ConnectionConsumer::Terminal(session_id.0.to_string());
         let prompt_handler =
             std::sync::Arc::new(NativeSshPromptHandler::new(self.ssh_worker_tx.clone()));

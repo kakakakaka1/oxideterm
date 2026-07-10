@@ -165,7 +165,8 @@ impl WorkspaceApp {
         let tab_id = self.alloc_tab_id();
         let pane_id = self.alloc_pane_id();
         let title = detached.title.clone();
-        let preferences = self.terminal_preferences_for_tab_kind(&TabKind::LocalTerminal);
+        let preferences =
+            self.prepare_terminal_preferences_for_tab_kind(&TabKind::LocalTerminal, cx);
         let session = detached.session.clone();
         let pane = cx.new(|cx| {
             TerminalPane::from_shared_session(session, preferences, window, cx)

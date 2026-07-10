@@ -238,6 +238,17 @@ mod tests {
     }
 
     #[test]
+    fn automatic_cjk_fallback_stays_out_of_startup_faces() {
+        let mut settings = PersistedSettings::default();
+        settings.terminal.font_family = FontFamily::Jetbrains;
+        settings.terminal.cjk_font_family.clear();
+
+        let faces = critical_faces_for_settings(&settings);
+
+        assert!(!faces.contains(&BundledTerminalFace::MapleRegular));
+    }
+
+    #[test]
     fn secondary_cjk_faces_are_loaded_only_for_explicit_maple_settings() {
         let mut settings = PersistedSettings::default();
         assert!(secondary_faces_for_explicit_settings(&settings).is_empty());

@@ -707,10 +707,18 @@ impl WorkspaceApp {
         Ok(workspace)
     }
 
-    pub(crate) fn terminal_preferences_for_tab_kind(
+    pub(crate) fn prepare_terminal_preferences_for_tab_kind(
         &self,
         kind: &TabKind,
+        cx: &mut Context<Self>,
     ) -> TerminalUiPreferences {
+        // The large CJK fallback is terminal-only, so keep an empty workspace
+        // lean and register it immediately before the first terminal is built.
+        if let Err(error) = bundled_fonts::load_terminal_cjk_fallback_regular(&cx.text_system()) {
+            eprintln!(
+                "failed to load bundled CJK terminal fallback; falling back to system fonts: {error}"
+            );
+        }
         self.terminal_preferences_for_background_key(tab_background_key(kind))
     }
 

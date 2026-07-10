@@ -13,9 +13,9 @@ mod platform;
 mod single_instance;
 mod workspace;
 
-use std::{path::PathBuf, time::Duration};
+use std::path::PathBuf;
 
-use gpui::{App, AppContext, Application, Bounds, Timer, actions, px, size};
+use gpui::{App, AppContext, Application, Bounds, actions, px, size};
 use oxideterm_i18n::I18n;
 use oxideterm_settings::SettingsStore;
 
@@ -189,24 +189,6 @@ fn main() {
                 "failed to load selected bundled terminal font; falling back to system fonts: {error}"
             );
         }
-        let cjk_fallback_text_system = cx.text_system().clone();
-        let foreground = cx.foreground_executor();
-        foreground
-            .spawn(async move {
-                // Keep the idle native window lean by registering only the
-                // baseline CJK fallback. Secondary CJK weights are large and
-                // should be loaded from an explicit terminal-font path instead
-                // of being warmed unconditionally after startup.
-                Timer::after(Duration::from_millis(500)).await;
-                if let Err(error) =
-                    bundled_fonts::load_terminal_cjk_fallback_regular(&cjk_fallback_text_system)
-                {
-                    eprintln!(
-                        "failed to load bundled CJK terminal fallback; falling back to system fonts: {error}"
-                    );
-                }
-            })
-            .detach();
         cx.activate(true);
         cx.on_action(quit);
         cx.bind_keys(platform::app_key_bindings(&startup_settings));

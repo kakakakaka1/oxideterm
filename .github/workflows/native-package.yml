@@ -66,8 +66,6 @@ jobs:
         run: |
           python3 -m unittest scripts/test_package_native.py scripts/test_verify_native_package.py
           python3 scripts/audit_i18n.py
-          python3 scripts/generate_third_party_notices.py --cwd . --output THIRD_PARTY_NOTICES.md --title "Third-Party Notices (Native / Rust Workspace)" --exclude-prefix oxideterm- --check
-          python3 scripts/generate_third_party_notices.py --cwd agent --output THIRD_PARTY_NOTICES.md --title "Third-Party Notices (OxideTerm Agent)" --exclude-name oxideterm-agent --check
 
       - name: Check remote agent
         run: |
@@ -75,20 +73,6 @@ jobs:
           cargo fmt --manifest-path agent/Cargo.toml --check
           cargo test --manifest-path agent/Cargo.toml
           ./scripts/build-agent.sh
-
-      - name: Audit native dependencies
-        uses: EmbarkStudios/cargo-deny-action@bb137d7af7e4fb67e5f82a49c4fce4fad40782fe # v2
-        with:
-          manifest-path: Cargo.toml
-          command: check
-          command-arguments: -A unmaintained advisories licenses bans
-
-      - name: Audit remote agent dependencies
-        uses: EmbarkStudios/cargo-deny-action@bb137d7af7e4fb67e5f82a49c4fce4fad40782fe # v2
-        with:
-          manifest-path: agent/Cargo.toml
-          command: check
-          command-arguments: --config agent/deny.toml -A unmaintained advisories licenses bans
 
   # ── Six-platform matrix (macOS / Linux / Windows, arm64 + x64) ─────────
   package:

@@ -131,7 +131,8 @@ impl WorkspaceApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let preferences = self.terminal_preferences_for_tab_kind(&TabKind::LocalTerminal);
+        let preferences =
+            self.prepare_terminal_preferences_for_tab_kind(&TabKind::LocalTerminal, cx);
         let cols = player.playback.recording().width;
         let rows = player.playback.recording().height;
         let pane = cx.new(|cx| {

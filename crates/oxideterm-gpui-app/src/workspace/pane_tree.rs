@@ -150,7 +150,7 @@ impl WorkspaceApp {
         let pane_id = self.alloc_pane_id();
         let session_id = self.alloc_session_id();
         let tab_kind = self.tabs[active_index].kind.clone();
-        let preferences = self.terminal_preferences_for_tab_kind(&tab_kind);
+        let preferences = self.prepare_terminal_preferences_for_tab_kind(&tab_kind, cx);
         let local_config =
             (tab_kind == TabKind::LocalTerminal).then(|| self.local_terminal_config());
         let pane = cx.new(|cx| {
