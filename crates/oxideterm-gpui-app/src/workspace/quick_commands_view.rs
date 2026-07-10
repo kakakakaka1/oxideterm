@@ -14,10 +14,10 @@ use oxideterm_gpui_ui::{
     text_input::{TextInputView, text_input, text_input_anchor_probe},
 };
 use oxideterm_quick_commands::{
-    quick_command_category_draft_can_save, quick_command_draft_can_save,
+    QuickCommandRisk, classify_command_risk, quick_command_category_draft_can_save,
+    quick_command_draft_can_save,
 };
 
-use super::super::actions::classify_command_risk;
 use super::super::ime::WorkspaceImeTarget;
 use super::super::{
     QUICK_COMMAND_LIST_ESTIMATED_HEIGHT, QUICK_COMMAND_LIST_OVERSCAN, SelectableTextRole,
@@ -183,13 +183,20 @@ fn quick_command_space_inserts_literal(platform: bool, control: bool, alt: bool)
     !platform && !control && !alt
 }
 
-fn quick_command_risk_tone(risk: &str) -> StatusTone {
-    // Quick command risk strings are owned by the classifier; the UI only maps
-    // those stable labels into shared visual tones.
-    if risk == "high" {
-        StatusTone::Error
-    } else {
-        StatusTone::Warning
+fn quick_command_risk_tone(risk: QuickCommandRisk) -> StatusTone {
+    // Risk colors are presentation policy and remain owned by the GPUI layer.
+    match risk {
+        QuickCommandRisk::High => StatusTone::Error,
+        QuickCommandRisk::Medium => StatusTone::Warning,
+    }
+}
+
+fn quick_command_risk_label(risk: QuickCommandRisk) -> &'static str {
+    // Keep display labels in the UI adapter so localization can remain separate
+    // from domain classification while preserving the current English badges.
+    match risk {
+        QuickCommandRisk::High => "high",
+        QuickCommandRisk::Medium => "medium",
     }
 }
 
@@ -1048,11 +1055,11 @@ impl WorkspaceApp {
                                         cx,
                                     )),
                             )
-                            .when_some(risk, |row, risk: &'static str| {
+                            .when_some(risk, |row, risk| {
                                 row.child(
                                     status_pill(
                                         &self.tokens,
-                                        risk.to_uppercase(),
+                                        quick_command_risk_label(risk).to_uppercase(),
                                         StatusPillOptions::new(quick_command_risk_tone(risk))
                                             .compact()
                                             .strong(),
@@ -1541,11 +1548,11 @@ impl WorkspaceApp {
 mod terminal_command_bar_quick_command_tests {
     use super::{
         QuickCommand, QuickCommandCategoryDraft, QuickCommandDraft, QuickCommandIcon,
-        QuickCommandInput, QuickCommandKeyDirection, StatusTone,
+        QuickCommandInput, QuickCommandKeyDirection, QuickCommandRisk, StatusTone,
         close_terminal_quick_commands_popover_state, finish_quick_command_execution_state,
         insert_quick_command_into_command_bar_state, quick_command_category_draft_can_save,
         quick_command_draft_can_save, quick_command_editor_tab_target,
-        quick_command_keyboard_highlight, quick_command_risk_tone,
+        quick_command_keyboard_highlight, quick_command_risk_label, quick_command_risk_tone,
         quick_command_space_inserts_literal, quick_commands_popover_width_for_bar,
         select_quick_command_category_state,
     };
@@ -1753,9 +1760,17 @@ mod terminal_command_bar_quick_command_tests {
     }
 
     #[test]
-    fn quick_command_risk_tone_maps_classifier_labels_to_semantic_ui_tones() {
-        assert_eq!(quick_command_risk_tone("high"), StatusTone::Error);
-        assert_eq!(quick_command_risk_tone("medium"), StatusTone::Warning);
+    fn quick_command_risk_maps_domain_values_to_ui_labels_and_tones() {
+        assert_eq!(
+            quick_command_risk_tone(QuickCommandRisk::High),
+            StatusTone::Error
+        );
+        assert_eq!(
+            quick_command_risk_tone(QuickCommandRisk::Medium),
+            StatusTone::Warning
+        );
+        assert_eq!(quick_command_risk_label(QuickCommandRisk::High), "high");
+        assert_eq!(quick_command_risk_label(QuickCommandRisk::Medium), "medium");
     }
 
     #[test]

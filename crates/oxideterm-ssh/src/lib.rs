@@ -16,6 +16,7 @@ mod local_paths;
 mod monitor;
 mod reconnect;
 mod router;
+mod session_tree_plan;
 mod transport;
 mod upstream_proxy;
 
@@ -52,6 +53,10 @@ pub use router::{
     NodeRuntimeStore, NodeState, NodeStateEvent, NodeStateSnapshot, NodeTreeExpansion,
     NodeTreeSnapshot, NodeTreeSnapshotNode, ResolvedConnection, RouteError, SessionTreeSummary,
     TerminalEndpoint,
+};
+pub use session_tree_plan::{
+    NativeSessionTreeConnectAction, NativeSessionTreeConnectChallenge,
+    NativeSessionTreeConnectEndpoint, NativeSessionTreeConnectPlan, NativeSessionTreeConnectStep,
 };
 pub use transport::{
     BoxedSshForwardStream, KeyboardInteractivePrompt, KeyboardInteractivePromptRequest,

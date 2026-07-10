@@ -1,5 +1,9 @@
 use super::*;
 
+pub(in crate::workspace::sftp) use oxideterm_sftp::{
+    join_remote_path as join_sftp_path, normalize_remote_path, remote_directory_prefixes,
+};
+
 #[derive(Clone)]
 pub(in crate::workspace::sftp) struct PathSegment {
     pub(super) name: String,
@@ -173,25 +177,11 @@ pub(in crate::workspace::sftp) fn sftp_path_segments(
     segments
 }
 
-pub(in crate::workspace::sftp) fn normalize_remote_path(path: &str) -> String {
-    let trimmed = path.trim();
-    if trimmed.is_empty() || trimmed == "/" {
-        return "/".to_string();
-    }
-    let normalized = trimmed.replace('\\', "/").replace("//", "/");
-    if normalized.starts_with('/') {
-        normalized
-    } else {
-        format!("/{normalized}")
-    }
-}
-
 pub(in crate::workspace::sftp) fn parent_path(path: &str, remote: bool) -> String {
-    let normalized = if remote {
-        normalize_remote_path(path)
-    } else {
-        path.replace('\\', "/")
-    };
+    if remote {
+        return oxideterm_sftp::remote_parent_path(path);
+    }
+    let normalized = path.replace('\\', "/");
     if normalized == "/" {
         return "/".to_string();
     }
@@ -206,32 +196,6 @@ pub(in crate::workspace::sftp) fn parent_path(path: &str, remote: bool) -> Strin
     } else {
         format!("/{}", parts.join("/"))
     }
-}
-
-pub(in crate::workspace::sftp) fn join_sftp_path(base: &str, name: &str) -> String {
-    let normalized = base.trim_end_matches('/');
-    if normalized.is_empty() {
-        format!("/{name}")
-    } else if normalized == "/" {
-        format!("/{name}")
-    } else {
-        format!("{normalized}/{name}")
-    }
-}
-
-pub(in crate::workspace::sftp) fn remote_directory_prefixes(path: &str) -> Vec<String> {
-    let mut prefixes = Vec::new();
-    let absolute = path.starts_with('/');
-    let components: Vec<&str> = path.split('/').filter(|part| !part.is_empty()).collect();
-    for index in 0..components.len() {
-        let joined = components[..=index].join("/");
-        prefixes.push(if absolute {
-            format!("/{joined}")
-        } else {
-            joined
-        });
-    }
-    prefixes
 }
 
 pub(in crate::workspace::sftp) fn join_local_path(base: &str, name: &str) -> String {

@@ -395,7 +395,9 @@ impl WorkspaceApp {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = self.tokens.ui;
-        let label = self.i18n.t(action.label_key());
+        let label = self
+            .i18n
+            .t(terminal_git_repository_action_label_key(action));
         let icon = terminal_git_action_icon(action);
         let chip_options = ActionChipOptions::new()
             .idle_text_tone(ActionChipTextTone::Primary)
@@ -846,7 +848,7 @@ impl WorkspaceApp {
         path: String,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let label = self.i18n.t(action.label_key());
+        let label = self.i18n.t(terminal_git_path_action_label_key(action));
         action_chip(
             &self.tokens,
             label,
@@ -911,7 +913,9 @@ impl WorkspaceApp {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = self.tokens.ui;
-        let label = self.i18n.t(action.label_key());
+        let label = self
+            .i18n
+            .t(terminal_git_repository_action_label_key(action));
         let icon = terminal_git_action_icon(action);
 
         // Action rows intentionally render current Git state, not shell text.

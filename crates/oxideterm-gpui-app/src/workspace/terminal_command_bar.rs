@@ -6,6 +6,7 @@ use super::actions::TerminalBroadcastMenuPlacement;
 use super::ime::WorkspaceImeTarget;
 use super::terminal_git::{
     TerminalGitPanelSection, TerminalGitPathAction, TerminalGitRepositoryAction,
+    terminal_git_path_action_label_key, terminal_git_repository_action_label_key,
 };
 use super::*;
 use oxideterm_connections::LOCAL_SHELL_PRIVILEGE_CONNECTION_ID;

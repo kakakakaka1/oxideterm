@@ -1,13 +1,14 @@
 // Copyright (C) 2026 AnalyseDeCircuit
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Quick Commands snapshot storage and import semantics.
+//! Quick Command storage, editing, filtering, and risk classification.
 //!
-//! The GPUI view owns interaction state; this crate owns the portable snapshot
-//! format used by `.oxide` import/export and the CLI.
+//! The GPUI view owns interaction and presentation state; this crate owns the
+//! portable domain behavior shared by `.oxide` import/export, the CLI, and UI.
 
 mod editing;
 pub mod model;
+mod risk;
 pub mod store;
 
 pub use editing::{
@@ -21,6 +22,7 @@ pub use model::{
     QUICK_COMMANDS_SCHEMA_VERSION, QuickCommand, QuickCommandCategory, QuickCommandIcon,
     QuickCommandImportResult, QuickCommandImportStrategy, QuickCommandsSnapshot,
 };
+pub use risk::{QuickCommandRisk, classify_command_risk};
 pub use store::{
     MAX_CATEGORIES, QuickCommandsCheckpoint, apply_snapshot_json, capture_checkpoint,
     default_quick_command_categories, default_quick_commands, export_snapshot_json,

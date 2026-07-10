@@ -17,11 +17,18 @@ mod transfer_manager;
 mod types;
 
 pub use error::SftpError;
+pub use path_utils::{
+    join_remote_path, normalize_remote_path, remote_directory_prefixes, remote_parent_path,
+};
 pub use progress::{
     DummyProgressStore, LazyProgressStore, ProgressStore, RedbProgressStore,
     StoredTransferProgress, TransferStatus, TransferStrategy, TransferType,
 };
-pub use retry::{RetryConfig, calculate_backoff, is_retryable_error};
+pub use retry::{
+    RetryConfig, calculate_backoff, error_is_auth_failure, error_is_connection_unavailable,
+    error_is_not_found, error_is_permission_denied, error_should_retry_initialization,
+    is_retryable_error,
+};
 pub use session::{SftpChannelOpener, SftpSession, WriteContentResult};
 pub use tar_transfer::{
     SftpExecChannelOpener, TarCompression, probe_tar_compression, probe_tar_support,

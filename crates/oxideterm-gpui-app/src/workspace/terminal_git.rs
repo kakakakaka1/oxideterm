@@ -9,16 +9,17 @@ use oxideterm_ai::{
     provider_chat_requires_key as ai_provider_chat_requires_key, stream_chat_completion,
 };
 use oxideterm_environment::{
-    CurrentDirectoryScope, CurrentDirectorySnapshot, CurrentDirectorySource, GitBranchListOutcome,
-    GitBranchReference, GitCommandOutput, GitOperationKind, GitProbeKey, GitProbeOutcome,
-    GitProbeScope, GitRepositorySnapshot, GitStagedDiffContext, GitStagedDiffOutcome,
-    git_absolute_git_dir_args, git_branch_args, git_branch_list_args, git_head_args,
+    GitActionPlan as TerminalGitActionPlan, GitBranchListOutcome, GitBranchReference,
+    GitCommandOutput, GitOperationKind, GitProbeKey, GitProbeOutcome, GitProbeScope,
+    GitRepositorySnapshot, GitStagedDiffContext, GitStagedDiffOutcome, expand_local_git_home,
+    git_absolute_git_dir_args, git_action_arg_is_valid, git_branch_args, git_branch_list_args,
+    git_cwd_from_directory_snapshot, git_head_args, git_operation_kind_from_git_dir,
     git_repo_root_args, git_staged_diff_patch_args, git_staged_diff_stat_args, git_status_args,
     git_worktree_list_args, infer_terminal_cwd_from_text, interpret_git_branch_list_outputs,
     interpret_git_command_outputs_with_status_and_operation, interpret_git_staged_diff_outputs,
     parse_shell_branch_list_output, parse_shell_probe_output, parse_shell_staged_diff_output,
-    remote_shell_branch_list_command, remote_shell_probe_command, remote_shell_staged_diff_command,
-    shell_quote,
+    preferred_git_cwd, remote_shell_branch_list_command, remote_shell_probe_command,
+    remote_shell_staged_diff_command, shell_quote,
 };
 use oxideterm_ssh::NodeId;
 use tokio::process::Command;
@@ -130,241 +131,63 @@ impl TerminalGitPanelSection {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::workspace) enum TerminalGitRepositoryAction {
-    Fetch,
-    Pull,
-    Push,
-    Publish,
-    Status,
-    Diff,
-    DiffStaged,
-    Log,
-    Stash,
-    StashList,
-    StashPop,
-    StageAll,
-    UnstageAll,
-    Commit,
-    CommitVerbose,
-    CommitSignoff,
-    Amend,
-    AmendNoEdit,
-    RebasePull,
-    RebaseInteractive,
-    FetchAll,
-    PushTags,
-    LogStat,
-    Reflog,
-    BranchVerbose,
-    RemoteList,
-    TagList,
-    WorktreeList,
-    StashShowLatest,
-    StashApplyLatest,
-    StashDropLatest,
-    ConflictFiles,
-    Continue(GitOperationKind),
-    Abort(GitOperationKind),
-    Skip(GitOperationKind),
-}
+pub(in crate::workspace) use oxideterm_environment::{
+    GitPathAction as TerminalGitPathAction, GitRepositoryAction as TerminalGitRepositoryAction,
+};
 
-impl TerminalGitRepositoryAction {
-    pub(in crate::workspace) fn label_key(self) -> &'static str {
-        match self {
-            Self::Fetch => "terminal.git.action_fetch",
-            Self::Pull => "terminal.git.action_pull",
-            Self::Push => "terminal.git.action_push",
-            Self::Publish => "terminal.git.action_publish",
-            Self::Status => "terminal.git.action_status",
-            Self::Diff => "terminal.git.action_diff",
-            Self::DiffStaged => "terminal.git.action_diff_staged",
-            Self::Log => "terminal.git.action_log",
-            Self::Stash => "terminal.git.action_stash",
-            Self::StashList => "terminal.git.action_stash_list",
-            Self::StashPop => "terminal.git.action_stash_pop",
-            Self::StageAll => "terminal.git.action_stage_all",
-            Self::UnstageAll => "terminal.git.action_unstage_all",
-            Self::Commit => "terminal.git.action_commit",
-            Self::CommitVerbose => "terminal.git.action_commit_verbose",
-            Self::CommitSignoff => "terminal.git.action_commit_signoff",
-            Self::Amend => "terminal.git.action_amend",
-            Self::AmendNoEdit => "terminal.git.action_amend_no_edit",
-            Self::RebasePull => "terminal.git.action_rebase_pull",
-            Self::RebaseInteractive => "terminal.git.action_rebase_interactive",
-            Self::FetchAll => "terminal.git.action_fetch_all",
-            Self::PushTags => "terminal.git.action_push_tags",
-            Self::LogStat => "terminal.git.action_log_stat",
-            Self::Reflog => "terminal.git.action_reflog",
-            Self::BranchVerbose => "terminal.git.action_branch_verbose",
-            Self::RemoteList => "terminal.git.action_remote_list",
-            Self::TagList => "terminal.git.action_tag_list",
-            Self::WorktreeList => "terminal.git.action_worktree_list",
-            Self::StashShowLatest => "terminal.git.action_stash_show_latest",
-            Self::StashApplyLatest => "terminal.git.action_stash_apply_latest",
-            Self::StashDropLatest => "terminal.git.action_stash_drop_latest",
-            Self::ConflictFiles => "terminal.git.action_conflict_files",
-            Self::Continue(_) => "terminal.git.action_continue",
-            Self::Abort(_) => "terminal.git.action_abort",
-            Self::Skip(_) => "terminal.git.action_skip",
-        }
-    }
-
-    pub(in crate::workspace) fn command_preview(self) -> &'static str {
-        match self {
-            TerminalGitRepositoryAction::Fetch => "git fetch --prune",
-            TerminalGitRepositoryAction::Pull => "git pull --ff-only",
-            TerminalGitRepositoryAction::Push => "git push",
-            TerminalGitRepositoryAction::Publish => "git push -u origin HEAD",
-            TerminalGitRepositoryAction::Status => "git status --short --branch",
-            TerminalGitRepositoryAction::Diff => "git diff --stat",
-            TerminalGitRepositoryAction::DiffStaged => "git diff --cached --stat",
-            TerminalGitRepositoryAction::Log => "git log --oneline --decorate --graph -20",
-            TerminalGitRepositoryAction::Stash => "git stash push",
-            TerminalGitRepositoryAction::StashList => "git stash list",
-            TerminalGitRepositoryAction::StashPop => "git stash pop",
-            TerminalGitRepositoryAction::StageAll => "git add -A",
-            TerminalGitRepositoryAction::UnstageAll => "git restore --staged .",
-            TerminalGitRepositoryAction::Commit => "git commit",
-            TerminalGitRepositoryAction::CommitVerbose => "git commit -v",
-            TerminalGitRepositoryAction::CommitSignoff => "git commit -s",
-            TerminalGitRepositoryAction::Amend => "git commit --amend",
-            TerminalGitRepositoryAction::AmendNoEdit => "git commit --amend --no-edit",
-            TerminalGitRepositoryAction::RebasePull => "git pull --rebase",
-            TerminalGitRepositoryAction::RebaseInteractive => "git rebase -i @{upstream}",
-            TerminalGitRepositoryAction::FetchAll => "git fetch --all --prune",
-            TerminalGitRepositoryAction::PushTags => "git push --tags",
-            TerminalGitRepositoryAction::LogStat => "git log --stat -20",
-            TerminalGitRepositoryAction::Reflog => "git reflog -20",
-            TerminalGitRepositoryAction::BranchVerbose => "git branch -vv",
-            TerminalGitRepositoryAction::RemoteList => "git remote -v",
-            TerminalGitRepositoryAction::TagList => "git tag --list",
-            TerminalGitRepositoryAction::WorktreeList => "git worktree list",
-            TerminalGitRepositoryAction::StashShowLatest => "git stash show -p stash@{0}",
-            TerminalGitRepositoryAction::StashApplyLatest => "git stash apply stash@{0}",
-            TerminalGitRepositoryAction::StashDropLatest => "git stash drop stash@{0}",
-            TerminalGitRepositoryAction::ConflictFiles => "git diff --name-only --diff-filter=U",
-            TerminalGitRepositoryAction::Continue(operation) => {
-                terminal_git_operation_command(operation, "continue")
-            }
-            TerminalGitRepositoryAction::Abort(operation) => {
-                terminal_git_operation_command(operation, "abort")
-            }
-            TerminalGitRepositoryAction::Skip(operation) => {
-                terminal_git_operation_command(operation, "skip")
-            }
-        }
+pub(in crate::workspace) fn terminal_git_repository_action_label_key(
+    action: TerminalGitRepositoryAction,
+) -> &'static str {
+    match action {
+        TerminalGitRepositoryAction::Fetch => "terminal.git.action_fetch",
+        TerminalGitRepositoryAction::Pull => "terminal.git.action_pull",
+        TerminalGitRepositoryAction::Push => "terminal.git.action_push",
+        TerminalGitRepositoryAction::Publish => "terminal.git.action_publish",
+        TerminalGitRepositoryAction::Status => "terminal.git.action_status",
+        TerminalGitRepositoryAction::Diff => "terminal.git.action_diff",
+        TerminalGitRepositoryAction::DiffStaged => "terminal.git.action_diff_staged",
+        TerminalGitRepositoryAction::Log => "terminal.git.action_log",
+        TerminalGitRepositoryAction::Stash => "terminal.git.action_stash",
+        TerminalGitRepositoryAction::StashList => "terminal.git.action_stash_list",
+        TerminalGitRepositoryAction::StashPop => "terminal.git.action_stash_pop",
+        TerminalGitRepositoryAction::StageAll => "terminal.git.action_stage_all",
+        TerminalGitRepositoryAction::UnstageAll => "terminal.git.action_unstage_all",
+        TerminalGitRepositoryAction::Commit => "terminal.git.action_commit",
+        TerminalGitRepositoryAction::CommitVerbose => "terminal.git.action_commit_verbose",
+        TerminalGitRepositoryAction::CommitSignoff => "terminal.git.action_commit_signoff",
+        TerminalGitRepositoryAction::Amend => "terminal.git.action_amend",
+        TerminalGitRepositoryAction::AmendNoEdit => "terminal.git.action_amend_no_edit",
+        TerminalGitRepositoryAction::RebasePull => "terminal.git.action_rebase_pull",
+        TerminalGitRepositoryAction::RebaseInteractive => "terminal.git.action_rebase_interactive",
+        TerminalGitRepositoryAction::FetchAll => "terminal.git.action_fetch_all",
+        TerminalGitRepositoryAction::PushTags => "terminal.git.action_push_tags",
+        TerminalGitRepositoryAction::LogStat => "terminal.git.action_log_stat",
+        TerminalGitRepositoryAction::Reflog => "terminal.git.action_reflog",
+        TerminalGitRepositoryAction::BranchVerbose => "terminal.git.action_branch_verbose",
+        TerminalGitRepositoryAction::RemoteList => "terminal.git.action_remote_list",
+        TerminalGitRepositoryAction::TagList => "terminal.git.action_tag_list",
+        TerminalGitRepositoryAction::WorktreeList => "terminal.git.action_worktree_list",
+        TerminalGitRepositoryAction::StashShowLatest => "terminal.git.action_stash_show_latest",
+        TerminalGitRepositoryAction::StashApplyLatest => "terminal.git.action_stash_apply_latest",
+        TerminalGitRepositoryAction::StashDropLatest => "terminal.git.action_stash_drop_latest",
+        TerminalGitRepositoryAction::ConflictFiles => "terminal.git.action_conflict_files",
+        TerminalGitRepositoryAction::Continue(_) => "terminal.git.action_continue",
+        TerminalGitRepositoryAction::Abort(_) => "terminal.git.action_abort",
+        TerminalGitRepositoryAction::Skip(_) => "terminal.git.action_skip",
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::workspace) enum TerminalGitPathAction {
-    Stage,
-    Unstage,
-    Diff,
-    DiffStaged,
-    Open,
-    Ours,
-    Theirs,
-}
-
-impl TerminalGitPathAction {
-    pub(in crate::workspace) fn label_key(self) -> &'static str {
-        match self {
-            Self::Stage => "terminal.git.path_action_stage",
-            Self::Unstage => "terminal.git.path_action_unstage",
-            Self::Diff => "terminal.git.path_action_diff",
-            Self::DiffStaged => "terminal.git.path_action_diff_staged",
-            Self::Open => "terminal.git.path_action_open",
-            Self::Ours => "terminal.git.path_action_ours",
-            Self::Theirs => "terminal.git.path_action_theirs",
-        }
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct TerminalGitActionPlan {
-    command: String,
-    // Worktree branch selections are visible `cd` commands. Preserve the
-    // resolved path so terminal chrome can follow without prompt parsing.
-    cwd_after_command: Option<String>,
-}
-
-impl TerminalGitActionPlan {
-    // The plan layer only builds shell-visible commands. Execution stays with
-    // the active pane so local and SSH sessions share the same user-visible path.
-    fn select_branch(branch: &GitBranchReference) -> Option<Self> {
-        let branch_name = branch.name().trim();
-        if !terminal_git_accepts_single_arg(branch_name) {
-            return None;
-        }
-
-        let (command, cwd_after_command) = if let Some(worktree_path) = branch.worktree_path() {
-            (
-                terminal_git_cd_command(worktree_path),
-                Some(worktree_path.to_string()),
-            )
-        } else {
-            (terminal_git_checkout_command(branch_name), None)
-        };
-        Some(Self {
-            command,
-            cwd_after_command,
-        })
-    }
-
-    fn checkout_name(branch_name: &str) -> Option<Self> {
-        let branch_name = branch_name.trim();
-        terminal_git_accepts_single_arg(branch_name).then(|| Self {
-            command: terminal_git_checkout_command(branch_name),
-            cwd_after_command: None,
-        })
-    }
-
-    fn rebase_onto_name(branch_name: &str) -> Option<Self> {
-        let branch_name = branch_name.trim();
-        terminal_git_accepts_single_arg(branch_name).then(|| Self {
-            command: terminal_git_rebase_command(branch_name),
-            cwd_after_command: None,
-        })
-    }
-
-    fn create_branch_name(branch_name: &str) -> Option<Self> {
-        let branch_name = branch_name.trim();
-        terminal_git_accepts_single_arg(branch_name).then(|| Self {
-            command: terminal_git_create_branch_command(branch_name),
-            cwd_after_command: None,
-        })
-    }
-
-    fn rename_current_branch(branch_name: &str) -> Option<Self> {
-        let branch_name = branch_name.trim();
-        terminal_git_accepts_single_arg(branch_name).then(|| Self {
-            command: terminal_git_rename_branch_command(branch_name),
-            cwd_after_command: None,
-        })
-    }
-
-    fn track_remote_branch(branch_name: &str) -> Option<Self> {
-        let branch_name = branch_name.trim();
-        terminal_git_accepts_single_arg(branch_name).then(|| Self {
-            command: terminal_git_track_remote_command(branch_name),
-            cwd_after_command: None,
-        })
-    }
-
-    fn repository_action(action: TerminalGitRepositoryAction) -> Self {
-        Self {
-            command: action.command_preview().to_string(),
-            cwd_after_command: None,
-        }
-    }
-
-    fn path_action(action: TerminalGitPathAction, path: &str) -> Option<Self> {
-        terminal_git_accepts_path_arg(path).then(|| Self {
-            command: terminal_git_path_action_command(action, path),
-            cwd_after_command: None,
-        })
+pub(in crate::workspace) fn terminal_git_path_action_label_key(
+    action: TerminalGitPathAction,
+) -> &'static str {
+    match action {
+        TerminalGitPathAction::Stage => "terminal.git.path_action_stage",
+        TerminalGitPathAction::Unstage => "terminal.git.path_action_unstage",
+        TerminalGitPathAction::Diff => "terminal.git.path_action_diff",
+        TerminalGitPathAction::DiffStaged => "terminal.git.path_action_diff_staged",
+        TerminalGitPathAction::Open => "terminal.git.path_action_open",
+        TerminalGitPathAction::Ours => "terminal.git.path_action_ours",
+        TerminalGitPathAction::Theirs => "terminal.git.path_action_theirs",
     }
 }
 
@@ -505,7 +328,7 @@ impl WorkspaceApp {
 
     pub(in crate::workspace) fn terminal_git_query_checkout_candidate(&self) -> Option<String> {
         let query = self.terminal_git_branch_picker.query.trim();
-        if !terminal_git_accepts_single_arg(query) {
+        if !git_action_arg_is_valid(query) {
             return None;
         }
         if self
@@ -524,7 +347,7 @@ impl WorkspaceApp {
         cx: &mut Context<Self>,
     ) -> Option<String> {
         let query = self.terminal_git_branch_picker.query.trim();
-        if !terminal_git_accepts_single_arg(query) {
+        if !git_action_arg_is_valid(query) {
             return None;
         }
         let current_branch = self
@@ -540,7 +363,7 @@ impl WorkspaceApp {
         &self,
     ) -> Option<String> {
         let query = self.terminal_git_branch_picker.query.trim();
-        if !terminal_git_accepts_single_arg(query) {
+        if !git_action_arg_is_valid(query) {
             return None;
         }
         if self
@@ -558,7 +381,7 @@ impl WorkspaceApp {
         &self,
     ) -> Option<String> {
         let query = self.terminal_git_branch_picker.query.trim();
-        if !terminal_git_accepts_single_arg(query) || !query.contains('/') {
+        if !git_action_arg_is_valid(query) || !query.contains('/') {
             return None;
         }
         self.terminal_git_branch_picker
@@ -669,7 +492,9 @@ impl WorkspaceApp {
         cx: &mut Context<Self>,
     ) {
         let plan = TerminalGitActionPlan::repository_action(action);
-        let action_label = self.i18n.t(action.label_key());
+        let action_label = self
+            .i18n
+            .t(terminal_git_repository_action_label_key(action));
         let failure_message =
             self.i18n_replace("terminal.git.command_failed", &[("action", action_label)]);
         self.send_terminal_git_command(plan, failure_message, cx);
@@ -684,7 +509,7 @@ impl WorkspaceApp {
         let Some(plan) = TerminalGitActionPlan::path_action(action, &path) else {
             return;
         };
-        let action_label = self.i18n.t(action.label_key());
+        let action_label = self.i18n.t(terminal_git_path_action_label_key(action));
         let failure_message =
             self.i18n_replace("terminal.git.command_failed", &[("action", action_label)]);
         self.send_terminal_git_command(plan, failure_message, cx);
@@ -816,9 +641,9 @@ impl WorkspaceApp {
         // Git actions are sent through the active terminal so the user sees
         // Git's own output, conflict prompts, and any recovery instructions.
         pane.update(cx, |pane, cx| {
-            pane.send_command_line(&plan.command, cx);
-            if let Some(cwd) = plan.cwd_after_command.clone() {
-                pane.set_current_working_directory_from_terminal_action(cwd, cx);
+            pane.send_command_line(plan.command(), cx);
+            if let Some(cwd) = plan.cwd_after_command() {
+                pane.set_current_working_directory_from_terminal_action(cwd.to_string(), cx);
             }
         });
         self.close_terminal_git_branch_picker();
@@ -977,15 +802,15 @@ impl WorkspaceApp {
     ) -> Option<String> {
         let snapshot_cwd = self
             .active_terminal_cwd_snapshot(cx)
-            .and_then(|snapshot| terminal_git_cwd_from_directory_snapshot(scope, &snapshot));
+            .and_then(|snapshot| git_cwd_from_directory_snapshot(scope, &snapshot));
         let pane = self.panes.get(&pane_id)?;
         let pane = pane.read(cx);
         let visible_cwd = matches!(scope, GitProbeScope::Local)
             .then(|| infer_terminal_cwd_from_text(&pane.visible_text_snapshot()))
             .flatten();
-        let cwd = terminal_git_preferred_cwd(scope, snapshot_cwd, visible_cwd)?;
+        let cwd = preferred_git_cwd(scope, snapshot_cwd, visible_cwd)?;
         Some(match scope {
-            GitProbeScope::Local => terminal_git_expand_local_home(&cwd),
+            GitProbeScope::Local => expand_local_git_home(&cwd),
             GitProbeScope::SshNode(_) => cwd,
         })
     }
@@ -1228,44 +1053,6 @@ impl WorkspaceApp {
     }
 }
 
-fn terminal_git_cwd_from_directory_snapshot(
-    scope: &GitProbeScope,
-    snapshot: &CurrentDirectorySnapshot,
-) -> Option<String> {
-    match (scope, snapshot.scope()) {
-        (GitProbeScope::Local, CurrentDirectoryScope::Local) => {
-            Some(terminal_git_expand_local_home(snapshot.path()))
-        }
-        (GitProbeScope::SshNode(expected), CurrentDirectoryScope::SshNode(actual))
-            if expected == actual
-                && terminal_git_remote_cwd_source_is_trusted(snapshot.source()) =>
-        {
-            Some(snapshot.path().to_string())
-        }
-        _ => None,
-    }
-}
-
-fn terminal_git_preferred_cwd(
-    scope: &GitProbeScope,
-    snapshot_cwd: Option<String>,
-    visible_cwd: Option<String>,
-) -> Option<String> {
-    if matches!(scope, GitProbeScope::SshNode(_)) {
-        // Remote Git probing must use scoped, trusted cwd snapshots. Unscoped
-        // pane cwd would bypass the source check above.
-        return snapshot_cwd;
-    }
-    snapshot_cwd.or(visible_cwd)
-}
-
-fn terminal_git_remote_cwd_source_is_trusted(source: CurrentDirectorySource) -> bool {
-    matches!(
-        source,
-        CurrentDirectorySource::ShellIntegration | CurrentDirectorySource::UserAction
-    )
-}
-
 async fn run_local_git_probe(cwd: &str) -> GitProbeOutcome {
     let root = match run_local_git_command(cwd, git_repo_root_args()).await {
         Ok(output) => output,
@@ -1486,7 +1273,7 @@ async fn run_local_git_operation_probe(cwd: &str) -> Result<GitCommandOutput, Lo
     // Local operation detection reads only Git's own control files. The command
     // action still runs visibly in the terminal; this probe only chooses the
     // correct continue/abort/skip verb for the active operation type.
-    let operation = terminal_git_operation_kind_from_git_dir(std::path::Path::new(git_dir))
+    let operation = git_operation_kind_from_git_dir(std::path::Path::new(git_dir))
         .map(GitOperationKind::as_str)
         .unwrap_or("");
     Ok(GitCommandOutput::success(operation))
@@ -1556,106 +1343,6 @@ fn terminal_git_now_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis().min(u128::from(u64::MAX)) as u64)
         .unwrap_or(0)
-}
-
-fn terminal_git_expand_local_home(cwd: &str) -> String {
-    if cwd == "~" {
-        return terminal_git_local_home()
-            .map(|home| home.to_string_lossy().to_string())
-            .unwrap_or_else(|| cwd.to_string());
-    }
-    if let Some(rest) = cwd.strip_prefix("~/")
-        && let Some(home) = terminal_git_local_home()
-    {
-        // Prompt-derived local paths can use shell shorthand, but `git -C`
-        // needs a filesystem path after the shell has already finished.
-        return home.join(rest).to_string_lossy().to_string();
-    }
-    cwd.to_string()
-}
-
-fn terminal_git_local_home() -> Option<std::path::PathBuf> {
-    std::env::var_os("HOME")
-        .or_else(|| std::env::var_os("USERPROFILE"))
-        .map(std::path::PathBuf::from)
-}
-
-fn terminal_git_cd_command(path: &str) -> String {
-    format!("cd {}", shell_quote(path))
-}
-
-fn terminal_git_checkout_command(branch: &str) -> String {
-    format!("git checkout {}", shell_quote(branch))
-}
-
-fn terminal_git_create_branch_command(branch: &str) -> String {
-    format!("git checkout -b {}", shell_quote(branch))
-}
-
-fn terminal_git_rename_branch_command(branch: &str) -> String {
-    format!("git branch -m {}", shell_quote(branch))
-}
-
-fn terminal_git_track_remote_command(branch: &str) -> String {
-    format!("git switch --track {}", shell_quote(branch))
-}
-
-fn terminal_git_rebase_command(branch: &str) -> String {
-    format!("git rebase {}", shell_quote(branch))
-}
-
-fn terminal_git_accepts_single_arg(value: &str) -> bool {
-    !value.is_empty() && !value.chars().any(char::is_control)
-}
-
-fn terminal_git_accepts_path_arg(value: &str) -> bool {
-    terminal_git_accepts_single_arg(value)
-}
-
-fn terminal_git_path_action_command(action: TerminalGitPathAction, path: &str) -> String {
-    let path = shell_quote(path);
-    match action {
-        TerminalGitPathAction::Stage => format!("git add -- {path}"),
-        TerminalGitPathAction::Unstage => format!("git restore --staged -- {path}"),
-        TerminalGitPathAction::Diff => format!("git diff -- {path}"),
-        TerminalGitPathAction::DiffStaged => format!("git diff --cached -- {path}"),
-        TerminalGitPathAction::Open => format!("${{EDITOR:-vi}} -- {path}"),
-        TerminalGitPathAction::Ours => format!("git checkout --ours -- {path}"),
-        TerminalGitPathAction::Theirs => format!("git checkout --theirs -- {path}"),
-    }
-}
-
-fn terminal_git_operation_kind_from_git_dir(git_dir: &std::path::Path) -> Option<GitOperationKind> {
-    if git_dir.join("rebase-merge").is_dir() || git_dir.join("rebase-apply").is_dir() {
-        Some(GitOperationKind::Rebase)
-    } else if git_dir.join("MERGE_HEAD").is_file() {
-        Some(GitOperationKind::Merge)
-    } else if git_dir.join("CHERRY_PICK_HEAD").is_file() {
-        Some(GitOperationKind::CherryPick)
-    } else if git_dir.join("REVERT_HEAD").is_file() {
-        Some(GitOperationKind::Revert)
-    } else {
-        None
-    }
-}
-
-fn terminal_git_operation_command(operation: GitOperationKind, verb: &str) -> &'static str {
-    match (operation, verb) {
-        (GitOperationKind::Merge, "continue") => "git merge --continue",
-        (GitOperationKind::Merge, "abort") => "git merge --abort",
-        (GitOperationKind::Rebase, "continue") => "git rebase --continue",
-        (GitOperationKind::Rebase, "abort") => "git rebase --abort",
-        (GitOperationKind::Rebase, "skip") => "git rebase --skip",
-        (GitOperationKind::CherryPick, "continue") => "git cherry-pick --continue",
-        (GitOperationKind::CherryPick, "abort") => "git cherry-pick --abort",
-        (GitOperationKind::CherryPick, "skip") => "git cherry-pick --skip",
-        (GitOperationKind::Revert, "continue") => "git revert --continue",
-        (GitOperationKind::Revert, "abort") => "git revert --abort",
-        (GitOperationKind::Revert, "skip") => "git revert --skip",
-        // Merge has no skip verb. The UI hides this action for merge operations;
-        // keep a harmless status command as a defensive fallback.
-        (GitOperationKind::Merge, "skip") | (_, _) => "git status --short --branch",
-    }
 }
 
 fn terminal_git_ai_diff_context(context: &GitStagedDiffContext, max_chars: usize) -> String {
@@ -1769,403 +1456,12 @@ fn terminal_git_clean_ai_commit_subject(text: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use oxideterm_environment::CurrentDirectorySource;
-
-    #[test]
-    fn branch_action_plan_uses_worktree_cd_when_available() {
-        let branch =
-            GitBranchReference::with_worktree_path("main", false, Some("/tmp/Oxide Term")).unwrap();
-        let plan = TerminalGitActionPlan::select_branch(&branch).unwrap();
-
-        assert_eq!(plan.command, "cd '/tmp/Oxide Term'");
-        assert_eq!(plan.cwd_after_command.as_deref(), Some("/tmp/Oxide Term"));
-    }
-
-    #[test]
-    fn remote_git_cwd_prefers_matching_directory_snapshot() {
-        let snapshot = CurrentDirectorySnapshot::new(
-            CurrentDirectoryScope::ssh_node("node-1"),
-            "/home/dev/project",
-            CurrentDirectorySource::ShellIntegration,
-        )
-        .unwrap();
-
-        assert_eq!(
-            terminal_git_cwd_from_directory_snapshot(&GitProbeScope::ssh_node("node-1"), &snapshot)
-                .as_deref(),
-            Some("/home/dev/project")
-        );
-    }
-
-    #[test]
-    fn remote_git_cwd_rejects_other_node_snapshot() {
-        let snapshot = CurrentDirectorySnapshot::new(
-            CurrentDirectoryScope::ssh_node("node-2"),
-            "/home/dev/project",
-            CurrentDirectorySource::ShellIntegration,
-        )
-        .unwrap();
-
-        assert!(
-            terminal_git_cwd_from_directory_snapshot(&GitProbeScope::ssh_node("node-1"), &snapshot)
-                .is_none()
-        );
-    }
-
-    #[test]
-    fn remote_git_cwd_accepts_user_action_snapshot() {
-        let snapshot = CurrentDirectorySnapshot::new(
-            CurrentDirectoryScope::ssh_node("node-1"),
-            "/home/dev/project",
-            CurrentDirectorySource::UserAction,
-        )
-        .unwrap();
-
-        assert_eq!(
-            terminal_git_cwd_from_directory_snapshot(&GitProbeScope::ssh_node("node-1"), &snapshot)
-                .as_deref(),
-            Some("/home/dev/project")
-        );
-    }
-
-    #[test]
-    fn remote_git_cwd_rejects_session_default_snapshot() {
-        let snapshot = CurrentDirectorySnapshot::new(
-            CurrentDirectoryScope::ssh_node("node-1"),
-            "~",
-            CurrentDirectorySource::SessionDefault,
-        )
-        .unwrap();
-
-        assert!(
-            terminal_git_cwd_from_directory_snapshot(&GitProbeScope::ssh_node("node-1"), &snapshot)
-                .is_none()
-        );
-    }
-
-    #[test]
-    fn remote_git_cwd_rejects_visible_text_snapshot() {
-        let snapshot = CurrentDirectorySnapshot::new(
-            CurrentDirectoryScope::ssh_node("node-1"),
-            "/home/dev/project",
-            CurrentDirectorySource::VisibleText,
-        )
-        .unwrap();
-
-        assert!(
-            terminal_git_cwd_from_directory_snapshot(&GitProbeScope::ssh_node("node-1"), &snapshot)
-                .is_none()
-        );
-    }
-
-    #[test]
-    fn remote_git_uses_matching_trusted_snapshot() {
-        let cwd = terminal_git_preferred_cwd(
-            &GitProbeScope::ssh_node("node-1"),
-            Some("~/oxideterm.cloud-sync-server".to_string()),
-            Some("/wrong/from-visible-text".to_string()),
-        );
-
-        assert_eq!(cwd.as_deref(), Some("~/oxideterm.cloud-sync-server"));
-    }
-
-    #[test]
-    fn local_git_can_use_visible_text_cwd_without_snapshot() {
-        let cwd = terminal_git_preferred_cwd(
-            &GitProbeScope::Local,
-            None,
-            Some("/home/lipsc".to_string()),
-        );
-
-        assert_eq!(cwd.as_deref(), Some("/home/lipsc"));
-    }
 
     #[test]
     fn local_git_command_platform_options_are_applied() {
         let mut command = Command::new("git");
 
         configure_local_git_command(&mut command);
-    }
-
-    #[test]
-    fn remote_git_ignores_visible_text_cwd_without_authoritative_source() {
-        let cwd = terminal_git_preferred_cwd(
-            &GitProbeScope::ssh_node("node-1"),
-            None,
-            Some("/wrong/from-visible-text".to_string()),
-        );
-
-        assert_eq!(cwd, None);
-    }
-
-    #[test]
-    fn branch_action_plan_quotes_checkout_branch() {
-        let branch = GitBranchReference::new("feature/it's-ok", false).unwrap();
-        let plan = TerminalGitActionPlan::select_branch(&branch).unwrap();
-
-        assert_eq!(plan.command, "git checkout 'feature/it'\\''s-ok'");
-        assert!(plan.cwd_after_command.is_none());
-    }
-
-    #[test]
-    fn repository_action_plan_keeps_mutations_visible_and_conservative() {
-        assert_eq!(
-            TerminalGitActionPlan::repository_action(TerminalGitRepositoryAction::Fetch).command,
-            "git fetch --prune"
-        );
-        assert_eq!(
-            TerminalGitActionPlan::repository_action(TerminalGitRepositoryAction::FetchAll).command,
-            "git fetch --all --prune"
-        );
-        assert_eq!(
-            TerminalGitActionPlan::repository_action(TerminalGitRepositoryAction::Pull).command,
-            "git pull --ff-only"
-        );
-        assert_eq!(
-            TerminalGitActionPlan::repository_action(TerminalGitRepositoryAction::Push).command,
-            "git push"
-        );
-        assert_eq!(
-            TerminalGitActionPlan::repository_action(TerminalGitRepositoryAction::Publish).command,
-            "git push -u origin HEAD"
-        );
-        assert_eq!(
-            TerminalGitActionPlan::repository_action(TerminalGitRepositoryAction::Status).command,
-            "git status --short --branch"
-        );
-        assert_eq!(
-            TerminalGitActionPlan::repository_action(TerminalGitRepositoryAction::Diff).command,
-            "git diff --stat"
-        );
-        assert_eq!(
-            TerminalGitActionPlan::repository_action(TerminalGitRepositoryAction::DiffStaged)
-                .command,
-            "git diff --cached --stat"
-        );
-        assert_eq!(
-            TerminalGitActionPlan::repository_action(TerminalGitRepositoryAction::Log).command,
-            "git log --oneline --decorate --graph -20"
-        );
-        assert_eq!(
-            TerminalGitActionPlan::repository_action(TerminalGitRepositoryAction::Stash).command,
-            "git stash push"
-        );
-        assert_eq!(
-            TerminalGitActionPlan::repository_action(TerminalGitRepositoryAction::StashList)
-                .command,
-            "git stash list"
-        );
-        assert_eq!(
-            TerminalGitActionPlan::repository_action(TerminalGitRepositoryAction::StashPop).command,
-            "git stash pop"
-        );
-        assert_eq!(
-            TerminalGitActionPlan::repository_action(TerminalGitRepositoryAction::StageAll).command,
-            "git add -A"
-        );
-        assert_eq!(
-            TerminalGitActionPlan::repository_action(TerminalGitRepositoryAction::UnstageAll)
-                .command,
-            "git restore --staged ."
-        );
-        assert_eq!(
-            TerminalGitActionPlan::repository_action(TerminalGitRepositoryAction::Commit).command,
-            "git commit"
-        );
-        assert_eq!(
-            TerminalGitActionPlan::repository_action(TerminalGitRepositoryAction::CommitVerbose)
-                .command,
-            "git commit -v"
-        );
-        assert_eq!(
-            TerminalGitActionPlan::repository_action(TerminalGitRepositoryAction::CommitSignoff)
-                .command,
-            "git commit -s"
-        );
-        assert_eq!(
-            TerminalGitActionPlan::repository_action(TerminalGitRepositoryAction::Amend).command,
-            "git commit --amend"
-        );
-        assert_eq!(
-            TerminalGitActionPlan::repository_action(TerminalGitRepositoryAction::AmendNoEdit)
-                .command,
-            "git commit --amend --no-edit"
-        );
-        assert_eq!(
-            TerminalGitActionPlan::repository_action(TerminalGitRepositoryAction::RebasePull)
-                .command,
-            "git pull --rebase"
-        );
-        assert_eq!(
-            TerminalGitActionPlan::repository_action(
-                TerminalGitRepositoryAction::RebaseInteractive
-            )
-            .command,
-            "git rebase -i @{upstream}"
-        );
-        assert_eq!(
-            TerminalGitActionPlan::repository_action(TerminalGitRepositoryAction::PushTags).command,
-            "git push --tags"
-        );
-        assert_eq!(
-            TerminalGitActionPlan::repository_action(TerminalGitRepositoryAction::LogStat).command,
-            "git log --stat -20"
-        );
-        assert_eq!(
-            TerminalGitActionPlan::repository_action(TerminalGitRepositoryAction::Reflog).command,
-            "git reflog -20"
-        );
-        assert_eq!(
-            TerminalGitActionPlan::repository_action(TerminalGitRepositoryAction::BranchVerbose)
-                .command,
-            "git branch -vv"
-        );
-        assert_eq!(
-            TerminalGitActionPlan::repository_action(TerminalGitRepositoryAction::RemoteList)
-                .command,
-            "git remote -v"
-        );
-        assert_eq!(
-            TerminalGitActionPlan::repository_action(TerminalGitRepositoryAction::TagList).command,
-            "git tag --list"
-        );
-        assert_eq!(
-            TerminalGitActionPlan::repository_action(TerminalGitRepositoryAction::WorktreeList)
-                .command,
-            "git worktree list"
-        );
-        assert_eq!(
-            TerminalGitActionPlan::repository_action(TerminalGitRepositoryAction::StashShowLatest)
-                .command,
-            "git stash show -p stash@{0}"
-        );
-        assert_eq!(
-            TerminalGitActionPlan::repository_action(TerminalGitRepositoryAction::StashApplyLatest)
-                .command,
-            "git stash apply stash@{0}"
-        );
-        assert_eq!(
-            TerminalGitActionPlan::repository_action(TerminalGitRepositoryAction::StashDropLatest)
-                .command,
-            "git stash drop stash@{0}"
-        );
-        assert_eq!(
-            TerminalGitActionPlan::repository_action(TerminalGitRepositoryAction::ConflictFiles)
-                .command,
-            "git diff --name-only --diff-filter=U"
-        );
-        assert_eq!(
-            TerminalGitActionPlan::repository_action(TerminalGitRepositoryAction::Continue(
-                GitOperationKind::Rebase,
-            ))
-            .command,
-            "git rebase --continue"
-        );
-        assert_eq!(
-            TerminalGitActionPlan::repository_action(TerminalGitRepositoryAction::Abort(
-                GitOperationKind::CherryPick,
-            ))
-            .command,
-            "git cherry-pick --abort"
-        );
-        assert_eq!(
-            TerminalGitActionPlan::repository_action(TerminalGitRepositoryAction::Skip(
-                GitOperationKind::Revert,
-            ))
-            .command,
-            "git revert --skip"
-        );
-    }
-
-    #[test]
-    fn checkout_name_plan_quotes_remote_or_unlisted_branch_names() {
-        assert_eq!(
-            TerminalGitActionPlan::checkout_name("origin/feature/it's-ok")
-                .unwrap()
-                .command,
-            "git checkout 'origin/feature/it'\\''s-ok'"
-        );
-    }
-
-    #[test]
-    fn checkout_name_plan_rejects_control_characters() {
-        assert!(TerminalGitActionPlan::checkout_name("feature\nbad").is_none());
-    }
-
-    #[test]
-    fn rebase_name_plan_quotes_target_branch() {
-        assert_eq!(
-            TerminalGitActionPlan::rebase_onto_name("main branch")
-                .unwrap()
-                .command,
-            "git rebase 'main branch'"
-        );
-    }
-
-    #[test]
-    fn create_branch_name_plan_quotes_new_branch() {
-        assert_eq!(
-            TerminalGitActionPlan::create_branch_name("feature/it works")
-                .unwrap()
-                .command,
-            "git checkout -b 'feature/it works'"
-        );
-    }
-
-    #[test]
-    fn create_branch_name_plan_rejects_control_characters() {
-        assert!(TerminalGitActionPlan::create_branch_name("feature\nbad").is_none());
-    }
-
-    #[test]
-    fn branch_query_plans_cover_rename_and_remote_tracking() {
-        assert_eq!(
-            TerminalGitActionPlan::rename_current_branch("feature/new")
-                .unwrap()
-                .command,
-            "git branch -m 'feature/new'"
-        );
-        assert_eq!(
-            TerminalGitActionPlan::track_remote_branch("origin/feature/new")
-                .unwrap()
-                .command,
-            "git switch --track 'origin/feature/new'"
-        );
-    }
-
-    #[test]
-    fn path_action_plan_quotes_file_paths() {
-        assert_eq!(
-            TerminalGitActionPlan::path_action(TerminalGitPathAction::Stage, "src/it works.rs")
-                .unwrap()
-                .command,
-            "git add -- 'src/it works.rs'"
-        );
-        assert_eq!(
-            TerminalGitActionPlan::path_action(TerminalGitPathAction::DiffStaged, "a'b.rs")
-                .unwrap()
-                .command,
-            "git diff --cached -- 'a'\\''b.rs'"
-        );
-        assert!(
-            TerminalGitActionPlan::path_action(TerminalGitPathAction::Open, "bad\npath").is_none()
-        );
-    }
-
-    #[test]
-    fn operation_commands_match_detected_git_operation() {
-        assert_eq!(
-            terminal_git_operation_command(GitOperationKind::Rebase, "continue"),
-            "git rebase --continue"
-        );
-        assert_eq!(
-            terminal_git_operation_command(GitOperationKind::Merge, "abort"),
-            "git merge --abort"
-        );
-        assert_eq!(
-            terminal_git_operation_command(GitOperationKind::CherryPick, "skip"),
-            "git cherry-pick --skip"
-        );
     }
 
     #[test]

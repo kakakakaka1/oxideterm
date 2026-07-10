@@ -1,4 +1,12 @@
-pub(in crate::workspace) fn ai_compaction_plan(
+use crate::{AiChatMessage, AiChatRole};
+
+#[derive(Clone)]
+pub struct AiCompactionPlan {
+    pub compact_messages: Vec<AiChatMessage>,
+    pub keep_messages: Vec<AiChatMessage>,
+}
+
+pub fn ai_compaction_plan(
     messages: &[AiChatMessage],
     context_window: usize,
     silent: bool,

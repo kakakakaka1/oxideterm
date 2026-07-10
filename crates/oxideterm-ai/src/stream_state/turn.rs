@@ -1,4 +1,6 @@
-pub(in crate::workspace) fn upsert_ai_tool_call(
+use crate::{AiChatMessage, parse_ai_suggestions};
+
+pub fn upsert_ai_tool_call(
     message: &mut AiChatMessage,
     id: &str,
     name: &str,

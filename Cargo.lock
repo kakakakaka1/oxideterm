@@ -7277,7 +7277,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
- "sysinfo 0.33.1",
  "tar",
  "tokio",
  "tracing",
@@ -7609,6 +7608,7 @@ name = "oxideterm-quick-commands"
 version = "2.0.0-gpui-preview.15"
 dependencies = [
  "oxideterm-atomic-file",
+ "regex",
  "serde",
  "serde_json",
 ]

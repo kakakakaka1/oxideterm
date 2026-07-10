@@ -30,6 +30,58 @@ pub fn join_remote_path(base: &str, component: &str) -> String {
     }
 }
 
+/// Normalizes a remote path to the absolute forward-slash form used by SFTP.
+pub fn normalize_remote_path(path: &str) -> String {
+    let trimmed = path.trim();
+    if trimmed.is_empty() || trimmed == "/" {
+        return "/".to_string();
+    }
+    let normalized = trimmed.replace('\\', "/").replace("//", "/");
+    if normalized.starts_with('/') {
+        normalized
+    } else {
+        format!("/{normalized}")
+    }
+}
+
+/// Returns the parent of an absolute remote path without crossing the root.
+pub fn remote_parent_path(path: &str) -> String {
+    let normalized = normalize_remote_path(path);
+    if normalized == "/" {
+        return normalized;
+    }
+    let mut parts = normalized
+        .trim_end_matches('/')
+        .split('/')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>();
+    parts.pop();
+    if parts.is_empty() {
+        "/".to_string()
+    } else {
+        format!("/{}", parts.join("/"))
+    }
+}
+
+/// Builds each directory prefix needed before creating a nested remote path.
+pub fn remote_directory_prefixes(path: &str) -> Vec<String> {
+    let absolute = path.starts_with('/');
+    let components = path
+        .split('/')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>();
+    (0..components.len())
+        .map(|index| {
+            let joined = components[..=index].join("/");
+            if absolute {
+                format!("/{joined}")
+            } else {
+                joined
+            }
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -47,5 +99,28 @@ mod tests {
         assert_eq!(join_remote_path("/home", "file.txt"), "/home/file.txt");
         assert_eq!(join_remote_path("/home/", "file.txt"), "/home/file.txt");
         assert_eq!(join_remote_path("/", "home"), "/home");
+    }
+
+    #[test]
+    fn normalizes_and_navigates_remote_paths() {
+        assert_eq!(
+            normalize_remote_path(" home//user\\docs "),
+            "/home/user/docs"
+        );
+        assert_eq!(remote_parent_path("/home/user/docs"), "/home/user");
+        assert_eq!(remote_parent_path("/home"), "/");
+        assert_eq!(remote_parent_path("/"), "/");
+    }
+
+    #[test]
+    fn remote_prefixes_preserve_absolute_shape() {
+        assert_eq!(
+            remote_directory_prefixes("/home/user/docs"),
+            vec!["/home", "/home/user", "/home/user/docs"]
+        );
+        assert_eq!(
+            remote_directory_prefixes("home/user"),
+            vec!["home", "home/user"]
+        );
     }
 }

@@ -1,4 +1,9 @@
-pub(in crate::workspace) fn ai_message_estimated_tokens(message: &AiChatMessage) -> usize {
+use crate::{
+    AiChatMessage, AiChatRole, AiConversation, AiToolDefinition, AiToolUsePolicy,
+    parse_ai_suggestions, sanitize_for_ai, tool_policy_from_parts,
+};
+
+pub fn ai_message_estimated_tokens(message: &AiChatMessage) -> usize {
     // Tauri's chat token budget only counts message.content here; tool-call
     // details are accounted separately in the context indicator.
     ai_estimated_tokens(&message.content)

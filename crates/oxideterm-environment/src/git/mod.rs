@@ -7,6 +7,8 @@
 //! cache state. Non-Git environment detectors should live in their own sibling
 //! modules instead of adding more Git-shaped files to the crate root.
 
+pub mod actions;
+pub mod cwd;
 pub mod model;
 pub mod parse;
 pub mod probe;
@@ -14,6 +16,11 @@ pub mod store;
 
 pub use crate::shell::shell_quote;
 
+pub use actions::{GitActionPlan, GitPathAction, GitRepositoryAction, git_action_arg_is_valid};
+pub use cwd::{
+    expand_local_git_home, git_cwd_from_directory_snapshot, git_operation_kind_from_git_dir,
+    preferred_git_cwd,
+};
 pub use model::{
     GitBranchIdentity, GitBranchListOutcome, GitBranchReference, GitChangedPath, GitOperationKind,
     GitProbeError, GitProbeKey, GitProbeOutcome, GitProbeScope, GitRepositorySnapshot,
