@@ -356,7 +356,7 @@ pub fn rag_add_document(
         ));
     }
     let metadata = DocMetadata {
-        id: doc_id.clone(),
+        id: doc_id,
         collection_id: request.collection_id.clone(),
         title: request.title.clone(),
         source_path: request.source_path,

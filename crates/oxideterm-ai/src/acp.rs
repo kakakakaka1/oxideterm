@@ -1333,12 +1333,7 @@ impl AcpAgentRuntime {
             }
             Ok(())
         })?;
-        registry.insert_handle(
-            key.clone(),
-            AcpRuntimeHandle {
-                command_tx: command_tx.clone(),
-            },
-        );
+        registry.insert_handle(key.clone(), AcpRuntimeHandle { command_tx });
         Ok(AcpRegisteredRuntimeHandle { key, registry })
     }
 

@@ -3,6 +3,8 @@ use std::hash::{Hash, Hasher};
 
 use serde::{Deserialize, Serialize};
 
+use crate::shell::{powershell_quote, shell_quote};
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResourceService {
@@ -744,10 +746,6 @@ fn compact_service_command_message(value: &str) -> Option<String> {
     Some(summary)
 }
 
-fn shell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\"'\"'"))
-}
-
 fn shell_escape_double(value: &str) -> String {
     value
         .replace('\\', "\\\\")
@@ -761,10 +759,6 @@ fn shell_escape_sysrc_name(value: &str) -> String {
         .chars()
         .filter(|character| character.is_ascii_alphanumeric() || *character == '_')
         .collect::<String>()
-}
-
-fn powershell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "''"))
 }
 
 fn extract_section<'a>(output: &'a str, name: &str) -> Option<&'a str> {

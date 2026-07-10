@@ -5,6 +5,8 @@ use std::collections::BTreeSet;
 
 use serde_json::Value;
 
+use crate::shell::shell_quote;
+
 use super::model::{
     ProjectFacet, ProjectFacetKind, ProjectManifestEntry, ProjectProbeOutcome, ProjectSnapshot,
     ProjectTask, ProjectTaskGroup,
@@ -514,13 +516,6 @@ fn combined_contains_word(content: &str, needle: &str) -> bool {
     content
         .split(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_' || ch == '-'))
         .any(|word| word.eq_ignore_ascii_case(needle))
-}
-
-fn shell_quote(value: &str) -> String {
-    if value.is_empty() {
-        return "''".to_string();
-    }
-    format!("'{}'", value.replace('\'', "'\\''"))
 }
 
 #[cfg(test)]

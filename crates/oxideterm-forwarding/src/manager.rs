@@ -339,11 +339,9 @@ impl ForwardingManager {
 
     pub async fn scan_remote_ports(&self) -> Result<PortDetectionSnapshot, ForwardingError> {
         let platform = self.detect_remote_port_scan_platform().await;
-        let output = self
-            .ssh_connection
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .clone()
+        // Clone the handle before awaiting so reconnect can replace it while a probe is running.
+        let ssh_connection = self.current_ssh_connection();
+        let output = ssh_connection
             .run_command(
                 platform.scan_command(),
                 Duration::from_secs(PORT_SCAN_TIMEOUT_SECS),
@@ -386,11 +384,9 @@ impl ForwardingManager {
             return platform;
         }
 
-        let platform = match self
-            .ssh_connection
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .clone()
+        // The Windows fallback acquires the same connection slot, so no guard may cross this await.
+        let ssh_connection = self.current_ssh_connection();
+        let platform = match ssh_connection
             .run_command(
                 REMOTE_OS_PROBE_UNIX,
                 Duration::from_secs(REMOTE_OS_PROBE_TIMEOUT_SECS),
@@ -417,11 +413,9 @@ impl ForwardingManager {
     }
 
     async fn detect_windows_port_scan_platform(&self) -> RemotePortScanPlatform {
-        match self
-            .ssh_connection
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .clone()
+        // Keep the connection mutex out of the remote command lifetime.
+        let ssh_connection = self.current_ssh_connection();
+        match ssh_connection
             .run_command(
                 REMOTE_OS_PROBE_WINDOWS,
                 Duration::from_secs(REMOTE_OS_PROBE_TIMEOUT_SECS),

@@ -585,7 +585,7 @@ async fn authenticate_agent(
 ) -> Result<client::AuthResult, SshTransportError> {
     let mut agent = connect_agent_client()
         .await
-        .map_err(|error| SshTransportError::AuthenticationFailed(error.to_string()))?;
+        .map_err(SshTransportError::AuthenticationFailed)?;
     let identities = agent
         .request_identities()
         .await

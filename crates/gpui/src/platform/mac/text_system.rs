@@ -106,7 +106,9 @@ impl PlatformTextSystem for MacTextSystem {
         for descriptor in descriptors.into_iter() {
             names.extend(lenient_font_attributes::family_name(&descriptor));
         }
-        if let Ok(fonts_in_memory) = self.0.read().memory_source.all_families() {
+        // Release the font database lock before extending the result vector.
+        let fonts_in_memory = self.0.read().memory_source.all_families();
+        if let Ok(fonts_in_memory) = fonts_in_memory {
             names.extend(fonts_in_memory);
         }
         names

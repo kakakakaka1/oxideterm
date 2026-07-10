@@ -7,7 +7,7 @@
   <br>
   GPU-gerendert. Kostenlos. Kein Konto nötig.
   <br>
-  <strong>Kein WebView. Kein OpenSSL. Keine Telemetrie. Kein Abo. BYOK zuerst. Reines Rust-SSH.</strong>
+  <strong>Kein gebündeltes WebView. Keine Telemetrie. Kein Abo. BYOK zuerst. Reines Rust-SSH ohne OpenSSL/libssh2.</strong>
 </p>
 
 
@@ -66,7 +66,7 @@ OxideTerm Native ist keine gehostete Cloud-Agent-Plattform. Es ist auch keine El
 | Lokale Betriebsabläufe | SSH, Telnet, SFTP, Weiterleitung, RDP/VNC, Raw TCP/UDP, lokale Shell, serielle Terminals und Konfiguration ohne Anmeldung |
 | BYOK mit OxideSens AI statt Plattformguthaben | OxideSens nutzt Ihren OpenAI/Anthropic/Gemini/Ollama/OpenAI-kompatiblen Endpunkt mit MCP, RAG und genehmigten Arbeitsbereichsaktionen |
 | Wiederverbindungsstabilität | Grace Period prüft die alte Verbindung 30 s lang, bevor sie ersetzt wird – TUI-Apps überleben kurze Netzwerkausfälle |
-| Reines Rust-SSH und sichere Zugangsdaten | `russh` + `ring`, kein OpenSSL/libssh2; Passwörter und API-Schlüssel im Schlüsselbund des Betriebssystems, `.oxide`-Bundle mit ChaCha20-Poly1305 + Argon2id |
+| Reines Rust-SSH und sichere Zugangsdaten | Der SSH-Stack nutzt `russh` + `ring` ohne OpenSSL/libssh2; gespeicherte Zugangsdaten verwenden den Systemschlüsselbund, `.oxide`-Bundle ChaCha20-Poly1305 + Argon2id |
 
 ---
 
@@ -121,7 +121,7 @@ OxideTerm Native entfernt die WebView-Bridge und hält Terminal, SSH, Telnet, RD
 <summary><strong>Architektur, SSH-Internals, GPUI-Shell, Reconnect, KI, Plugins und mehr</strong></summary>
 <br>
 
-### Architektur — Single-Process, Zero-Bridge
+### Architektur — Kern in einem Prozess, keine WebView-Bridge
 
 ```text
 GPUI Render Loop
@@ -140,7 +140,7 @@ Zwischen UI und SSH/Terminal-Backend gibt es keine Serialisierungsgrenze. Termin
 
 Die native Edition linkt denselben `russh`-Stack wie die Tauri-Linie direkt in das Desktop-Binary:
 
-- **Keine OpenSSL-Abhängigkeiten** durch `ring`
+- **Kein OpenSSL/libssh2 im SSH-Stack** — die SSH-Kryptografie wird von `ring` bereitgestellt
 - Vollständiges SSH2: Key Exchange, Channels, SFTP-Subsystem, Portweiterleitung
 - ChaCha20-Poly1305 / AES-GCM, Ed25519/RSA/ECDSA-Schlüssel
 - SSH Agent unter Unix (`SSH_AUTH_SOCK`) und Windows (`\\.\pipe\openssh-ssh-agent`)
@@ -174,8 +174,8 @@ OxideSens bleibt BYOK zuerst, mit Kontextaufbau direkt im Prozess:
 - Anbieter: OpenAI, Anthropic, Gemini, Ollama oder jeder OpenAI-kompatible Endpunkt
 - MCP: stdio- und SSE-Transports, Tool Discovery und Invocation
 - RAG: BM25-Volltext, HNSW-Vektorindex, Reciprocal Rank Fusion, CJK-Bigram-Tokenizer
-- KI-Kontext stammt aus dem Arbeitsbereichsstatus; Zugangsdaten werden vor Anbieteraufrufen redigiert
-- API-Schlüssel bleiben im OS-Keychain und gelangen nicht in Logs oder IPC-Frames
+- Nachrichten an Anbieter durchlaufen eine Redigierung für Zugangsdatenmuster; Arbeitsbereichskontext und Aktionen bleiben unter Nutzerkontrolle
+- API-Schlüssel liegen im Systemschlüsselbund und werden bewusst aus strukturierten Logs und Nachrichten des Desktop-Kerns ausgeschlossen
 
 ### GPUI Desktop-Shell
 
@@ -261,13 +261,35 @@ cargo run -p oxideterm-cli -- cloud-sync push --dry-run --json
 cargo run -p oxideterm-cli -- report --bundle ./oxideterm-report.zip
 ```
 
+## Technik
+
+| Ebene | Technologie | Hinweise |
+|---|---|---|
+| Benutzeroberfläche | GPUI (Zed) | GPU-beschleunigter Immediate Mode, vollständig in Rust |
+| Laufzeit | Tokio + DashMap | Asynchrone Laufzeit und nebenläufige Maps |
+| SSH | russh (`ring`) | Kein OpenSSL/libssh2 im SSH-Stack; SSH Agent |
+| Terminal | portable-pty + alacritty_terminal | Lokale PTYs, Terminalemulation, Sixel- und Kitty-Grafik |
+| Plugins | wasmtime | WASM-Isolation mit nativer Host-API |
+| KI und Suche | SSE + BM25 + HNSW | Anbieter-Streaming, CJK-Bigramme und RRF-Fusion |
+
+## Entwicklung
+
+```sh
+cargo check --workspace
+cargo test --workspace
+cargo fmt --all --check
+```
+
+Während der Entwicklung sind gezielte Crate-Prüfungen schneller; bei Änderungen über Crate-Grenzen hinweg sollte anschließend der gesamte Workspace geprüft werden.
+
 ## Sicherheit
 
 | Thema | Umsetzung |
 |---|---|
-| Passwörter & Schlüssel | macOS Keychain / Windows Credential Manager / libsecret |
-| Geheimnisse im Speicher | `zeroize` / `Zeroizing` |
-| Diagnosen & KI-Kontext | Secret-Werte werden vor Ausgabe oder Anbieteraufrufen redigiert |
+| Gespeicherte Zugangsdaten | macOS Keychain / Windows Credential Manager / libsecret |
+| Geheimnisse im Speicher | Geheimnistragende Typen und temporäre Puffer verwenden an unterstützten Besitzgrenzen `zeroize` / `Zeroizing` |
+| Diagnosen | Support-Ausgaben bevorzugen strukturierte Metadaten und redigierte Hinweise statt geheimnistragender Nutzdaten |
+| KI-Kontext | Nachrichten an Anbieter durchlaufen eine Redigierung für Zugangsdatenmuster; Workspace-Kontext und Aktionen bleiben unter Nutzerkontrolle |
 | `.oxide` | ChaCha20-Poly1305 + Argon2id |
 | CLI-Schreibzugriffe | dry-run plans, `--yes` guards, rollback backups |
 | Plugins | wasmtime-Isolation und fähigkeitsbasierte Host-API |
@@ -284,6 +306,12 @@ cargo run -p oxideterm-cli -- report --bundle ./oxideterm-report.zip
 
 ## Beiträge
 
+Bei der Übertragung bestehender Tauri-Funktionen sollten Verhalten, Beschriftungen, Interaktionszustände und Abläufe übereinstimmen, sofern kein Ersatzdesign dokumentiert ist. Neue Crates müssen eine echte Domänenverantwortung besitzen.
+
+```sh
+cargo run -p oxideterm-cli -- report --bundle ./oxideterm-report.zip
+```
+
 ## Anbieterneutralität
 
 OxideTerm setzt BYOK zuerst und bleibt anbieterneutral.
@@ -291,8 +319,6 @@ OxideTerm setzt BYOK zuerst und bleibt anbieterneutral.
 Anbieterintegrationen sollen Nutzern helfen, die Werkzeuge zu verbinden, denen sie bereits vertrauen. Sie sind keine Rangliste, keine Werbefläche und kein Belohnungssystem für diejenigen, die am freundlichsten nach Aufmerksamkeit fragen.
 
 Kompatibilität, Wartbarkeit, Sicherheit und echter Nutzwert entscheiden, was dokumentiert wird. Sichtbarkeit folgt Nützlichkeit, nicht Begeisterung.
-
-Wenn ein Feature bereits in der Tauri-Version existiert, sollen Verhalten, Labels, Interaktionszustände und Workflows übereinstimmen. Neue Crates brauchen echte Domänenverantwortung und dürfen nicht nur Re-Exports sammeln.
 
 ## Support und Wartung
 
@@ -308,6 +334,10 @@ Wenn OxideTerm Ihrem Workflow hilft, machen GitHub Star, Reproduktion, Übersetz
 
 ---
 
-## Lizenz / Danksagung
+## Lizenz
 
-**GPL-3.0-only**. Third-party notices stehen in `NOTICE`. Danke an `russh`, `GPUI`, `alacritty_terminal`, `portable-pty`, `wasmtime` und `tree-sitter`.
+**GPL-3.0-only**. Ausführliche Hinweise zu Drittanbietern stehen in [`THIRD_PARTY_NOTICES.md`](../../THIRD_PARTY_NOTICES.md); zusätzliche Hinweise enthält [`NOTICE`](../../NOTICE).
+
+## Danksagung
+
+Danke an `russh`, `GPUI`, `alacritty_terminal`, `portable-pty`, `wasmtime` und `tree-sitter`.

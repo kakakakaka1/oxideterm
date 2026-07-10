@@ -92,7 +92,7 @@ pub fn native_plugin_forward_response(
     }
 
     let method = call.method.clone();
-    let args = call.args.clone();
+    let args = call.args;
     let registry = registry.clone();
     let (response_tx, response_rx) = mpsc::channel();
     // Forward listener creation and teardown can await SSH channel operations.

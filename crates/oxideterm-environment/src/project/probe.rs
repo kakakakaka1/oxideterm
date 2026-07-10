@@ -3,6 +3,7 @@
 
 use super::model::{ProjectManifestEntry, ProjectProbeError, ProjectProbeOutcome};
 use super::parse::{interpret_project_manifest_entries, project_manifest_file_names};
+use crate::shell::shell_quote;
 
 pub const PROJECT_SHELL_PROBE_SENTINEL: &str = "OXIDETERM_PROJECT_PROBE_V1";
 pub const PROJECT_PROBE_MAX_ANCESTORS: usize = 12;
@@ -121,13 +122,6 @@ fn remote_project_cd_target(cwd: &str) -> String {
     } else {
         shell_quote(cwd)
     }
-}
-
-fn shell_quote(value: &str) -> String {
-    if value.is_empty() {
-        return "''".to_string();
-    }
-    format!("'{}'", value.replace('\'', "'\\''"))
 }
 
 #[cfg(test)]

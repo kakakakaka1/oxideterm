@@ -3,6 +3,8 @@ use std::hash::{Hash, Hasher};
 
 use serde::{Deserialize, Serialize};
 
+use crate::shell::{powershell_quote, shell_quote};
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResourceTmuxSession {
@@ -655,14 +657,6 @@ fn validated_tmux_send_command(value: &str) -> Result<String, String> {
     Ok(trimmed.to_string())
 }
 
-fn shell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\\''"))
-}
-
-fn powershell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "''"))
-}
-
 fn is_windows_os(os_type: &str) -> bool {
     matches!(os_type, "Windows" | "windows")
 }
@@ -934,11 +928,11 @@ mod tests {
         assert_eq!(kill_pane.command, "tmux kill-pane -t '%2'");
         assert_eq!(
             rename.command,
-            "tmux rename-window -t '@1' 'build'\\''s logs'"
+            "tmux rename-window -t '@1' 'build'\"'\"'s logs'"
         );
         assert_eq!(
             send.command,
-            "tmux send-keys -t '%3' -l -- 'echo '\\''safe'\\'' && pwd' && tmux send-keys -t '%3' Enter"
+            "tmux send-keys -t '%3' -l -- 'echo '\"'\"'safe'\"'\"' && pwd' && tmux send-keys -t '%3' Enter"
         );
         assert!(invalid_send.is_err());
     }

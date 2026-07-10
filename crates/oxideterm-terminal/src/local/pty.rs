@@ -97,7 +97,7 @@ impl LocalPtySession {
         terminal_config.kitty_keyboard = true;
 
         let listener = LocalEventListener {
-            tx: event_tx.clone(),
+            tx: event_tx,
         };
         let term = Arc::new(FairMutex::new(Term::new(
             terminal_config,

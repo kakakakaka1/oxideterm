@@ -257,7 +257,7 @@ impl NodeRouter {
     ) -> Result<NodeStateEvent, RouteError> {
         let event = self
             .runtime
-            .bind_terminal_endpoint(node_id, endpoint.clone())?;
+            .bind_terminal_endpoint(node_id, endpoint)?;
         self.emitter.dispatch(&event);
         Ok(event)
     }

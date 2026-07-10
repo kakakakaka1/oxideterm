@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     fs,
     path::{Path, PathBuf},
 };
@@ -283,20 +283,6 @@ fn expand_home(value: &str) -> String {
 
 fn alias_contains_pattern(alias: &str) -> bool {
     alias.contains('*') || alias.contains('?')
-}
-
-#[allow(dead_code)]
-fn options_by_alias(blocks: &[SshHostBlock]) -> HashMap<String, SshHostOptions> {
-    blocks
-        .iter()
-        .flat_map(|block| {
-            block
-                .aliases
-                .iter()
-                .cloned()
-                .map(|alias| (alias, block.options.clone()))
-        })
-        .collect()
 }
 
 #[cfg(test)]

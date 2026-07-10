@@ -752,7 +752,7 @@ impl TerminalPane {
         let previous_reference_line = menu.reference_line;
         let next_reference_line = menu.reference_line;
         let select_command_mark_id = command_mark_id.clone();
-        let copy_command_mark_id = command_mark_id.clone();
+        let copy_command_mark_id = command_mark_id;
         let free_type_insert_selection_available =
             self.free_type_context_insert_selection_available(&menu);
         let free_type_replace_command_available =

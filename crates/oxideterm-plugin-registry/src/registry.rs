@@ -428,7 +428,7 @@ impl NativePluginRegistry {
         entry.install_path = Some(plugin_snapshot.install_dir.display().to_string());
         entry.runtime_kind =
             Some(native_runtime_kind_label(&plugin_snapshot.runtime_plan).to_string());
-        entry.last_loaded_version = Some(plugin_snapshot.manifest.version.clone());
+        entry.last_loaded_version = Some(plugin_snapshot.manifest.version);
 
         if enabled {
             // Tauri reload clears the disabled/error path before trying to load

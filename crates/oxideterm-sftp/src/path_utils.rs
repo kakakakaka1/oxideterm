@@ -1,25 +1,7 @@
 // Copyright (C) 2026 AnalyseDeCircuit
 // SPDX-License-Identifier: GPL-3.0-only
 
-use std::path::{Path, PathBuf};
-
-#[allow(dead_code)]
-pub fn is_absolute_local_path(path: &str) -> bool {
-    let candidate = Path::new(path);
-    if candidate.is_absolute() || path.starts_with('/') {
-        return true;
-    }
-    if path.len() >= 3 {
-        let bytes = path.as_bytes();
-        if bytes[0].is_ascii_alphabetic()
-            && bytes[1] == b':'
-            && (bytes[2] == b'\\' || bytes[2] == b'/')
-        {
-            return true;
-        }
-    }
-    path.starts_with("\\\\") || path.starts_with("//")
-}
+use std::path::PathBuf;
 
 pub fn is_absolute_remote_path(path: &str) -> bool {
     if path.starts_with('/') {
@@ -46,11 +28,6 @@ pub fn join_remote_path(base: &str, component: &str) -> String {
     } else {
         format!("{base}/{component}")
     }
-}
-
-#[allow(dead_code)]
-pub fn normalize_local_path(path: &str) -> String {
-    PathBuf::from(path).to_string_lossy().to_string()
 }
 
 #[cfg(test)]

@@ -42,7 +42,7 @@ pub fn native_plugin_sftp_response(
         );
     }
     let method = call.method.clone();
-    let args = call.args.clone();
+    let args = call.args;
     let router = router.clone();
     let transfer_manager = transfer_manager.cloned();
     let (response_tx, response_rx) = mpsc::channel();

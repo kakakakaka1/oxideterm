@@ -2,7 +2,7 @@
 
 This file lists third-party Rust crates and detected licenses, including transitive dependencies.
 It is generated from `cargo deny list -f json -l crate`.
-Generated: 2026-07-09T21:02:13.638702Z
+Generated: 2026-07-10T12:56:53.699024Z
 
 ## Summary
 
@@ -73,7 +73,7 @@ This section is a review prompt for binary distribution; it does not replace leg
 | anstyle-parse | 1.0.0 | MIT, Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | anstyle-query | 1.1.5 | MIT, Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | anstyle-wincon | 3.0.11 | MIT, Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| anyhow | 1.0.102 | MIT, Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| anyhow | 1.0.103 | MIT, Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | ar_archive_writer | 0.5.1 | Apache-2.0 WITH LLVM-exception | registry+https://github.com/rust-lang/crates.io-index |
 | arbitrary | 1.4.2 | MIT, Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | arg_enum_proc_macro | 0.3.4 | MIT | registry+https://github.com/rust-lang/crates.io-index |
@@ -550,7 +550,7 @@ This section is a review prompt for binary distribution; it does not replace leg
 | md5 | 0.8.0 | Apache-2.0, MIT | registry+https://github.com/rust-lang/crates.io-index |
 | memchr | 2.8.0 | Unlicense, MIT | registry+https://github.com/rust-lang/crates.io-index |
 | memfd | 0.6.5 | MIT, Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| memmap2 | 0.9.10 | MIT, Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| memmap2 | 0.9.11 | MIT, Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | memoffset | 0.9.1 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | metal | 0.29.0 | MIT, Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | mime | 0.3.17 | MIT, Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |

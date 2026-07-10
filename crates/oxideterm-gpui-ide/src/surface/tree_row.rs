@@ -22,6 +22,7 @@ fn render_tree_row_virtual(
     };
     let left_entry = entry.clone();
     let right_entry = entry.clone();
+    let context_menu_entity = entity.clone();
 
     div()
         .h(px(IDE_ROW_HEIGHT))
@@ -35,7 +36,6 @@ fn render_tree_row_virtual(
         .text_size(px(tokens.metrics.ui_text_xs))
         .hover(|style| style.bg(rgba((tokens.ui.bg_hover << 8) | IDE_HOVER_ALPHA)))
         .on_mouse_down(MouseButton::Left, {
-            let entity = entity.clone();
             move |_event: &MouseDownEvent, _window, cx| {
                 let _ = entity.update(cx, |this, cx| {
                     this.tree_context_menu = None;
@@ -45,9 +45,8 @@ fn render_tree_row_virtual(
             }
         })
         .on_mouse_down(MouseButton::Right, {
-            let entity = entity.clone();
             move |event: &MouseDownEvent, _window, cx| {
-                let _ = entity.update(cx, |this, cx| {
+                let _ = context_menu_entity.update(cx, |this, cx| {
                     let _ = this
                         .workspace
                         .select_tree_entry(Some(right_entry.location.clone()));

@@ -111,15 +111,6 @@ pub struct CollectionStats {
     pub last_updated: i64,
 }
 
-/// Input struct for storing embeddings from the frontend.
-#[allow(dead_code)]
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EmbeddingInput {
-    pub chunk_id: String,
-    pub vector: Vec<f32>,
-    pub model_name: String,
-}
-
 // ═══════════════════════════════════════════════════════════════════════════
 // BM25 Internal Types
 // ═══════════════════════════════════════════════════════════════════════════

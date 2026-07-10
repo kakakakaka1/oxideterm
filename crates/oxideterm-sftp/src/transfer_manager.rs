@@ -519,7 +519,7 @@ impl SftpTransferManager {
             && !snapshot.state.is_finished()
         {
             snapshot.state = BackgroundTransferState::Error;
-            snapshot.error = Some(reason.clone());
+            snapshot.error = Some(reason);
             snapshot.backend_speed = Some(0);
             snapshot.end_time = Some(now_ms());
             self.background_notify.notify_waiters();

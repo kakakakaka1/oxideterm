@@ -10,6 +10,7 @@
 pub mod cwd;
 pub mod git;
 pub mod project;
+mod shell;
 pub mod terminal_context;
 
 pub use cwd::{

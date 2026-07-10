@@ -3,6 +3,8 @@
 
 use std::hash::{Hash, Hasher};
 
+use crate::shell::shell_quote;
+
 /// Ownership scope for a terminal current-directory fact.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum CurrentDirectoryScope {
@@ -225,13 +227,6 @@ fn trim_redundant_trailing_separators(path: &str) -> String {
         end -= last.len_utf8();
     }
     path[..end].to_string()
-}
-
-fn shell_quote(value: &str) -> String {
-    if value.is_empty() {
-        return "''".to_string();
-    }
-    format!("'{}'", value.replace('\'', "'\\''"))
 }
 
 fn shell_cd_target(path: &str) -> String {

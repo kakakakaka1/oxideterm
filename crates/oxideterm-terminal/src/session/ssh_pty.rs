@@ -54,7 +54,7 @@ impl SshPtySession {
         let term = Arc::new(FairMutex::new(Term::new(
             term_config,
             &size,
-            listener.clone(),
+            listener,
         )));
 
         // GPUI owns a backend runtime for SSH-adjacent work; standalone

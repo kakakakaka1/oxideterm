@@ -120,7 +120,7 @@ impl TerminalGraphicsState {
             .iter()
             .filter_map(|placement| {
                 let row = viewport_row_for_grid_line(placement.line, display_offset)?;
-                if row >= rows || placement.col >= usize::MAX {
+                if row >= rows {
                     return None;
                 }
                 Some(TerminalImageSnapshot {

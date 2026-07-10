@@ -3,6 +3,8 @@ use std::hash::{Hash, Hasher};
 
 use serde::{Deserialize, Serialize};
 
+use crate::shell::{powershell_quote, shell_quote};
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResourceScheduledTask {
@@ -866,14 +868,6 @@ fn validate_systemd_unit(value: &str) -> Result<(), String> {
 
 fn sanitize_log_limit(limit: usize) -> usize {
     limit.clamp(50, 1000)
-}
-
-fn shell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\"'\"'"))
-}
-
-fn powershell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "''"))
 }
 
 fn windows_scheduled_task_args(id: &str) -> Result<String, String> {

@@ -7,7 +7,7 @@
   <br>
   GPU-rendered. Free. No account needed.
   <br>
-  <strong>Zero WebView. Zero OpenSSL. Zero Telemetry. Zero Subscription. BYOK-first. Pure Rust SSH.</strong>
+  <strong>No bundled WebView. No telemetry. No subscription. BYOK-first. Pure-Rust SSH without OpenSSL/libssh2.</strong>
 </p>
 
 <p align="center">
@@ -61,11 +61,11 @@ It is **not** a hosted cloud agent platform, an Electron app, a Tauri app, or a 
 | If you care about... | OxideTerm Native gives you... |
 |---|---|
 | One remote node, many tools | Terminal, SFTP, port forwarding, RDP/VNC, Raw TCP/UDP, trzsz, native IDE, monitoring, and OxideSens AI stay attached to the same workspace |
-| Zero WebView native shell | GPUI draws the desktop UI directly on a GPU surface — no DOM, CSS, JavaScript, Chromium, or WebKit runtime |
+| Native shell without a bundled WebView | GPUI draws the desktop UI directly on a GPU surface — no DOM, CSS, JavaScript, Chromium, or WebKit in the rendering path |
 | Local-first operations workflows | SSH, Telnet, SFTP, forwarding, RDP/VNC, Raw TCP/UDP, local shell, serial terminals, and config work without signup |
 | BYOK OxideSens AI instead of platform credits | OxideSens uses your OpenAI/Anthropic/Gemini/Ollama/OpenAI-compatible endpoint with MCP, RAG, and approved workspace actions |
 | Reconnect stability | Grace Period probes the old connection for 30s before replacing it, so TUI apps can survive short network drops |
-| Pure Rust SSH and credential safety | `russh` + `ring`, no OpenSSL/libssh2; passwords and API keys stay in OS keychain, and `.oxide` bundles use ChaCha20-Poly1305 + Argon2id |
+| Pure-Rust SSH and credential safety | The SSH stack uses `russh` + `ring` without OpenSSL/libssh2; stored credentials use the OS keychain, and `.oxide` bundles use ChaCha20-Poly1305 + Argon2id |
 
 ---
 
@@ -134,9 +134,9 @@ OxideTerm Native removes the WebView bridge and keeps terminal, SSH, Telnet, RDP
 <summary><strong>Architecture, SSH internals, GPUI shell, reconnect, AI, plugins, and more</strong></summary>
 <br>
 
-### Architecture — Single-Process, Zero-Bridge
+### Architecture — In-Process Core, No WebView Bridge
 
-The Tauri version separates terminal data from control commands into two planes bridged by WebSocket and JSON-RPC. The native version collapses both planes into a single Rust process:
+The Tauri version separates terminal data from control commands into two planes bridged by WebSocket and JSON-RPC. In the native desktop core, GPUI and the terminal/SSH backend share one Rust process; optional remote agents and platform helpers remain outside this boundary:
 
 ```
 ┌─────────────────────────────────────────────────┐
@@ -159,7 +159,7 @@ There is no serialization boundary between the UI and the SSH/terminal backend. 
 
 Same russh stack as the Tauri version, now linked directly into the desktop app binary:
 
-- **Zero OpenSSL dependencies** — full crypto in Rust via `ring`
+- **No OpenSSL/libssh2 in the SSH stack** — SSH cryptography is provided through `ring`
 - Full SSH2: key exchange, channels, SFTP subsystem, port forwarding
 - ChaCha20-Poly1305 and AES-GCM, Ed25519/RSA/ECDSA keys
 - SSH Agent: Unix (`SSH_AUTH_SOCK`) and Windows (`\\.\pipe\openssh-ssh-agent`)
@@ -194,8 +194,8 @@ Same BYOK-first AI as Tauri, with all context building done in-process:
 - **Providers**: OpenAI, Anthropic (Claude), Google Gemini, Ollama/any OpenAI-compatible endpoint
 - **MCP**: stdio + SSE transports, full tool discovery and invocation
 - **RAG**: BM25 full-text + HNSW vector index, Reciprocal Rank Fusion, CJK bigram tokenizer
-- **Context boundary**: AI context is built from in-process workspace state; credentials are redacted before any provider call
-- **API keys**: stored in OS keychain; never logged or serialized into IPC frames (there are no IPC frames)
+- **Context boundary**: provider-bound messages pass through credential-pattern redaction, while the user controls which workspace context and actions are approved
+- **API keys**: stored in the OS keychain and deliberately excluded from structured logs and desktop-core message payloads
 
 ### 🎨 GPUI Desktop Shell
 
@@ -343,10 +343,10 @@ Prefer scoped crate checks while iterating. Broaden to `--workspace` when a chan
 
 | Concern | Implementation |
 |---|---|
-| **Passwords & keys** | OS keychain (macOS Keychain / Windows Credential Manager / libsecret) |
-| **Secret memory** | `zeroize` / `Zeroizing` on all owned sensitive Rust values |
-| **Diagnostics** | Paths, counts, flags, hints only — never raw secret values |
-| **AI context** | Credentials, keys, and terminal buffers redacted before any provider call |
+| **Stored credentials** | OS keychain (macOS Keychain / Windows Credential Manager / libsecret) |
+| **Secret memory** | Secret-bearing Rust types and temporary buffers use `zeroize` / `Zeroizing` at supported ownership boundaries |
+| **Diagnostics** | Support output favors structured metadata and redacted hints over secret-bearing payloads |
+| **AI context** | Provider-bound messages pass through credential-pattern redaction; workspace context and actions remain user-controlled |
 | **`.oxide` export** | ChaCha20-Poly1305 + Argon2id (256 MB memory, 4 iterations) |
 | **CLI writes** | Dry-run plans, `--yes` guards, rollback backups for state-changing commands |
 | **Host keys** | TOFU with `~/.ssh/known_hosts`, rejects unexpected changes |
@@ -408,7 +408,7 @@ If OxideTerm helps your workflow, a GitHub star, issue reproduction, translation
 
 ## License
 
-**GPL-3.0-only**. Third-party notices and dependency attribution are recorded in `NOTICE`.
+**GPL-3.0-only**. Detailed dependency attribution is recorded in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md), with additional notices in [`NOTICE`](NOTICE).
 
 ---
 

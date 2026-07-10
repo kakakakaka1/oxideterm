@@ -508,7 +508,7 @@ impl IdeSurface {
                 false,
                 false,
                 cx.listener({
-                    let path = location_path(menu.location.clone());
+                    let path = location_path(menu.location);
                     move |this, _event, _window, cx| {
                         cx.write_to_clipboard(ClipboardItem::new_string(path.clone()));
                         this.tree_context_menu = None;

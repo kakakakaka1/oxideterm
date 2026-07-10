@@ -555,7 +555,9 @@ impl LineLayoutCache {
         }
 
         let mut current_frame = RwLockUpgradableReadGuard::upgrade(current_frame);
-        if let Some((key, layout)) = self.previous_frame.lock().lines.remove_entry(key) {
+        // Release the previous-frame lock before potentially expensive font shaping.
+        let previous_layout = self.previous_frame.lock().lines.remove_entry(key);
+        if let Some((key, layout)) = previous_layout {
             current_frame.lines.insert(key.clone(), layout.clone());
             current_frame.used_lines.push(key);
             layout

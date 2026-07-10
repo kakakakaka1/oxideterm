@@ -162,9 +162,9 @@ fn apply_oxide_import_with_options_inner(
     let mut result = ImportResultEnvelope {
         app_settings_json,
         quick_commands_json,
-        serial_profiles_json: serial_profiles_json.clone(),
-        raw_tcp_profiles_json: raw_tcp_profiles_json.clone(),
-        raw_udp_profiles_json: raw_udp_profiles_json.clone(),
+        serial_profiles_json,
+        raw_tcp_profiles_json,
+        raw_udp_profiles_json,
         plugin_settings,
         portable_secrets: if options.import_portable_secrets {
             portable_secrets.clone()

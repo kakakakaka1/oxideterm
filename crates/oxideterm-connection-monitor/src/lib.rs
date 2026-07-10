@@ -16,6 +16,7 @@ mod process;
 mod profiler;
 mod scheduled_task;
 mod service;
+mod shell;
 mod stats;
 mod summary;
 mod tmux;

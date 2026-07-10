@@ -1,6 +1,8 @@
 // Copyright (C) 2026 OxideTerm contributors.
 // SPDX-License-Identifier: GPL-3.0-only
 
+use crate::shell::shell_quote;
+
 pub const SHELL_PROBE_SENTINEL: &str = "OXIDETERM_GIT_PROBE_V1";
 pub const SHELL_BRANCH_LIST_SENTINEL: &str = "OXIDETERM_GIT_BRANCH_LIST_V1";
 pub const SHELL_STAGED_DIFF_SENTINEL: &str = "OXIDETERM_GIT_STAGED_DIFF_V1";
@@ -41,13 +43,6 @@ pub fn git_staged_diff_stat_args() -> GitProbeCommandArgs {
 
 pub fn git_staged_diff_patch_args() -> GitProbeCommandArgs {
     &["diff", "--cached", "--patch", "--no-ext-diff", "--"]
-}
-
-pub fn shell_quote(value: &str) -> String {
-    if value.is_empty() {
-        return "''".to_string();
-    }
-    format!("'{}'", value.replace('\'', "'\\''"))
 }
 
 /// Build a POSIX shell command for remote SSH exec probes.

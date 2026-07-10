@@ -857,9 +857,7 @@ fn collect_termius_drafts(
                     source: ConnectionImportSource::Termius,
                     source_path: path.display().to_string(),
                     name,
-                    group: next_group
-                        .clone()
-                        .or_else(|| Some(DEFAULT_IMPORTED_GROUP.to_string())),
+                    group: next_group.or_else(|| Some(DEFAULT_IMPORTED_GROUP.to_string())),
                     host,
                     port,
                     username,

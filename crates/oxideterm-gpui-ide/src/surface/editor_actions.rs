@@ -478,7 +478,7 @@ impl IdeSurface {
             return;
         };
         let search_query = IdeSearchQuery::tauri_literal_project_search(
-            query.clone(),
+            query,
             normalize_remote_path(&root_path),
             IDE_SEARCH_MAX_RESULTS,
             self.search.generation,
@@ -1001,7 +1001,7 @@ impl IdeSurface {
         let language = language_for_location(location, &text);
         let surface = cx.entity();
         let save_surface = surface.clone();
-        let symbol_surface = surface.clone();
+        let symbol_surface = surface;
         let editor = cx.new(|cx| {
             let mut editor = TextEditorView::new(text, &tokens, cx);
             editor.set_context_menu_labels(EditorContextMenuLabels {
@@ -1725,7 +1725,7 @@ impl IdeSurface {
                                     request_id,
                                     saved_text,
                                     saved_revision,
-                                    version.clone(),
+                                    version,
                                 )
                                 .unwrap_or(false)
                         } else {
@@ -1845,7 +1845,7 @@ impl IdeSurface {
                                     request_id,
                                     saved_text,
                                     saved_revision,
-                                    version.clone(),
+                                    version,
                                 )
                                 .unwrap_or(false)
                         } else {

@@ -261,13 +261,6 @@ pub fn index_chunk(
     Ok(())
 }
 
-/// Re-index BM25 from scratch. The `_collection_id` parameter is retained
-/// for API compatibility but the index is always rebuilt globally.
-#[allow(dead_code)]
-pub fn reindex_collection(store: &RagStore, _collection_id: &str) -> Result<usize, RagError> {
-    reindex_all(store, None, None)
-}
-
 /// Rebuild the global BM25 index from all collections.
 ///
 /// `cancel` — if provided, checked periodically; if set to `true`, the

@@ -12,6 +12,8 @@ pub mod parse;
 pub mod probe;
 pub mod store;
 
+pub use crate::shell::shell_quote;
+
 pub use model::{
     GitBranchIdentity, GitBranchListOutcome, GitBranchReference, GitChangedPath, GitOperationKind,
     GitProbeError, GitProbeKey, GitProbeOutcome, GitProbeScope, GitRepositorySnapshot,
@@ -28,6 +30,6 @@ pub use probe::{
     GitProbeCommandArgs, git_absolute_git_dir_args, git_branch_args, git_branch_list_args,
     git_head_args, git_repo_root_args, git_staged_diff_patch_args, git_staged_diff_stat_args,
     git_status_args, git_worktree_list_args, remote_shell_branch_list_command,
-    remote_shell_probe_command, remote_shell_staged_diff_command, shell_quote,
+    remote_shell_probe_command, remote_shell_staged_diff_command,
 };
 pub use store::{GitProbeEntry, GitProbeState, GitStatusStore};

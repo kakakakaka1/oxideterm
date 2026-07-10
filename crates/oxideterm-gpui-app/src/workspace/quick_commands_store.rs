@@ -36,11 +36,6 @@ impl QuickCommandsState {
         state
     }
 
-    #[allow(dead_code)]
-    pub(super) fn visible_commands(&self) -> Vec<QuickCommand> {
-        self.visible_commands_for_targets(&[])
-    }
-
     pub(super) fn visible_commands_for_targets(
         &self,
         target_fields: &[String],
@@ -166,17 +161,6 @@ impl QuickCommandsState {
         self.ensure_active_category();
         self.persist();
         true
-    }
-
-    #[allow(dead_code)]
-    pub(super) fn reset_defaults(&mut self) {
-        self.categories = default_quick_command_categories();
-        self.commands = default_quick_commands();
-        self.active_category = "system".to_string();
-        self.highlighted_command = None;
-        self.command_editor = None;
-        self.category_editor = None;
-        self.persist();
     }
 
     #[allow(dead_code)]

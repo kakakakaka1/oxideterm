@@ -215,7 +215,7 @@ impl ConnectionStore {
         });
         // Tauri stores this command under options; the top-level field remains
         // readable for old native plaintext stores but is no longer emitted.
-        options.post_connect_command = post_connect_command.clone();
+        options.post_connect_command = post_connect_command;
         let connection = SavedConnection {
             id: id.clone(),
             version: existing

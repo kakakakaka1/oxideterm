@@ -174,7 +174,7 @@ pub fn text_input_with_content_align(
     };
     let marked_range = if view.focused && !marked.is_empty() {
         let end = view.value.encode_utf16().count();
-        let range = raw_input_range.clone().unwrap_or(end..end);
+        let range = raw_input_range.unwrap_or(end..end);
         Some(text_input_visual_range(
             view.value,
             view.secret,

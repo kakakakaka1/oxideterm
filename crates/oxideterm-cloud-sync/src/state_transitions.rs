@@ -213,7 +213,7 @@ pub fn finish_structured_apply_state(
         state.last_known_remote_etag.clone()
     };
     state.remote_format = Some(outcome.manifest.format.clone());
-    state.remote_section_revisions = Some(remote_sections.clone());
+    state.remote_section_revisions = Some(remote_sections);
     state.remote_updated_at = Some(outcome.manifest.uploaded_at.clone());
     state.remote_device_id = Some(outcome.manifest.device_id.clone());
     state.remote_exists = true;

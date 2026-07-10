@@ -1723,7 +1723,9 @@ extern "C" fn handle_key_event(this: &Object, native_event: id, key_equivalent: 
                     msg_send![input_context, handleEvent: native_event]
                 };
                 window_state.as_ref().lock().keystroke_for_do_command.take();
-                if let Some(handled) = window_state.as_ref().lock().do_command_handled.take() {
+                // Release window state before returning through the input dispatch branches.
+                let command_handled = window_state.as_ref().lock().do_command_handled.take();
+                if let Some(handled) = command_handled {
                     return handled as BOOL;
                 } else if handled == YES {
                     return YES;

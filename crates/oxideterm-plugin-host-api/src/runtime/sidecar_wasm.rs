@@ -190,79 +190,67 @@ impl NativeSidecarWasmPluginRuntime {
         request_id: &str,
         timeout: Duration,
     ) -> Result<PluginResponse, PluginError> {
-        let started_at = Instant::now();
         let mut line = String::new();
-        loop {
-            let remaining = timeout.checked_sub(started_at.elapsed()).ok_or_else(|| {
+        // One response envelope carries both the response and its outbound messages.
+        let read = {
+            let stdout = self.stdout.as_mut().ok_or_else(|| {
                 PluginError::runtime(
-                    "wasm_sidecar_response_timeout",
-                    format!(
-                        "Wasm runtime sidecar did not respond within {}ms",
-                        timeout.as_millis()
-                    ),
+                    "wasm_sidecar_stdout_closed",
+                    "Wasm runtime sidecar stdout is not available",
                 )
             })?;
-            line.clear();
-            let read = {
-                let stdout = self.stdout.as_mut().ok_or_else(|| {
+            time::timeout(timeout, stdout.read_line(&mut line))
+                .await
+                .map_err(|_| {
                     PluginError::runtime(
-                        "wasm_sidecar_stdout_closed",
-                        "Wasm runtime sidecar stdout is not available",
+                        "wasm_sidecar_response_timeout",
+                        format!(
+                            "Wasm runtime sidecar did not respond within {}ms",
+                            timeout.as_millis()
+                        ),
                     )
-                })?;
-                time::timeout(remaining, stdout.read_line(&mut line))
-                    .await
-                    .map_err(|_| {
-                        PluginError::runtime(
-                            "wasm_sidecar_response_timeout",
-                            format!(
-                                "Wasm runtime sidecar did not respond within {}ms",
-                                timeout.as_millis()
-                            ),
-                        )
-                    })?
-                    .map_err(|error| {
-                        PluginError::runtime(
-                            "wasm_sidecar_response_read_failed",
-                            format!("Cannot read Wasm sidecar response: {error}"),
-                        )
-                    })?
-            };
-            if read == 0 {
-                return Err(PluginError::runtime(
-                    "wasm_sidecar_exited",
-                    "Wasm runtime sidecar closed stdout before responding",
-                ));
-            }
-
-            let envelope: SidecarWasmResponseEnvelope =
-                serde_json::from_str(line.trim()).map_err(|error| {
-                    PluginError::protocol(
-                        "wasm_sidecar_response_decode_failed",
-                        format!("Cannot decode Wasm sidecar response: {error}"),
+                })?
+                .map_err(|error| {
+                    PluginError::runtime(
+                        "wasm_sidecar_response_read_failed",
+                        format!("Cannot read Wasm sidecar response: {error}"),
                     )
-                })?;
-            if envelope.response.request_id != request_id {
-                return Err(PluginError::protocol(
-                    "wasm_sidecar_response_request_mismatch",
-                    format!("Wasm sidecar response request id mismatch; expected \"{request_id}\""),
-                ));
-            }
-            for message in envelope.messages {
-                let effect = self
-                    .supervisor
-                    .handle_outbound_message(message.clone())
-                    .map_err(|error| {
-                        PluginError::protocol(
-                            "wasm_sidecar_outbound_rejected",
-                            format!("Wasm sidecar outbound frame rejected: {}", error.message),
-                        )
-                    })?;
-                self.outbound_messages.push_back(message);
-                self.outbound_effects.push_back(effect);
-            }
-            return Ok(envelope.response);
+                })?
+        };
+        if read == 0 {
+            return Err(PluginError::runtime(
+                "wasm_sidecar_exited",
+                "Wasm runtime sidecar closed stdout before responding",
+            ));
         }
+
+        let envelope: SidecarWasmResponseEnvelope =
+            serde_json::from_str(line.trim()).map_err(|error| {
+                PluginError::protocol(
+                    "wasm_sidecar_response_decode_failed",
+                    format!("Cannot decode Wasm sidecar response: {error}"),
+                )
+            })?;
+        if envelope.response.request_id != request_id {
+            return Err(PluginError::protocol(
+                "wasm_sidecar_response_request_mismatch",
+                format!("Wasm sidecar response request id mismatch; expected \"{request_id}\""),
+            ));
+        }
+        for message in envelope.messages {
+            let effect = self
+                .supervisor
+                .handle_outbound_message(message.clone())
+                .map_err(|error| {
+                    PluginError::protocol(
+                        "wasm_sidecar_outbound_rejected",
+                        format!("Wasm sidecar outbound frame rejected: {}", error.message),
+                    )
+                })?;
+            self.outbound_messages.push_back(message);
+            self.outbound_effects.push_back(effect);
+        }
+        Ok(envelope.response)
     }
 
     fn record_runtime_error(&mut self, error: PluginError) -> PluginError {

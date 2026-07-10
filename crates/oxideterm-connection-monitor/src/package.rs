@@ -3,6 +3,8 @@ use std::hash::{Hash, Hasher};
 
 use serde::{Deserialize, Serialize};
 
+use crate::shell::shell_quote;
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResourcePackageEntry {
@@ -607,10 +609,6 @@ fn clean_marker_message(message: &str, fallback: &str) -> String {
     } else {
         cleaned.to_string()
     }
-}
-
-fn shell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\"'\"'"))
 }
 
 fn extract_section<'a>(output: &'a str, name: &str) -> Option<&'a str> {

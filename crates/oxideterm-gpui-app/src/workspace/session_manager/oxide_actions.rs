@@ -1339,64 +1339,6 @@ impl WorkspaceApp {
     }
 
     #[allow(dead_code)]
-    pub(super) fn import_oxide_with_client_state(
-        &mut self,
-        bytes: &[u8],
-        password: &str,
-        options: OxideClientStateImportOptions,
-        cx: &mut Context<Self>,
-        on_progress: &mut dyn FnMut(&str, usize, usize),
-    ) -> Result<OxideClientStateImportResult, String> {
-        let mut envelope = apply_oxide_import_with_options_with_progress(
-            &mut self.connection_store,
-            bytes,
-            password,
-            options.oxide_options,
-            |stage, current, total| on_progress(stage, current, total),
-        )
-        .map_err(|error| oxide_file_error_message(error, &self.i18n))?;
-
-        let imported_forwards = self.apply_oxide_import_forward_records(&mut envelope);
-        envelope.imported_forwards = imported_forwards;
-
-        let (imported_quick_commands, skipped_quick_commands, quick_commands_errors) = self
-            .apply_oxide_import_quick_commands(
-                envelope.quick_commands_json.as_deref(),
-                options.import_quick_commands,
-                options.quick_command_strategy,
-            );
-
-        let imported_plugin_settings = self.apply_oxide_import_plugin_settings(
-            &envelope.plugin_settings,
-            options.import_plugin_settings,
-            options.selected_plugin_ids.as_ref(),
-        );
-        let skipped_plugin_settings =
-            !options.import_plugin_settings && !envelope.plugin_settings.is_empty();
-
-        let (imported_app_settings, skipped_app_settings) = self.apply_oxide_import_app_settings(
-            envelope.app_settings_json.as_deref(),
-            options.import_app_settings,
-            options.selected_app_settings_sections.as_ref(),
-            cx,
-        );
-
-        self.apply_oxide_import_portable_secrets(&mut envelope);
-        self.queue_cloud_sync_dirty_refresh(cx);
-
-        Ok(OxideClientStateImportResult {
-            envelope,
-            imported_app_settings,
-            skipped_app_settings,
-            imported_quick_commands,
-            skipped_quick_commands,
-            quick_commands_errors,
-            imported_plugin_settings,
-            skipped_plugin_settings,
-        })
-    }
-
-    #[allow(dead_code)]
     pub(in crate::workspace) fn apply_oxide_import_forward_records(
         &mut self,
         envelope: &mut ImportResultEnvelope,

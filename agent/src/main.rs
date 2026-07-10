@@ -1105,9 +1105,6 @@ fn set_permissions(_path: &Path, _mode: u32) -> Result<(), RpcError> {
     ))
 }
 
-#[allow(dead_code)]
-fn _regex_is_send_sync(_: &Regex) {}
-
 #[cfg(test)]
 mod tests {
     use super::*;

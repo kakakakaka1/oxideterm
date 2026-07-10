@@ -203,7 +203,7 @@ impl client::Handler for NativeClientHandler {
                 });
             }
             if let Some(trust_host_key) = self.trust_host_key {
-                accept_host_key_for_session(&self.host, self.port, actual_fingerprint.clone());
+                accept_host_key_for_session(&self.host, self.port, actual_fingerprint);
                 if trust_host_key {
                     learn_host_key(&self.host, self.port, server_public_key)?;
                 }

@@ -3,6 +3,8 @@ use std::hash::{Hash, Hasher};
 
 use serde::{Deserialize, Serialize};
 
+use crate::shell::shell_quote;
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResourceLogEntry {
@@ -643,10 +645,6 @@ fn clean_log_field(value: &str) -> String {
 
 fn sanitize_log_limit(limit: usize) -> usize {
     limit.clamp(50, 500)
-}
-
-fn shell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\\''"))
 }
 
 fn normalized_log_os(os_type: &str) -> LogOs {

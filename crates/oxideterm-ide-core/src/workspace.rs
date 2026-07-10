@@ -281,7 +281,7 @@ impl IdeWorkspace {
             is_pinned: false,
         });
         self.buffers
-            .insert(tab_id, EditorBuffer::new(location.clone(), text, version));
+            .insert(tab_id, EditorBuffer::new(location, text, version));
         self.tab_by_location.insert(location_key, tab_id);
         self.active_tab = Some(tab_id);
 
