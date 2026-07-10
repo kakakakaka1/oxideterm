@@ -421,6 +421,15 @@ pub fn parse_color_hex(value: &str) -> Option<u32> {
     None
 }
 
+/// Parses the strict six-digit color form used by editable color fields.
+pub fn parse_rgb24_hex(value: &str) -> Option<u32> {
+    let hex = value.trim().trim_start_matches('#');
+    if hex.len() != 6 {
+        return None;
+    }
+    u32::from_str_radix(hex, 16).ok()
+}
+
 pub fn format_hex_color(color: u32) -> String {
     format!("#{:06x}", color & 0x00ff_ffff)
 }
@@ -706,6 +715,14 @@ mod tests {
         assert_eq!(parse_color_hex("#0f0"), Some(0x00ff00));
         assert_eq!(parse_color_hex("#112233aa"), Some(0x112233));
         assert_eq!(parse_color_hex("rgb(1, 2, 3)"), Some(0x010203));
+    }
+
+    #[test]
+    fn parse_rgb24_hex_requires_exactly_six_digits() {
+        assert_eq!(parse_rgb24_hex(" #112233 "), Some(0x112233));
+        assert_eq!(parse_rgb24_hex("112233"), Some(0x112233));
+        assert_eq!(parse_rgb24_hex("#123"), None);
+        assert_eq!(parse_rgb24_hex("rgb(1, 2, 3)"), None);
     }
 
     #[test]

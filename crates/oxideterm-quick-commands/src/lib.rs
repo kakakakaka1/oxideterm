@@ -6,9 +6,17 @@
 //! The GPUI view owns interaction state; this crate owns the portable snapshot
 //! format used by `.oxide` import/export and the CLI.
 
+mod editing;
 pub mod model;
 pub mod store;
 
+pub use editing::{
+    QuickCommandCategoryDraft, QuickCommandDraft, delete_quick_command,
+    delete_quick_command_category, ensure_active_quick_command_category,
+    match_quick_command_host_pattern, quick_command_category_draft_can_save,
+    quick_command_draft_can_save, upsert_quick_command, upsert_quick_command_category,
+    visible_quick_commands,
+};
 pub use model::{
     QUICK_COMMANDS_SCHEMA_VERSION, QuickCommand, QuickCommandCategory, QuickCommandIcon,
     QuickCommandImportResult, QuickCommandImportStrategy, QuickCommandsSnapshot,

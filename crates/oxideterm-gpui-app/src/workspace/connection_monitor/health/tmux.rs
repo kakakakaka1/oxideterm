@@ -407,7 +407,7 @@ impl WorkspaceApp {
             == Some(session.id.as_str());
         let theme = self.tokens.ui;
         let mono_font = settings_mono_font_family(self.settings_store.settings());
-        let pane_count = tmux_pane_count_for_session(snapshot, &session.id);
+        let pane_count = snapshot.pane_count_for_session(&session.id);
         let attached_label = if session.attached {
             self.i18n.t("sidebar.host_tmux.attached.yes")
         } else {
@@ -680,7 +680,7 @@ impl WorkspaceApp {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = self.tokens.ui;
-        let windows = tmux_windows_for_session(snapshot, &session.id);
+        let windows = snapshot.windows_for_session(&session.id);
         let mut detail = div()
             .px_3()
             .pb_3()
@@ -727,7 +727,7 @@ impl WorkspaceApp {
             .host_tmux_expanded_window_id
             .as_deref()
             == Some(window.id.as_str());
-        let panes = tmux_panes_for_window(snapshot, &window.id);
+        let panes = snapshot.panes_for_window(&window.id);
         div()
             .mt_1()
             .rounded(px(self.tokens.radii.md))
@@ -1055,7 +1055,8 @@ impl WorkspaceApp {
         snapshot: &ResourceTmuxSnapshot,
         session_id: &str,
     ) -> String {
-        tmux_windows_for_session(snapshot, session_id)
+        snapshot
+            .windows_for_session(session_id)
             .into_iter()
             .find(|window| window.active)
             .map(|window| {
@@ -2174,38 +2175,6 @@ fn tmux_attached_color(attached: bool, muted_color: u32) -> u32 {
     } else {
         muted_color
     }
-}
-
-fn tmux_pane_count_for_session(snapshot: &ResourceTmuxSnapshot, session_id: &str) -> usize {
-    snapshot
-        .panes
-        .iter()
-        .filter(|pane| pane.session_id == session_id)
-        .count()
-}
-
-fn tmux_windows_for_session(
-    snapshot: &ResourceTmuxSnapshot,
-    session_id: &str,
-) -> Vec<ResourceTmuxWindow> {
-    snapshot
-        .windows
-        .iter()
-        .filter(|window| window.session_id == session_id)
-        .cloned()
-        .collect()
-}
-
-fn tmux_panes_for_window(
-    snapshot: &ResourceTmuxSnapshot,
-    window_id: &str,
-) -> Vec<ResourceTmuxPane> {
-    snapshot
-        .panes
-        .iter()
-        .filter(|pane| pane.window_id == window_id)
-        .cloned()
-        .collect()
 }
 
 fn tmux_time_label(timestamp: &str) -> String {

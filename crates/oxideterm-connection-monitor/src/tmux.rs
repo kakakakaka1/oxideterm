@@ -77,6 +77,34 @@ pub struct ResourceTmuxSnapshot {
     pub panes: Vec<ResourceTmuxPane>,
 }
 
+impl ResourceTmuxSnapshot {
+    /// Counts panes using the snapshot's authoritative session relationship.
+    pub fn pane_count_for_session(&self, session_id: &str) -> usize {
+        self.panes
+            .iter()
+            .filter(|pane| pane.session_id == session_id)
+            .count()
+    }
+
+    /// Returns windows linked to one session in snapshot order.
+    pub fn windows_for_session(&self, session_id: &str) -> Vec<ResourceTmuxWindow> {
+        self.windows
+            .iter()
+            .filter(|window| window.session_id == session_id)
+            .cloned()
+            .collect()
+    }
+
+    /// Returns panes linked to one window in snapshot order.
+    pub fn panes_for_window(&self, window_id: &str) -> Vec<ResourceTmuxPane> {
+        self.panes
+            .iter()
+            .filter(|pane| pane.window_id == window_id)
+            .cloned()
+            .collect()
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TmuxActionKind {
     KillSession { target: String },
@@ -788,6 +816,9 @@ mod tests {
         assert_eq!(snapshot.sessions[0].name, "work\t中文");
         assert_eq!(snapshot.windows[0].name, "editor");
         assert_eq!(snapshot.panes[0].command, "nvim");
+        assert_eq!(snapshot.pane_count_for_session("$1"), 2);
+        assert_eq!(snapshot.windows_for_session("$1").len(), 1);
+        assert_eq!(snapshot.panes_for_window("@1").len(), 2);
         assert_eq!(rows.len(), 1);
     }
 

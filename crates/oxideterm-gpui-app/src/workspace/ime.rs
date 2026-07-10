@@ -5,6 +5,14 @@ use gpui::{
     InputHandler, InspectorElementId, Keystroke, LayoutId, Pixels, Point, SharedString, Style,
     TextRun, UTF16Selection, Window, font, point, px, rgb,
 };
+use oxideterm_editor_core::utf16::{
+    control_k_delete_end, floor_char_boundary, line_end_for_utf16_offset,
+    line_range_for_utf16_offset, line_ranges_utf16, line_start_for_utf16_offset,
+    next_utf16_boundary, next_word_boundary, previous_utf16_boundary, previous_word_boundary,
+    replace_utf16, transpose_text_at_utf16_offset, utf16_offset_for_byte_index,
+    utf16_offset_for_char_index, utf16_slice, vertical_line_navigation_destination,
+    word_range_for_utf16_offset,
+};
 
 use super::WorkspaceApp;
 use super::command_palette::parse_command_palette_mode;
@@ -2565,16 +2573,6 @@ fn connection_field_value_mut(
     }
 }
 
-fn replace_utf16(value: &mut String, range: Option<Range<usize>>, replacement: &str) {
-    let range = range.unwrap_or_else(|| {
-        let end = value.encode_utf16().count();
-        end..end
-    });
-    let start = byte_index_for_utf16(value, range.start);
-    let end = byte_index_for_utf16(value, range.end);
-    value.replace_range(start..end, replacement);
-}
-
 fn normalize_clipboard_text_for_ime_target(target: WorkspaceImeTarget, text: &str) -> String {
     let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
     if ime_target_accepts_newline(target) {
@@ -2630,75 +2628,6 @@ fn copy_shortcut_owner_for_target(
     }
 }
 
-fn utf16_slice(value: &str, range: Range<usize>) -> String {
-    let start = byte_index_for_utf16(value, range.start);
-    let end = byte_index_for_utf16(value, range.end);
-    value[start..end].to_string()
-}
-
-fn byte_index_for_utf16(value: &str, offset: usize) -> usize {
-    let mut utf16_count = 0;
-    for (byte_index, ch) in value.char_indices() {
-        if utf16_count >= offset {
-            return byte_index;
-        }
-        utf16_count += ch.len_utf16();
-    }
-    value.len()
-}
-
-fn utf16_offset_for_byte_index(value: &str, byte_offset: usize) -> usize {
-    let byte_offset = floor_char_boundary(value, byte_offset.min(value.len()));
-    value[..byte_offset].encode_utf16().count()
-}
-
-fn utf16_offset_for_char_index(value: &str, char_offset: usize) -> usize {
-    value.chars().take(char_offset).map(char::len_utf16).sum()
-}
-
-fn char_index_for_utf16(value: &str, offset: usize) -> usize {
-    let mut utf16_count = 0;
-    for (char_index, ch) in value.chars().enumerate() {
-        if utf16_count >= offset {
-            return char_index;
-        }
-        utf16_count += ch.len_utf16();
-    }
-    value.chars().count()
-}
-
-fn floor_char_boundary(value: &str, mut byte_offset: usize) -> usize {
-    while byte_offset > 0 && !value.is_char_boundary(byte_offset) {
-        byte_offset -= 1;
-    }
-    byte_offset
-}
-
-fn previous_utf16_boundary(value: &str, offset: usize) -> usize {
-    let mut previous = 0;
-    let mut utf16_count = 0;
-    for ch in value.chars() {
-        if utf16_count >= offset {
-            break;
-        }
-        previous = utf16_count;
-        utf16_count += ch.len_utf16();
-    }
-    previous
-}
-
-fn next_utf16_boundary(value: &str, offset: usize) -> usize {
-    let mut utf16_count = 0;
-    for ch in value.chars() {
-        let next = utf16_count + ch.len_utf16();
-        if utf16_count >= offset {
-            return next;
-        }
-        utf16_count = next;
-    }
-    value.encode_utf16().count()
-}
-
 // Mirrors the browser selection shape used by Shift+navigation and mouse drag.
 fn selection_from_anchor(
     target: WorkspaceImeTarget,
@@ -2740,181 +2669,6 @@ fn selection_anchor(selection: &WorkspaceImeSelection) -> usize {
     } else {
         selection.range.start
     }
-}
-
-fn previous_word_boundary(value: &str, offset: usize) -> usize {
-    let current = byte_index_for_utf16(value, offset);
-    let prefix = &value[..current];
-    let mut saw_word = false;
-    for (byte_index, ch) in prefix.char_indices().rev() {
-        if ch.is_whitespace() {
-            if saw_word {
-                return prefix[..byte_index + ch.len_utf8()].encode_utf16().count();
-            }
-        } else {
-            saw_word = true;
-        }
-    }
-    0
-}
-
-fn next_word_boundary(value: &str, offset: usize) -> usize {
-    let current = byte_index_for_utf16(value, offset);
-    let suffix = &value[current..];
-    let mut saw_word = false;
-    for (relative_byte, ch) in suffix.char_indices() {
-        if ch.is_whitespace() {
-            if saw_word {
-                return value[..current + relative_byte].encode_utf16().count();
-            }
-        } else {
-            saw_word = true;
-        }
-    }
-    value.encode_utf16().count()
-}
-
-fn word_range_for_utf16_offset(value: &str, offset: usize) -> Range<usize> {
-    let text_len = value.encode_utf16().count();
-    if text_len == 0 {
-        return 0..0;
-    }
-    let mut byte_index = byte_index_for_utf16(value, offset.min(text_len));
-    if byte_index == value.len() && byte_index > 0 {
-        byte_index = previous_char_start(value, byte_index);
-    }
-    if value[byte_index..]
-        .chars()
-        .next()
-        .is_some_and(char::is_whitespace)
-        && byte_index > 0
-    {
-        let previous = previous_char_start(value, byte_index);
-        if !value[previous..]
-            .chars()
-            .next()
-            .is_some_and(char::is_whitespace)
-        {
-            byte_index = previous;
-        }
-    }
-
-    let mut start = byte_index;
-    while start > 0 {
-        let previous = previous_char_start(value, start);
-        let Some(ch) = value[previous..].chars().next() else {
-            break;
-        };
-        if ch.is_whitespace() {
-            break;
-        }
-        start = previous;
-    }
-
-    let mut end = byte_index;
-    while end < value.len() {
-        let Some(ch) = value[end..].chars().next() else {
-            break;
-        };
-        if ch.is_whitespace() {
-            break;
-        }
-        end += ch.len_utf8();
-    }
-
-    utf16_offset_for_byte_index(value, start)..utf16_offset_for_byte_index(value, end)
-}
-
-fn line_range_for_utf16_offset(value: &str, offset: usize) -> Range<usize> {
-    let ranges = line_ranges_utf16(value);
-    let text_len = value.encode_utf16().count();
-    ranges
-        .iter()
-        .find(|range| offset <= range.end)
-        .cloned()
-        .unwrap_or(text_len..text_len)
-}
-
-fn line_start_for_utf16_offset(value: &str, offset: usize) -> usize {
-    line_range_for_utf16_offset(value, offset).start
-}
-
-fn line_end_for_utf16_offset(value: &str, offset: usize) -> usize {
-    line_range_for_utf16_offset(value, offset).end
-}
-
-fn control_k_delete_end(value: &str, offset: usize) -> usize {
-    let line_end = line_end_for_utf16_offset(value, offset);
-    if line_end > offset {
-        return line_end;
-    }
-    next_utf16_boundary(value, offset)
-}
-
-fn transpose_text_at_utf16_offset(value: &str, offset: usize) -> Option<(String, usize)> {
-    let mut chars: Vec<char> = value.chars().collect();
-    if chars.len() < 2 {
-        return None;
-    }
-    let text_len = value.encode_utf16().count();
-    let right = if offset >= text_len {
-        chars.len() - 1
-    } else {
-        char_index_for_utf16(value, offset).min(chars.len() - 1)
-    };
-    if right == 0 {
-        return None;
-    }
-    let left = right - 1;
-    chars.swap(left, right);
-    let next_caret = if offset >= text_len {
-        text_len
-    } else {
-        utf16_offset_for_char_index(&chars.iter().collect::<String>(), right + 1)
-    };
-    Some((chars.into_iter().collect(), next_caret))
-}
-
-fn vertical_line_navigation_destination(value: &str, offset: usize, down: bool) -> usize {
-    let ranges = line_ranges_utf16(value);
-    if ranges.is_empty() {
-        return 0;
-    }
-    let line_index = ranges
-        .iter()
-        .position(|range| offset <= range.end)
-        .unwrap_or_else(|| ranges.len().saturating_sub(1));
-    let current = &ranges[line_index];
-    let column = offset.saturating_sub(current.start);
-    if down {
-        let Some(next) = ranges.get(line_index + 1) else {
-            return value.encode_utf16().count();
-        };
-        next.start + column.min(next.end.saturating_sub(next.start))
-    } else {
-        if line_index == 0 {
-            return 0;
-        }
-        let previous = &ranges[line_index - 1];
-        previous.start + column.min(previous.end.saturating_sub(previous.start))
-    }
-}
-
-fn line_ranges_utf16(value: &str) -> Vec<Range<usize>> {
-    let mut ranges = Vec::new();
-    let mut start = 0;
-    let mut offset = 0;
-    for ch in value.chars() {
-        if ch == '\n' {
-            ranges.push(start..offset);
-            offset += ch.len_utf16();
-            start = offset;
-        } else {
-            offset += ch.len_utf16();
-        }
-    }
-    ranges.push(start..offset);
-    ranges
 }
 
 fn soft_wrapped_line_ranges_utf16(
@@ -3043,14 +2797,6 @@ fn effective_platform_text_replacement_range(
     // range. Browser inputs still insert at the live caret, so fall back to the
     // selection state maintained from mouse clicks and keyboard navigation.
     current_selection()
-}
-
-fn previous_char_start(value: &str, byte_index: usize) -> usize {
-    value[..byte_index]
-        .char_indices()
-        .next_back()
-        .map(|(index, _)| index)
-        .unwrap_or(0)
 }
 
 #[cfg(test)]

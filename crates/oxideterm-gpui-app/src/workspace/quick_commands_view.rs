@@ -13,6 +13,9 @@ use oxideterm_gpui_ui::{
     status_pill,
     text_input::{TextInputView, text_input, text_input_anchor_probe},
 };
+use oxideterm_quick_commands::{
+    quick_command_category_draft_can_save, quick_command_draft_can_save,
+};
 
 use super::super::actions::classify_command_risk;
 use super::super::ime::WorkspaceImeTarget;
@@ -112,14 +115,6 @@ fn finish_quick_command_execution_state(
     } else {
         *open = false;
     }
-}
-
-fn quick_command_draft_can_save(draft: &QuickCommandDraft) -> bool {
-    !draft.name.trim().is_empty() && !draft.command.trim().is_empty()
-}
-
-fn quick_command_category_draft_can_save(draft: &QuickCommandCategoryDraft) -> bool {
-    !draft.name.trim().is_empty()
 }
 
 fn quick_commands_popover_width_for_bar(command_bar_width: f32) -> f32 {

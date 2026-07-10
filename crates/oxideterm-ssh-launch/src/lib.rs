@@ -11,6 +11,9 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
+/// Default port used by temporary SSH launch targets.
+pub const DEFAULT_SSH_PORT: u16 = 22;
+
 #[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct TemporarySshLaunch {
     pub username: String,
@@ -93,6 +96,65 @@ pub fn parse_user_host_target(
     Ok((username.to_string(), host.to_string()))
 }
 
+/// Parses a strict `user@host[:port]` target for quick-connect surfaces.
+pub fn parse_explicit_user_host_port_target(target: &str) -> Option<(String, String, u16)> {
+    if target.is_empty()
+        || target.contains("://")
+        || target
+            .chars()
+            .any(|ch| ch.is_whitespace() || ch.is_control())
+    {
+        return None;
+    }
+    let (username, authority) = target.split_once('@')?;
+    if username.is_empty() || authority.is_empty() || authority.contains('@') {
+        return None;
+    }
+
+    let (host, port) = parse_host_port_authority(authority)?;
+    Some((username.to_string(), host, port))
+}
+
+/// Formats a parsed target while preserving an unambiguous IPv6 authority.
+pub fn format_user_host_port_target(username: &str, host: &str, port: u16) -> String {
+    let host = if host.contains(':') && !host.starts_with('[') {
+        // Brackets keep IPv6 hosts distinct from the explicit SSH port.
+        format!("[{host}]")
+    } else {
+        host.to_string()
+    };
+    format!("{username}@{host}:{port}")
+}
+
+fn parse_host_port_authority(authority: &str) -> Option<(String, u16)> {
+    if authority.chars().any(|ch| matches!(ch, '/' | '?' | '#')) {
+        return None;
+    }
+
+    let (host, port) = if let Some(rest) = authority.strip_prefix('[') {
+        let end = rest.find(']')?;
+        let host = &rest[..end];
+        let suffix = &rest[end + 1..];
+        let port = if suffix.is_empty() {
+            DEFAULT_SSH_PORT
+        } else {
+            suffix.strip_prefix(':')?.parse::<u16>().ok()?
+        };
+        (host, port)
+    } else if authority.matches(':').count() > 1 {
+        // Unbracketed IPv6 is accepted only with the default port.
+        (authority, DEFAULT_SSH_PORT)
+    } else if let Some((host, port)) = authority.rsplit_once(':') {
+        (host, port.parse::<u16>().ok()?)
+    } else {
+        (authority, DEFAULT_SSH_PORT)
+    };
+    if host.is_empty() || port == 0 {
+        return None;
+    }
+    Some((host.to_string(), port))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -117,5 +179,44 @@ mod tests {
             parse_user_host_target("ssh://alice@example.com", None).unwrap_err(),
             ParseSshTargetError::UnsupportedUri
         );
+    }
+
+    #[test]
+    fn parses_explicit_user_host_and_optional_port() {
+        assert_eq!(
+            parse_explicit_user_host_port_target("root@example.com"),
+            Some(("root".to_string(), "example.com".to_string(), 22))
+        );
+        assert_eq!(
+            parse_explicit_user_host_port_target("root@example.com:2200"),
+            Some(("root".to_string(), "example.com".to_string(), 2200))
+        );
+    }
+
+    #[test]
+    fn parses_and_formats_ipv6_targets() {
+        let parsed = parse_explicit_user_host_port_target("root@[::1]:2200").unwrap();
+
+        assert_eq!(parsed, ("root".to_string(), "::1".to_string(), 2200));
+        assert_eq!(
+            format_user_host_port_target(&parsed.0, &parsed.1, parsed.2),
+            "root@[::1]:2200"
+        );
+    }
+
+    #[test]
+    fn rejects_unsafe_or_invalid_explicit_targets() {
+        for target in [
+            "example.com",
+            "root@",
+            "@example.com",
+            "root@example.com:0",
+            "root@example.com:invalid",
+            "root@example .com",
+            "root@example.com/path",
+            "ssh://root@example.com",
+        ] {
+            assert!(parse_explicit_user_host_port_target(target).is_none());
+        }
     }
 }

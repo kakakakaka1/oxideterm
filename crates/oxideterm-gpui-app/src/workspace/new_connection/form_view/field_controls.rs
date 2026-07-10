@@ -1,4 +1,5 @@
 use super::*;
+use oxideterm_settings_model::parse_rgb24_hex;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum AuthSelectorContext {
@@ -1105,7 +1106,7 @@ impl WorkspaceApp {
         value: &str,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let swatch = parse_form_hex_color(value).unwrap_or(TAURI_EDIT_COLOR_FALLBACK);
+        let swatch = parse_rgb24_hex(value).unwrap_or(TAURI_EDIT_COLOR_FALLBACK);
         form_field(
             &self.tokens,
             self.i18n.t("sessionManager.edit_properties.color"),
@@ -1158,7 +1159,7 @@ impl WorkspaceApp {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = self.tokens.ui;
-        let preview_color = parse_form_hex_color(color_value).unwrap_or(theme.accent);
+        let preview_color = parse_rgb24_hex(color_value).unwrap_or(theme.accent);
         let active_icon = session_icon_from_id(Some(icon_value)).unwrap_or(LucideIcon::Server);
         let mut grid = div().flex().flex_wrap().gap(px(self.tokens.spacing.two));
 
@@ -3089,12 +3090,4 @@ pub(super) fn serial_port_display_label(port: &oxideterm_terminal::SerialPortInf
     } else {
         port.display_name.clone()
     }
-}
-
-fn parse_form_hex_color(value: &str) -> Option<u32> {
-    let trimmed = value.trim().trim_start_matches('#');
-    if trimmed.len() != 6 {
-        return None;
-    }
-    u32::from_str_radix(trimmed, 16).ok()
 }

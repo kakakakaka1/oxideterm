@@ -1,11 +1,13 @@
 use std::path::Path;
 
 use super::{
-    MAX_CATEGORIES, QUICK_COMMANDS_SCHEMA_VERSION, QuickCommand, QuickCommandCategory,
-    QuickCommandCategoryDraft, QuickCommandDraft, QuickCommandImportResult,
-    QuickCommandImportStrategy, QuickCommandsSnapshot, QuickCommandsState,
-    default_quick_command_categories, default_quick_commands, new_quick_category_id,
-    new_quick_command_id, now_ms,
+    QUICK_COMMANDS_SCHEMA_VERSION, QuickCommand, QuickCommandCategoryDraft, QuickCommandDraft,
+    QuickCommandImportResult, QuickCommandImportStrategy, QuickCommandsSnapshot,
+    QuickCommandsState, default_quick_command_categories, default_quick_commands, now_ms,
+};
+use oxideterm_quick_commands::{
+    delete_quick_command, delete_quick_command_category, ensure_active_quick_command_category,
+    upsert_quick_command, upsert_quick_command_category, visible_quick_commands,
 };
 
 impl QuickCommandsState {
@@ -40,122 +42,35 @@ impl QuickCommandsState {
         &self,
         target_fields: &[String],
     ) -> Vec<QuickCommand> {
-        let query = self.query.trim().to_lowercase();
-        self.commands
-            .iter()
-            .filter(|command| command.category == self.active_category)
-            .filter(|command| {
-                match_quick_command_host_pattern(command.host_pattern.as_deref(), target_fields)
-            })
-            .filter(|command| {
-                query.is_empty()
-                    || command.name.to_lowercase().contains(&query)
-                    || command.command.to_lowercase().contains(&query)
-                    || command
-                        .description
-                        .as_deref()
-                        .unwrap_or_default()
-                        .to_lowercase()
-                        .contains(&query)
-            })
-            .cloned()
-            .collect()
+        visible_quick_commands(
+            &self.commands,
+            &self.active_category,
+            &self.query,
+            target_fields,
+        )
     }
 
     pub(super) fn upsert_command(&mut self, draft: QuickCommandDraft) {
-        let now = now_ms();
-        let existing = draft
-            .id
-            .as_ref()
-            .and_then(|id| self.commands.iter().find(|command| &command.id == id));
-        let command = QuickCommand {
-            id: draft.id.unwrap_or_else(new_quick_command_id),
-            name: draft.name.trim().to_string(),
-            command: draft.command.trim().to_string(),
-            category: if self.categories.iter().any(|c| c.id == draft.category) {
-                draft.category
-            } else {
-                "custom".to_string()
-            },
-            description: trim_optional(&draft.description),
-            host_pattern: trim_optional(&draft.host_pattern),
-            created_at: existing.map(|command| command.created_at).unwrap_or(now),
-            updated_at: now,
-        };
-        if command.name.is_empty() || command.command.is_empty() {
-            return;
+        if upsert_quick_command(&mut self.commands, &self.categories, draft, now_ms()) {
+            self.persist();
         }
-        if self
-            .commands
-            .iter()
-            .any(|candidate| candidate.id == command.id)
-        {
-            self.commands = self
-                .commands
-                .iter()
-                .map(|candidate| {
-                    if candidate.id == command.id {
-                        command.clone()
-                    } else {
-                        candidate.clone()
-                    }
-                })
-                .collect();
-        } else {
-            self.commands.push(command);
-        }
-        self.persist();
     }
 
     pub(super) fn delete_command(&mut self, id: &str) {
-        self.commands.retain(|command| command.id != id);
-        self.persist();
+        if delete_quick_command(&mut self.commands, id) {
+            self.persist();
+        }
     }
 
     pub(super) fn upsert_category(&mut self, draft: QuickCommandCategoryDraft) -> String {
-        let category = QuickCommandCategory {
-            id: draft.id.unwrap_or_else(new_quick_category_id),
-            name: draft.name.trim().to_string(),
-            icon: draft.icon,
-        };
-        if category.name.is_empty() {
-            return self.active_category.clone();
-        }
-        if self
-            .categories
-            .iter()
-            .any(|candidate| candidate.id == category.id)
-        {
-            self.categories = self
-                .categories
-                .iter()
-                .map(|candidate| {
-                    if candidate.id == category.id {
-                        category.clone()
-                    } else {
-                        candidate.clone()
-                    }
-                })
-                .collect();
-        } else if self.categories.len() < MAX_CATEGORIES {
-            self.categories.push(category.clone());
-        }
-        self.active_category = category.id.clone();
+        self.active_category =
+            upsert_quick_command_category(&mut self.categories, draft, &self.active_category);
         self.persist();
-        category.id
+        self.active_category.clone()
     }
 
     pub(super) fn delete_category(&mut self, id: &str) -> bool {
-        if default_quick_command_categories()
-            .iter()
-            .any(|category| category.id == id)
-            || self.commands.iter().any(|command| command.category == id)
-        {
-            return false;
-        }
-        let before = self.categories.len();
-        self.categories.retain(|category| category.id != id);
-        if self.categories.len() == before {
+        if !delete_quick_command_category(&mut self.categories, &self.commands, id) {
             return false;
         }
         self.ensure_active_category();
@@ -217,34 +132,18 @@ impl QuickCommandsState {
     }
 
     fn ensure_active_category(&mut self) {
-        if !self
-            .categories
-            .iter()
-            .any(|category| category.id == self.active_category)
-        {
-            self.active_category = self
-                .categories
-                .first()
-                .map(|category| category.id.clone())
-                .unwrap_or_else(|| "custom".to_string());
-        }
+        ensure_active_quick_command_category(&self.categories, &mut self.active_category);
     }
-}
-
-fn trim_optional(value: &str) -> Option<String> {
-    let value = value.trim();
-    (!value.is_empty()).then(|| value.to_string())
 }
 
 #[cfg(test)]
 mod quick_command_tests {
     use super::{
-        QUICK_COMMANDS_SCHEMA_VERSION, QuickCommand, QuickCommandCategory,
-        QuickCommandCategoryDraft, QuickCommandDraft, QuickCommandImportStrategy,
-        QuickCommandsSnapshot, QuickCommandsState, default_quick_command_categories,
-        default_quick_commands, now_ms,
+        QUICK_COMMANDS_SCHEMA_VERSION, QuickCommand, QuickCommandCategoryDraft, QuickCommandDraft,
+        QuickCommandImportStrategy, QuickCommandsSnapshot, QuickCommandsState,
+        default_quick_command_categories, default_quick_commands, now_ms,
     };
-    use crate::workspace::quick_commands::QuickCommandIcon;
+    use crate::workspace::quick_commands::{QuickCommandCategory, QuickCommandIcon};
     use std::fs;
     use std::path::PathBuf;
 
@@ -439,39 +338,4 @@ mod quick_command_tests {
         );
         let _ = fs::remove_dir_all(settings_path.parent().unwrap());
     }
-}
-
-pub(in crate::workspace) fn match_quick_command_host_pattern(
-    pattern: Option<&str>,
-    target_fields: &[String],
-) -> bool {
-    let Some(pattern) = pattern.map(str::trim).filter(|pattern| !pattern.is_empty()) else {
-        return true;
-    };
-    let pattern = pattern.to_lowercase();
-    target_fields.iter().any(|field| {
-        let field = field.to_lowercase();
-        wildcard_match(&pattern, &field)
-    })
-}
-
-fn wildcard_match(pattern: &str, value: &str) -> bool {
-    let parts = pattern.split('*').collect::<Vec<_>>();
-    if parts.len() == 1 {
-        return pattern == value;
-    }
-    let mut cursor = 0;
-    for (index, part) in parts.iter().enumerate() {
-        if part.is_empty() {
-            continue;
-        }
-        let Some(found) = value[cursor..].find(part) else {
-            return false;
-        };
-        if index == 0 && found != 0 {
-            return false;
-        }
-        cursor += found + part.len();
-    }
-    pattern.ends_with('*') || parts.last().is_none_or(|last| value.ends_with(last))
 }

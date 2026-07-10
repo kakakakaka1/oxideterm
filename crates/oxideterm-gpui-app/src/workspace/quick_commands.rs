@@ -1,8 +1,7 @@
 pub(super) use oxideterm_quick_commands::{
-    MAX_CATEGORIES, QUICK_COMMANDS_SCHEMA_VERSION, QuickCommand, QuickCommandCategory,
-    QuickCommandIcon, QuickCommandImportResult, QuickCommandImportStrategy, QuickCommandsSnapshot,
-    default_quick_command_categories, default_quick_commands, new_quick_category_id,
-    new_quick_command_id, now_ms,
+    QUICK_COMMANDS_SCHEMA_VERSION, QuickCommand, QuickCommandCategory, QuickCommandCategoryDraft,
+    QuickCommandDraft, QuickCommandIcon, QuickCommandImportResult, QuickCommandImportStrategy,
+    QuickCommandsSnapshot, default_quick_command_categories, default_quick_commands, now_ms,
 };
 use std::path::PathBuf;
 
@@ -40,23 +39,6 @@ fn quick_command_icon_source_id(icon: QuickCommandIcon) -> &'static str {
 }
 
 #[derive(Clone, Debug)]
-pub(super) struct QuickCommandDraft {
-    pub id: Option<String>,
-    pub name: String,
-    pub command: String,
-    pub category: String,
-    pub description: String,
-    pub host_pattern: String,
-}
-
-#[derive(Clone, Debug)]
-pub(super) struct QuickCommandCategoryDraft {
-    pub id: Option<String>,
-    pub name: String,
-    pub icon: QuickCommandIcon,
-}
-
-#[derive(Clone, Debug)]
 pub(super) struct QuickCommandsState {
     settings_path: PathBuf,
     pub categories: Vec<QuickCommandCategory>,
@@ -80,4 +62,4 @@ mod store;
 #[path = "quick_commands_view.rs"]
 mod view;
 
-pub(in crate::workspace) use store::match_quick_command_host_pattern;
+pub(in crate::workspace) use oxideterm_quick_commands::match_quick_command_host_pattern;

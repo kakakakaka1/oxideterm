@@ -10,9 +10,8 @@ use oxideterm_gpui_ui::{
     },
     text_input::{text_input_anchor_probe, text_input_value_segments},
 };
-use oxideterm_remote_desktop::{
-    RemoteDesktopConnectionProfile, RemoteDesktopEndpoint, RemoteDesktopProtocol,
-};
+use oxideterm_remote_desktop::{RemoteDesktopConnectionProfile, RemoteDesktopProtocol};
+use oxideterm_ssh_launch::{format_user_host_port_target, parse_explicit_user_host_port_target};
 use oxideterm_theme::BUILT_IN_THEMES;
 use std::borrow::Cow;
 
@@ -30,7 +29,6 @@ const COMMAND_PALETTE_ICON_SLOT: f32 = 16.0; // Tauri CommandInput/CommandItem h
 const COMMAND_PALETTE_ITEM_GAP: f32 = 10.0; // Tauri CommandItem gap-2.5.
 const COMMAND_PALETTE_SELECTED_ALPHA: u32 = 0x26; // Tauri accent/15.
 const COMMAND_PALETTE_MODE_BADGE_ALPHA: u32 = 0x33; // Tauri accent/20.
-const QUICK_CONNECT_REQUIRES_AT: char = '@';
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum PaletteSection {
@@ -919,8 +917,8 @@ impl WorkspaceApp {
         if query.is_empty() || query.contains(char::is_whitespace) {
             return None;
         }
-        if let Some(profile) = parse_remote_desktop_quick_connect(query) {
-            let target = format_remote_desktop_quick_connect_target(&profile);
+        if let Some(profile) = RemoteDesktopConnectionProfile::parse_quick_connect(query) {
+            let target = profile.quick_connect_target();
             return Some(PaletteItem {
                 id: format!("quick_remote_desktop:{target}"),
                 label: self.quick_connect_label(&target),
@@ -933,8 +931,8 @@ impl WorkspaceApp {
                 disabled: false,
             });
         }
-        if let Some((username, host, port)) = parse_user_host_port(query) {
-            let target = format!("{username}@{host}:{port}");
+        if let Some((username, host, port)) = parse_explicit_user_host_port_target(query) {
+            let target = format_user_host_port_target(&username, &host, port);
             return Some(PaletteItem {
                 id: "quick_connect".to_string(),
                 label: self.quick_connect_label(&target),
@@ -2136,111 +2134,6 @@ fn subsequence_highlights(label: &str, needle: &str) -> Option<Vec<usize>> {
     None
 }
 
-fn parse_user_host_port(query: &str) -> Option<(String, String, u16)> {
-    let at = query.find(QUICK_CONNECT_REQUIRES_AT)?;
-    let username = query[..at].trim();
-    let rest = query[at + 1..].trim();
-    if username.is_empty() || rest.is_empty() {
-        return None;
-    }
-    let (host, port) = if let Some((host, port)) = rest.rsplit_once(':') {
-        let port = port.parse::<u16>().ok()?;
-        (host, port)
-    } else {
-        (rest, 22)
-    };
-    if host.is_empty() {
-        return None;
-    }
-    Some((username.to_string(), host.to_string(), port))
-}
-
-fn parse_remote_desktop_quick_connect(query: &str) -> Option<RemoteDesktopConnectionProfile> {
-    let (scheme, authority) = query.split_once("://")?;
-    let protocol = match scheme.to_ascii_lowercase().as_str() {
-        "rdp" => RemoteDesktopProtocol::Rdp,
-        "vnc" => RemoteDesktopProtocol::Vnc,
-        _ => return None,
-    };
-    if authority.is_empty()
-        || authority
-            .chars()
-            .any(|ch| matches!(ch, '/' | '?' | '#' | '@'))
-    {
-        return None;
-    }
-    let (host, port) = parse_remote_desktop_authority(authority, protocol.default_port())?;
-    let endpoint = RemoteDesktopEndpoint::new(host, port);
-    let label = format_remote_desktop_endpoint(protocol, &endpoint);
-
-    Some(RemoteDesktopConnectionProfile {
-        id: format!(
-            "quick-{}-{}-{}",
-            protocol.provider_id(),
-            endpoint.host,
-            endpoint.port
-        ),
-        label,
-        protocol,
-        endpoint,
-        username: None,
-        domain: None,
-        credential_ref: None,
-        read_only: false,
-    })
-}
-
-fn parse_remote_desktop_authority(authority: &str, default_port: u16) -> Option<(String, u16)> {
-    let (host, port) = if let Some(rest) = authority.strip_prefix('[') {
-        let end = rest.find(']')?;
-        let host = &rest[..end];
-        let suffix = &rest[end + 1..];
-        let port = if suffix.is_empty() {
-            default_port
-        } else {
-            suffix.strip_prefix(':')?.parse::<u16>().ok()?
-        };
-        (host, port)
-    } else if authority.matches(':').count() > 1 {
-        // Unbracketed IPv6 is only accepted without an explicit port, keeping
-        // the command palette parser deterministic.
-        (authority, default_port)
-    } else if let Some((host, port)) = authority.rsplit_once(':') {
-        (host, port.parse::<u16>().ok()?)
-    } else {
-        (authority, default_port)
-    };
-    if host.is_empty() || port == 0 {
-        return None;
-    }
-    Some((host.to_string(), port))
-}
-
-fn format_remote_desktop_quick_connect_target(profile: &RemoteDesktopConnectionProfile) -> String {
-    format_remote_desktop_endpoint(profile.protocol, &profile.endpoint)
-}
-
-fn format_remote_desktop_endpoint(
-    protocol: RemoteDesktopProtocol,
-    endpoint: &RemoteDesktopEndpoint,
-) -> String {
-    format!(
-        "{}://{}:{}",
-        protocol.provider_id(),
-        format_remote_desktop_host(&endpoint.host),
-        endpoint.port
-    )
-}
-
-fn format_remote_desktop_host(host: &str) -> String {
-    if host.contains(':') && !host.starts_with('[') {
-        // Brackets keep IPv6 labels round-trippable in the quick-connect row.
-        format!("[{host}]")
-    } else {
-        host.to_string()
-    }
-}
-
 fn is_quick_connect_alias_query(query: &str) -> bool {
     !query.is_empty()
         && !query
@@ -2785,15 +2678,15 @@ mod tests {
     #[test]
     fn quick_connect_host_parser_matches_tauri_shape() {
         assert_eq!(
-            parse_user_host_port("root@example.com"),
+            parse_explicit_user_host_port_target("root@example.com"),
             Some(("root".to_string(), "example.com".to_string(), 22))
         );
         assert_eq!(
-            parse_user_host_port("root@example.com:2200"),
+            parse_explicit_user_host_port_target("root@example.com:2200"),
             Some(("root".to_string(), "example.com".to_string(), 2200))
         );
-        assert!(parse_user_host_port("example.com").is_none());
-        assert!(parse_user_host_port("root@example.com:abc").is_none());
+        assert!(parse_explicit_user_host_port_target("example.com").is_none());
+        assert!(parse_explicit_user_host_port_target("root@example.com:abc").is_none());
     }
 
     #[test]
@@ -2807,8 +2700,8 @@ mod tests {
 
     #[test]
     fn remote_desktop_quick_connect_uses_protocol_default_ports() {
-        let vnc = parse_remote_desktop_quick_connect("vnc://example.com").unwrap();
-        let rdp = parse_remote_desktop_quick_connect("rdp://example.com").unwrap();
+        let vnc = RemoteDesktopConnectionProfile::parse_quick_connect("vnc://example.com").unwrap();
+        let rdp = RemoteDesktopConnectionProfile::parse_quick_connect("rdp://example.com").unwrap();
 
         assert_eq!(vnc.protocol, RemoteDesktopProtocol::Vnc);
         assert_eq!(vnc.endpoint.host, "example.com");
@@ -2820,25 +2713,33 @@ mod tests {
 
     #[test]
     fn remote_desktop_quick_connect_accepts_explicit_port_and_ipv6() {
-        let explicit = parse_remote_desktop_quick_connect("vnc://example.com:5901").unwrap();
-        let ipv6 = parse_remote_desktop_quick_connect("vnc://[::1]:5902").unwrap();
+        let explicit =
+            RemoteDesktopConnectionProfile::parse_quick_connect("vnc://example.com:5901").unwrap();
+        let ipv6 = RemoteDesktopConnectionProfile::parse_quick_connect("vnc://[::1]:5902").unwrap();
 
         assert_eq!(explicit.endpoint.port, 5901);
         assert_eq!(ipv6.endpoint.host, "::1");
         assert_eq!(ipv6.endpoint.port, 5902);
-        assert_eq!(
-            format_remote_desktop_quick_connect_target(&ipv6),
-            "vnc://[::1]:5902"
-        );
+        assert_eq!(ipv6.quick_connect_target(), "vnc://[::1]:5902");
     }
 
     #[test]
     fn remote_desktop_quick_connect_rejects_paths_credentials_and_bad_ports() {
-        assert!(parse_remote_desktop_quick_connect("vnc://example.com/screen").is_none());
-        assert!(parse_remote_desktop_quick_connect("vnc://user@example.com").is_none());
-        assert!(parse_remote_desktop_quick_connect("vnc://example.com:0").is_none());
-        assert!(parse_remote_desktop_quick_connect("vnc://example.com:not-a-port").is_none());
-        assert!(parse_remote_desktop_quick_connect("ssh://example.com").is_none());
+        assert!(
+            RemoteDesktopConnectionProfile::parse_quick_connect("vnc://example.com/screen")
+                .is_none()
+        );
+        assert!(
+            RemoteDesktopConnectionProfile::parse_quick_connect("vnc://user@example.com").is_none()
+        );
+        assert!(
+            RemoteDesktopConnectionProfile::parse_quick_connect("vnc://example.com:0").is_none()
+        );
+        assert!(
+            RemoteDesktopConnectionProfile::parse_quick_connect("vnc://example.com:not-a-port")
+                .is_none()
+        );
+        assert!(RemoteDesktopConnectionProfile::parse_quick_connect("ssh://example.com").is_none());
     }
 
     #[test]

@@ -13,6 +13,15 @@ pub enum RemoteDesktopProtocol {
 }
 
 impl RemoteDesktopProtocol {
+    /// Maps a quick-connect URI scheme to a supported protocol.
+    pub fn from_scheme(scheme: &str) -> Option<Self> {
+        match scheme.to_ascii_lowercase().as_str() {
+            "rdp" => Some(Self::Rdp),
+            "vnc" => Some(Self::Vnc),
+            _ => None,
+        }
+    }
+
     pub const fn provider_id(self) -> &'static str {
         match self {
             Self::Rdp => "rdp",
@@ -46,6 +55,51 @@ impl RemoteDesktopEndpoint {
     pub fn for_protocol(host: impl Into<String>, protocol: RemoteDesktopProtocol) -> Self {
         Self::new(host, protocol.default_port())
     }
+
+    /// Parses a host authority without accepting paths, credentials, or fragments.
+    pub fn parse_authority(authority: &str, default_port: u16) -> Option<Self> {
+        if authority.is_empty()
+            || authority.chars().any(|ch| {
+                ch.is_whitespace() || ch.is_control() || matches!(ch, '/' | '?' | '#' | '@')
+            })
+        {
+            return None;
+        }
+
+        let (host, port) = if let Some(rest) = authority.strip_prefix('[') {
+            let end = rest.find(']')?;
+            let host = &rest[..end];
+            let suffix = &rest[end + 1..];
+            let port = if suffix.is_empty() {
+                default_port
+            } else {
+                suffix.strip_prefix(':')?.parse::<u16>().ok()?
+            };
+            (host, port)
+        } else if authority.matches(':').count() > 1 {
+            // An unbracketed IPv6 address cannot carry an unambiguous port.
+            (authority, default_port)
+        } else if let Some((host, port)) = authority.rsplit_once(':') {
+            (host, port.parse::<u16>().ok()?)
+        } else {
+            (authority, default_port)
+        };
+        if host.is_empty() || port == 0 {
+            return None;
+        }
+        Some(Self::new(host, port))
+    }
+
+    /// Formats a host and port with brackets where IPv6 requires them.
+    pub fn format_authority(&self) -> String {
+        let host = if self.host.contains(':') && !self.host.starts_with('[') {
+            // Brackets preserve an IPv6 host/port boundary when rendered as a URI.
+            format!("[{}]", self.host)
+        } else {
+            self.host.clone()
+        };
+        format!("{host}:{}", self.port)
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -59,6 +113,45 @@ pub struct RemoteDesktopConnectionProfile {
     pub domain: Option<String>,
     pub credential_ref: Option<String>,
     pub read_only: bool,
+}
+
+impl RemoteDesktopConnectionProfile {
+    /// Builds an ephemeral connection profile from an RDP or VNC URI.
+    pub fn parse_quick_connect(query: &str) -> Option<Self> {
+        let (scheme, authority) = query.split_once("://")?;
+        let protocol = RemoteDesktopProtocol::from_scheme(scheme)?;
+        let endpoint = RemoteDesktopEndpoint::parse_authority(authority, protocol.default_port())?;
+        let label = format!(
+            "{}://{}",
+            protocol.provider_id(),
+            endpoint.format_authority()
+        );
+
+        Some(Self {
+            id: format!(
+                "quick-{}-{}-{}",
+                protocol.provider_id(),
+                endpoint.host,
+                endpoint.port
+            ),
+            label,
+            protocol,
+            endpoint,
+            username: None,
+            domain: None,
+            credential_ref: None,
+            read_only: false,
+        })
+    }
+
+    /// Formats the canonical quick-connect URI shown by UI adapters.
+    pub fn quick_connect_target(&self) -> String {
+        format!(
+            "{}://{}",
+            self.protocol.provider_id(),
+            self.endpoint.format_authority()
+        )
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -102,6 +195,50 @@ impl RemoteDesktopSessionId {
 impl Default for RemoteDesktopSessionId {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod quick_connect_tests {
+    use super::*;
+
+    #[test]
+    fn quick_connect_uses_protocol_default_ports() {
+        let vnc = RemoteDesktopConnectionProfile::parse_quick_connect("vnc://example.com").unwrap();
+        let rdp = RemoteDesktopConnectionProfile::parse_quick_connect("rdp://example.com").unwrap();
+
+        assert_eq!(vnc.protocol, RemoteDesktopProtocol::Vnc);
+        assert_eq!(
+            vnc.endpoint,
+            RemoteDesktopEndpoint::new("example.com", 5900)
+        );
+        assert_eq!(vnc.label, "vnc://example.com:5900");
+        assert_eq!(rdp.endpoint.port, 3389);
+    }
+
+    #[test]
+    fn quick_connect_accepts_explicit_port_and_ipv6() {
+        let explicit =
+            RemoteDesktopConnectionProfile::parse_quick_connect("vnc://example.com:5901").unwrap();
+        let ipv6 = RemoteDesktopConnectionProfile::parse_quick_connect("vnc://[::1]:5902").unwrap();
+
+        assert_eq!(explicit.endpoint.port, 5901);
+        assert_eq!(ipv6.endpoint, RemoteDesktopEndpoint::new("::1", 5902));
+        assert_eq!(ipv6.quick_connect_target(), "vnc://[::1]:5902");
+    }
+
+    #[test]
+    fn quick_connect_rejects_unsafe_or_ambiguous_authorities() {
+        for query in [
+            "vnc://example.com/screen",
+            "vnc://user@example.com",
+            "vnc://example.com:0",
+            "vnc://example.com:not-a-port",
+            "vnc://example .com",
+            "ssh://example.com",
+        ] {
+            assert!(RemoteDesktopConnectionProfile::parse_quick_connect(query).is_none());
+        }
     }
 }
 

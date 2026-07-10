@@ -17,6 +17,7 @@ mod piece_table;
 mod search;
 mod selection;
 mod types;
+pub mod utf16;
 mod word;
 
 pub use buffer::TextBuffer;

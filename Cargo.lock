@@ -7230,6 +7230,7 @@ dependencies = [
  "oxideterm-connection-monitor",
  "oxideterm-connections",
  "oxideterm-desktop-presence",
+ "oxideterm-editor-core",
  "oxideterm-editor-syntax",
  "oxideterm-environment",
  "oxideterm-forwarding",
