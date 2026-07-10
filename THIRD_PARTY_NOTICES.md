@@ -2,7 +2,7 @@
 
 This file lists third-party Rust crates and detected licenses, including transitive dependencies.
 It is generated from `cargo deny list -f json -l crate`.
-Generated: 2026-07-09T18:49:19.727587Z
+Generated: 2026-07-09T21:02:13.638702Z
 
 ## Summary
 
@@ -712,7 +712,7 @@ This section is a review prompt for binary distribution; it does not replace leg
 | qoi | 0.4.1 | MIT, Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | quantette | 0.5.1 | MIT, Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | quick-error | 2.0.1 | MIT, Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| quick-xml | 0.41.0 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| quick-xml | 0.39.4 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | quote | 1.0.45 | MIT, Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | r-efi | 5.3.0 | MIT, Apache-2.0, LGPL-2.1-or-later | registry+https://github.com/rust-lang/crates.io-index |
 | r-efi | 6.0.0 | MIT, Apache-2.0, LGPL-2.1-or-later | registry+https://github.com/rust-lang/crates.io-index |
@@ -1067,7 +1067,7 @@ This section is a review prompt for binary distribution; it does not replace leg
 | wayland-protocols | 0.31.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | wayland-protocols | 0.32.12 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | wayland-protocols-plasma | 0.2.0 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| wayland-scanner | 0.31.10 | MIT | git+https://github.com/Smithay/wayland-rs.git?rev=d07c4f91f28b42e5a485823ffd9d8d5a210b1053 |
+| wayland-scanner | 0.31.10 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | wayland-sys | 0.31.11 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | web-sys | 0.3.99 | MIT, Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | webpki-roots | 1.0.7 | CDLA-Permissive-2.0 | registry+https://github.com/rust-lang/crates.io-index |

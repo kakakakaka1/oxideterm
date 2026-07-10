@@ -38,6 +38,10 @@ ignore = [
     # from russh, tungstenite, num-bigint, phf_generator; no patch for 0.8.x.
     # OxideTerm has no custom logger impl and uses OsRng directly; not exploitable.
     { id = "RUSTSEC-2026-0097", reason = "rand 0.8 unsound via custom logger; transitive dep, no custom logger in OxideTerm, not exploitable" },
+    # quick-xml is used only by xcb and wayland-scanner build-time code generators
+    # to parse trusted protocol definitions; OxideTerm does not ship these parsers.
+    { id = "RUSTSEC-2026-0194", reason = "quick-xml is build-only in xcb and wayland-scanner; trusted protocol XML only, no runtime parser exposure" },
+    { id = "RUSTSEC-2026-0195", reason = "quick-xml is build-only in xcb and wayland-scanner; trusted protocol XML only, no runtime parser exposure" },
 ]
 
 [licenses]

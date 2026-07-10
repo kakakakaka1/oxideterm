@@ -70,8 +70,6 @@ resolver = "2"
 gpui = { path = "crates/gpui" }
 russh = { path = "crates/russh" }
 russh-sftp = { path = "crates/russh-sftp" }
-# This upstream revision is the unreleased quick-xml 0.41 security update for wayland-scanner.
-wayland-scanner = { git = "https://github.com/Smithay/wayland-rs.git", rev = "d07c4f91f28b42e5a485823ffd9d8d5a210b1053" }
 
 [workspace.package]
 edition = "2024"
