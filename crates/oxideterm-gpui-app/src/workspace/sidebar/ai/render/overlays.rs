@@ -197,21 +197,13 @@ impl WorkspaceApp {
         };
         let mut list = div()
             .id("ai-conversation-dropdown-scroll")
-            .w(px(dropdown_width))
+            .w_full()
             .flex()
             .flex_col()
-            .h(px(dropdown_height))
+            .h_full()
             .selectable_overflow_y_scrollbar(
                 &self.selectable_text_scroll_handle("ai-conversation-dropdown-scroll"),
             )
-            .rounded(px(self.tokens.radii.md))
-            .border_1()
-            .border_color(rgb(self.tokens.ui.border))
-            .bg(rgb(self.tokens.ui.bg_elevated))
-            .shadow_lg()
-            // Tauri uses a rounded `overflow-y-auto` popover; clipping keeps
-            // active row borders/backgrounds inside the rounded dropdown edge.
-            .overflow_hidden()
             // Conversation dropdown mirrors a browser popover list: wheel input
             // stays with the overlay and cannot scroll the message/sidebar body.
             .on_scroll_wheel(|_, _, cx| cx.stop_propagation());
@@ -250,7 +242,19 @@ impl WorkspaceApp {
                 ));
             }
         }
-        list.into_any_element()
+        div()
+            .w(px(dropdown_width))
+            .h(px(dropdown_height))
+            .rounded(px(self.tokens.radii.md))
+            .border_1()
+            .border_color(rgb(self.tokens.ui.border))
+            .bg(rgb(self.tokens.ui.bg_elevated))
+            .shadow_lg()
+            // Keep rounded clipping on a shell separate from the inner scroll
+            // owner; setting overflow-hidden on the scroll owner disables it.
+            .overflow_hidden()
+            .child(list)
+            .into_any_element()
     }
 
     pub(in crate::workspace) fn render_ai_conversation_item(
