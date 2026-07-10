@@ -1,90 +1,106 @@
-fn ai_tool_requires_ui_thread(
+use super::*;
+use sha2::Digest as _;
+
+pub(in crate::workspace) fn ai_tool_requires_ui_thread(
     snapshot: &AiOrchestratorRuntimeSnapshot,
     tool_name: &str,
     args: &serde_json::Value,
 ) -> bool {
-    if matches!(tool_name, "connect_target" | "send_terminal_input" | "open_app_surface" | "remember_preference") {
+    if matches!(
+        tool_name,
+        "connect_target" | "send_terminal_input" | "open_app_surface" | "remember_preference"
+    ) {
         return true;
     }
     if tool_name == "write_resource" {
-        return args
-            .get("resource")
-            .and_then(serde_json::Value::as_str)
-            == Some("settings");
+        return args.get("resource").and_then(serde_json::Value::as_str) == Some("settings");
     }
     if tool_name == "run_command"
         && let Some(target_id) = args.get("target_id").and_then(serde_json::Value::as_str)
     {
-        return snapshot
-            .targets
-            .iter()
-            .any(|target| target.id == target_id && ai_run_command_requires_ui_thread_target(target));
+        return snapshot.targets.iter().any(|target| {
+            target.id == target_id && ai_run_command_requires_ui_thread_target(target)
+        });
     }
     false
 }
 
-fn ai_run_command_requires_ui_thread_target(target: &AiOrchestratorTarget) -> bool {
-    matches!(target.kind.as_str(), "terminal-session" | "ssh-node" | "local-shell")
+pub(in crate::workspace) fn ai_run_command_requires_ui_thread_target(
+    target: &AiOrchestratorTarget,
+) -> bool {
+    matches!(
+        target.kind.as_str(),
+        "terminal-session" | "ssh-node" | "local-shell"
+    )
 }
 
 #[cfg(windows)]
-const AI_LOCAL_COMMAND_CREATE_NO_WINDOW: u32 = 0x08000000;
+pub(in crate::workspace) const AI_LOCAL_COMMAND_CREATE_NO_WINDOW: u32 = 0x08000000;
 
 #[derive(Clone, Debug)]
-struct AiActionResultLite {
-    ok: bool,
-    summary: String,
-    output: String,
-    data: serde_json::Value,
-    error_code: Option<String>,
-    error_message: Option<String>,
-    risk: &'static str,
-    target: Option<AiOrchestratorTarget>,
-    targets: Vec<AiOrchestratorTarget>,
-    next_actions: Vec<serde_json::Value>,
-    observations: Vec<String>,
-    verified: Option<bool>,
-    state_version: Option<String>,
+pub(in crate::workspace) struct AiActionResultLite {
+    pub(in crate::workspace) ok: bool,
+    pub(in crate::workspace) summary: String,
+    pub(in crate::workspace) output: String,
+    pub(in crate::workspace) data: serde_json::Value,
+    pub(in crate::workspace) error_code: Option<String>,
+    pub(in crate::workspace) error_message: Option<String>,
+    pub(in crate::workspace) risk: &'static str,
+    pub(in crate::workspace) target: Option<AiOrchestratorTarget>,
+    pub(in crate::workspace) targets: Vec<AiOrchestratorTarget>,
+    pub(in crate::workspace) next_actions: Vec<serde_json::Value>,
+    pub(in crate::workspace) observations: Vec<String>,
+    pub(in crate::workspace) verified: Option<bool>,
+    pub(in crate::workspace) state_version: Option<String>,
 }
 
 impl AiActionResultLite {
-    fn with_target(mut self, target: AiOrchestratorTarget) -> Self {
+    pub(in crate::workspace) fn with_target(mut self, target: AiOrchestratorTarget) -> Self {
         self.target = Some(target);
         self
     }
 
-    fn with_targets(mut self, targets: Vec<AiOrchestratorTarget>) -> Self {
+    pub(in crate::workspace) fn with_targets(mut self, targets: Vec<AiOrchestratorTarget>) -> Self {
         self.targets = targets;
         self
     }
 
-    fn with_next_actions(mut self, next_actions: Vec<serde_json::Value>) -> Self {
+    pub(in crate::workspace) fn with_next_actions(
+        mut self,
+        next_actions: Vec<serde_json::Value>,
+    ) -> Self {
         self.next_actions = next_actions;
         self
     }
 
-    fn with_verified(mut self, verified: bool) -> Self {
+    pub(in crate::workspace) fn with_verified(mut self, verified: bool) -> Self {
         self.verified = Some(verified);
         self
     }
 
-    fn with_data(mut self, data: serde_json::Value) -> Self {
+    pub(in crate::workspace) fn with_data(mut self, data: serde_json::Value) -> Self {
         self.data = data;
         self
     }
 
-    fn with_optional_target(mut self, target: Option<AiOrchestratorTarget>) -> Self {
+    pub(in crate::workspace) fn with_optional_target(
+        mut self,
+        target: Option<AiOrchestratorTarget>,
+    ) -> Self {
         self.target = target;
         self
     }
 
-    fn with_state_version(mut self, state_version: impl Into<String>) -> Self {
+    pub(in crate::workspace) fn with_state_version(
+        mut self,
+        state_version: impl Into<String>,
+    ) -> Self {
         self.state_version = Some(state_version.into());
         self
     }
 }
 
-async fn run_local_ai_command(
+pub(in crate::workspace) async fn run_local_ai_command(
     command: &str,
     cwd: Option<&str>,
     timeout_secs: u64,
@@ -112,8 +128,11 @@ async fn run_local_ai_command(
             state_version: None,
         };
     }
-    let mut process =
-        tokio::process::Command::new(if cfg!(target_os = "windows") { "cmd" } else { "sh" });
+    let mut process = tokio::process::Command::new(if cfg!(target_os = "windows") {
+        "cmd"
+    } else {
+        "sh"
+    });
     configure_ai_local_command_process(&mut process);
     if cfg!(target_os = "windows") {
         process.arg("/C").arg(command);
@@ -153,8 +172,15 @@ async fn run_local_ai_command(
             let ok = output.status.success() || (exit_code.is_none() && has_output);
             let body = [
                 stdout.to_string(),
-                (!stderr.trim().is_empty()).then(|| format!("[stderr]\n{stderr}")).unwrap_or_default(),
-                format!("[exit_code: {}]", exit_code.map(|code| code.to_string()).unwrap_or_else(|| "unknown".to_string())),
+                (!stderr.trim().is_empty())
+                    .then(|| format!("[stderr]\n{stderr}"))
+                    .unwrap_or_default(),
+                format!(
+                    "[exit_code: {}]",
+                    exit_code
+                        .map(|code| code.to_string())
+                        .unwrap_or_else(|| "unknown".to_string())
+                ),
             ]
             .into_iter()
             .filter(|part| !part.is_empty())
@@ -208,7 +234,9 @@ async fn run_local_ai_command(
         Err(_) => AiActionResultLite {
             ok: false,
             summary: "Local command timed out.".to_string(),
-            output: format!("[stderr]\nCommand timed out after {timeout_secs}s\n[exit_code: unknown]"),
+            output: format!(
+                "[stderr]\nCommand timed out after {timeout_secs}s\n[exit_code: unknown]"
+            ),
             data: serde_json::json!({
                 "exitCode": serde_json::Value::Null,
                 "timedOut": true,
@@ -228,7 +256,9 @@ async fn run_local_ai_command(
     }
 }
 
-fn configure_ai_local_command_process(process: &mut tokio::process::Command) {
+pub(in crate::workspace) fn configure_ai_local_command_process(
+    process: &mut tokio::process::Command,
+) {
     #[cfg(windows)]
     {
         // AI local commands capture stdout/stderr in the app. Hide the bridge
@@ -241,13 +271,16 @@ fn configure_ai_local_command_process(process: &mut tokio::process::Command) {
     }
 }
 
-fn ai_local_exec_timeout_secs(timeout_secs: u64) -> u64 {
+pub(in crate::workspace) fn ai_local_exec_timeout_secs(timeout_secs: u64) -> u64 {
     // Tauri's local_exec_command caps the backend timeout at 60 seconds even if
     // a caller bypasses the tool schema bounds.
     timeout_secs.min(60)
 }
 
-fn ai_memory_settings_json(enabled: bool, content: &str) -> serde_json::Value {
+pub(in crate::workspace) fn ai_memory_settings_json(
+    enabled: bool,
+    content: &str,
+) -> serde_json::Value {
     // Tauri recall_preferences returns settings.ai.memory verbatim, including
     // the enabled flag even when the content is empty.
     serde_json::json!({
@@ -256,30 +289,33 @@ fn ai_memory_settings_json(enabled: bool, content: &str) -> serde_json::Value {
     })
 }
 
-fn ai_memory_content(memory: &serde_json::Value) -> &str {
+pub(in crate::workspace) fn ai_memory_content(memory: &serde_json::Value) -> &str {
     memory
         .get("content")
         .and_then(serde_json::Value::as_str)
         .unwrap_or_default()
 }
 
-fn ai_memory_trimmed_content(memory: &serde_json::Value) -> &str {
+pub(in crate::workspace) fn ai_memory_trimmed_content(memory: &serde_json::Value) -> &str {
     ai_memory_content(memory).trim()
 }
 
-fn ai_tool_verified_default(ok: bool, error_message: Option<&str>) -> bool {
+pub(in crate::workspace) fn ai_tool_verified_default(
+    ok: bool,
+    error_message: Option<&str>,
+) -> bool {
     // Tauri marks an implicit result as verified only when it succeeded and did
     // not carry an error object.
     ok && error_message.is_none()
 }
 
-fn ai_run_command_preflight_risk() -> &'static str {
+pub(in crate::workspace) fn ai_run_command_preflight_risk() -> &'static str {
     // Tauri validates run_command target readiness and command text before the
     // terminal capability switches the action risk to interactive.
     "execute"
 }
 
-fn truncate_ai_local_exec_output(value: &str) -> String {
+pub(in crate::workspace) fn truncate_ai_local_exec_output(value: &str) -> String {
     const MAX_BYTES: usize = 64 * 1024;
     if value.len() <= MAX_BYTES {
         return value.to_string();
@@ -293,11 +329,11 @@ fn truncate_ai_local_exec_output(value: &str) -> String {
     format!("{}...(truncated)", &value[..end])
 }
 
-fn ai_shell_single_quote(value: &str) -> String {
+pub(in crate::workspace) fn ai_shell_single_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
-fn ai_command_with_cwd(command: &str, cwd: Option<&str>) -> String {
+pub(in crate::workspace) fn ai_command_with_cwd(command: &str, cwd: Option<&str>) -> String {
     match cwd.filter(|value| !value.trim().is_empty()) {
         Some("~") => format!("cd ~ && {command}"),
         Some(cwd) => {
@@ -312,7 +348,7 @@ fn ai_command_with_cwd(command: &str, cwd: Option<&str>) -> String {
     }
 }
 
-fn ai_target_is_local_terminal(target: &AiOrchestratorTarget) -> bool {
+pub(in crate::workspace) fn ai_target_is_local_terminal(target: &AiOrchestratorTarget) -> bool {
     target
         .metadata
         .get("terminalType")
@@ -320,7 +356,7 @@ fn ai_target_is_local_terminal(target: &AiOrchestratorTarget) -> bool {
         == Some("local_terminal")
 }
 
-fn local_terminal_run_target(
+pub(in crate::workspace) fn local_terminal_run_target(
     snapshot: &AiOrchestratorRuntimeSnapshot,
 ) -> Option<AiOrchestratorTarget> {
     let active_tab_id = snapshot.active_tab_id.as_deref();
@@ -346,24 +382,33 @@ fn local_terminal_run_target(
         .cloned()
 }
 
-fn target_in_ai_view(target: &AiOrchestratorTarget, view: &str) -> bool {
+pub(in crate::workspace) fn target_in_ai_view(target: &AiOrchestratorTarget, view: &str) -> bool {
     match view {
         "connections" => matches!(target.kind.as_str(), "saved-connection" | "ssh-node"),
         "live_sessions" => {
             matches!(target.kind.as_str(), "terminal-session" | "sftp-session")
                 || (target.kind == "ssh-node" && target.state == "connected")
         }
-        "app_surfaces" => matches!(target.kind.as_str(), "settings" | "app-surface" | "local-shell" | "rag-index"),
+        "app_surfaces" => matches!(
+            target.kind.as_str(),
+            "settings" | "app-surface" | "local-shell" | "rag-index"
+        ),
         "files" => {
-            matches!(target.kind.as_str(), "sftp-session" | "ide-workspace" | "rag-index")
-                || (target.kind == "ssh-node" && target.capabilities.iter().any(|capability| capability.starts_with("filesystem.")))
+            matches!(
+                target.kind.as_str(),
+                "sftp-session" | "ide-workspace" | "rag-index"
+            ) || (target.kind == "ssh-node"
+                && target
+                    .capabilities
+                    .iter()
+                    .any(|capability| capability.starts_with("filesystem.")))
         }
         "all" => true,
         _ => true,
     }
 }
 
-fn normalized_ai_target_view(view: Option<&str>) -> &'static str {
+pub(in crate::workspace) fn normalized_ai_target_view(view: Option<&str>) -> &'static str {
     match view {
         Some("connections") => "connections",
         Some("live_sessions") => "live_sessions",
@@ -374,7 +419,10 @@ fn normalized_ai_target_view(view: Option<&str>) -> &'static str {
     }
 }
 
-fn target_matches_ai_query(target: &AiOrchestratorTarget, query: &str) -> bool {
+pub(in crate::workspace) fn target_matches_ai_query(
+    target: &AiOrchestratorTarget,
+    query: &str,
+) -> bool {
     if query.is_empty() {
         return true;
     }
@@ -400,12 +448,12 @@ fn target_matches_ai_query(target: &AiOrchestratorTarget, query: &str) -> bool {
     haystack.contains(query)
 }
 
-fn normalized_ai_query(query: Option<&str>) -> String {
+pub(in crate::workspace) fn normalized_ai_query(query: Option<&str>) -> String {
     // Tauri trims discovery queries before filtering targets.
     query.unwrap_or("").trim().to_lowercase()
 }
 
-fn ai_js_query_string(value: &serde_json::Value) -> String {
+pub(in crate::workspace) fn ai_js_query_string(value: &serde_json::Value) -> String {
     match value {
         serde_json::Value::Null => String::new(),
         serde_json::Value::Bool(value) => value.to_string(),
@@ -421,14 +469,16 @@ fn ai_js_query_string(value: &serde_json::Value) -> String {
     }
 }
 
-fn target_requires_live_state(target: &AiOrchestratorTarget) -> bool {
+pub(in crate::workspace) fn target_requires_live_state(target: &AiOrchestratorTarget) -> bool {
     matches!(
         target.kind.as_str(),
         "ssh-node" | "terminal-session" | "sftp-session"
     )
 }
 
-fn recovery_actions_for_target(target: &AiOrchestratorTarget) -> Vec<serde_json::Value> {
+pub(in crate::workspace) fn recovery_actions_for_target(
+    target: &AiOrchestratorTarget,
+) -> Vec<serde_json::Value> {
     match target.kind.as_str() {
         "saved-connection" | "ssh-node" => vec![serde_json::json!({
             "action": "connect_target",
@@ -453,7 +503,7 @@ fn recovery_actions_for_target(target: &AiOrchestratorTarget) -> Vec<serde_json:
     }
 }
 
-fn ai_ssh_reconnect_failed_next_actions() -> Vec<serde_json::Value> {
+pub(in crate::workspace) fn ai_ssh_reconnect_failed_next_actions() -> Vec<serde_json::Value> {
     // Tauri returns this specific recovery hint when connect_target cannot
     // reconnect a stale ssh-node target.
     vec![serde_json::json!({
@@ -462,7 +512,7 @@ fn ai_ssh_reconnect_failed_next_actions() -> Vec<serde_json::Value> {
     })]
 }
 
-fn view_for_ai_intent(intent: &str) -> &'static str {
+pub(in crate::workspace) fn view_for_ai_intent(intent: &str) -> &'static str {
     match intent {
         "command" | "terminal" => "live_sessions",
         "settings" | "app_surface" | "local" => "app_surfaces",
@@ -471,7 +521,7 @@ fn view_for_ai_intent(intent: &str) -> &'static str {
     }
 }
 
-fn target_matches_active_context(
+pub(in crate::workspace) fn target_matches_active_context(
     target: &AiOrchestratorTarget,
     active_tab_id: Option<&str>,
     active_node_id: Option<&str>,
@@ -491,7 +541,7 @@ fn target_matches_active_context(
             .is_some_and(|node_id| Some(node_id.as_str()) == active_node_id)
 }
 
-fn normalized_ai_intent(intent: Option<&str>) -> Option<&'static str> {
+pub(in crate::workspace) fn normalized_ai_intent(intent: Option<&str>) -> Option<&'static str> {
     match intent {
         Some("connection") => Some("connection"),
         Some("command") => Some("command"),
@@ -508,7 +558,9 @@ fn normalized_ai_intent(intent: Option<&str>) -> Option<&'static str> {
     }
 }
 
-fn normalized_ai_select_target_kind(kind: Option<&str>) -> Option<&'static str> {
+pub(in crate::workspace) fn normalized_ai_select_target_kind(
+    kind: Option<&str>,
+) -> Option<&'static str> {
     match kind {
         Some("all") => Some("all"),
         Some("saved-connection") => Some("saved-connection"),
@@ -524,7 +576,7 @@ fn normalized_ai_select_target_kind(kind: Option<&str>) -> Option<&'static str> 
     }
 }
 
-fn normalized_ai_resource_kind(resource: Option<&str>) -> &'static str {
+pub(in crate::workspace) fn normalized_ai_resource_kind(resource: Option<&str>) -> &'static str {
     match resource {
         Some("settings") => "settings",
         Some("file") => "file",
@@ -536,7 +588,7 @@ fn normalized_ai_resource_kind(resource: Option<&str>) -> &'static str {
     }
 }
 
-fn ai_rag_query_arg(args: &serde_json::Value) -> &str {
+pub(in crate::workspace) fn ai_rag_query_arg(args: &serde_json::Value) -> &str {
     // Tauri uses `options.query ?? options.path ?? ''` for RAG reads and does
     // not trim the selected string before passing it to ragSearch.
     args.get("query")
@@ -545,7 +597,7 @@ fn ai_rag_query_arg(args: &serde_json::Value) -> &str {
         .unwrap_or("")
 }
 
-fn is_ai_command_like_query(query: &str) -> bool {
+pub(in crate::workspace) fn is_ai_command_like_query(query: &str) -> bool {
     let trimmed = query.trim();
     if trimmed.is_empty() {
         return false;
@@ -560,9 +612,35 @@ fn is_ai_command_like_query(query: &str) -> bool {
         first_word
     };
     let command_words = [
-        "pwd", "ls", "cd", "cat", "tail", "head", "grep", "find", "ps", "top", "htop", "df",
-        "du", "free", "whoami", "id", "uname", "docker", "kubectl", "systemctl", "journalctl",
-        "git", "npm", "pnpm", "yarn", "cargo", "python", "node", "ssh",
+        "pwd",
+        "ls",
+        "cd",
+        "cat",
+        "tail",
+        "head",
+        "grep",
+        "find",
+        "ps",
+        "top",
+        "htop",
+        "df",
+        "du",
+        "free",
+        "whoami",
+        "id",
+        "uname",
+        "docker",
+        "kubectl",
+        "systemctl",
+        "journalctl",
+        "git",
+        "npm",
+        "pnpm",
+        "yarn",
+        "cargo",
+        "python",
+        "node",
+        "ssh",
     ];
     command_words.contains(&first)
         || trimmed.contains(';')
@@ -580,7 +658,7 @@ fn is_ai_command_like_query(query: &str) -> bool {
         })
 }
 
-fn target_json(target: &AiOrchestratorTarget) -> serde_json::Value {
+pub(in crate::workspace) fn target_json(target: &AiOrchestratorTarget) -> serde_json::Value {
     serde_json::json!({
         "id": target.id,
         "kind": target.kind,
@@ -592,7 +670,9 @@ fn target_json(target: &AiOrchestratorTarget) -> serde_json::Value {
     })
 }
 
-fn tool_result_target_json(target: &AiOrchestratorTarget) -> serde_json::Value {
+pub(in crate::workspace) fn tool_result_target_json(
+    target: &AiOrchestratorTarget,
+) -> serde_json::Value {
     let mut metadata = serde_json::Map::new();
     metadata.insert("state".to_string(), serde_json::json!(target.state));
     metadata.insert(
@@ -613,7 +693,9 @@ fn tool_result_target_json(target: &AiOrchestratorTarget) -> serde_json::Value {
     })
 }
 
-fn compact_ai_target_json(target: &AiOrchestratorTarget) -> serde_json::Value {
+pub(in crate::workspace) fn compact_ai_target_json(
+    target: &AiOrchestratorTarget,
+) -> serde_json::Value {
     serde_json::json!({
         "id": target.id,
         "kind": target.kind,
@@ -624,7 +706,7 @@ fn compact_ai_target_json(target: &AiOrchestratorTarget) -> serde_json::Value {
     })
 }
 
-fn ai_targets_state(
+pub(in crate::workspace) fn ai_targets_state(
     targets: &[AiOrchestratorTarget],
     runtime_epoch: &str,
 ) -> serde_json::Value {
@@ -651,7 +733,7 @@ fn ai_targets_state(
     })
 }
 
-fn ai_connections_state(
+pub(in crate::workspace) fn ai_connections_state(
     targets: &[AiOrchestratorTarget],
     runtime_epoch: &str,
 ) -> serde_json::Value {
@@ -679,7 +761,9 @@ fn ai_connections_state(
     })
 }
 
-fn ai_background_transfer_state_label(state: BackgroundTransferState) -> &'static str {
+pub(in crate::workspace) fn ai_background_transfer_state_label(
+    state: BackgroundTransferState,
+) -> &'static str {
     match state {
         BackgroundTransferState::Pending => "pending",
         BackgroundTransferState::Active => "active",
@@ -690,7 +774,7 @@ fn ai_background_transfer_state_label(state: BackgroundTransferState) -> &'stati
     }
 }
 
-fn ai_transfers_state(
+pub(in crate::workspace) fn ai_transfers_state(
     manager: &SftpTransferManager,
     runtime_epoch: &str,
 ) -> serde_json::Value {
@@ -755,11 +839,13 @@ fn ai_transfers_state(
     })
 }
 
-fn ai_health_state(snapshot: &AiOrchestratorRuntimeSnapshot) -> serde_json::Value {
+pub(in crate::workspace) fn ai_health_state(
+    snapshot: &AiOrchestratorRuntimeSnapshot,
+) -> serde_json::Value {
     snapshot.health_state.clone()
 }
 
-fn risk_to_capability(risk: &str) -> Option<&'static str> {
+pub(in crate::workspace) fn risk_to_capability(risk: &str) -> Option<&'static str> {
     match risk {
         "read" => Some("state.list"),
         "write" => Some("filesystem.write"),
@@ -769,7 +855,7 @@ fn risk_to_capability(risk: &str) -> Option<&'static str> {
     }
 }
 
-fn trim_tail_chars(value: &str, max_chars: usize) -> String {
+pub(in crate::workspace) fn trim_tail_chars(value: &str, max_chars: usize) -> String {
     if value.chars().count() <= max_chars {
         return value.to_string();
     }
@@ -781,11 +867,11 @@ fn trim_tail_chars(value: &str, max_chars: usize) -> String {
     )
 }
 
-fn ai_short_id(value: &str) -> String {
+pub(in crate::workspace) fn ai_short_id(value: &str) -> String {
     value.chars().take(8).collect()
 }
 
-fn truncate_for_model(value: String, max_chars: usize) -> String {
+pub(in crate::workspace) fn truncate_for_model(value: String, max_chars: usize) -> String {
     let char_count = value.chars().count();
     if char_count <= max_chars {
         return value;
@@ -797,7 +883,7 @@ fn truncate_for_model(value: String, max_chars: usize) -> String {
     )
 }
 
-fn ai_line_count(value: &str) -> usize {
+pub(in crate::workspace) fn ai_line_count(value: &str) -> usize {
     if value.is_empty() {
         0
     } else {
@@ -805,7 +891,7 @@ fn ai_line_count(value: &str) -> usize {
     }
 }
 
-fn ai_head_tail_preview(value: &str, max_chars: usize) -> String {
+pub(in crate::workspace) fn ai_head_tail_preview(value: &str, max_chars: usize) -> String {
     let char_count = value.chars().count();
     if char_count <= max_chars {
         return value.to_string();
@@ -830,7 +916,9 @@ fn ai_head_tail_preview(value: &str, max_chars: usize) -> String {
     format!("{head}{marker}{tail}")
 }
 
-fn prepare_ai_tool_output(value: &str) -> (String, Option<String>, serde_json::Value, bool) {
+pub(in crate::workspace) fn prepare_ai_tool_output(
+    value: &str,
+) -> (String, Option<String>, serde_json::Value, bool) {
     const FULL_OUTPUT_MAX_CHARS: usize = 24 * 1024;
     const RAW_OUTPUT_PERSIST_MAX_CHARS: usize = 256 * 1024;
     const MODEL_OUTPUT_PREVIEW_MAX_CHARS: usize = 12_000;
@@ -867,7 +955,9 @@ fn prepare_ai_tool_output(value: &str) -> (String, Option<String>, serde_json::V
     )
 }
 
-fn ai_next_action_json(action: &serde_json::Value) -> Option<serde_json::Value> {
+pub(in crate::workspace) fn ai_next_action_json(
+    action: &serde_json::Value,
+) -> Option<serde_json::Value> {
     let action_name = action.get("action").and_then(serde_json::Value::as_str)?;
     let reason = action
         .get("reason")
@@ -883,7 +973,7 @@ fn ai_next_action_json(action: &serde_json::Value) -> Option<serde_json::Value> 
     Some(serde_json::Value::Object(mapped))
 }
 
-fn ai_hash_text_content(content: &str, encoding: &str) -> String {
+pub(in crate::workspace) fn ai_hash_text_content(content: &str, encoding: &str) -> String {
     let mut hasher = sha2::Sha256::new();
     hasher.update(encoding.as_bytes());
     hasher.update([0]);
@@ -891,7 +981,7 @@ fn ai_hash_text_content(content: &str, encoding: &str) -> String {
     format!("sha256:{:x}", hasher.finalize())
 }
 
-fn ai_remote_directory_prefixes(path: &str) -> Vec<String> {
+pub(in crate::workspace) fn ai_remote_directory_prefixes(path: &str) -> Vec<String> {
     let absolute = path.starts_with('/');
     path.split('/')
         .filter(|part| !part.is_empty())
@@ -907,7 +997,7 @@ fn ai_remote_directory_prefixes(path: &str) -> Vec<String> {
         .collect()
 }
 
-fn ai_transfer_name(local_path: &str, remote_path: &str) -> String {
+pub(in crate::workspace) fn ai_transfer_name(local_path: &str, remote_path: &str) -> String {
     std::path::Path::new(local_path)
         .file_name()
         .or_else(|| std::path::Path::new(remote_path).file_name())

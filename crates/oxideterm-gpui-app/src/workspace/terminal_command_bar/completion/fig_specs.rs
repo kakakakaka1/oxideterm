@@ -1,5 +1,6 @@
-pub(in crate::workspace) const TERMINAL_COMMAND_SPECS_FILENAME: &str =
-    "terminal-command-specs.json";
+use super::*;
+
+const TERMINAL_COMMAND_SPECS_FILENAME: &str = "terminal-command-specs.json";
 
 #[derive(Clone)]
 struct TerminalFigUserSpecCache {
@@ -173,7 +174,7 @@ fn terminal_fig_arg_type_value(arg_type: TerminalFigArgType) -> &'static str {
 }
 
 impl WorkspaceApp {
-    pub(in crate::workspace) fn terminal_fig_specs(&self) -> Vec<TerminalFigSpec> {
+    pub(super) fn terminal_fig_specs(&self) -> Vec<TerminalFigSpec> {
         let mut specs = built_in_terminal_fig_specs();
         for custom in load_user_terminal_fig_specs(self.settings_store.path()) {
             if let Some(existing) = specs.iter_mut().find(|spec| spec.name == custom.name) {
@@ -1092,7 +1093,7 @@ pub(in crate::workspace) fn built_in_terminal_fig_specs() -> Vec<TerminalFigSpec
     ]
 }
 
-fn should_run_terminal_path_provider(
+pub(super) fn should_run_terminal_path_provider(
     token: &TerminalShellToken,
     active_arg_type: TerminalFigArgType,
 ) -> bool {
@@ -1111,7 +1112,7 @@ fn looks_terminal_path_like(token: &str) -> bool {
         || token.contains('/')
 }
 
-fn normalize_terminal_path_token(
+pub(super) fn normalize_terminal_path_token(
     token: &TerminalShellToken,
     cwd: Option<&str>,
 ) -> Option<TerminalPathParts> {
@@ -1158,7 +1159,7 @@ fn infer_terminal_home_from_cwd(cwd: &str) -> Option<String> {
     cwd.starts_with("/root").then(|| "/root".to_string())
 }
 
-fn escape_terminal_path_for_shell(value: &str, quoted: bool) -> String {
+pub(super) fn escape_terminal_path_for_shell(value: &str, quoted: bool) -> String {
     let special = if quoted {
         "\"\\$`"
     } else {
@@ -1174,7 +1175,7 @@ fn escape_terminal_path_for_shell(value: &str, quoted: bool) -> String {
     escaped
 }
 
-fn load_local_shell_history_commands() -> Vec<String> {
+pub(super) fn load_local_shell_history_commands() -> Vec<String> {
     let Some(home) = std::env::var_os("HOME") else {
         return Vec::new();
     };
@@ -1273,11 +1274,11 @@ fn parse_terminal_history_file(path: &str, content: &str) -> Vec<String> {
         .collect()
 }
 
-fn normalize_terminal_autosuggest_command(command: &str) -> String {
+pub(super) fn normalize_terminal_autosuggest_command(command: &str) -> String {
     command.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-fn terminal_autosuggest_fuzzy_score(command: &str, query: &str) -> f64 {
+pub(super) fn terminal_autosuggest_fuzzy_score(command: &str, query: &str) -> f64 {
     if query.is_empty() {
         return 0.0;
     }
@@ -1312,7 +1313,7 @@ fn terminal_autosuggest_fuzzy_score(command: &str, query: &str) -> f64 {
     }
 }
 
-fn is_likely_secret_terminal_command(command: &str) -> bool {
+pub(super) fn is_likely_secret_terminal_command(command: &str) -> bool {
     let normalized = command.trim();
     if normalized.is_empty() {
         return false;
@@ -1359,7 +1360,7 @@ fn has_terminal_password_flag(command: &str) -> bool {
     false
 }
 
-fn terminal_command_bar_now_ms() -> i64 {
+pub(super) fn terminal_command_bar_now_ms() -> i64 {
     SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .map(|duration| duration.as_millis() as i64)
@@ -1368,7 +1369,11 @@ fn terminal_command_bar_now_ms() -> i64 {
 
 #[cfg(test)]
 mod terminal_fig_registry_tests {
-    use super::*;
+    use super::{
+        TerminalFigArgType, TerminalFigSpec, TerminalFigSpecConfigRoot,
+        built_in_terminal_fig_specs, load_local_shell_history_commands_from_home,
+        parse_terminal_history_file, terminal_command_specs_editor_initial_json,
+    };
 
     #[test]
     fn built_in_terminal_fig_specs_cover_common_tools() {
@@ -1418,10 +1423,8 @@ mod terminal_fig_registry_tests {
 
     #[test]
     fn local_shell_history_parses_tauri_history_formats() {
-        let commands = parse_terminal_history_file(
-            ".zsh_history",
-            ": 1700000000:0;git status\ncargo test\n",
-        );
+        let commands =
+            parse_terminal_history_file(".zsh_history", ": 1700000000:0;git status\ncargo test\n");
         assert_eq!(commands, vec!["git status", "cargo test"]);
 
         let fish = parse_terminal_history_file(

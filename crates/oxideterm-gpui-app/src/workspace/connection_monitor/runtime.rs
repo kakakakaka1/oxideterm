@@ -1,10 +1,12 @@
+use super::*;
+
 const RUNTIME_HEADER_PADDING_X: f32 = 24.0;
 const RUNTIME_HEADER_PADDING_Y: f32 = 14.0;
 const RUNTIME_SECTION_BUTTON_HEIGHT: f32 = 30.0;
 const RUNTIME_CONTENT_PADDING: f32 = 24.0;
 
 impl WorkspaceApp {
-    pub(super) fn render_connection_runtime_surface(
+    pub(in crate::workspace) fn render_connection_runtime_surface(
         &mut self,
         cx: &mut Context<Self>,
     ) -> AnyElement {

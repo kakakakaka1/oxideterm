@@ -10,23 +10,16 @@ const MANAGED_SSH_KEY_SECRET_FILE_FORMAT: &str = "oxideterm.managed-ssh-key-secr
 const MANAGED_SSH_KEY_SECRET_FILE_VERSION: u32 = 1;
 const MANAGED_SSH_KEY_SECRET_FILE_ALGORITHM: &str = "chacha20poly1305";
 const MANAGED_SSH_KEY_SECRET_NONCE_LEN: usize = 12;
-const MAX_ATOMIC_TEMP_ATTEMPTS: usize = 128;
 
 use std::{
-    ffi::OsString,
-    fs::OpenOptions,
-    io::{self, Write},
-    sync::{
-        Mutex, OnceLock,
-        atomic::{AtomicU64, Ordering},
-    },
+    io,
+    sync::{Mutex, OnceLock},
 };
 
 use chacha20poly1305::KeyInit as _;
 
 type ConfigEncryptionKey = zeroize::Zeroizing<[u8; CONFIG_ENCRYPTION_KEY_LEN]>;
 static CONFIG_ENCRYPTION_KEY_CACHE: OnceLock<Mutex<Option<ConfigEncryptionKey>>> = OnceLock::new();
-static ATOMIC_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[cfg(test)]
 thread_local! {
@@ -263,112 +256,7 @@ fn write_managed_ssh_key_secret_file(
 }
 
 fn atomic_write_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    let parent = path
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."));
-    let file_name = path.file_name().ok_or_else(|| {
-        io::Error::new(io::ErrorKind::InvalidInput, "atomic write path has no file name")
-    })?;
-    let (temp_path, mut temp_file) = (0..MAX_ATOMIC_TEMP_ATTEMPTS)
-        .find_map(|_| {
-            let sequence = ATOMIC_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-            let mut temp_name = OsString::from(".");
-            temp_name.push(file_name);
-            temp_name.push(format!(".{}.{sequence}.tmp", std::process::id()));
-            let temp_path = parent.join(temp_name);
-            match OpenOptions::new()
-                .create_new(true)
-                .write(true)
-                .open(&temp_path)
-            {
-                Ok(file) => Some(Ok((temp_path, file))),
-                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => None,
-                Err(error) => Some(Err(error)),
-            }
-        })
-        .transpose()?
-        .ok_or_else(|| io::Error::new(io::ErrorKind::AlreadyExists, "atomic temp path exhausted"))?;
-
-    // Secret-bearing stores commit only after the complete temp file is durable.
-    let write_result = (|| {
-        temp_file.write_all(bytes)?;
-        temp_file.flush()?;
-        temp_file.sync_all()?;
-        drop(temp_file);
-        fail_before_atomic_replace_for_tests()?;
-        atomic_replace_file(&temp_path, path)?;
-        sync_directory(parent)
-    })();
-    if write_result.is_err() {
-        let _ = fs::remove_file(&temp_path);
-    }
-    write_result
-}
-
-#[cfg(unix)]
-fn sync_directory(directory: &Path) -> io::Result<()> {
-    fs::File::open(directory)?.sync_all()
-}
-
-#[cfg(windows)]
-fn sync_directory(directory: &Path) -> io::Result<()> {
-    use std::{ffi::c_void, os::windows::ffi::OsStrExt};
-
-    const GENERIC_WRITE: u32 = 0x4000_0000;
-    const FILE_SHARE_READ: u32 = 0x0000_0001;
-    const FILE_SHARE_WRITE: u32 = 0x0000_0002;
-    const FILE_SHARE_DELETE: u32 = 0x0000_0004;
-    const OPEN_EXISTING: u32 = 3;
-    const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
-    const INVALID_HANDLE_VALUE: *mut c_void = -1isize as *mut c_void;
-
-    #[link(name = "Kernel32")]
-    unsafe extern "system" {
-        fn CreateFileW(
-            file_name: *const u16,
-            desired_access: u32,
-            share_mode: u32,
-            security_attributes: *mut c_void,
-            creation_disposition: u32,
-            flags_and_attributes: u32,
-            template_file: *mut c_void,
-        ) -> *mut c_void;
-        fn FlushFileBuffers(file: *mut c_void) -> i32;
-        fn CloseHandle(object: *mut c_void) -> i32;
-    }
-
-    let wide_path = directory
-        .as_os_str()
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect::<Vec<_>>();
-    // FILE_FLAG_BACKUP_SEMANTICS is required to open a directory handle.
-    let handle = unsafe {
-        CreateFileW(
-            wide_path.as_ptr(),
-            GENERIC_WRITE,
-            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-            std::ptr::null_mut(),
-            OPEN_EXISTING,
-            FILE_FLAG_BACKUP_SEMANTICS,
-            std::ptr::null_mut(),
-        )
-    };
-    if handle == INVALID_HANDLE_VALUE {
-        return Err(io::Error::last_os_error());
-    }
-
-    let flush_result = unsafe { FlushFileBuffers(handle) };
-    let flush_error = (flush_result == 0).then(io::Error::last_os_error);
-    let close_result = unsafe { CloseHandle(handle) };
-    if let Some(error) = flush_error {
-        return Err(error);
-    }
-    if close_result == 0 {
-        return Err(io::Error::last_os_error());
-    }
-    Ok(())
+    durable_write_with_before_replace(path, bytes, fail_before_atomic_replace_for_tests)
 }
 
 #[cfg(test)]
@@ -392,47 +280,6 @@ fn inject_atomic_replace_failure() {
     FAIL_NEXT_ATOMIC_REPLACE.with(|fail| fail.set(true));
 }
 
-#[cfg(not(windows))]
-fn atomic_replace_file(source: &Path, destination: &Path) -> io::Result<()> {
-    fs::rename(source, destination)
-}
-
-#[cfg(windows)]
-fn atomic_replace_file(source: &Path, destination: &Path) -> io::Result<()> {
-    use std::os::windows::ffi::OsStrExt;
-
-    const MOVEFILE_REPLACE_EXISTING: u32 = 0x1;
-    const MOVEFILE_WRITE_THROUGH: u32 = 0x8;
-
-    #[link(name = "Kernel32")]
-    unsafe extern "system" {
-        fn MoveFileExW(existing: *const u16, replacement: *const u16, flags: u32) -> i32;
-    }
-
-    let source = source
-        .as_os_str()
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect::<Vec<_>>();
-    let destination = destination
-        .as_os_str()
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect::<Vec<_>>();
-    let replaced = unsafe {
-        MoveFileExW(
-            source.as_ptr(),
-            destination.as_ptr(),
-            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
-        )
-    };
-    if replaced == 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
-}
-
 fn read_managed_ssh_key_secret_file(
     data_dir: &Path,
     secret_id: &str,
@@ -447,13 +294,7 @@ fn read_managed_ssh_key_secret_file(
 
 fn delete_managed_ssh_key_secret_file(data_dir: &Path, secret_id: &str) -> Result<()> {
     let path = managed_ssh_key_secret_file_path(data_dir, secret_id)?;
-    match fs::remove_file(&path) {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(error) => {
-            Err(error).with_context(|| format!("failed to delete {}", path.display()))
-        }
-    }
+    durable_remove(&path).with_context(|| format!("failed to delete {}", path.display()))
 }
 
 fn is_encrypted_connections_document(document: &serde_json::Value) -> bool {

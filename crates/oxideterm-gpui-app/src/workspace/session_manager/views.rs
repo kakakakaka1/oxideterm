@@ -1,5 +1,7 @@
+use super::*;
+
 #[derive(Clone)]
-enum SessionManagerDisplayItem {
+pub(super) enum SessionManagerDisplayItem {
     Connection(ConnectionInfo),
     Serial(SerialProfile),
     Telnet(TelnetProfile),
@@ -8,7 +10,7 @@ enum SessionManagerDisplayItem {
 }
 
 impl SessionManagerDisplayItem {
-    fn id(&self) -> &str {
+    pub(super) fn id(&self) -> &str {
         match self {
             Self::Connection(connection) => &connection.id,
             Self::Serial(profile) => &profile.id,
@@ -18,7 +20,7 @@ impl SessionManagerDisplayItem {
         }
     }
 
-    fn name(&self) -> &str {
+    pub(super) fn name(&self) -> &str {
         match self {
             Self::Connection(connection) => &connection.name,
             Self::Serial(profile) => &profile.name,
@@ -28,7 +30,7 @@ impl SessionManagerDisplayItem {
         }
     }
 
-    fn group(&self) -> Option<&str> {
+    pub(super) fn group(&self) -> Option<&str> {
         match self {
             Self::Connection(connection) => connection.group.as_deref(),
             Self::Serial(profile) => profile.group.as_deref(),
@@ -38,7 +40,7 @@ impl SessionManagerDisplayItem {
         }
     }
 
-    fn last_used(&self) -> Option<String> {
+    pub(super) fn last_used(&self) -> Option<String> {
         match self {
             Self::Connection(connection) => connection.last_used_at.clone(),
             Self::Serial(profile) => profile.last_used_at.map(|time| time.to_rfc3339()),
@@ -48,7 +50,7 @@ impl SessionManagerDisplayItem {
         }
     }
 
-    fn host(&self) -> &str {
+    pub(super) fn host(&self) -> &str {
         match self {
             Self::Connection(connection) => &connection.host,
             Self::Serial(profile) => &profile.port_path,
@@ -58,7 +60,7 @@ impl SessionManagerDisplayItem {
         }
     }
 
-    fn port_sort_key(&self) -> u32 {
+    pub(super) fn port_sort_key(&self) -> u32 {
         match self {
             Self::Connection(connection) => u32::from(connection.port),
             Self::Serial(profile) => profile.baud_rate,
@@ -68,14 +70,14 @@ impl SessionManagerDisplayItem {
         }
     }
 
-    fn username(&self) -> &str {
+    pub(super) fn username(&self) -> &str {
         match self {
             Self::Connection(connection) => &connection.username,
             Self::Serial(_) | Self::Telnet(_) | Self::RawTcp(_) | Self::RawUdp(_) => "",
         }
     }
 
-    fn auth_sort_key(&self) -> String {
+    pub(super) fn auth_sort_key(&self) -> String {
         match self {
             Self::Connection(connection) => auth_label(connection.auth_type).to_lowercase(),
             Self::Serial(_) => "serial".to_string(),
@@ -85,16 +87,22 @@ impl SessionManagerDisplayItem {
         }
     }
 
-    fn subtitle(&self) -> String {
+    pub(super) fn subtitle(&self) -> String {
         match self {
             Self::Connection(connection) => {
-                format!("{}@{}:{}", connection.username, connection.host, connection.port)
+                format!(
+                    "{}@{}:{}",
+                    connection.username, connection.host, connection.port
+                )
             }
             Self::Serial(profile) => format!("{} · {}", profile.port_path, profile.baud_rate),
             Self::Telnet(profile) => format!("{}:{}", profile.host, profile.port),
             Self::RawTcp(profile) => {
                 let endpoint = format!("{}:{}", profile.host, profile.port);
-                if matches!(profile.tls_mode, oxideterm_connections::RawTcpTlsMode::Enabled) {
+                if matches!(
+                    profile.tls_mode,
+                    oxideterm_connections::RawTcpTlsMode::Enabled
+                ) {
                     format!("{endpoint} · TLS")
                 } else {
                     endpoint
@@ -114,7 +122,7 @@ impl SessionManagerDisplayItem {
         }
     }
 
-    fn search_text(&self) -> String {
+    pub(super) fn search_text(&self) -> String {
         match self {
             Self::Connection(connection) => format!(
                 "{}\n{}\n{}\n{}\n{}\n{}",
@@ -146,7 +154,10 @@ impl SessionManagerDisplayItem {
                 profile.port,
                 profile.group.as_deref().unwrap_or_default(),
                 profile.tls_server_name.as_deref().unwrap_or_default(),
-                if matches!(profile.tls_mode, oxideterm_connections::RawTcpTlsMode::Enabled) {
+                if matches!(
+                    profile.tls_mode,
+                    oxideterm_connections::RawTcpTlsMode::Enabled
+                ) {
                     "tls"
                 } else {
                     "tcp"
@@ -164,7 +175,7 @@ impl SessionManagerDisplayItem {
         }
     }
 
-    fn icon(&self) -> LucideIcon {
+    pub(super) fn icon(&self) -> LucideIcon {
         match self {
             Self::Connection(connection) => {
                 session_icons::session_icon_from_id(connection.icon.as_deref())
@@ -179,7 +190,7 @@ impl SessionManagerDisplayItem {
 }
 
 impl WorkspaceApp {
-    fn session_manager_display_items(&self) -> Vec<SessionManagerDisplayItem> {
+    pub(super) fn session_manager_display_items(&self) -> Vec<SessionManagerDisplayItem> {
         let query = self.session_manager.search_query.trim().to_lowercase();
         let mut items = self
             .connection_store
@@ -222,7 +233,10 @@ impl WorkspaceApp {
         items
     }
 
-    fn sort_session_manager_display_items(&self, items: &mut [SessionManagerDisplayItem]) {
+    pub(super) fn sort_session_manager_display_items(
+        &self,
+        items: &mut [SessionManagerDisplayItem],
+    ) {
         let field = self.session_manager.sort_field;
         let direction = self.session_manager.sort_direction;
         // Sort once at the display-model boundary so grid/list/tree cannot
@@ -247,14 +261,16 @@ impl WorkspaceApp {
         });
     }
 
-    fn render_session_manager_view_content(
+    pub(super) fn render_session_manager_view_content(
         &mut self,
         has_background: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let items = self.session_manager_display_items();
         if items.is_empty() {
-            return self.render_session_manager_empty_view(has_background).into_any_element();
+            return self
+                .render_session_manager_empty_view(has_background)
+                .into_any_element();
         }
         match self.session_manager.view_mode {
             SessionManagerViewMode::Grid => {
@@ -269,7 +285,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn render_session_manager_empty_view(&self, has_background: bool) -> Div {
+    pub(super) fn render_session_manager_empty_view(&self, has_background: bool) -> Div {
         let theme = self.tokens.ui;
         div()
             .size_full()
@@ -301,7 +317,7 @@ impl WorkspaceApp {
             )
     }
 
-    fn render_session_manager_grid_view(
+    pub(super) fn render_session_manager_grid_view(
         &self,
         items: Vec<SessionManagerDisplayItem>,
         has_background: bool,
@@ -352,11 +368,7 @@ impl WorkspaceApp {
         }
 
         let ungrouped_items = direct_session_items_for_group(&items, None);
-        let host_items = if has_groups {
-            ungrouped_items
-        } else {
-            items
-        };
+        let host_items = if has_groups { ungrouped_items } else { items };
         if host_items.is_empty() {
             return content.child(sections).into_any_element();
         }
@@ -371,7 +383,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_session_manager_grid_section(
+    pub(super) fn render_session_manager_grid_section(
         &self,
         title: String,
         items: Vec<SessionManagerDisplayItem>,
@@ -387,7 +399,7 @@ impl WorkspaceApp {
             .child(cards)
     }
 
-    fn render_session_manager_section_header(&self, title: String, count: usize) -> Div {
+    pub(super) fn render_session_manager_section_header(&self, title: String, count: usize) -> Div {
         div()
             .flex()
             .flex_col()
@@ -413,7 +425,7 @@ impl WorkspaceApp {
             )
     }
 
-    fn render_session_manager_item_card(
+    pub(super) fn render_session_manager_item_card(
         &self,
         item: SessionManagerDisplayItem,
         has_background: bool,
@@ -487,7 +499,7 @@ impl WorkspaceApp {
             .child(self.render_session_manager_display_item_actions(item, has_background, cx))
     }
 
-    fn render_session_manager_list_view(
+    pub(super) fn render_session_manager_list_view(
         &self,
         items: Vec<SessionManagerDisplayItem>,
         has_background: bool,
@@ -528,7 +540,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_session_manager_tree_view(
+    pub(super) fn render_session_manager_tree_view(
         &mut self,
         items: Vec<SessionManagerDisplayItem>,
         has_background: bool,
@@ -568,7 +580,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_session_manager_view_actions(
+    pub(super) fn render_session_manager_view_actions(
         &self,
         include_tree_controls: bool,
         has_background: bool,
@@ -644,7 +656,7 @@ impl WorkspaceApp {
         ))
     }
 
-    fn render_tree_mode_action_button(
+    pub(super) fn render_tree_mode_action_button(
         &self,
         icon: LucideIcon,
         label: String,
@@ -674,7 +686,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn render_session_manager_tree_group(
+    pub(super) fn render_session_manager_tree_group(
         &mut self,
         group: &str,
         depth: usize,
@@ -761,18 +773,19 @@ impl WorkspaceApp {
                 ));
             }
             for item in group_items {
-                group_container = group_container.child(self.render_session_manager_display_item_row(
-                    item,
-                    depth + 1,
-                    has_background,
-                    cx,
-                ));
+                group_container =
+                    group_container.child(self.render_session_manager_display_item_row(
+                        item,
+                        depth + 1,
+                        has_background,
+                        cx,
+                    ));
             }
         }
         group_container
     }
 
-    fn render_session_manager_display_item_row(
+    pub(super) fn render_session_manager_display_item_row(
         &self,
         item: SessionManagerDisplayItem,
         depth: usize,
@@ -852,7 +865,11 @@ impl WorkspaceApp {
             .child(self.render_session_manager_display_item_actions(item, has_background, cx))
     }
 
-    fn render_session_manager_item_icon(&self, item: &SessionManagerDisplayItem, text: u32) -> Div {
+    pub(super) fn render_session_manager_item_icon(
+        &self,
+        item: &SessionManagerDisplayItem,
+        text: u32,
+    ) -> Div {
         let bg = match item {
             SessionManagerDisplayItem::Connection(connection) => connection
                 .color
@@ -887,12 +904,13 @@ impl WorkspaceApp {
             .justify_center()
             .bg(bg)
             .child(Self::render_lucide_icon(item.icon(), 20.0, fg))
-            .when(matches!(item, SessionManagerDisplayItem::Connection(_)), |icon| {
-                icon.border_1().border_color(rgba((text << 8) | 0x1a))
-            })
+            .when(
+                matches!(item, SessionManagerDisplayItem::Connection(_)),
+                |icon| icon.border_1().border_color(rgba((text << 8) | 0x1a)),
+            )
     }
 
-    fn render_session_manager_display_item_actions(
+    pub(super) fn render_session_manager_display_item_actions(
         &self,
         item: SessionManagerDisplayItem,
         has_background: bool,
@@ -1127,7 +1145,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn render_session_manager_menu_action(
+    pub(super) fn render_session_manager_menu_action(
         &self,
         item: gpui::Div,
         disabled: bool,
@@ -1154,7 +1172,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn render_row_icon_button(
+    pub(super) fn render_row_icon_button(
         &self,
         icon: LucideIcon,
         size: f32,
@@ -1177,7 +1195,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn open_session_manager_display_item(
+    pub(super) fn open_session_manager_display_item(
         &mut self,
         item: SessionManagerDisplayItem,
         window: &mut Window,
@@ -1203,15 +1221,17 @@ impl WorkspaceApp {
     }
 }
 
-fn compare_lower(left: &str, right: &str) -> std::cmp::Ordering {
+pub(super) fn compare_lower(left: &str, right: &str) -> std::cmp::Ordering {
     left.to_lowercase().cmp(&right.to_lowercase())
 }
 
-fn compare_option_lower(left: Option<&str>, right: Option<&str>) -> std::cmp::Ordering {
+pub(super) fn compare_option_lower(left: Option<&str>, right: Option<&str>) -> std::cmp::Ordering {
     compare_lower(left.unwrap_or_default(), right.unwrap_or_default())
 }
 
-fn recent_session_items(items: &[SessionManagerDisplayItem]) -> Vec<SessionManagerDisplayItem> {
+pub(super) fn recent_session_items(
+    items: &[SessionManagerDisplayItem],
+) -> Vec<SessionManagerDisplayItem> {
     let mut recent = items
         .iter()
         .filter(|item| item.last_used().is_some())
@@ -1222,7 +1242,7 @@ fn recent_session_items(items: &[SessionManagerDisplayItem]) -> Vec<SessionManag
     recent
 }
 
-fn direct_session_items_for_group(
+pub(super) fn direct_session_items_for_group(
     items: &[SessionManagerDisplayItem],
     group: Option<&str>,
 ) -> Vec<SessionManagerDisplayItem> {
@@ -1237,7 +1257,7 @@ fn direct_session_items_for_group(
         .collect()
 }
 
-fn session_items_for_group_subtree(
+pub(super) fn session_items_for_group_subtree(
     items: &[SessionManagerDisplayItem],
     group: &str,
 ) -> Vec<SessionManagerDisplayItem> {
@@ -1245,18 +1265,19 @@ fn session_items_for_group_subtree(
     items
         .iter()
         .filter(|item| {
-            item.group()
-                .is_some_and(|item_group| item_group == group || item_group.starts_with(&child_prefix))
+            item.group().is_some_and(|item_group| {
+                item_group == group || item_group.starts_with(&child_prefix)
+            })
         })
         .cloned()
         .collect()
 }
 
-fn group_display_name(group: &str) -> String {
+pub(super) fn group_display_name(group: &str) -> String {
     group.rsplit('/').next().unwrap_or(group).to_string()
 }
 
-fn collect_session_group_paths(
+pub(super) fn collect_session_group_paths(
     roots: &[String],
     children: &HashMap<String, Vec<String>>,
     output: &mut HashSet<String>,

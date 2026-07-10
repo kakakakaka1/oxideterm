@@ -1,12 +1,14 @@
 impl WorkspaceApp {
-    fn persist_ai_assistant_turn_end(
+    pub(in crate::workspace) fn persist_ai_assistant_turn_end(
         &self,
         conversation_id: &str,
         message_id: &str,
         status: &str,
     ) {
         let Some(message) = self
-            .ai_chat
+            .ai
+            .chat
+            .conversation_state
             .conversations
             .iter()
             .find(|conversation| conversation.id == conversation_id)
@@ -25,9 +27,7 @@ impl WorkspaceApp {
             .and_then(|turn| turn.get("parts"))
             .cloned()
             .unwrap_or_else(|| serde_json::json!([]));
-        let has_parts = parts
-            .as_array()
-            .is_some_and(|parts| !parts.is_empty());
+        let has_parts = parts.as_array().is_some_and(|parts| !parts.is_empty());
         let tool_round_count = message
             .turn
             .as_ref()
@@ -41,17 +41,17 @@ impl WorkspaceApp {
         let mut entries = Vec::new();
         if has_parts {
             entries.push(ai_transcript_entry(
-                    format!("transcript-assistant-parts-{message_id}"),
-                    conversation_id,
-                    "assistant_part",
-                    serde_json::json!({
-                        "parts": parts,
-                        "completeTurnParts": true,
-                    }),
-                    Some(message_id.to_string()),
-                    Some(message_id.to_string()),
-                    now,
-                ));
+                format!("transcript-assistant-parts-{message_id}"),
+                conversation_id,
+                "assistant_part",
+                serde_json::json!({
+                    "parts": parts,
+                    "completeTurnParts": true,
+                }),
+                Some(message_id.to_string()),
+                Some(message_id.to_string()),
+                now,
+            ));
         }
         entries.push(ai_transcript_entry(
             format!("transcript-assistant-end-{message_id}"),
@@ -70,7 +70,7 @@ impl WorkspaceApp {
         self.persist_ai_transcript_entries(conversation_id.to_string(), entries);
     }
 
-    fn persist_ai_removed_assistant_turn_end(
+    pub(in crate::workspace) fn persist_ai_removed_assistant_turn_end(
         &self,
         conversation_id: &str,
         message_id: &str,
@@ -97,7 +97,7 @@ impl WorkspaceApp {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn persist_ai_assistant_round(
+    pub(in crate::workspace) fn persist_ai_assistant_round(
         &self,
         conversation_id: &str,
         message_id: &str,
@@ -152,7 +152,7 @@ impl WorkspaceApp {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn persist_ai_summary_created(
+    pub(in crate::workspace) fn persist_ai_summary_created(
         &self,
         conversation_id: &str,
         message_id: &str,

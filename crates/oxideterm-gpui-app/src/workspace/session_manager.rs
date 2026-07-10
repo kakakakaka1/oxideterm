@@ -598,21 +598,42 @@ impl std::fmt::Debug for OxideExportDialogState {
     }
 }
 
-include!("session_manager/surface.rs");
-include!("session_manager/tree.rs");
-include!("session_manager/views.rs");
-include!("session_manager/controls.rs");
-include!("session_manager/dialogs.rs");
-include!("session_manager/oxide_dialog_common.rs");
-include!("session_manager/oxide_import_dialogs.rs");
-include!("session_manager/oxide_import_preview_dialogs.rs");
-include!("session_manager/oxide_import_result_dialogs.rs");
-include!("session_manager/oxide_export_dialogs.rs");
-include!("session_manager/oxide_export_selection_dialogs.rs");
-include!("session_manager/oxide_export_summary_dialogs.rs");
-include!("session_manager/oxide_dialog_helpers.rs");
-include!("session_manager/actions.rs");
-include!("session_manager/oxide_actions.rs");
-include!("session_manager/helpers.rs");
-include!("session_manager/auto_route.rs");
-include!("session_manager/tests.rs");
+// Keep the manager split by UI surface and behavior while preserving one workspace boundary.
+mod actions;
+mod auto_route;
+mod controls;
+mod dialogs;
+mod helpers;
+mod oxide_actions;
+mod oxide_dialog_common;
+mod oxide_dialog_helpers;
+mod oxide_export_dialogs;
+mod oxide_export_selection_dialogs;
+mod oxide_export_summary_dialogs;
+mod oxide_import_dialogs;
+mod oxide_import_preview_dialogs;
+mod oxide_import_result_dialogs;
+mod surface;
+mod tree;
+mod views;
+
+// Recreate the former flat include scope without exposing internal helpers to the workspace.
+#[allow(unused_imports)]
+use self::{
+    actions::*, auto_route::*, controls::*, dialogs::*, helpers::*, oxide_actions::*,
+    oxide_dialog_common::*, oxide_dialog_helpers::*, oxide_export_dialogs::*,
+    oxide_export_selection_dialogs::*, oxide_export_summary_dialogs::*, oxide_import_dialogs::*,
+    oxide_import_preview_dialogs::*, oxide_import_result_dialogs::*, surface::*, tree::*, views::*,
+};
+
+// Preserve the workspace-facing session manager API at its original visibility.
+pub(in crate::workspace) use self::{
+    auto_route::AutoRouteModalState,
+    helpers::{
+        duplicate_connection_template_name, form_from_saved_connection, save_request_from_form,
+        save_request_from_form_with_existing_auth, upstream_proxy_config_from_form,
+    },
+};
+
+#[cfg(test)]
+mod tests;

@@ -1,3 +1,5 @@
+use super::*;
+
 #[derive(Clone, Debug)]
 pub(in crate::workspace) enum NativeUpdateUiState {
     Idle,
@@ -84,7 +86,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn download_native_update(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn download_native_update(&mut self, cx: &mut Context<Self>) {
         let package = match &self.native_update_state {
             NativeUpdateUiState::Available(package) => package.clone(),
             _ => return,
@@ -124,7 +126,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn install_native_update(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn install_native_update(&mut self, cx: &mut Context<Self>) {
         let download = match &self.native_update_state {
             NativeUpdateUiState::Downloaded(download) => download.clone(),
             _ => return,
@@ -175,7 +177,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn cancel_native_update(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn cancel_native_update(&mut self, cx: &mut Context<Self>) {
         if let Some(cancel) = self.native_update_cancel.as_ref() {
             cancel.store(true, Ordering::Relaxed);
         }
@@ -184,7 +186,10 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn schedule_native_update_delivery_poll(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn schedule_native_update_delivery_poll(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) {
         if self.native_update_polling {
             return;
         }
@@ -206,7 +211,7 @@ impl WorkspaceApp {
         .detach();
     }
 
-    fn poll_native_update_delivery(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn poll_native_update_delivery(&mut self, cx: &mut Context<Self>) {
         let Some(rx) = self.native_update_rx.as_ref() else {
             self.native_update_polling = false;
             return;
@@ -236,7 +241,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn handle_native_update_delivery(
+    pub(in crate::workspace) fn handle_native_update_delivery(
         &mut self,
         delivery: NativeUpdateDelivery,
         cx: &mut Context<Self>,
@@ -299,7 +304,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn schedule_native_update_quit(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn schedule_native_update_quit(&mut self, cx: &mut Context<Self>) {
         // Tauri's updater exits after platform installers that need the current
         // process out of the way. Delay one frame so the final toast/state can
         // render before GPUI begins app shutdown.
@@ -310,7 +315,7 @@ impl WorkspaceApp {
         .detach();
     }
 
-    fn native_update_download_directory(&self) -> std::path::PathBuf {
+    pub(in crate::workspace) fn native_update_download_directory(&self) -> std::path::PathBuf {
         self.settings_store
             .path()
             .parent()
@@ -318,7 +323,7 @@ impl WorkspaceApp {
             .unwrap_or_else(|| std::path::PathBuf::from("updates"))
     }
 
-    fn native_update_is_portable(&self) -> bool {
+    pub(in crate::workspace) fn native_update_is_portable(&self) -> bool {
         // The portable runtime marker is the persisted source of truth. The
         // cached snapshot avoids repeating filesystem detection when available.
         self.portable_status_snapshot

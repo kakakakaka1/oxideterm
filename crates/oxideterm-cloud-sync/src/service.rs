@@ -744,7 +744,7 @@ mod tests {
         let mut target = ConnectionStore::load(&target_path).unwrap();
         let forwarding_registry = ForwardingRegistry::new();
         let settings_path = temp_path("profile-rollback", "settings.json");
-        let mut settings_store = SettingsStore::load_from_path(&settings_path, None).unwrap();
+        let mut settings_store = SettingsStore::load_from_path(&settings_path).unwrap();
         let profiles = SerialProfilesSyncSnapshot {
             revision: "profile-revision".to_string(),
             exported_at: chrono::Utc::now().to_rfc3339(),
@@ -778,7 +778,7 @@ mod tests {
         let mut target = ConnectionStore::load(target_path).unwrap();
         let forwarding_registry = ForwardingRegistry::new();
         let settings_path = temp_path("settings-rollback", "settings.json");
-        let mut settings_store = SettingsStore::load_from_path(&settings_path, None).unwrap();
+        let mut settings_store = SettingsStore::load_from_path(&settings_path).unwrap();
         settings_store.save().unwrap();
         let previous_settings = settings_store.settings().clone();
         let mut incoming_settings = previous_settings.clone();
@@ -811,7 +811,7 @@ mod tests {
         assert_eq!(settings_store.settings(), &previous_settings);
         assert!(!quick_commands_path.exists());
         assert_eq!(
-            SettingsStore::load_from_path(&settings_path, None)
+            SettingsStore::load_from_path(&settings_path)
                 .unwrap()
                 .settings(),
             &previous_settings
@@ -824,7 +824,7 @@ mod tests {
         let mut target = ConnectionStore::load(target_path).unwrap();
         let forwarding_registry = ForwardingRegistry::new();
         let settings_path = temp_path("plugin-rollback", "settings.json");
-        let mut settings_store = SettingsStore::load_from_path(&settings_path, None).unwrap();
+        let mut settings_store = SettingsStore::load_from_path(&settings_path).unwrap();
         let plugin_settings_path = plugin_settings::plugin_settings_path(&settings_path);
         assert!(!plugin_settings_path.exists());
         let incoming = vec![EncryptedPluginSetting {

@@ -1,5 +1,7 @@
+use super::*;
+
 impl WorkspaceApp {
-    fn terminal_command_quick_command_suggestions(
+    pub(super) fn terminal_command_quick_command_suggestions(
         &self,
         input: &str,
         context: &TerminalCommandContext,
@@ -50,14 +52,14 @@ impl WorkspaceApp {
     }
 }
 
-fn terminal_cwd_looks_remote(cwd: &str) -> bool {
+pub(super) fn terminal_cwd_looks_remote(cwd: &str) -> bool {
     cwd.starts_with("/home/")
         || cwd.starts_with("/root/")
         || cwd.starts_with("/srv/")
         || cwd.starts_with("/var/www/")
 }
 
-fn infer_terminal_ssh_identity_from_buffer(buffer: &str) -> Option<String> {
+pub(super) fn infer_terminal_ssh_identity_from_buffer(buffer: &str) -> Option<String> {
     let tail_start = buffer
         .char_indices()
         .rev()
@@ -95,7 +97,10 @@ fn terminal_ssh_identity_candidate(token: &str) -> Option<String> {
         return None;
     }
     let mut host_chars = host.chars();
-    if !host_chars.next().is_some_and(|ch| ch.is_ascii_alphanumeric()) {
+    if !host_chars
+        .next()
+        .is_some_and(|ch| ch.is_ascii_alphanumeric())
+    {
         return None;
     }
     if !host_chars.all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '-')) {
@@ -106,7 +111,10 @@ fn terminal_ssh_identity_candidate(token: &str) -> Option<String> {
 
 #[cfg(test)]
 mod terminal_quick_command_provider_tests {
-    use super::*;
+    use super::{
+        infer_terminal_ssh_identity_from_buffer, terminal_cwd_looks_remote,
+        terminal_ssh_identity_candidate,
+    };
 
     #[test]
     fn infers_last_ssh_identity_from_terminal_buffer() {
@@ -121,7 +129,10 @@ mod terminal_quick_command_provider_tests {
 
     #[test]
     fn rejects_secret_like_or_malformed_identity_tokens() {
-        assert_eq!(terminal_ssh_identity_candidate("token@example.com=abc"), None);
+        assert_eq!(
+            terminal_ssh_identity_candidate("token@example.com=abc"),
+            None
+        );
         assert_eq!(terminal_ssh_identity_candidate("@example.com:~$"), None);
         assert_eq!(
             terminal_ssh_identity_candidate("user@example.com:~$"),

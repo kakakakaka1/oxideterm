@@ -435,7 +435,7 @@ impl WorkspaceApp {
                             .bottom_0()
                             .child(pane),
                     )
-                    .when(active && self.ai_inline_panel.open, |pane_frame| {
+                    .when(active && self.ai.chat.inline_panel.open, |pane_frame| {
                         pane_frame.child(self.render_terminal_ai_inline_panel(cx))
                     })
                     .when(active && has_split_panes, |pane_frame| {

@@ -6,7 +6,7 @@ pub(crate) struct SftpNativeVideoSurface {
 }
 
 impl SftpNativeVideoSurface {
-    pub(super) fn sync(
+    pub(in crate::workspace::sftp) fn sync(
         &mut self,
         _path: &str,
         _bounds: Bounds<Pixels>,
@@ -27,7 +27,7 @@ impl SftpNativeVideoSurface {
     }
 
     #[allow(dead_code)]
-    pub(super) fn snapshot(&self) -> PlatformVideoSnapshot {
+    pub(in crate::workspace::sftp) fn snapshot(&self) -> PlatformVideoSnapshot {
         self.snapshot.clone().unwrap_or(PlatformVideoSnapshot {
             state: PlatformVideoState::Unavailable,
             position: Duration::ZERO,
@@ -37,7 +37,7 @@ impl SftpNativeVideoSurface {
         })
     }
 
-    pub(super) fn detach(&mut self) {}
+    pub(in crate::workspace::sftp) fn detach(&mut self) {}
 }
 
 #[cfg(target_os = "windows")]

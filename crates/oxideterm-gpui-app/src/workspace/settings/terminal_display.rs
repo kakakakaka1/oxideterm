@@ -1,5 +1,10 @@
+use super::*;
+
 impl WorkspaceApp {
-    fn terminal_preview(&self, settings: &PersistedSettings) -> AnyElement {
+    pub(in crate::workspace) fn terminal_preview(
+        &self,
+        settings: &PersistedSettings,
+    ) -> AnyElement {
         let family = settings
             .terminal
             .font_family

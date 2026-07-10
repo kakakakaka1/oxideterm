@@ -1,5 +1,8 @@
 impl WorkspaceApp {
-    fn ai_active_model_context_window(&self, config: &AiChatStreamConfig) -> usize {
+    pub(in crate::workspace) fn ai_active_model_context_window(
+        &self,
+        config: &AiChatStreamConfig,
+    ) -> usize {
         let settings = self.settings_store.settings();
         config
             .provider_id

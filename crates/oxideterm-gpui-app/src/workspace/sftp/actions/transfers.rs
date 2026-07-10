@@ -1,5 +1,7 @@
+use super::*;
+
 impl WorkspaceApp {
-    fn spawn_sftp_incomplete_load(&mut self, node_id: NodeId) {
+    pub(in crate::workspace::sftp) fn spawn_sftp_incomplete_load(&mut self, node_id: NodeId) {
         if self.sftp_view.incomplete_load_inflight {
             return;
         }
@@ -24,7 +26,10 @@ impl WorkspaceApp {
         });
     }
 
-    fn spawn_sftp_background_transfer_load(&mut self, node_id: NodeId) {
+    pub(in crate::workspace::sftp) fn spawn_sftp_background_transfer_load(
+        &mut self,
+        node_id: NodeId,
+    ) {
         let manager = self.sftp_transfer_manager.clone();
         let tx = self.sftp_worker_tx.clone();
         let runtime = self.forwarding_runtime.clone();
@@ -37,7 +42,10 @@ impl WorkspaceApp {
         });
     }
 
-    fn resume_sftp_incomplete_transfer(&mut self, transfer_id: String) {
+    pub(in crate::workspace::sftp) fn resume_sftp_incomplete_transfer(
+        &mut self,
+        transfer_id: String,
+    ) {
         let Some(tab_id) = self.main_window_tabs.active_tab_id else {
             return;
         };
@@ -92,7 +100,11 @@ impl WorkspaceApp {
             transfer_id: transfer_id.clone(),
             batch_id: None,
             node_id: node_id.clone(),
-            name: if is_directory { format!("{name}/") } else { name },
+            name: if is_directory {
+                format!("{name}/")
+            } else {
+                name
+            },
             local_path: local_path.clone(),
             remote_path: remote_path.clone(),
             direction,
@@ -114,7 +126,7 @@ impl WorkspaceApp {
         );
     }
 
-    pub(super) fn request_sftp_transfer_resume_for_node(
+    pub(in crate::workspace) fn request_sftp_transfer_resume_for_node(
         &self,
         node_id: NodeId,
         transfer_id: String,
@@ -134,9 +146,7 @@ impl WorkspaceApp {
                 .await
                 .map_err(|error| error.to_string())
                 .and_then(|progress| {
-                    progress.ok_or_else(|| {
-                        "Transfer not found in progress store".to_string()
-                    })
+                    progress.ok_or_else(|| "Transfer not found in progress store".to_string())
                 });
             let _ = tx.send(SftpWorkerResult::ResumeIncompleteTransferLoaded {
                 node_id,
@@ -146,7 +156,7 @@ impl WorkspaceApp {
         });
     }
 
-    fn queue_sftp_resume_transfer_for_node(
+    pub(in crate::workspace::sftp) fn queue_sftp_resume_transfer_for_node(
         &mut self,
         node_id: NodeId,
         progress: StoredTransferProgress,
@@ -195,7 +205,11 @@ impl WorkspaceApp {
                 transfer_id: progress.transfer_id.clone(),
                 batch_id: None,
                 node_id: node_id.clone(),
-                name: if is_directory { format!("{name}/") } else { name },
+                name: if is_directory {
+                    format!("{name}/")
+                } else {
+                    name
+                },
                 local_path: local_path.clone(),
                 remote_path: remote_path.clone(),
                 direction,
@@ -224,7 +238,7 @@ impl WorkspaceApp {
         true
     }
 
-    fn spawn_sftp_transfer_task(
+    pub(in crate::workspace::sftp) fn spawn_sftp_transfer_task(
         &self,
         id: u64,
         transfer_id: String,
@@ -747,7 +761,11 @@ impl WorkspaceApp {
         });
     }
 
-    fn set_sftp_transfer_state(&mut self, id: u64, state: SftpTransferState) {
+    pub(in crate::workspace::sftp) fn set_sftp_transfer_state(
+        &mut self,
+        id: u64,
+        state: SftpTransferState,
+    ) {
         let transfer_id = self
             .sftp_view
             .transfers
@@ -793,7 +811,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn cancel_or_remove_sftp_transfer(&mut self, id: u64) {
+    pub(in crate::workspace::sftp) fn cancel_or_remove_sftp_transfer(&mut self, id: u64) {
         if let Some(index) = self
             .sftp_view
             .transfers
@@ -814,7 +832,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn upsert_sftp_background_transfer_snapshot(
+    pub(in crate::workspace::sftp) fn upsert_sftp_background_transfer_snapshot(
         &mut self,
         snapshot: BackgroundTransferSnapshot,
     ) {
@@ -867,7 +885,7 @@ impl WorkspaceApp {
         });
     }
 
-    pub(super) fn interrupt_sftp_transfers_by_node(
+    pub(in crate::workspace) fn interrupt_sftp_transfers_by_node(
         &mut self,
         node_id: &NodeId,
         error: String,

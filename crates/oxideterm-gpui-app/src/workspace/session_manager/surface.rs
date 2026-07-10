@@ -1,5 +1,7 @@
+use super::*;
+
 impl WorkspaceApp {
-    pub(super) fn handle_session_manager_basic_dialog_footer_key(
+    pub(in crate::workspace) fn handle_session_manager_basic_dialog_footer_key(
         &mut self,
         event: &KeyDownEvent,
         cx: &mut Context<Self>,
@@ -47,14 +49,18 @@ impl WorkspaceApp {
         }
     }
 
-    fn activate_session_manager_basic_dialog_footer(
+    pub(super) fn activate_session_manager_basic_dialog_footer(
         &mut self,
         action: SessionManagerBasicDialogFooterAction,
         cx: &mut Context<Self>,
     ) {
         match action {
-            SessionManagerBasicDialogFooterAction::Cancel => self.close_session_manager_basic_dialog(cx),
-            SessionManagerBasicDialogFooterAction::Primary if self.session_manager.show_new_group => {
+            SessionManagerBasicDialogFooterAction::Cancel => {
+                self.close_session_manager_basic_dialog(cx)
+            }
+            SessionManagerBasicDialogFooterAction::Primary
+                if self.session_manager.show_new_group =>
+            {
                 if self.session_manager.new_group_name.trim().is_empty() {
                     // Match Tauri's disabled create button: keyboard activation
                     // cannot submit while the visible primary action is disabled.
@@ -71,7 +77,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn close_session_manager_basic_dialog(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn close_session_manager_basic_dialog(&mut self, cx: &mut Context<Self>) {
         if self.session_manager.show_new_group {
             self.session_manager.show_new_group = false;
             self.session_manager.focused_input = None;
@@ -85,7 +91,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    pub(super) fn render_session_manager_surface(
+    pub(in crate::workspace) fn render_session_manager_surface(
         &mut self,
         window: &Window,
         cx: &mut Context<Self>,
@@ -140,15 +146,18 @@ impl WorkspaceApp {
             .when(self.session_manager.show_import, |surface| {
                 surface.child(self.render_ssh_config_import_dialog(cx))
             })
-            .when_some(self.session_manager.delete_confirm.as_ref(), |surface, _| {
-                surface.child(self.render_session_manager_delete_confirm(cx))
-            })
-            .when_some(self.session_manager.oxide_import_dialog.as_ref(), |surface, _| {
-                surface.child(self.render_oxide_import_dialog(cx))
-            })
-            .when_some(self.session_manager.oxide_export_dialog.as_ref(), |surface, _| {
-                surface.child(self.render_oxide_export_dialog(cx))
-            })
+            .when_some(
+                self.session_manager.delete_confirm.as_ref(),
+                |surface, _| surface.child(self.render_session_manager_delete_confirm(cx)),
+            )
+            .when_some(
+                self.session_manager.oxide_import_dialog.as_ref(),
+                |surface, _| surface.child(self.render_oxide_import_dialog(cx)),
+            )
+            .when_some(
+                self.session_manager.oxide_export_dialog.as_ref(),
+                |surface, _| surface.child(self.render_oxide_export_dialog(cx)),
+            )
             .when(self.session_manager.view_mode_menu_open, |surface| {
                 surface.child(self.workspace_context_menu_backdrop(
                     self.render_session_manager_view_mode_menu(window, has_background, cx),
@@ -174,7 +183,10 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_session_manager_delete_confirm(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn render_session_manager_delete_confirm(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let Some(confirm) = self.session_manager.delete_confirm.as_ref() else {
             return div().into_any_element();
         };
@@ -234,7 +246,7 @@ impl WorkspaceApp {
         )
     }
 
-    pub(super) fn handle_session_manager_key(
+    pub(in crate::workspace) fn handle_session_manager_key(
         &mut self,
         event: &KeyDownEvent,
         window: &mut Window,
@@ -303,8 +315,7 @@ impl WorkspaceApp {
                     }
                     SessionManagerInput::OxideExportConfirmPassword => {
                         if let Some(dialog) = self.session_manager.oxide_export_dialog.as_mut() {
-                            dialog.confirm_password.pop().is_some()
-                                || dialog.error.take().is_some()
+                            dialog.confirm_password.pop().is_some() || dialog.error.take().is_some()
                         } else {
                             false
                         }
@@ -331,7 +342,11 @@ impl WorkspaceApp {
         }
     }
 
-    pub(super) fn open_session_manager_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn open_session_manager_tab(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let tab_id = if let Some(tab) = self
             .tabs
             .iter()
@@ -362,5 +377,4 @@ impl WorkspaceApp {
         self.persist_sidebar_settings();
         cx.notify();
     }
-
 }

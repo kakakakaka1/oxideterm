@@ -1,3 +1,6 @@
-include!("shell/core.rs");
-include!("shell/confirm.rs");
-include!("shell/basic.rs");
+use super::*;
+
+// Keep dialog shell rendering separated from specialized dialog bodies.
+mod basic;
+mod confirm;
+mod core;

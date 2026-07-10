@@ -27,7 +27,8 @@ pub(super) fn native_plugin_profiler_node_connection_ids(
 
 pub(super) fn native_plugin_profiler_metrics_due(workspace: &WorkspaceApp) -> bool {
     workspace
-        .native_plugin_profiler_last_emitted
+        .native_plugin_runtime
+        .profiler_last_emitted
         .map(|last_emitted| last_emitted.elapsed() >= NATIVE_PLUGIN_PROFILER_METRICS_INTERVAL)
         .unwrap_or(true)
 }

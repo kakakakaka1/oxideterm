@@ -1,4 +1,4 @@
-fn ai_compaction_plan(
+pub(in crate::workspace) fn ai_compaction_plan(
     messages: &[AiChatMessage],
     context_window: usize,
     silent: bool,
@@ -38,7 +38,9 @@ fn ai_compaction_plan(
     })
 }
 
-fn ai_compaction_summary_messages(messages: &[AiChatMessage]) -> Vec<AiChatMessage> {
+pub(in crate::workspace) fn ai_compaction_summary_messages(
+    messages: &[AiChatMessage],
+) -> Vec<AiChatMessage> {
     let mut history_parts = Vec::new();
     for message in messages {
         if message
@@ -99,7 +101,9 @@ fn ai_compaction_summary_messages(messages: &[AiChatMessage]) -> Vec<AiChatMessa
     ]
 }
 
-fn ai_conversation_summary_messages(messages: &[AiChatMessage]) -> Vec<AiChatMessage> {
+pub(in crate::workspace) fn ai_conversation_summary_messages(
+    messages: &[AiChatMessage],
+) -> Vec<AiChatMessage> {
     let history_text = messages
         .iter()
         .filter(|message| matches!(message.role, AiChatRole::User | AiChatRole::Assistant))
@@ -153,9 +157,9 @@ fn ai_conversation_summary_messages(messages: &[AiChatMessage]) -> Vec<AiChatMes
     ]
 }
 
-const AI_MAX_ANCHOR_SNAPSHOT: usize = 50;
+pub(in crate::workspace) const AI_MAX_ANCHOR_SNAPSHOT: usize = 50;
 
-fn ai_compaction_original_count(messages: &[AiChatMessage]) -> usize {
+pub(in crate::workspace) fn ai_compaction_original_count(messages: &[AiChatMessage]) -> usize {
     messages
         .iter()
         .map(|message| {
@@ -176,7 +180,9 @@ fn ai_compaction_original_count(messages: &[AiChatMessage]) -> usize {
         .sum()
 }
 
-fn ai_compaction_anchor_snapshot(messages: &[AiChatMessage]) -> Vec<AiChatMessage> {
+pub(in crate::workspace) fn ai_compaction_anchor_snapshot(
+    messages: &[AiChatMessage],
+) -> Vec<AiChatMessage> {
     messages
         .iter()
         .filter(|message| {
@@ -209,7 +215,9 @@ fn ai_compaction_anchor_snapshot(messages: &[AiChatMessage]) -> Vec<AiChatMessag
         .collect()
 }
 
-fn ai_latest_summary_round_id(messages: &[AiChatMessage]) -> Option<String> {
+pub(in crate::workspace) fn ai_latest_summary_round_id(
+    messages: &[AiChatMessage],
+) -> Option<String> {
     messages.iter().rev().find_map(|message| {
         message
             .summary_ref
@@ -223,19 +231,25 @@ fn ai_latest_summary_round_id(messages: &[AiChatMessage]) -> Option<String> {
                     .as_ref()
                     .and_then(|turn| turn.get("toolRounds"))
                     .and_then(serde_json::Value::as_array)
-                    .and_then(|rounds| rounds.iter().rev().find_map(|round| {
-                        round
-                            .get("id")
-                            .and_then(serde_json::Value::as_str)
-                            .map(str::to_string)
-                    }))
+                    .and_then(|rounds| {
+                        rounds.iter().rev().find_map(|round| {
+                            round
+                                .get("id")
+                                .and_then(serde_json::Value::as_str)
+                                .map(str::to_string)
+                        })
+                    })
             })
     })
 }
 
 impl WorkspaceApp {
-    fn set_ai_compaction_notice_running(&mut self, conversation_id: &str, cx: &mut Context<Self>) {
-        self.ai_compaction_notice = Some(AiCompactionNotice {
+    pub(in crate::workspace) fn set_ai_compaction_notice_running(
+        &mut self,
+        conversation_id: &str,
+        cx: &mut Context<Self>,
+    ) {
+        self.ai.chat.compaction_notice = Some(AiCompactionNotice {
             conversation_id: conversation_id.to_string(),
             phase: AiCompactionNoticePhase::Running,
             compacted_count: None,
@@ -244,14 +258,14 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn set_ai_compaction_notice_done(
+    pub(in crate::workspace) fn set_ai_compaction_notice_done(
         &mut self,
         conversation_id: &str,
         compacted_count: usize,
         cx: &mut Context<Self>,
     ) {
         let timestamp_ms = ai_now_ms();
-        self.ai_compaction_notice = Some(AiCompactionNotice {
+        self.ai.chat.compaction_notice = Some(AiCompactionNotice {
             conversation_id: conversation_id.to_string(),
             phase: AiCompactionNoticePhase::Done,
             compacted_count: Some(compacted_count),
@@ -261,18 +275,24 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn clear_ai_compaction_notice_for(&mut self, conversation_id: &str, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn clear_ai_compaction_notice_for(
+        &mut self,
+        conversation_id: &str,
+        cx: &mut Context<Self>,
+    ) {
         if self
-            .ai_compaction_notice
+            .ai
+            .chat
+            .compaction_notice
             .as_ref()
             .is_some_and(|notice| notice.conversation_id == conversation_id)
         {
-            self.ai_compaction_notice = None;
+            self.ai.chat.compaction_notice = None;
             cx.notify();
         }
     }
 
-    fn schedule_ai_compaction_notice_clear(
+    pub(in crate::workspace) fn schedule_ai_compaction_notice_clear(
         &mut self,
         conversation_id: String,
         timestamp_ms: i64,
@@ -281,12 +301,18 @@ impl WorkspaceApp {
         cx.spawn(async move |weak, cx| {
             Timer::after(Duration::from_secs(5)).await;
             let _ = weak.update(cx, |this, cx| {
-                if this.ai_compaction_notice.as_ref().is_some_and(|notice| {
-                    notice.conversation_id == conversation_id
-                        && notice.phase == AiCompactionNoticePhase::Done
-                        && notice.timestamp_ms == timestamp_ms
-                }) {
-                    this.ai_compaction_notice = None;
+                if this
+                    .ai
+                    .chat
+                    .compaction_notice
+                    .as_ref()
+                    .is_some_and(|notice| {
+                        notice.conversation_id == conversation_id
+                            && notice.phase == AiCompactionNoticePhase::Done
+                            && notice.timestamp_ms == timestamp_ms
+                    })
+                {
+                    this.ai.chat.compaction_notice = None;
                     cx.notify();
                 }
             });

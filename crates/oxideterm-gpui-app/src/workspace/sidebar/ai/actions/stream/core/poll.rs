@@ -1,13 +1,13 @@
-const AI_STREAM_UPDATE_INTERVAL_MS: u64 = 50;
-const AI_STREAM_MAX_EVENTS_PER_POLL: usize = 256;
+pub(in crate::workspace) const AI_STREAM_UPDATE_INTERVAL_MS: u64 = 50;
+pub(in crate::workspace) const AI_STREAM_MAX_EVENTS_PER_POLL: usize = 256;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum PendingAiStreamTextKind {
+pub(in crate::workspace) enum PendingAiStreamTextKind {
     Content,
     Thinking,
 }
 
-struct PendingAiStreamText {
+pub(in crate::workspace) struct PendingAiStreamText {
     generation: u64,
     conversation_id: String,
     assistant_id: String,
@@ -16,12 +16,12 @@ struct PendingAiStreamText {
 }
 
 impl WorkspaceApp {
-    pub(super) fn poll_ai_chat_stream_events(
+    pub(in crate::workspace) fn poll_ai_chat_stream_events(
         &mut self,
         mut window: Option<&mut Window>,
         cx: &mut Context<Self>,
     ) {
-        let Some(rx) = self.ai_chat_stream_rx.take() else {
+        let Some(rx) = self.ai.chat.stream_rx.take() else {
             return;
         };
         let mut keep_rx = true;
@@ -79,7 +79,7 @@ impl WorkspaceApp {
                             response_tx,
                         } => {
                             self.flush_pending_ai_stream_text(&mut pending_text, cx);
-                            if self.ai_chat_stream_generation != delivery.generation {
+                            if self.ai.chat.stream_generation != delivery.generation {
                                 let _ = response_tx
                                     .send(Ok(oxideterm_ai::acp_permission_cancelled_response()));
                                 continue;
@@ -87,7 +87,9 @@ impl WorkspaceApp {
                             let projection =
                                 oxideterm_ai::acp_permission_request_projection(&request);
                             let (approval_tx, approval_rx) = tokio::sync::oneshot::channel();
-                            self.ai_pending_tool_approvals
+                            self.ai
+                                .runtime
+                                .pending_tool_approvals
                                 .insert(projection.tool_call_id.clone(), approval_tx);
                             let forwarding_runtime = self.forwarding_runtime.clone();
                             forwarding_runtime.spawn(async move {
@@ -294,7 +296,9 @@ impl WorkspaceApp {
                     sender,
                 } => {
                     self.flush_pending_ai_stream_text(&mut pending_text, cx);
-                    self.ai_pending_tool_approvals
+                    self.ai
+                        .runtime
+                        .pending_tool_approvals
                         .insert(tool_call_id.clone(), sender);
                     self.apply_ai_tool_status(
                         delivery.generation,
@@ -322,7 +326,7 @@ impl WorkspaceApp {
                 } => {
                     self.flush_pending_ai_stream_text(&mut pending_text, cx);
                     let Some(window) = window.as_deref_mut() else {
-                        self.ai_chat_stream_rx = Some(rx);
+                        self.ai.chat.stream_rx = Some(rx);
                         self.schedule_ai_chat_stream_poll(cx);
                         cx.notify();
                         return;
@@ -344,11 +348,11 @@ impl WorkspaceApp {
         }
         self.flush_pending_ai_stream_text(&mut pending_text, cx);
         if keep_rx {
-            self.ai_chat_stream_rx = Some(rx);
+            self.ai.chat.stream_rx = Some(rx);
         }
     }
 
-    fn merge_or_flush_pending_ai_stream_text(
+    pub(in crate::workspace) fn merge_or_flush_pending_ai_stream_text(
         &mut self,
         pending: &mut Option<PendingAiStreamText>,
         generation: u64,
@@ -381,7 +385,7 @@ impl WorkspaceApp {
         });
     }
 
-    fn flush_pending_ai_stream_text(
+    pub(in crate::workspace) fn flush_pending_ai_stream_text(
         &mut self,
         pending: &mut Option<PendingAiStreamText>,
         cx: &mut Context<Self>,
@@ -402,16 +406,16 @@ impl WorkspaceApp {
         );
     }
 
-    fn schedule_ai_chat_stream_poll(&mut self, cx: &mut Context<Self>) {
-        if self.ai_chat_stream_polling {
+    pub(in crate::workspace) fn schedule_ai_chat_stream_poll(&mut self, cx: &mut Context<Self>) {
+        if self.ai.chat.stream_polling {
             return;
         }
-        self.ai_chat_stream_polling = true;
+        self.ai.chat.stream_polling = true;
         cx.spawn(async move |weak, cx| {
             Timer::after(Duration::from_millis(AI_STREAM_UPDATE_INTERVAL_MS)).await;
             let _ = weak.update(cx, |this, cx| {
-                this.ai_chat_stream_polling = false;
-                if this.ai_chat_stream_rx.is_some() {
+                this.ai.chat.stream_polling = false;
+                if this.ai.chat.stream_rx.is_some() {
                     cx.notify();
                     this.schedule_ai_chat_stream_poll(cx);
                 }
@@ -420,8 +424,8 @@ impl WorkspaceApp {
         .detach();
     }
 
-    pub(super) fn poll_ai_compaction_results(&mut self, cx: &mut Context<Self>) {
-        let Some(rx) = self.ai_compaction_rx.take() else {
+    pub(in crate::workspace) fn poll_ai_compaction_results(&mut self, cx: &mut Context<Self>) {
+        let Some(rx) = self.ai.chat.compaction_rx.take() else {
             return;
         };
         let mut keep_rx = true;
@@ -454,21 +458,21 @@ impl WorkspaceApp {
             }
         }
         if keep_rx {
-            self.ai_compaction_rx = Some(rx);
+            self.ai.chat.compaction_rx = Some(rx);
         }
     }
 
-    fn schedule_ai_compaction_poll(&mut self, cx: &mut Context<Self>) {
-        if self.ai_compaction_polling {
+    pub(in crate::workspace) fn schedule_ai_compaction_poll(&mut self, cx: &mut Context<Self>) {
+        if self.ai.chat.compaction_polling {
             return;
         }
-        self.ai_compaction_polling = true;
+        self.ai.chat.compaction_polling = true;
         cx.spawn(async move |weak, cx| {
             Timer::after(Duration::from_millis(50)).await;
             let _ = weak.update(cx, |this, cx| {
-                this.ai_compaction_polling = false;
+                this.ai.chat.compaction_polling = false;
                 this.poll_ai_compaction_results(cx);
-                if this.ai_compaction_rx.is_some() {
+                if this.ai.chat.compaction_rx.is_some() {
                     this.schedule_ai_compaction_poll(cx);
                 }
             });

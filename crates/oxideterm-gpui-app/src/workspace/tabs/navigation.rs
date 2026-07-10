@@ -1,4 +1,6 @@
-const TAB_DRAG_THRESHOLD_PX: f32 = 10.0;
+use super::*;
+
+pub(super) const TAB_DRAG_THRESHOLD_PX: f32 = 10.0;
 
 fn tab_drag_is_horizontal_reorder(delta_x: f32, delta_y: f32) -> bool {
     let horizontal = delta_x.abs();
@@ -42,7 +44,7 @@ fn attach_terminal_to_existing_ssh_node(
 }
 
 impl WorkspaceApp {
-    pub(super) fn observe_active_tab_for_history(&mut self) {
+    pub(in crate::workspace) fn observe_active_tab_for_history(&mut self) {
         let active_tab_id = self.main_window_tabs.active_tab_id;
         if self.main_window_tabs.navigation_observed_tab == active_tab_id {
             return;
@@ -58,7 +60,9 @@ impl WorkspaceApp {
         }
 
         if let Some(index) = self.main_window_tabs.navigation_index {
-            self.main_window_tabs.navigation_history.truncate(index.saturating_add(1));
+            self.main_window_tabs
+                .navigation_history
+                .truncate(index.saturating_add(1));
         }
         if self.main_window_tabs.navigation_history.last().copied() != Some(tab_id) {
             self.main_window_tabs.navigation_history.push(tab_id);
@@ -68,10 +72,14 @@ impl WorkspaceApp {
             let overflow = self.main_window_tabs.navigation_history.len() - MAX_TAB_HISTORY;
             self.main_window_tabs.navigation_history.drain(0..overflow);
         }
-        self.main_window_tabs.navigation_index = self.main_window_tabs.navigation_history.len().checked_sub(1);
+        self.main_window_tabs.navigation_index = self
+            .main_window_tabs
+            .navigation_history
+            .len()
+            .checked_sub(1);
     }
 
-    pub(super) fn navigate_tab_history(
+    pub(in crate::workspace) fn navigate_tab_history(
         &mut self,
         forward: bool,
         window: &mut Window,
@@ -126,18 +134,25 @@ impl WorkspaceApp {
             .main_window_tabs
             .navigation_index
             .and_then(|index| self.main_window_tabs.navigation_history.get(index).copied());
-        self.main_window_tabs.navigation_history
+        self.main_window_tabs
+            .navigation_history
             .retain(|tab_id| existing.contains(tab_id));
         self.main_window_tabs.navigation_index = current
             .and_then(|tab_id| {
-                self.main_window_tabs.navigation_history
+                self.main_window_tabs
+                    .navigation_history
                     .iter()
                     .position(|candidate| *candidate == tab_id)
             })
-            .or_else(|| self.main_window_tabs.navigation_history.len().checked_sub(1));
+            .or_else(|| {
+                self.main_window_tabs
+                    .navigation_history
+                    .len()
+                    .checked_sub(1)
+            });
     }
 
-    pub(super) fn set_active_tab(
+    pub(in crate::workspace) fn set_active_tab(
         &mut self,
         tab_id: TabId,
         window: &mut Window,
@@ -167,7 +182,7 @@ impl WorkspaceApp {
         }
     }
 
-    pub(super) fn sync_active_tab_surface(&mut self) {
+    pub(in crate::workspace) fn sync_active_tab_surface(&mut self) {
         // Tauri keeps the SSH session tree independent from terminal tab focus,
         // but app-level utility tabs still light up their owning activity icon.
         // Keep terminal/SFTP/IDE ownership separate while syncing these sidebar
@@ -245,7 +260,7 @@ impl WorkspaceApp {
         }
     }
 
-    pub(super) fn focus_active_pane(&mut self, window: &mut Window, cx: &App) {
+    pub(in crate::workspace) fn focus_active_pane(&mut self, window: &mut Window, cx: &App) {
         self.clear_ai_sidebar_keyboard_focus();
         if self.terminal_command_bar_focused {
             // Focusing the pane must also release Workspace's synthetic command
@@ -277,7 +292,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn register_ssh_terminal_session(
+    pub(super) fn register_ssh_terminal_session(
         &mut self,
         node_id: NodeId,
         saved_connection_id: Option<String>,
@@ -312,7 +327,10 @@ impl WorkspaceApp {
             });
     }
 
-    pub(super) fn unregister_ssh_terminal_session(&mut self, session_id: TerminalSessionId) {
+    pub(in crate::workspace) fn unregister_ssh_terminal_session(
+        &mut self,
+        session_id: TerminalSessionId,
+    ) {
         let forwarding_registry = self.forwarding_registry.clone();
         let forwarding_runtime = self.forwarding_runtime.clone();
         let forwarding_session_id = session_id.0.to_string();
@@ -350,7 +368,7 @@ impl WorkspaceApp {
         self.persist_session_tree_snapshot();
     }
 
-    pub(super) fn focus_terminal_session(
+    pub(in crate::workspace) fn focus_terminal_session(
         &mut self,
         session_id: TerminalSessionId,
         window: &mut Window,
@@ -383,7 +401,7 @@ impl WorkspaceApp {
         true
     }
 
-    pub(super) fn close_terminal_session(
+    pub(in crate::workspace) fn close_terminal_session(
         &mut self,
         session_id: TerminalSessionId,
         window: &mut Window,
@@ -403,7 +421,7 @@ impl WorkspaceApp {
         }
     }
 
-    pub(super) fn request_disconnect_ssh_node(
+    pub(in crate::workspace) fn request_disconnect_ssh_node(
         &mut self,
         node_id: &NodeId,
         cx: &mut Context<Self>,
@@ -427,13 +445,13 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    pub(super) fn cancel_node_disconnect_confirm(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn cancel_node_disconnect_confirm(&mut self, cx: &mut Context<Self>) {
         self.node_disconnect_confirm = None;
         self.clear_standard_confirm_focus();
         cx.notify();
     }
 
-    pub(super) fn confirm_node_disconnect_confirm(
+    pub(in crate::workspace) fn confirm_node_disconnect_confirm(
         &mut self,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -445,7 +463,7 @@ impl WorkspaceApp {
         self.disconnect_ssh_node(&confirm.node_id, window, cx);
     }
 
-    pub(super) fn disconnect_ssh_node(
+    pub(in crate::workspace) fn disconnect_ssh_node(
         &mut self,
         node_id: &NodeId,
         window: &mut Window,
@@ -482,7 +500,8 @@ impl WorkspaceApp {
         }
         for affected_node_id in &nodes_to_disconnect {
             self.forwarding_port_profiler_nodes.remove(affected_node_id);
-            self.forwarding_port_detection_by_node.remove(affected_node_id);
+            self.forwarding_port_detection_by_node
+                .remove(affected_node_id);
             let forwarding_registry = self.forwarding_registry.clone();
             let forwarding_runtime = self.forwarding_runtime.clone();
             let forwarding_session_id = self.forwarding_session_id_for_node(affected_node_id);
@@ -539,14 +558,18 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    pub(super) fn close_active_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn close_active_tab(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(index) = self.active_tab_index() else {
             return;
         };
         self.close_tab_at_index(index, window, cx);
     }
 
-    pub(super) fn request_close_active_tab(
+    pub(in crate::workspace) fn request_close_active_tab(
         &mut self,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -569,7 +592,8 @@ impl WorkspaceApp {
             // Tauri warns before closing a local terminal whose foreground
             // process is not the original shell. Native derives the same guard
             // from the PTY process snapshot refreshed by the terminal tick.
-            self.main_window_tabs.close_confirm = Some(TabCloseConfirm::LocalChildProcess { tab_id });
+            self.main_window_tabs.close_confirm =
+                Some(TabCloseConfirm::LocalChildProcess { tab_id });
             self.reset_standard_confirm_focus();
             cx.notify();
             return;
@@ -577,14 +601,19 @@ impl WorkspaceApp {
         self.close_tab_at_index(index, window, cx);
     }
 
-    pub(super) fn close_tab_by_id(&mut self, tab_id: TabId, window: &mut Window, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn close_tab_by_id(
+        &mut self,
+        tab_id: TabId,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(index) = self.tabs.iter().position(|tab| tab.id == tab_id) else {
             return;
         };
         self.close_tab_at_index(index, window, cx);
     }
 
-    pub(super) fn close_other_tabs_or_active_pane(
+    pub(in crate::workspace) fn close_other_tabs_or_active_pane(
         &mut self,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -617,7 +646,7 @@ impl WorkspaceApp {
         }
     }
 
-    pub(super) fn request_close_other_tabs_or_active_pane(
+    pub(in crate::workspace) fn request_close_other_tabs_or_active_pane(
         &mut self,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -655,7 +684,8 @@ impl WorkspaceApp {
             return;
         }
         if self.tab_close_ids_include_local_foreground_child_process(&tab_ids, cx) {
-            self.main_window_tabs.close_confirm = Some(TabCloseConfirm::LocalChildProcessBatch { tab_ids });
+            self.main_window_tabs.close_confirm =
+                Some(TabCloseConfirm::LocalChildProcessBatch { tab_ids });
             self.reset_standard_confirm_focus();
             cx.notify();
             return;
@@ -680,7 +710,9 @@ impl WorkspaceApp {
             self.tabs
                 .iter()
                 .position(|tab| tab.id == *tab_id && tab.kind == TabKind::LocalTerminal)
-                .is_some_and(|index| self.local_terminal_tab_has_foreground_child_process(index, cx))
+                .is_some_and(|index| {
+                    self.local_terminal_tab_has_foreground_child_process(index, cx)
+                })
         })
     }
 
@@ -703,13 +735,13 @@ impl WorkspaceApp {
         })
     }
 
-    pub(super) fn cancel_tab_close_confirm(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn cancel_tab_close_confirm(&mut self, cx: &mut Context<Self>) {
         self.main_window_tabs.close_confirm = None;
         self.clear_standard_confirm_focus();
         cx.notify();
     }
 
-    pub(super) fn confirm_tab_close_confirm(
+    pub(in crate::workspace) fn confirm_tab_close_confirm(
         &mut self,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -745,7 +777,7 @@ impl WorkspaceApp {
         }
     }
 
-    pub(super) fn focus_adjacent_pane(
+    pub(in crate::workspace) fn focus_adjacent_pane(
         &mut self,
         forward: bool,
         window: &mut Window,
@@ -761,7 +793,10 @@ impl WorkspaceApp {
         if pane_ids.len() < 2 {
             return;
         }
-        let Some(index) = pane_ids.iter().position(|pane_id| *pane_id == active_pane_id) else {
+        let Some(index) = pane_ids
+            .iter()
+            .position(|pane_id| *pane_id == active_pane_id)
+        else {
             return;
         };
         let next_index = if forward {
@@ -869,7 +904,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn close_tabs_for_node(
+    pub(super) fn close_tabs_for_node(
         &mut self,
         node_id: &NodeId,
         window: &mut Window,
@@ -905,7 +940,12 @@ impl WorkspaceApp {
             .any(|session_id| self.terminal_ssh_nodes.get(&session_id) == Some(node_id))
     }
 
-    pub(super) fn next_tab(&mut self, forward: bool, window: &mut Window, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn next_tab(
+        &mut self,
+        forward: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let visible_tabs = self
             .tabs
             .iter()
@@ -937,7 +977,12 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    pub(super) fn go_to_tab(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn go_to_tab(
+        &mut self,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if let Some(tab_id) = self
             .tabs
             .iter()
@@ -964,7 +1009,7 @@ impl WorkspaceApp {
             self.sidebar_width
         };
         let context_sidebar_width = if self.context_sidebar_visible() {
-            self.ai_sidebar_width
+            self.ai.chat.sidebar_width
         } else {
             0.0
         };
@@ -1013,9 +1058,10 @@ impl WorkspaceApp {
         self.tabbar_max_scroll(window) > 1.0
     }
 
-    pub(super) fn tabbar_effective_scroll_x(&self, window: &Window) -> f32 {
+    pub(in crate::workspace) fn tabbar_effective_scroll_x(&self, window: &Window) -> f32 {
         if self.tabbar_has_overflow(window) {
-            f32::from(-self.main_window_tabs.scroll_handle.offset().x).clamp(0.0, self.tabbar_max_scroll(window))
+            f32::from(-self.main_window_tabs.scroll_handle.offset().x)
+                .clamp(0.0, self.tabbar_max_scroll(window))
         } else {
             0.0
         }
@@ -1023,11 +1069,12 @@ impl WorkspaceApp {
 
     fn set_tabbar_scroll_x(&mut self, scroll_x: f32, window: &Window) {
         let next = scroll_x.clamp(0.0, self.tabbar_max_scroll(window));
-        self.main_window_tabs.scroll_handle
+        self.main_window_tabs
+            .scroll_handle
             .set_offset(Point::new(px(-next), px(0.0)));
     }
 
-    pub(super) fn handle_tabbar_scroll(
+    pub(in crate::workspace) fn handle_tabbar_scroll(
         &mut self,
         event: &ScrollWheelEvent,
         window: &mut Window,
@@ -1050,15 +1097,13 @@ impl WorkspaceApp {
         // Tauri TabBar intercepts vertical wheel movement and applies it to
         // scrollLeft. Keep ScrollHandle as the measured clamp, but make this
         // the only wheel adapter so GPUI's default listener cannot double-scroll.
-        let scroll_delta =
-            tabbar_tauri_wheel_scroll_delta(f32::from(delta.x), f32::from(delta.y));
+        let scroll_delta = tabbar_tauri_wheel_scroll_delta(f32::from(delta.x), f32::from(delta.y));
         if scroll_delta == 0.0 {
             return;
         }
 
         let current_scroll_x = self.tabbar_effective_scroll_x(window);
-        let next_scroll_x =
-            tabbar_scroll_x_after_wheel(current_scroll_x, scroll_delta, max_scroll);
+        let next_scroll_x = tabbar_scroll_x_after_wheel(current_scroll_x, scroll_delta, max_scroll);
         if (next_scroll_x - current_scroll_x).abs() < 0.01 {
             cx.stop_propagation();
             return;
@@ -1068,13 +1113,14 @@ impl WorkspaceApp {
         // for this wheel event, and re-reading it on every trackpad frame causes
         // unnecessary work. The handle owns the measured clamp, so write the
         // matching negative GPUI offset directly.
-        self.main_window_tabs.scroll_handle
+        self.main_window_tabs
+            .scroll_handle
             .set_offset(Point::new(px(-next_scroll_x), px(0.0)));
         cx.notify();
         cx.stop_propagation();
     }
 
-    pub(super) fn reveal_active_tab(&mut self, window: &Window) {
+    pub(in crate::workspace) fn reveal_active_tab(&mut self, window: &Window) {
         let Some(index) = self.active_tab_index() else {
             self.clamp_tab_scroll(window);
             return;
@@ -1099,7 +1145,7 @@ impl WorkspaceApp {
         self.set_tabbar_scroll_x(next_scroll_x, window);
     }
 
-    pub(super) fn tab_display_title(&self, tab: &Tab) -> String {
+    pub(in crate::workspace) fn tab_display_title(&self, tab: &Tab) -> String {
         let title = match tab.title_source {
             TabTitleSource::Static => tab.title.clone(),
             TabTitleSource::I18nKey(key) => self.i18n.t(key),
@@ -1113,7 +1159,7 @@ impl WorkspaceApp {
         title
     }
 
-    fn tab_visual_width(&self, tab: &Tab) -> f32 {
+    pub(super) fn tab_visual_width(&self, tab: &Tab) -> f32 {
         let metrics = self.tokens.metrics;
         let title = self.tab_display_title(tab);
         let title_width = title
@@ -1156,7 +1202,7 @@ impl WorkspaceApp {
         tab_widths.len() - 1
     }
 
-    pub(super) fn start_tab_drag_candidate(
+    pub(in crate::workspace) fn start_tab_drag_candidate(
         &mut self,
         tab_id: TabId,
         index: usize,
@@ -1190,7 +1236,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    pub(super) fn update_tab_drag(
+    pub(in crate::workspace) fn update_tab_drag(
         &mut self,
         event: &MouseMoveEvent,
         window: &Window,
@@ -1236,7 +1282,7 @@ impl WorkspaceApp {
         }
     }
 
-    pub(super) fn finish_tab_drag(
+    pub(in crate::workspace) fn finish_tab_drag(
         &mut self,
         event: &MouseUpEvent,
         window: &mut Window,
@@ -1284,7 +1330,6 @@ impl WorkspaceApp {
         self.reveal_active_tab(window);
         cx.notify();
     }
-
 }
 
 fn terminal_process_info_has_foreground_child_process(

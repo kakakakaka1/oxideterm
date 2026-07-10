@@ -1,5 +1,26 @@
+use gpui::{
+    AnyElement, Context, CursorStyle, InteractiveElement, IntoElement, MouseButton, ParentElement,
+    Styled, div, prelude::FluentBuilder, px, relative, rgb, rgba,
+};
+use oxideterm_gpui_settings_view::SettingsInput;
+use oxideterm_gpui_ui::{
+    ConfirmDialogAction,
+    button::ButtonVariant,
+    modal::{
+        dialog_content, dialog_description, dialog_footer, dialog_header, dialog_title,
+        dismissible_dialog_backdrop,
+    },
+    text_input::{TextInputView, text_input, text_input_anchor_probe},
+};
+
+use crate::workspace::ime::WorkspaceImeTarget;
+
+use super::{
+    PORTABLE_SETTINGS_DIALOG_WIDTH, PortableSettingsAction, PortableSettingsDialog, WorkspaceApp,
+};
+
 impl WorkspaceApp {
-    fn render_portable_password_change_dialog(
+    pub(in crate::workspace) fn render_portable_password_change_dialog(
         &self,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
@@ -122,7 +143,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn portable_password_field(
+    pub(in crate::workspace) fn portable_password_field(
         &self,
         label_key: &str,
         input: SettingsInput,
@@ -144,7 +165,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn portable_password_input(
+    pub(in crate::workspace) fn portable_password_input(
         &self,
         input: SettingsInput,
         value: String,
@@ -186,9 +207,11 @@ impl WorkspaceApp {
                     cx.stop_propagation();
                 }),
             )
-            .on_mouse_move(cx.listener(|this, event: &gpui::MouseMoveEvent, window, cx| {
-                this.update_ime_selection_drag_from_mouse_move(event, window, cx);
-            })),
+            .on_mouse_move(cx.listener(
+                |this, event: &gpui::MouseMoveEvent, window, cx| {
+                    this.update_ime_selection_drag_from_mouse_move(event, window, cx);
+                },
+            )),
             move |anchor, _window, cx| {
                 let _ = workspace.update(cx, |this, cx| {
                     this.update_text_input_anchor(anchor, cx);

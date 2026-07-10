@@ -1,3 +1,5 @@
+use super::*;
+
 fn sftp_transfer_queue_row_signature(transfer: &SftpTransferItem) -> u64 {
     let mut hasher = DefaultHasher::new();
     // Transfer id is the row key; progress, speed, state, and error are visible
@@ -39,7 +41,7 @@ fn sftp_incomplete_loading_signature() -> u64 {
 }
 
 impl WorkspaceApp {
-    fn render_sftp_transfer_queue(
+    pub(in crate::workspace::sftp) fn render_sftp_transfer_queue(
         &self,
         has_background: bool,
         cx: &mut Context<Self>,
@@ -113,48 +115,48 @@ impl WorkspaceApp {
                                                 SFTP_ICON_SM,
                                                 rgb(theme.accent),
                                             ))
-                                            .child(self.i18n.t("sftp.queue.incomplete_count").replace(
-                                                "{{count}}",
-                                                &incomplete_count.to_string(),
-                                            )),
+                                            .child(
+                                                self.i18n.t("sftp.queue.incomplete_count").replace(
+                                                    "{{count}}",
+                                                    &incomplete_count.to_string(),
+                                                ),
+                                            ),
                                         false,
                                         cx.listener(|this, _event, _window, cx| {
-                                                this.sftp_view.show_incomplete =
-                                                    !this.sftp_view.show_incomplete;
-                                                cx.stop_propagation();
-                                                cx.notify();
+                                            this.sftp_view.show_incomplete =
+                                                !this.sftp_view.show_incomplete;
+                                            cx.stop_propagation();
+                                            cx.notify();
                                         }),
                                     ),
                                 )
                             }),
                     )
                     .when(has_completed, |header| {
-                        header.child(
-                            self.workspace_toolbar_action_button(
-                                self.i18n.t("sftp.queue.clear_done"),
-                                None,
-                                ToolbarButtonOptions {
-                                    text_color: Some(rgb(theme.text)),
-                                    hover_background: Some(rgb(theme.bg_hover)),
-                                    // Queue toolbar labels are controls, so they stay out of
-                                    // read-only selection ownership and share button action guards.
-                                    ..ToolbarButtonOptions::compact_text(
-                                        ButtonVariant::Ghost,
-                                        ButtonRadius::Sm,
-                                        24.0,
-                                        8.0,
-                                        SFTP_TEXT_XS,
-                                    )
-                                },
-                                cx.listener(|this, _event, _window, cx| {
-                                    this.sftp_view
-                                        .transfers
-                                        .retain(|item| item.state != SftpTransferState::Completed);
-                                    cx.stop_propagation();
-                                    cx.notify();
-                                }),
-                            ),
-                        )
+                        header.child(self.workspace_toolbar_action_button(
+                            self.i18n.t("sftp.queue.clear_done"),
+                            None,
+                            ToolbarButtonOptions {
+                                text_color: Some(rgb(theme.text)),
+                                hover_background: Some(rgb(theme.bg_hover)),
+                                // Queue toolbar labels are controls, so they stay out of
+                                // read-only selection ownership and share button action guards.
+                                ..ToolbarButtonOptions::compact_text(
+                                    ButtonVariant::Ghost,
+                                    ButtonRadius::Sm,
+                                    24.0,
+                                    8.0,
+                                    SFTP_TEXT_XS,
+                                )
+                            },
+                            cx.listener(|this, _event, _window, cx| {
+                                this.sftp_view
+                                    .transfers
+                                    .retain(|item| item.state != SftpTransferState::Completed);
+                                cx.stop_propagation();
+                                cx.notify();
+                            }),
+                        ))
                     }),
             )
             .when(self.sftp_view.show_incomplete && has_incomplete, |queue| {
@@ -255,30 +257,32 @@ impl WorkspaceApp {
         let theme = self.tokens.ui;
         sftp_card_surface(
             div()
-            .border_b_1()
-            .border_color(sftp_border(theme.border, has_background))
-            .bg(sftp_panel_bg(theme.bg_card, has_background, 0xff)),
+                .border_b_1()
+                .border_color(sftp_border(theme.border, has_background))
+                .bg(sftp_panel_bg(theme.bg_card, has_background, 0xff)),
             theme.bg_card,
         )
-            .child(
-                div()
-                    .px(px(8.0))
-                    .py(px(4.0))
-                    .text_size(px(SFTP_TEXT_10))
-                    .text_color(rgb(theme.text_muted))
-                    .child(self.render_selectable_display_text(
-                        "sftp-incomplete-title",
-                        "title",
-                        self.i18n.t("sftp.queue.incomplete_title").to_uppercase(),
-                        theme.text_muted,
-                        cx,
-                    )),
-            )
-            .child(
-                div()
-                    .id("sftp-incomplete-transfer-scroll")
-                    .h(px(self.sftp_incomplete_transfer_list_height()))
-                    .when(self.sftp_incomplete_transfer_list_item_count() > 0, |list| {
+        .child(
+            div()
+                .px(px(8.0))
+                .py(px(4.0))
+                .text_size(px(SFTP_TEXT_10))
+                .text_color(rgb(theme.text_muted))
+                .child(self.render_selectable_display_text(
+                    "sftp-incomplete-title",
+                    "title",
+                    self.i18n.t("sftp.queue.incomplete_title").to_uppercase(),
+                    theme.text_muted,
+                    cx,
+                )),
+        )
+        .child(
+            div()
+                .id("sftp-incomplete-transfer-scroll")
+                .h(px(self.sftp_incomplete_transfer_list_height()))
+                .when(
+                    self.sftp_incomplete_transfer_list_item_count() > 0,
+                    |list| {
                         self.sync_sftp_incomplete_transfer_list_state();
                         let state = self.sftp_view.incomplete_transfer_list_state.clone();
                         let spec = self.sftp_incomplete_transfer_list_spec();
@@ -296,9 +300,10 @@ impl WorkspaceApp {
                                 })
                             },
                         ))
-                    }),
-            )
-            .into_any_element()
+                    },
+                ),
+        )
+        .into_any_element()
     }
 
     fn sftp_incomplete_transfer_list_item_count(&self) -> usize {
@@ -324,10 +329,7 @@ impl WorkspaceApp {
         }
         sync_tauri_variable_list_state_by_signatures(
             &self.sftp_view.incomplete_transfer_list_state,
-            &mut self
-                .sftp_view
-                .incomplete_transfer_list_cache
-                .borrow_mut(),
+            &mut self.sftp_view.incomplete_transfer_list_cache.borrow_mut(),
             "sftp-incomplete-transfers",
             &signatures,
             self.sftp_incomplete_transfer_list_spec(),
@@ -407,21 +409,23 @@ impl WorkspaceApp {
         let status = match transfer.status {
             oxideterm_sftp::TransferStatus::Paused => self.i18n.t("sftp.queue.status_paused"),
             oxideterm_sftp::TransferStatus::Failed => self.i18n.t("sftp.queue.status_error"),
-            oxideterm_sftp::TransferStatus::Active => self.transfer_status_text(&SftpTransferItem {
-                id: 0,
-                transfer_id: transfer.transfer_id.clone(),
-                batch_id: None,
-                node_id: NodeId::new(String::new()),
-                name: name.clone(),
-                local_path: String::new(),
-                remote_path: String::new(),
-                direction: SftpTransferDirection::Download,
-                size: transfer.total_bytes,
-                transferred: transfer.transferred_bytes,
-                state: SftpTransferState::Active,
-                speed: 0,
-                error: None,
-            }),
+            oxideterm_sftp::TransferStatus::Active => {
+                self.transfer_status_text(&SftpTransferItem {
+                    id: 0,
+                    transfer_id: transfer.transfer_id.clone(),
+                    batch_id: None,
+                    node_id: NodeId::new(String::new()),
+                    name: name.clone(),
+                    local_path: String::new(),
+                    remote_path: String::new(),
+                    direction: SftpTransferDirection::Download,
+                    size: transfer.total_bytes,
+                    transferred: transfer.transferred_bytes,
+                    state: SftpTransferState::Active,
+                    speed: 0,
+                    error: None,
+                })
+            }
             oxideterm_sftp::TransferStatus::Completed => self.i18n.t("sftp.queue.status_completed"),
             oxideterm_sftp::TransferStatus::Cancelled => self.i18n.t("sftp.queue.status_cancelled"),
         };
@@ -543,9 +547,7 @@ impl WorkspaceApp {
                         .rounded(px(self.tokens.radii.sm))
                         .text_color(rgb(SFTP_YELLOW))
                         .hover(|button| {
-                            button.bg(rgba(
-                                (SFTP_YELLOW << 8) | SFTP_TRANSFER_CONTROL_HOVER_ALPHA,
-                            ))
+                            button.bg(rgba((SFTP_YELLOW << 8) | SFTP_TRANSFER_CONTROL_HOVER_ALPHA))
                         })
                         .cursor_pointer()
                         .child(Self::render_lucide_icon(
@@ -597,7 +599,9 @@ impl WorkspaceApp {
             .rounded(px(self.tokens.radii.sm))
             .border_1()
             .border_color(match transfer.state {
-                SftpTransferState::Error => rgba((SFTP_RED << 8) | SFTP_TRANSFER_ERROR_BORDER_ALPHA),
+                SftpTransferState::Error => {
+                    rgba((SFTP_RED << 8) | SFTP_TRANSFER_ERROR_BORDER_ALPHA)
+                }
                 SftpTransferState::Cancelled => {
                     rgba((SFTP_YELLOW << 8) | SFTP_TRANSFER_CANCELLED_BORDER_ALPHA)
                 }

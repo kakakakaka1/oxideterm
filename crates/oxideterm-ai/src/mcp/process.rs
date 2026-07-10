@@ -3,6 +3,9 @@ const MCP_STDIO_CREATE_NO_WINDOW: u32 = 0x08000000;
 
 impl McpProcessRegistry {
     async fn stop_all(&self) {
+        #[cfg(test)]
+        self.stop_all_calls
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let ids = self
             .processes
             .lock()
@@ -186,9 +189,10 @@ fn configure_mcp_stdio_command(command: &mut Command) {
     }
 }
 
-impl Drop for McpRegistry {
+impl Drop for McpProcessOwner {
     fn drop(&mut self) {
-        let processes = self.processes.clone();
+        // This owner is dropped only after all registry handles and process tasks release it.
+        let processes = self.registry.clone();
         if let Ok(handle) = tokio::runtime::Handle::try_current() {
             handle.spawn(async move {
                 processes.stop_all().await;

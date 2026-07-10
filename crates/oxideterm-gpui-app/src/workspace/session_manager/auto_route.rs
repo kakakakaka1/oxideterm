@@ -1,30 +1,36 @@
+use super::*;
+
 use oxideterm_topology::{
     AutoRouteNetworkTopology as NetworkTopology, AutoRouteNodeConfig as TopologyNodeConfig,
     AutoRouteNodeInfo as TopologyNodeInfo, AutoRouteTopologyAuthType as TopologyAuthType,
 };
 
-const AUTO_ROUTE_MODAL_WIDTH: f32 = 512.0; // Tauri max-w-lg
-const AUTO_ROUTE_MODAL_MAX_HEIGHT_RATIO: f32 = 0.80; // Tauri max-h-[80vh]
-const AUTO_ROUTE_NODE_LIST_MAX_HEIGHT: f32 = 240.0; // Tauri max-h-60
-const AUTO_ROUTE_EMPTY_INFO_BLUE: u32 = 0x3b82f6; // Tauri blue-500
-const AUTO_ROUTE_INFO_BG_ALPHA: u32 = 0x1a; // Tauri blue-500/10
-const AUTO_ROUTE_INFO_BORDER_ALPHA: u32 = 0x33; // Tauri blue-500/20
-const AUTO_ROUTE_SELECTED_BG_ALPHA: u32 = 0x1a; // Tauri accent/10
-const AUTO_ROUTE_ROW_BORDER_ALPHA: u32 = 0x80; // Tauri border-b /50
+pub(super) const AUTO_ROUTE_MODAL_WIDTH: f32 = 512.0; // Tauri max-w-lg
+pub(super) const AUTO_ROUTE_MODAL_MAX_HEIGHT_RATIO: f32 = 0.80; // Tauri max-h-[80vh]
+pub(super) const AUTO_ROUTE_NODE_LIST_MAX_HEIGHT: f32 = 240.0; // Tauri max-h-60
+pub(super) const AUTO_ROUTE_EMPTY_INFO_BLUE: u32 = 0x3b82f6; // Tauri blue-500
+pub(super) const AUTO_ROUTE_INFO_BG_ALPHA: u32 = 0x1a; // Tauri blue-500/10
+pub(super) const AUTO_ROUTE_INFO_BORDER_ALPHA: u32 = 0x33; // Tauri blue-500/20
+pub(super) const AUTO_ROUTE_SELECTED_BG_ALPHA: u32 = 0x1a; // Tauri accent/10
+pub(super) const AUTO_ROUTE_ROW_BORDER_ALPHA: u32 = 0x80; // Tauri border-b /50
 
 #[derive(Clone, Debug, Default)]
-pub(super) struct AutoRouteModalState {
-    pub(super) open: bool,
-    pub(super) loading: bool,
-    pub(super) connecting: bool,
+pub(in crate::workspace) struct AutoRouteModalState {
+    pub(in crate::workspace) open: bool,
+    pub(in crate::workspace) loading: bool,
+    pub(in crate::workspace) connecting: bool,
     nodes: Vec<TopologyNodeInfo>,
     selected_node_id: Option<String>,
-    pub(super) display_name: String,
+    pub(in crate::workspace) display_name: String,
     error: Option<String>,
 }
 
 impl WorkspaceApp {
-    pub(super) fn open_auto_route_modal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn open_auto_route_modal(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.prepare_modal_interaction_boundary();
         self.auto_route_modal = AutoRouteModalState {
             open: true,
@@ -37,7 +43,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    pub(super) fn close_auto_route_modal(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn close_auto_route_modal(&mut self, cx: &mut Context<Self>) {
         self.auto_route_modal = AutoRouteModalState::default();
         if self.session_manager.focused_input == Some(SessionManagerInput::AutoRouteDisplayName) {
             self.session_manager.focused_input = None;
@@ -47,7 +53,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    pub(super) fn handle_auto_route_key(
+    pub(in crate::workspace) fn handle_auto_route_key(
         &mut self,
         event: &KeyDownEvent,
         window: &mut Window,
@@ -68,7 +74,8 @@ impl WorkspaceApp {
                 true
             }
             Some(browser_behavior::ModalFooterInputKeyAction::FocusInput) => {
-                self.session_manager.focused_input = Some(SessionManagerInput::AutoRouteDisplayName);
+                self.session_manager.focused_input =
+                    Some(SessionManagerInput::AutoRouteDisplayName);
                 self.session_manager.focused_basic_dialog_footer_action = None;
                 self.ime_marked_text = None;
                 cx.notify();
@@ -94,7 +101,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn load_auto_route_topology(&mut self) {
+    pub(super) fn load_auto_route_topology(&mut self) {
         // Tauri builds this graph from the saved connection store every time the dialog opens.
         // Keep it local and synchronous in GPUI too: no terminal pane or live SSH connection is involved.
         let topology = NetworkTopology::build_from_connections(self.connection_store.connections());
@@ -112,7 +119,7 @@ impl WorkspaceApp {
         self.session_manager.focused_basic_dialog_footer_action = None;
     }
 
-    fn select_auto_route_node(&mut self, node_id: String, cx: &mut Context<Self>) {
+    pub(super) fn select_auto_route_node(&mut self, node_id: String, cx: &mut Context<Self>) {
         let display_name = self
             .auto_route_modal
             .nodes
@@ -127,7 +134,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn selected_auto_route_node(&self) -> Option<&TopologyNodeInfo> {
+    pub(super) fn selected_auto_route_node(&self) -> Option<&TopologyNodeInfo> {
         let selected_id = self.auto_route_modal.selected_node_id.as_ref()?;
         self.auto_route_modal
             .nodes
@@ -135,7 +142,7 @@ impl WorkspaceApp {
             .find(|node| &node.id == selected_id)
     }
 
-    fn connect_auto_route(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn connect_auto_route(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.auto_route_modal.connecting {
             return;
         }
@@ -152,19 +159,23 @@ impl WorkspaceApp {
             }
         };
         let Some(target_node) = topology.get_node(&target_id).cloned() else {
-            self.auto_route_modal.error =
-                Some(self.i18n.t("sessionManager.auto_route.errors.target_not_found"));
+            self.auto_route_modal.error = Some(
+                self.i18n
+                    .t("sessionManager.auto_route.errors.target_not_found"),
+            );
             cx.notify();
             return;
         };
         let hops = match route
             .path
             .iter()
-            .map(|node_id| topology.get_node(node_id).ok_or_else(|| {
-                self.i18n
-                    .t("sessionManager.auto_route.errors.invalid_route_node")
-                    .replace("{{id}}", node_id)
-            }))
+            .map(|node_id| {
+                topology.get_node(node_id).ok_or_else(|| {
+                    self.i18n
+                        .t("sessionManager.auto_route.errors.invalid_route_node")
+                        .replace("{{id}}", node_id)
+                })
+            })
             .map(|node| node.and_then(|node| self.topology_node_to_ssh_config(node)))
             .collect::<Result<Vec<_>, _>>()
         {
@@ -185,17 +196,18 @@ impl WorkspaceApp {
         };
         let route_id = uuid::Uuid::new_v4().to_string();
         let target_host = target_node.host.clone();
-        let expansion = match self
-            .node_router
-            .expand_auto_route(&target_host, &route_id, hops, target_config)
-        {
-            Ok(expansion) => expansion,
-            Err(error) => {
-                self.auto_route_modal.error = Some(error.to_string());
-                cx.notify();
-                return;
-            }
-        };
+        let expansion =
+            match self
+                .node_router
+                .expand_auto_route(&target_host, &route_id, hops, target_config)
+            {
+                Ok(expansion) => expansion,
+                Err(error) => {
+                    self.auto_route_modal.error = Some(error.to_string());
+                    cx.notify();
+                    return;
+                }
+            };
         let display_name = if self.auto_route_modal.display_name.trim().is_empty() {
             target_node.display_title()
         } else {
@@ -218,7 +230,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn activate_auto_route_footer(
+    pub(super) fn activate_auto_route_footer(
         &mut self,
         action: SessionManagerBasicDialogFooterAction,
         window: &mut Window,
@@ -245,13 +257,15 @@ impl WorkspaceApp {
         }
     }
 
-    fn topology_node_to_ssh_config(&self, node: &TopologyNodeConfig) -> Result<SshConfig, String> {
+    pub(super) fn topology_node_to_ssh_config(
+        &self,
+        node: &TopologyNodeConfig,
+    ) -> Result<SshConfig, String> {
         let auth = match node.auth_type {
             TopologyAuthType::Password => {
-                return Err(
-                    self.i18n
-                        .t("sessionManager.auto_route.errors.password_auth"),
-                );
+                return Err(self
+                    .i18n
+                    .t("sessionManager.auto_route.errors.password_auth"));
             }
             TopologyAuthType::Key => {
                 let key_path = node.key_path.clone().ok_or_else(|| {
@@ -287,7 +301,7 @@ impl WorkspaceApp {
         })
     }
 
-    fn register_auto_route_tree_nodes(
+    pub(super) fn register_auto_route_tree_nodes(
         &mut self,
         topology: &NetworkTopology,
         expansion: &NodeTreeExpansion,
@@ -319,7 +333,9 @@ impl WorkspaceApp {
             } else {
                 topology_node
                     .map(TopologyNodeConfig::display_title)
-                    .unwrap_or_else(|| format!("{}@{}", snapshot.config.username, snapshot.config.host))
+                    .unwrap_or_else(|| {
+                        format!("{}@{}", snapshot.config.username, snapshot.config.host)
+                    })
             };
             self.ssh_nodes.insert(
                 node_id.clone(),
@@ -335,7 +351,7 @@ impl WorkspaceApp {
         }
     }
 
-    pub(super) fn render_auto_route_modal(
+    pub(in crate::workspace) fn render_auto_route_modal(
         &self,
         window: &Window,
         cx: &mut Context<Self>,
@@ -365,7 +381,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn render_auto_route_header(&self) -> AnyElement {
+    pub(super) fn render_auto_route_header(&self) -> AnyElement {
         let theme = self.tokens.ui;
         div()
             .flex()
@@ -405,7 +421,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_auto_route_body(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn render_auto_route_body(&self, cx: &mut Context<Self>) -> AnyElement {
         if self.auto_route_modal.loading {
             return div()
                 .py_8()
@@ -443,7 +459,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_auto_route_empty_state(&self) -> AnyElement {
+    pub(super) fn render_auto_route_empty_state(&self) -> AnyElement {
         div()
             .py_4()
             .child(
@@ -460,13 +476,11 @@ impl WorkspaceApp {
                     .bg(rgba(
                         (AUTO_ROUTE_EMPTY_INFO_BLUE << 8) | AUTO_ROUTE_INFO_BG_ALPHA,
                     ))
-                    .child(
-                        div().mt(px(2.0)).child(Self::render_lucide_icon(
-                            LucideIcon::AlertCircle,
-                            20.0,
-                            rgb(AUTO_ROUTE_EMPTY_INFO_BLUE),
-                        )),
-                    )
+                    .child(div().mt(px(2.0)).child(Self::render_lucide_icon(
+                        LucideIcon::AlertCircle,
+                        20.0,
+                        rgb(AUTO_ROUTE_EMPTY_INFO_BLUE),
+                    )))
                     .child(
                         div()
                             .flex_1()
@@ -478,18 +492,14 @@ impl WorkspaceApp {
                                     .text_size(px(self.tokens.metrics.ui_text_sm))
                                     .font_weight(gpui::FontWeight::MEDIUM)
                                     .text_color(rgb(self.tokens.ui.text_heading))
-                                    .child(
-                                        self.i18n
-                                            .t("sessionManager.auto_route.empty.title"),
-                                    ),
+                                    .child(self.i18n.t("sessionManager.auto_route.empty.title")),
                             )
                             .child(
                                 div()
                                     .text_size(px(self.tokens.metrics.ui_text_xs))
                                     .text_color(rgb(self.tokens.ui.text_muted))
                                     .child(
-                                        self.i18n
-                                            .t("sessionManager.auto_route.empty.description"),
+                                        self.i18n.t("sessionManager.auto_route.empty.description"),
                                     ),
                             ),
                     ),
@@ -497,7 +507,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_auto_route_error(&self, error: &str) -> AnyElement {
+    pub(super) fn render_auto_route_error(&self, error: &str) -> AnyElement {
         div()
             .rounded(px(self.tokens.radii.md))
             .border_1()
@@ -510,7 +520,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_auto_route_node_picker(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn render_auto_route_node_picker(&self, cx: &mut Context<Self>) -> AnyElement {
         let theme = self.tokens.ui;
         div()
             .flex()
@@ -543,7 +553,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_auto_route_node_row(
+    pub(super) fn render_auto_route_node_row(
         &self,
         node: TopologyNodeInfo,
         cx: &mut Context<Self>,
@@ -553,8 +563,10 @@ impl WorkspaceApp {
         let has_background = self
             .terminal_background_preferences("session_manager")
             .is_some();
-        let selection_group_id =
-            crate::workspace::selectable_text::selectable_text_id("auto-route-target-row", &node.id);
+        let selection_group_id = crate::workspace::selectable_text::selectable_text_id(
+            "auto-route-target-row",
+            &node.id,
+        );
         div()
             .flex()
             .items_center()
@@ -627,7 +639,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_auto_route_selected_details(
+    pub(super) fn render_auto_route_selected_details(
         &self,
         node: &TopologyNodeInfo,
         cx: &mut Context<Self>,
@@ -701,52 +713,49 @@ impl WorkspaceApp {
                                 cx,
                             )),
                     )
-                    .child(
-                        div().child(self.render_selectable_text_scoped(
-                            "auto-route-auth-info",
-                            &node.id,
-                            format!(
-                                "{}: {}",
-                                self.i18n.t("sessionManager.auto_route.auth.label"),
-                                self.i18n.t(node.auth_type.label_key())
-                            ),
-                            theme.text_muted,
-                            cx,
-                        )),
-                    )
+                    .child(div().child(self.render_selectable_text_scoped(
+                        "auto-route-auth-info",
+                        &node.id,
+                        format!(
+                            "{}: {}",
+                            self.i18n.t("sessionManager.auto_route.auth.label"),
+                            self.i18n.t(node.auth_type.label_key())
+                        ),
+                        theme.text_muted,
+                        cx,
+                    )))
                     .when(node.auth_type == TopologyAuthType::Password, |details| {
                         details.child(
-                            div()
-                                .text_color(rgb(0xf59e0b))
-                                .child(self.render_selectable_text_scoped(
+                            div().text_color(rgb(0xf59e0b)).child(
+                                self.render_selectable_text_scoped(
                                     "auto-route-password-warning",
                                     &node.id,
-                                    self.i18n.t("sessionManager.auto_route.auth.password_warning"),
+                                    self.i18n
+                                        .t("sessionManager.auto_route.auth.password_warning"),
                                     0xf59e0b,
                                     cx,
-                                )),
+                                ),
+                            ),
                         )
                     })
                     .when(!node.neighbors.is_empty(), |details| {
-                        details.child(
-                            div().flex().flex_wrap().gap_1().children(node.neighbors.iter().map(
-                                |neighbor| {
-                                    div()
-                                        .rounded(px(self.tokens.radii.sm))
-                                        .bg(rgba((theme.accent << 8) | 0x1a))
-                                        .px_2()
-                                        .py(px(2.0))
-                                        .text_color(rgb(theme.accent))
-                                        .child(neighbor.clone())
-                                },
-                            )),
-                        )
+                        details.child(div().flex().flex_wrap().gap_1().children(
+                            node.neighbors.iter().map(|neighbor| {
+                                div()
+                                    .rounded(px(self.tokens.radii.sm))
+                                    .bg(rgba((theme.accent << 8) | 0x1a))
+                                    .px_2()
+                                    .py(px(2.0))
+                                    .text_color(rgb(theme.accent))
+                                    .child(neighbor.clone())
+                            }),
+                        ))
                     }),
             )
             .into_any_element()
     }
 
-    fn render_auto_route_footer(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn render_auto_route_footer(&self, cx: &mut Context<Self>) -> AnyElement {
         let selected_is_password = self
             .selected_auto_route_node()
             .is_some_and(|node| node.auth_type == TopologyAuthType::Password);
@@ -758,41 +767,37 @@ impl WorkspaceApp {
                 .into_any_element()
         });
         modal_footer(&self.tokens)
-            .child(
-                self.session_manager_dialog_footer_action(
-                    self.i18n.t("sessionManager.auto_route.cancel"),
-                    ButtonVariant::Ghost,
-                    SessionManagerBasicDialogFooterAction::Cancel,
-                    self.auto_route_modal.connecting,
-                    ButtonSize::Default,
-                    None,
-                    |this, _event, _window, cx| {
-                        this.close_auto_route_modal(cx);
-                        cx.stop_propagation();
-                    },
-                    cx,
-                ),
-            )
-            .child(
-                self.session_manager_dialog_footer_action(
-                    self.i18n.t("sessionManager.auto_route.connect"),
-                    ButtonVariant::Default,
-                    SessionManagerBasicDialogFooterAction::Primary,
-                    connect_disabled,
-                    ButtonSize::Default,
-                    connect_icon,
-                    |this, _event, window, cx| {
-                        this.connect_auto_route(window, cx);
-                        cx.stop_propagation();
-                    },
-                    cx,
-                ),
-            )
+            .child(self.session_manager_dialog_footer_action(
+                self.i18n.t("sessionManager.auto_route.cancel"),
+                ButtonVariant::Ghost,
+                SessionManagerBasicDialogFooterAction::Cancel,
+                self.auto_route_modal.connecting,
+                ButtonSize::Default,
+                None,
+                |this, _event, _window, cx| {
+                    this.close_auto_route_modal(cx);
+                    cx.stop_propagation();
+                },
+                cx,
+            ))
+            .child(self.session_manager_dialog_footer_action(
+                self.i18n.t("sessionManager.auto_route.connect"),
+                ButtonVariant::Default,
+                SessionManagerBasicDialogFooterAction::Primary,
+                connect_disabled,
+                ButtonSize::Default,
+                connect_icon,
+                |this, _event, window, cx| {
+                    this.connect_auto_route(window, cx);
+                    cx.stop_propagation();
+                },
+                cx,
+            ))
             .into_any_element()
     }
 }
 
-fn auto_route_radio(tokens: &ThemeTokens, selected: bool) -> AnyElement {
+pub(super) fn auto_route_radio(tokens: &ThemeTokens, selected: bool) -> AnyElement {
     div()
         .size(px(16.0))
         .flex()

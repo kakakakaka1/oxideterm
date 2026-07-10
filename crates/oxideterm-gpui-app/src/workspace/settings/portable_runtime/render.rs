@@ -1,5 +1,22 @@
+use gpui::{
+    AnyElement, Context, IntoElement, MouseDownEvent, ParentElement, Styled, Window, div,
+    prelude::FluentBuilder, px, rgb, rgba,
+};
+use oxideterm_gpui_ui::button::{
+    ButtonOptions, ButtonRadius, ButtonSize, ButtonVariant, ToolbarButtonIconPosition,
+    ToolbarButtonOptions,
+};
+
+use crate::assets::LucideIcon;
+
+use super::{
+    PORTABLE_SETTINGS_BUTTON_GAP, PORTABLE_SETTINGS_PATH_CARD_GAP, SelectableTextRole,
+    WorkspaceApp, portable_activation_label, portable_status_badge_color,
+    settings_mono_font_family,
+};
+
 impl WorkspaceApp {
-    fn portable_settings_text(
+    pub(in crate::workspace) fn portable_settings_text(
         &self,
         scope: &'static str,
         key: impl std::hash::Hash,
@@ -33,7 +50,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn settings_portable_section(
+    pub(in crate::workspace) fn settings_portable_section(
         &mut self,
         section_index: usize,
         cx: &mut Context<Self>,
@@ -51,7 +68,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn portable_runtime_card(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn portable_runtime_card(&self, cx: &mut Context<Self>) -> AnyElement {
         let portable_status = self.portable_status_snapshot.as_ref();
         let is_portable = portable_status.is_some_and(|status| status.is_portable);
         let hint_key = if is_portable {
@@ -79,7 +96,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn portable_runtime_summary_row(
+    pub(in crate::workspace) fn portable_runtime_summary_row(
         &self,
         portable_status: Option<&oxideterm_portable_runtime::PortableStatusSnapshot>,
         hint_key: &str,
@@ -94,7 +111,8 @@ impl WorkspaceApp {
             })
             .unwrap_or_else(|| {
                 (
-                    self.i18n.t("settings_view.general.portable_activation_disabled"),
+                    self.i18n
+                        .t("settings_view.general.portable_activation_disabled"),
                     self.tokens.ui.text_muted,
                 )
             });
@@ -136,7 +154,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn portable_path_group(
+    pub(in crate::workspace) fn portable_path_group(
         &self,
         status: &oxideterm_portable_runtime::PortableStatusSnapshot,
         cx: &mut Context<Self>,
@@ -187,7 +205,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn portable_value_box(
+    pub(in crate::workspace) fn portable_value_box(
         &self,
         label_key: &str,
         value: String,
@@ -229,7 +247,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn portable_security_group(
+    pub(in crate::workspace) fn portable_security_group(
         &self,
         status: &oxideterm_portable_runtime::PortableStatusSnapshot,
         cx: &mut Context<Self>,
@@ -259,16 +277,18 @@ impl WorkspaceApp {
                         Some(gpui::FontWeight::MEDIUM),
                         cx,
                     ))
-                    .child(self.portable_settings_text(
-                        "portable-security-hint",
-                        "settings_view.general.portable_biometric_unsupported",
-                        self.i18n
-                            .t("settings_view.general.portable_biometric_unsupported"),
-                        self.tokens.metrics.ui_text_xs,
-                        self.tokens.ui.text_muted,
-                        None,
-                        cx,
-                    )),
+                    .child(
+                        self.portable_settings_text(
+                            "portable-security-hint",
+                            "settings_view.general.portable_biometric_unsupported",
+                            self.i18n
+                                .t("settings_view.general.portable_biometric_unsupported"),
+                            self.tokens.metrics.ui_text_xs,
+                            self.tokens.ui.text_muted,
+                            None,
+                            cx,
+                        ),
+                    ),
             )
             .child(
                 div()
@@ -276,35 +296,44 @@ impl WorkspaceApp {
                     .flex_row()
                     .flex_wrap()
                     .gap(px(PORTABLE_SETTINGS_BUTTON_GAP))
-                    .child(self.portable_action_button(
-                        self.i18n.t("settings_view.general.portable_change_password"),
-                        LucideIcon::Key,
-                        can_change_password,
-                        false,
-                        |this, _event, _window, cx| {
-                            this.open_portable_password_change_dialog(cx);
-                        },
-                        cx,
-                    )),
+                    .child(
+                        self.portable_action_button(
+                            self.i18n
+                                .t("settings_view.general.portable_change_password"),
+                            LucideIcon::Key,
+                            can_change_password,
+                            false,
+                            |this, _event, _window, cx| {
+                                this.open_portable_password_change_dialog(cx);
+                            },
+                            cx,
+                        ),
+                    ),
             )
-            .when_some(self.portable_settings_action_error.clone(), |group, error| {
-                group.child(
-                    div()
-                        .rounded(px(self.tokens.radii.md))
-                        .border_1()
-                        .border_color(rgba((self.tokens.ui.error << 8) | 0x4d))
-                        .bg(rgba((self.tokens.ui.error << 8) | 0x1a))
-                        .px(px(10.0))
-                        .py(px(8.0))
-                        .text_size(px(self.tokens.metrics.ui_text_sm))
-                        .text_color(rgb(self.tokens.ui.error))
-                        .child(error),
-                )
-            })
+            .when_some(
+                self.portable_settings_action_error.clone(),
+                |group, error| {
+                    group.child(
+                        div()
+                            .rounded(px(self.tokens.radii.md))
+                            .border_1()
+                            .border_color(rgba((self.tokens.ui.error << 8) | 0x4d))
+                            .bg(rgba((self.tokens.ui.error << 8) | 0x1a))
+                            .px(px(10.0))
+                            .py(px(8.0))
+                            .text_size(px(self.tokens.metrics.ui_text_sm))
+                            .text_color(rgb(self.tokens.ui.error))
+                            .child(error),
+                    )
+                },
+            )
             .into_any_element()
     }
 
-    fn portable_disabled_notice(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn portable_disabled_notice(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         div()
             .w_full()
             .min_w(px(0.0))
@@ -314,20 +343,25 @@ impl WorkspaceApp {
             .bg(self.settings_panel_background(self.tokens.ui.bg))
             .px(px(12.0))
             .py(px(12.0))
-            .child(self.portable_settings_text(
-                "portable-disabled-notice",
-                "settings_view.general.portable_runtime_disabled_hint",
-                self.i18n
-                    .t("settings_view.general.portable_runtime_disabled_hint"),
-                self.tokens.metrics.ui_text_xs,
-                self.tokens.ui.text_muted,
-                None,
-                cx,
-            ))
+            .child(
+                self.portable_settings_text(
+                    "portable-disabled-notice",
+                    "settings_view.general.portable_runtime_disabled_hint",
+                    self.i18n
+                        .t("settings_view.general.portable_runtime_disabled_hint"),
+                    self.tokens.metrics.ui_text_xs,
+                    self.tokens.ui.text_muted,
+                    None,
+                    cx,
+                ),
+            )
             .into_any_element()
     }
 
-    fn portable_migration_card(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn portable_migration_card(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let portable_status = self.portable_status_snapshot.as_ref();
         let is_portable = portable_status.is_some_and(|status| status.is_portable);
         let current_data_dir = self
@@ -398,51 +432,55 @@ impl WorkspaceApp {
                     true,
                     cx,
                 ))
-                .child(
-                    self.portable_settings_text(
-                        "portable-migration-secret-summary",
-                        secret_count,
-                        self.i18n_with(
-                            "settings_view.general.portable_migration_secret_summary",
-                            &[("count", secret_count.to_string())],
-                        ),
-                        self.tokens.metrics.ui_text_xs,
-                        self.tokens.ui.text_muted,
-                        None,
-                        cx,
+                .child(self.portable_settings_text(
+                    "portable-migration-secret-summary",
+                    secret_count,
+                    self.i18n_with(
+                        "settings_view.general.portable_migration_secret_summary",
+                        &[("count", secret_count.to_string())],
                     ),
-                )
+                    self.tokens.metrics.ui_text_xs,
+                    self.tokens.ui.text_muted,
+                    None,
+                    cx,
+                ))
                 .into_any_element(),
             div()
                 .flex()
                 .flex_row()
                 .flex_wrap()
                 .gap(px(PORTABLE_SETTINGS_BUTTON_GAP))
-                .child(self.portable_action_button(
-                    self.i18n.t("settings_view.general.portable_migration_export"),
-                    LucideIcon::Upload,
-                    true,
-                    false,
-                    |this, _event, _window, cx| {
-                        this.open_oxide_export_portable_migration_dialog(cx);
-                    },
-                    cx,
-                ))
-                .child(self.portable_action_button(
-                    self.i18n.t("settings_view.general.portable_migration_import"),
-                    LucideIcon::Download,
-                    true,
-                    false,
-                    |this, _event, _window, cx| {
-                        this.open_oxide_import_portable_migration_dialog(cx);
-                    },
-                    cx,
-                ))
+                .child(
+                    self.portable_action_button(
+                        self.i18n
+                            .t("settings_view.general.portable_migration_export"),
+                        LucideIcon::Upload,
+                        true,
+                        false,
+                        |this, _event, _window, cx| {
+                            this.open_oxide_export_portable_migration_dialog(cx);
+                        },
+                        cx,
+                    ),
+                )
+                .child(
+                    self.portable_action_button(
+                        self.i18n
+                            .t("settings_view.general.portable_migration_import"),
+                        LucideIcon::Download,
+                        true,
+                        false,
+                        |this, _event, _window, cx| {
+                            this.open_oxide_import_portable_migration_dialog(cx);
+                        },
+                        cx,
+                    ),
+                )
                 .into_any_element(),
         ])
     }
 
-    fn portable_action_button(
+    pub(in crate::workspace) fn portable_action_button(
         &self,
         label: String,
         icon: LucideIcon,

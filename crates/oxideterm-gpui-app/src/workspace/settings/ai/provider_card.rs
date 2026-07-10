@@ -1,4 +1,10 @@
-include!("provider/add_controls.rs");
-include!("provider/card.rs");
-include!("provider/controls.rs");
-include!("provider/models.rs");
+use super::*;
+
+#[path = "provider/add_controls.rs"]
+mod add_controls;
+#[path = "provider/card.rs"]
+mod card;
+#[path = "provider/controls.rs"]
+mod controls;
+#[path = "provider/models.rs"]
+mod models;

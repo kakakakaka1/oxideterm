@@ -1,4 +1,6 @@
-fn shortcut_key(key: &str) -> String {
+use super::*;
+
+pub(super) fn shortcut_key(key: &str) -> String {
     if cfg!(target_os = "macos") {
         format!("⌘{key}")
     } else {
@@ -6,7 +8,7 @@ fn shortcut_key(key: &str) -> String {
     }
 }
 
-fn readiness_for_connection_state(state: &ConnectionState) -> NodeReadiness {
+pub(super) fn readiness_for_connection_state(state: &ConnectionState) -> NodeReadiness {
     match state {
         ConnectionState::Active | ConnectionState::Idle => NodeReadiness::Ready,
         ConnectionState::Connecting | ConnectionState::Reconnecting => NodeReadiness::Connecting,

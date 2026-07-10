@@ -1,7 +1,11 @@
-const CONTEXT_SIDEBAR_RESIZE_HOTZONE_WIDTH: f32 = 12.0;
-const CONTEXT_SIDEBAR_RESIZE_DIVIDER_WIDTH: f32 = 1.0;
+use super::*;
 
-fn context_sidebar_frame_chrome(total_width: f32) -> gpui::Stateful<gpui::Div> {
+pub(in crate::workspace) const CONTEXT_SIDEBAR_RESIZE_HOTZONE_WIDTH: f32 = 12.0;
+pub(in crate::workspace) const CONTEXT_SIDEBAR_RESIZE_DIVIDER_WIDTH: f32 = 1.0;
+
+pub(in crate::workspace) fn context_sidebar_frame_chrome(
+    total_width: f32,
+) -> gpui::Stateful<gpui::Div> {
     div()
         .id("context-right-sidebar-frame")
         .relative()
@@ -13,16 +17,11 @@ fn context_sidebar_frame_chrome(total_width: f32) -> gpui::Stateful<gpui::Div> {
         .flex_row()
 }
 
-fn context_sidebar_region_chrome() -> gpui::Div {
-    div()
-        .relative()
-        .flex_1()
-        .min_w(px(0.0))
-        .h_full()
-        .min_h_0()
+pub(in crate::workspace) fn context_sidebar_region_chrome() -> gpui::Div {
+    div().relative().flex_1().min_w(px(0.0)).h_full().min_h_0()
 }
 
-fn context_sidebar_resize_hotzone_chrome() -> gpui::Stateful<gpui::Div> {
+pub(in crate::workspace) fn context_sidebar_resize_hotzone_chrome() -> gpui::Stateful<gpui::Div> {
     div()
         .id("context-right-sidebar-resize-hotzone")
         .absolute()
@@ -38,7 +37,10 @@ fn context_sidebar_resize_hotzone_chrome() -> gpui::Stateful<gpui::Div> {
 }
 
 impl WorkspaceApp {
-    pub(super) fn render_sidebar_region(&mut self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn render_sidebar_region(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let theme = self.tokens.ui;
         div()
             .relative()
@@ -75,11 +77,11 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    pub(super) fn render_context_right_sidebar_frame(
+    pub(in crate::workspace) fn render_context_right_sidebar_frame(
         &mut self,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        context_sidebar_frame_chrome(self.ai_sidebar_width)
+        context_sidebar_frame_chrome(self.ai.chat.sidebar_width)
             // The frame owns the full right-sidebar width. The content starts
             // at the real seam with the terminal, while the resize affordance
             // is an overlay so it does not create a visible layout gap.
@@ -88,7 +90,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    pub(super) fn render_context_right_sidebar_region(
+    pub(in crate::workspace) fn render_context_right_sidebar_region(
         &mut self,
         cx: &mut Context<Self>,
     ) -> AnyElement {
@@ -97,9 +99,11 @@ impl WorkspaceApp {
             ContextSidebarPanel::Assistant => {
                 ("sidebar.panels.ai", "assistant", LucideIcon::Sparkles)
             }
-            ContextSidebarPanel::HostTools => {
-                ("sidebar.panels.host_tools", "host-tools", LucideIcon::Wrench)
-            }
+            ContextSidebarPanel::HostTools => (
+                "sidebar.panels.host_tools",
+                "host-tools",
+                LucideIcon::Wrench,
+            ),
         };
         context_sidebar_region_chrome()
             .child(
@@ -192,7 +196,9 @@ impl WorkspaceApp {
                             .flex_col()
                             .overflow_hidden()
                             .child(match self.active_context_sidebar_panel {
-                                ContextSidebarPanel::Assistant => self.render_ai_sidebar_content(cx),
+                                ContextSidebarPanel::Assistant => {
+                                    self.render_ai_sidebar_content(cx)
+                                }
                                 ContextSidebarPanel::HostTools => {
                                     self.render_host_tools_context_panel(cx)
                                 }
@@ -202,7 +208,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    pub(super) fn render_context_right_sidebar_resize_hotzone(
+    pub(in crate::workspace) fn render_context_right_sidebar_resize_hotzone(
         &mut self,
         cx: &mut Context<Self>,
     ) -> AnyElement {
@@ -218,7 +224,7 @@ impl WorkspaceApp {
                     .top_0()
                     .bottom_0()
                     .w(px(CONTEXT_SIDEBAR_RESIZE_DIVIDER_WIDTH))
-                    .bg(if self.ai_sidebar_resizing {
+                    .bg(if self.ai.chat.sidebar_resizing {
                         rgb(theme.accent)
                     } else {
                         rgba((theme.border << 8) | 0x80)
@@ -235,7 +241,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_context_sidebar_panel_title(
+    pub(in crate::workspace) fn render_context_sidebar_panel_title(
         &self,
         title_key: &'static str,
         title_role: &'static str,
@@ -275,7 +281,7 @@ impl WorkspaceApp {
         )
     }
 
-    pub(super) fn render_sidebar(&mut self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn render_sidebar(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let theme = self.tokens.ui;
         div()
             .w_full()
@@ -290,27 +296,28 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    pub(super) fn render_sidebar_header(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn render_sidebar_header(&self, cx: &mut Context<Self>) -> AnyElement {
         let theme = self.tokens.ui;
         let panel_section = self.effective_sidebar_panel_section();
-        let plugin_panel_title =
-            (panel_section == SidebarSection::Extensions)
-                .then(|| {
-                    self.active_native_plugin_sidebar_panel
-                        .as_ref()
-                        .and_then(|selection| {
-                            self.plugin_registry
-                                .contributions()
-                                .runtime_sidebar_panels()
-                                .into_iter()
-                                .find(|panel| {
-                                    panel.plugin_id == selection.plugin_id
-                                        && panel.panel_id == selection.panel_id
-                                })
-                                .map(|panel| panel.title)
-                        })
-                })
-                .flatten();
+        let plugin_panel_title = (panel_section == SidebarSection::Extensions)
+            .then(|| {
+                self.native_plugin_manager
+                    .active_sidebar_panel
+                    .as_ref()
+                    .and_then(|selection| {
+                        self.native_plugin_runtime
+                            .registry
+                            .contributions()
+                            .runtime_sidebar_panels()
+                            .into_iter()
+                            .find(|panel| {
+                                panel.plugin_id == selection.plugin_id
+                                    && panel.panel_id == selection.panel_id
+                            })
+                            .map(|panel| panel.title)
+                    })
+            })
+            .flatten();
         let title_key = match panel_section {
             SidebarSection::Connections => "sidebar.panels.saved_connections",
             SidebarSection::Sftp => "sidebar.panels.sftp",
@@ -320,8 +327,7 @@ impl WorkspaceApp {
             SidebarSection::Notifications => "sidebar.panels.event_log",
             _ => "sidebar.panels.sessions",
         };
-        let title = plugin_panel_title
-            .unwrap_or_else(|| self.i18n.t(title_key).to_uppercase());
+        let title = plugin_panel_title.unwrap_or_else(|| self.i18n.t(title_key).to_uppercase());
         let mut header = div()
             .h(px(self.tokens.metrics.sidebar_header_height))
             .flex()
@@ -346,7 +352,7 @@ impl WorkspaceApp {
                             theme.text_muted,
                             cx,
                         ))
-                    .into_any_element(),
+                        .into_any_element(),
                     cx,
                 ),
             );
@@ -361,13 +367,21 @@ impl WorkspaceApp {
             };
             header = header
                 .child(self.render_sidebar_action(view_icon, view_action, cx))
-                .child(self.render_sidebar_action(LucideIcon::Network, SidebarActionKind::AutoRoute, cx))
-                .child(self.render_sidebar_action(LucideIcon::Plus, SidebarActionKind::NewConnection, cx));
+                .child(self.render_sidebar_action(
+                    LucideIcon::Network,
+                    SidebarActionKind::AutoRoute,
+                    cx,
+                ))
+                .child(self.render_sidebar_action(
+                    LucideIcon::Plus,
+                    SidebarActionKind::NewConnection,
+                    cx,
+                ));
         }
         header.into_any_element()
     }
 
-    pub(super) fn render_sidebar_action(
+    pub(in crate::workspace) fn render_sidebar_action(
         &self,
         icon: LucideIcon,
         action: SidebarActionKind,
@@ -412,7 +426,9 @@ impl WorkspaceApp {
                         SidebarActionKind::ToggleSessionView => {
                             this.toggle_active_session_sidebar_view(cx)
                         }
-                        SidebarActionKind::NewConnection => this.open_new_connection_form(window, cx),
+                        SidebarActionKind::NewConnection => {
+                            this.open_new_connection_form(window, cx)
+                        }
                         SidebarActionKind::AutoRoute => this.open_auto_route_modal(window, cx),
                     }
                     cx.stop_propagation();
@@ -422,7 +438,10 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    pub(super) fn render_sidebar_content(&mut self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn render_sidebar_content(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let panel_section = self.effective_sidebar_panel_section();
         if panel_section == SidebarSection::Connections {
             return self.render_saved_connections_sidebar_content(cx);
@@ -447,11 +466,11 @@ impl WorkspaceApp {
         self.render_empty_sessions_sidebar_content(cx)
     }
 
-    fn render_blank_sidebar_content(&self) -> AnyElement {
+    pub(in crate::workspace) fn render_blank_sidebar_content(&self) -> AnyElement {
         div().flex_1().w_full().into_any_element()
     }
 
-    pub(super) fn render_activity_tab_button(
+    pub(in crate::workspace) fn render_activity_tab_button(
         &self,
         view: WorkspaceActivityView,
         icon: LucideIcon,
@@ -472,9 +491,17 @@ impl WorkspaceApp {
             .gap(px(5.0))
             .rounded(px(self.tokens.radii.md))
             .cursor_pointer()
-            .bg(if active { rgb(theme.bg_active) } else { rgb(theme.bg) })
+            .bg(if active {
+                rgb(theme.bg_active)
+            } else {
+                rgb(theme.bg)
+            })
             .border_1()
-            .border_color(if active { rgb(theme.border) } else { rgb(theme.bg) })
+            .border_color(if active {
+                rgb(theme.border)
+            } else {
+                rgb(theme.bg)
+            })
             .text_size(px(11.0))
             .text_color(if active {
                 rgb(theme.text_heading)
@@ -551,9 +578,15 @@ impl WorkspaceApp {
         .into_any_element()
     }
 
-    pub(super) fn render_notifications_sidebar_content(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn render_notifications_sidebar_content(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let theme = self.tokens.ui;
-        let filtered = self.notification_center.notifications.entries
+        let filtered = self
+            .notification_center
+            .notifications
+            .entries
             .iter()
             .rev()
             .filter(|entry| self.notification_matches_filter(entry))
@@ -586,25 +619,28 @@ impl WorkspaceApp {
             .flex()
             .flex_col()
             .child(self.render_notifications_toolbar(cx))
-            .when(self.notification_center.notifications.dnd_enabled, |content| {
-                content.child(
-                    div()
-                        .border_b_1()
-                        .border_color(rgb(theme.border))
-                        .bg(rgba(0xf59e0b1a))
-                        .px_3()
-                        .py_2()
-                        .text_size(px(11.0))
-                        .text_color(rgb(0xfbbf24))
-                        .child(self.render_selectable_display_text(
-                            "notifications-dnd",
-                            (),
-                            "Do Not Disturb is on".to_string(),
-                            0xfbbf24,
-                            cx,
-                        )),
-                )
-            })
+            .when(
+                self.notification_center.notifications.dnd_enabled,
+                |content| {
+                    content.child(
+                        div()
+                            .border_b_1()
+                            .border_color(rgb(theme.border))
+                            .bg(rgba(0xf59e0b1a))
+                            .px_3()
+                            .py_2()
+                            .text_size(px(11.0))
+                            .text_color(rgb(0xfbbf24))
+                            .child(self.render_selectable_display_text(
+                                "notifications-dnd",
+                                (),
+                                "Do Not Disturb is on".to_string(),
+                                0xfbbf24,
+                                cx,
+                            )),
+                    )
+                },
+            )
             .child(
                 div()
                     .id("notifications-sidebar-scroll")
@@ -648,7 +684,10 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_notifications_toolbar(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn render_notifications_toolbar(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let theme = self.tokens.ui;
         div()
             .h(px(32.0))
@@ -663,14 +702,16 @@ impl WorkspaceApp {
                 self.notification_center.notifications.dnd_enabled,
                 "Toggle notification DND",
                 |this, _event, _window, cx| {
-                    this.notification_center.notifications.dnd_enabled = !this.notification_center.notifications.dnd_enabled;
+                    this.notification_center.notifications.dnd_enabled =
+                        !this.notification_center.notifications.dnd_enabled;
                     cx.notify();
                 },
                 cx,
             ))
             .child(self.render_activity_icon_button(
                 LucideIcon::ListTree,
-                self.notification_center.notifications.filter.status != WorkspaceNotificationStatusFilter::All,
+                self.notification_center.notifications.filter.status
+                    != WorkspaceNotificationStatusFilter::All,
                 "Cycle status filter",
                 |this, _event, _window, cx| {
                     this.cycle_notification_status_filter();
@@ -680,7 +721,8 @@ impl WorkspaceApp {
             ))
             .child(self.render_activity_icon_button(
                 LucideIcon::AlertCircle,
-                self.notification_center.notifications.filter.severity != WorkspaceNotificationSeverityFilter::All,
+                self.notification_center.notifications.filter.severity
+                    != WorkspaceNotificationSeverityFilter::All,
                 "Cycle severity filter",
                 |this, _event, _window, cx| {
                     this.cycle_notification_severity_filter();
@@ -690,7 +732,8 @@ impl WorkspaceApp {
             ))
             .child(self.render_activity_icon_button(
                 LucideIcon::Hash,
-                self.notification_center.notifications.filter.kind != WorkspaceNotificationKindFilter::All,
+                self.notification_center.notifications.filter.kind
+                    != WorkspaceNotificationKindFilter::All,
                 "Cycle kind filter",
                 |this, _event, _window, cx| {
                     this.cycle_notification_kind_filter();
@@ -722,9 +765,15 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    pub(super) fn render_event_log_sidebar_content(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn render_event_log_sidebar_content(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let theme = self.tokens.ui;
-        let filtered = self.notification_center.event_log.entries
+        let filtered = self
+            .notification_center
+            .event_log
+            .entries
             .iter()
             .filter(|entry| self.event_log_entry_matches_filter(entry))
             .cloned()
@@ -822,17 +871,14 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn schedule_event_log_virtual_scroll_to_bottom_if_sticky(
+    pub(in crate::workspace) fn schedule_event_log_virtual_scroll_to_bottom_if_sticky(
         &self,
         handle: UniformListScrollHandle,
         last_index: usize,
         spec: TauriVirtualListSpec,
         cx: &mut Context<Self>,
     ) {
-        if !tauri_virtual_list_is_near_bottom(
-            &handle,
-            px(EVENT_LOG_STICKY_BOTTOM_THRESHOLD_PX),
-        ) {
+        if !tauri_virtual_list_is_near_bottom(&handle, px(EVENT_LOG_STICKY_BOTTOM_THRESHOLD_PX)) {
             return;
         }
         // Tauri defers the bottom scroll until after React commits the new row.
@@ -853,7 +899,10 @@ impl WorkspaceApp {
         .detach();
     }
 
-    fn render_event_log_toolbar(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn render_event_log_toolbar(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let theme = self.tokens.ui;
         let counts = self.filtered_event_log_counts();
         div()
@@ -885,14 +934,16 @@ impl WorkspaceApp {
                 self.notification_center.event_log.dnd_enabled,
                 "Toggle event log DND",
                 |this, _event, _window, cx| {
-                    this.notification_center.event_log.dnd_enabled = !this.notification_center.event_log.dnd_enabled;
+                    this.notification_center.event_log.dnd_enabled =
+                        !this.notification_center.event_log.dnd_enabled;
                     cx.notify();
                 },
                 cx,
             ))
             .child(self.render_activity_icon_button(
                 LucideIcon::ListTree,
-                self.notification_center.event_log.filter.severity != WorkspaceEventSeverityFilter::All,
+                self.notification_center.event_log.filter.severity
+                    != WorkspaceEventSeverityFilter::All,
                 "Cycle severity filter",
                 |this, _event, _window, cx| {
                     this.cycle_event_log_severity_filter();
@@ -902,7 +953,8 @@ impl WorkspaceApp {
             ))
             .child(self.render_activity_icon_button(
                 LucideIcon::Search,
-                self.notification_center.event_log.filter.category != WorkspaceEventCategoryFilter::All,
+                self.notification_center.event_log.filter.category
+                    != WorkspaceEventCategoryFilter::All,
                 "Cycle category filter",
                 |this, _event, _window, cx| {
                     this.cycle_event_log_category_filter();
@@ -923,7 +975,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_activity_icon_button(
+    pub(in crate::workspace) fn render_activity_icon_button(
         &self,
         icon: LucideIcon,
         active: bool,
@@ -962,7 +1014,7 @@ impl WorkspaceApp {
         .into_any_element()
     }
 
-    fn render_count_chip(
+    pub(in crate::workspace) fn render_count_chip(
         &self,
         icon: LucideIcon,
         color: u32,
@@ -986,11 +1038,14 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn filtered_event_log_counts(&self) -> (usize, usize, usize) {
+    pub(in crate::workspace) fn filtered_event_log_counts(&self) -> (usize, usize, usize) {
         let mut info = 0;
         let mut warn = 0;
         let mut error = 0;
-        for entry in self.notification_center.event_log.entries
+        for entry in self
+            .notification_center
+            .event_log
+            .entries
             .iter()
             .filter(|entry| self.event_log_entry_matches_filter(entry))
         {
@@ -1003,11 +1058,17 @@ impl WorkspaceApp {
         (info, warn, error)
     }
 
-    fn resolve_event_log_title(&self, entry: &WorkspaceEventLogEntry) -> String {
+    pub(in crate::workspace) fn resolve_event_log_title(
+        &self,
+        entry: &WorkspaceEventLogEntry,
+    ) -> String {
         resolve_event_log_text(&self.i18n, &entry.title).unwrap_or_else(|| entry.title.clone())
     }
 
-    fn resolve_event_log_detail(&self, entry: &WorkspaceEventLogEntry) -> Option<String> {
+    pub(in crate::workspace) fn resolve_event_log_detail(
+        &self,
+        entry: &WorkspaceEventLogEntry,
+    ) -> Option<String> {
         let detail = entry.detail.as_ref()?;
         if let Some(resolved) = resolve_event_log_text(&self.i18n, detail) {
             return Some(resolved);
@@ -1022,7 +1083,7 @@ impl WorkspaceApp {
         Some(detail.clone())
     }
 
-    fn render_notification_row(
+    pub(in crate::workspace) fn render_notification_row(
         &self,
         entry: &WorkspaceNotificationEntry,
         cx: &mut Context<Self>,
@@ -1099,14 +1160,18 @@ impl WorkspaceApp {
                                                 cx,
                                             )),
                                     )
-                                    .when(status_unread && !self.notification_center.notifications.dnd_enabled, |row| {
-                                        row.child(
-                                            div()
-                                                .size(px(6.0))
-                                                .rounded_full()
-                                                .bg(rgb(theme.accent)),
-                                        )
-                                    }),
+                                    .when(
+                                        status_unread
+                                            && !self.notification_center.notifications.dnd_enabled,
+                                        |row| {
+                                            row.child(
+                                                div()
+                                                    .size(px(6.0))
+                                                    .rounded_full()
+                                                    .bg(rgb(theme.accent)),
+                                            )
+                                        },
+                                    ),
                             )
                             .when_some(entry.body.clone(), |body, detail| {
                                 body.child(
@@ -1165,7 +1230,10 @@ impl WorkspaceApp {
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |this, _event, _window, cx| {
-                    if let Some(entry) = this.notification_center.notifications.entries
+                    if let Some(entry) = this
+                        .notification_center
+                        .notifications
+                        .entries
                         .iter_mut()
                         .find(|entry| entry.id == id)
                     {
@@ -1178,7 +1246,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_event_log_row(
+    pub(in crate::workspace) fn render_event_log_row(
         &self,
         entry: &WorkspaceEventLogEntry,
         cx: &mut Context<Self>,
@@ -1283,7 +1351,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_event_log_category_badge(
+    pub(in crate::workspace) fn render_event_log_category_badge(
         &self,
         category: &str,
         cx: &mut Context<Self>,
@@ -1313,7 +1381,10 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_empty_sessions_sidebar_content(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn render_empty_sessions_sidebar_content(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let theme = self.tokens.ui;
         div()
             .flex_1()
@@ -1370,7 +1441,9 @@ impl WorkspaceApp {
     }
 }
 
-fn notification_kind_label(kind: WorkspaceNotificationKind) -> &'static str {
+pub(in crate::workspace) fn notification_kind_label(
+    kind: WorkspaceNotificationKind,
+) -> &'static str {
     match kind {
         WorkspaceNotificationKind::Connection => "connection",
         WorkspaceNotificationKind::Security => "security",
@@ -1382,7 +1455,7 @@ fn notification_kind_label(kind: WorkspaceNotificationKind) -> &'static str {
     }
 }
 
-fn resolve_event_log_text(i18n: &I18n, raw: &str) -> Option<String> {
+pub(in crate::workspace) fn resolve_event_log_text(i18n: &I18n, raw: &str) -> Option<String> {
     if !raw.starts_with("event_log.") {
         return None;
     }
@@ -1400,7 +1473,9 @@ fn resolve_event_log_text(i18n: &I18n, raw: &str) -> Option<String> {
     Some(translated)
 }
 
-fn notification_sidebar_row_signatures(entries: &[WorkspaceNotificationEntry]) -> Vec<u64> {
+pub(in crate::workspace) fn notification_sidebar_row_signatures(
+    entries: &[WorkspaceNotificationEntry],
+) -> Vec<u64> {
     entries
         .iter()
         .map(|entry| {
@@ -1433,7 +1508,7 @@ fn notification_sidebar_row_signatures(entries: &[WorkspaceNotificationEntry]) -
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum SidebarActionKind {
+pub(in crate::workspace) enum SidebarActionKind {
     ToggleSessionView,
     AutoRoute,
     NewConnection,
@@ -1463,38 +1538,33 @@ mod sidebar_resize_region_tests {
                     context_sidebar_region_chrome()
                         .debug_selector(|| "context-region".to_string())
                         .child(
-                            div()
-                                .size_full()
-                                .min_w_0()
-                                .flex()
-                                .flex_col()
-                                .child(
-                                    div()
-                                        .w_full()
-                                        .min_w(px(0.0))
-                                        .flex_none()
-                                        .h(px(42.0))
-                                        .flex()
-                                        .flex_row()
-                                        .items_center()
-                                        .justify_between()
-                                        .gap(px(8.0))
-                                        .px_3()
-                                        .debug_selector(|| "context-titlebar".to_string())
-                                        .child(
-                                            div()
-                                                .h_full()
-                                                .flex_1()
-                                                .min_w(px(0.0))
-                                                .debug_selector(|| "context-title-drag".to_string()),
-                                        )
-                                        .child(
-                                            div()
-                                                .flex_none()
-                                                .size(px(28.0))
-                                                .debug_selector(|| "context-collapse".to_string()),
-                                        ),
-                                ),
+                            div().size_full().min_w_0().flex().flex_col().child(
+                                div()
+                                    .w_full()
+                                    .min_w(px(0.0))
+                                    .flex_none()
+                                    .h(px(42.0))
+                                    .flex()
+                                    .flex_row()
+                                    .items_center()
+                                    .justify_between()
+                                    .gap(px(8.0))
+                                    .px_3()
+                                    .debug_selector(|| "context-titlebar".to_string())
+                                    .child(
+                                        div()
+                                            .h_full()
+                                            .flex_1()
+                                            .min_w(px(0.0))
+                                            .debug_selector(|| "context-title-drag".to_string()),
+                                    )
+                                    .child(
+                                        div()
+                                            .flex_none()
+                                            .size(px(28.0))
+                                            .debug_selector(|| "context-collapse".to_string()),
+                                    ),
+                            ),
                         ),
                 )
                 .child(
@@ -1517,11 +1587,11 @@ mod sidebar_resize_region_tests {
         }
     }
 
-    fn right_edge(bounds: &gpui::Bounds<gpui::Pixels>) -> f32 {
+    pub(in crate::workspace) fn right_edge(bounds: &gpui::Bounds<gpui::Pixels>) -> f32 {
         f32::from(bounds.origin.x) + f32::from(bounds.size.width)
     }
 
-    fn assert_close(label: &str, actual: f32, expected: f32) {
+    pub(in crate::workspace) fn assert_close(label: &str, actual: f32, expected: f32) {
         assert!(
             (actual - expected).abs() <= 0.5,
             "{label}: expected {expected}, got {actual}"
@@ -1529,7 +1599,7 @@ mod sidebar_resize_region_tests {
     }
 
     #[test]
-    fn context_sidebar_resize_hotzone_is_frame_overlay_owned() {
+    pub(in crate::workspace) fn context_sidebar_resize_hotzone_is_frame_overlay_owned() {
         // The resize affordance must remain wide enough for reliable dragging,
         // but it must not reserve layout width between the terminal and the
         // sidebar content. A frame-owned absolute overlay preserves both.
@@ -1538,7 +1608,9 @@ mod sidebar_resize_region_tests {
     }
 
     #[gpui::test]
-    fn context_sidebar_region_fills_frame_without_layout_gutter(cx: &mut TestAppContext) {
+    pub(in crate::workspace) fn context_sidebar_region_fills_frame_without_layout_gutter(
+        cx: &mut TestAppContext,
+    ) {
         let total_width = 620.0;
         let resize_started = Rc::new(Cell::new(false));
 
@@ -1573,11 +1645,7 @@ mod sidebar_resize_region_tests {
             f32::from(divider.origin.x),
             f32::from(region.origin.x),
         );
-        assert_close(
-            "region width",
-            f32::from(region.size.width),
-            total_width,
-        );
+        assert_close("region width", f32::from(region.size.width), total_width);
         assert_close(
             "titlebar width",
             f32::from(titlebar.size.width),

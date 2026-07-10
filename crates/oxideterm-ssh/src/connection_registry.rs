@@ -217,7 +217,7 @@ struct ConnectionEntry {
     sftp: Mutex<SharedSftpState>,
     sftp_generation: AtomicU64,
     sftp_state: RwLock<SftpSessionState>,
-    remote_env: std::sync::OnceLock<RemoteEnvInfo>,
+    remote_env: RwLock<Option<RemoteEnvInfo>>,
     remote_env_detection_started: AtomicBool,
     first_visible_terminal_started: AtomicBool,
     heartbeat_failures: AtomicU64,
@@ -244,7 +244,7 @@ impl ConnectionEntry {
             sftp: Mutex::new(SharedSftpState::Empty),
             sftp_generation: AtomicU64::new(0),
             sftp_state: RwLock::new(SftpSessionState::default()),
-            remote_env: std::sync::OnceLock::new(),
+            remote_env: RwLock::new(None),
             remote_env_detection_started: AtomicBool::new(false),
             first_visible_terminal_started: AtomicBool::new(false),
             heartbeat_failures: AtomicU64::new(0),
@@ -330,15 +330,27 @@ impl ConnectionEntry {
     }
 
     fn remote_env(&self) -> Option<RemoteEnvInfo> {
-        self.remote_env.get().cloned()
+        self.remote_env.read().clone()
     }
 
     fn set_remote_env(&self, env: RemoteEnvInfo) -> bool {
-        self.remote_env.set(env).is_ok()
+        if env.os_type.eq_ignore_ascii_case("unknown") {
+            // A timeout or failed probe is transient. Do not make that failure
+            // the immutable platform identity for the lifetime of the connection.
+            self.remote_env_detection_started
+                .store(false, Ordering::Release);
+            return false;
+        }
+        let mut cached = self.remote_env.write();
+        if cached.is_some() {
+            return false;
+        }
+        *cached = Some(env);
+        true
     }
 
     fn try_begin_remote_env_detection(&self) -> bool {
-        self.remote_env.get().is_none()
+        self.remote_env.read().is_none()
             && !self
                 .remote_env_detection_started
                 .swap(true, Ordering::AcqRel)
@@ -1686,6 +1698,20 @@ mod tests {
 
         assert_eq!(handle.remote_env(), Some(first.clone()));
         assert_eq!(handle.info().remote_env, Some(first));
+    }
+
+    #[test]
+    fn unknown_remote_env_is_not_cached_and_detection_can_retry() {
+        let registry = SshConnectionRegistry::default();
+        let handle = registry.acquire(
+            SshConfig::password("host", 22, "me", "pw"),
+            ConnectionConsumer::Terminal("a".into()),
+        );
+
+        assert!(handle.entry.try_begin_remote_env_detection());
+        assert!(!handle.set_remote_env(RemoteEnvInfo::unknown()));
+        assert_eq!(handle.remote_env(), None);
+        assert!(handle.entry.try_begin_remote_env_detection());
     }
 
     #[test]

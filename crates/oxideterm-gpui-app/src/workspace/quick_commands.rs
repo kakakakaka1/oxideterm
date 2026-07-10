@@ -1,30 +1,10 @@
-use super::actions::classify_command_risk;
-use super::ime::WorkspaceImeTarget;
-use super::*;
-use crate::assets::LucideIcon;
-use oxideterm_gpui_ui::modal::rounded_shell_child_radius;
-use oxideterm_gpui_ui::text_input::{TextInputView, text_input, text_input_anchor_probe};
-use std::{
-    collections::{HashMap, HashSet, hash_map::DefaultHasher},
-    fs,
-    hash::{Hash, Hasher},
-    path::{Path, PathBuf},
-    sync::atomic::{AtomicU64, Ordering},
-    time::{SystemTime, UNIX_EPOCH},
+pub(super) use oxideterm_quick_commands::{
+    MAX_CATEGORIES, QUICK_COMMANDS_SCHEMA_VERSION, QuickCommand, QuickCommandCategory,
+    QuickCommandIcon, QuickCommandImportResult, QuickCommandImportStrategy, QuickCommandsSnapshot,
+    default_quick_command_categories, default_quick_commands, new_quick_category_id,
+    new_quick_command_id, now_ms,
 };
-
-const QUICK_COMMANDS_FILENAME: &str = "quick-commands.json";
-const QUICK_COMMANDS_SCHEMA_VERSION: u32 = 1;
-const MAX_QUICK_COMMANDS_FILE_BYTES: u64 = 512 * 1024;
-const MAX_CATEGORIES: usize = 100;
-const MAX_COMMANDS: usize = 1000;
-const MAX_ID_LEN: usize = 128;
-const MAX_NAME_LEN: usize = 160;
-const MAX_COMMAND_LEN: usize = 4096;
-const MAX_DESCRIPTION_LEN: usize = 1024;
-const MAX_HOST_PATTERN_LEN: usize = 256;
-const BUILTIN_CATEGORY_IDS: &[&str] = &["system", "network", "files", "docker", "custom"];
-static QUICK_COMMAND_ID_COUNTER: AtomicU64 = AtomicU64::new(0);
+use std::path::PathBuf;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub(super) enum QuickCommandInput {
@@ -49,67 +29,14 @@ impl QuickCommandInput {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub(super) enum QuickCommandIcon {
-    Terminal,
-    Server,
-    Folder,
-    Docker,
-    Zap,
-}
-
-impl QuickCommandIcon {
-    fn as_source_id(self) -> &'static str {
-        match self {
-            Self::Terminal => "terminal",
-            Self::Server => "server",
-            Self::Folder => "folder",
-            Self::Docker => "docker",
-            Self::Zap => "zap",
-        }
+fn quick_command_icon_source_id(icon: QuickCommandIcon) -> &'static str {
+    match icon {
+        QuickCommandIcon::Terminal => "terminal",
+        QuickCommandIcon::Server => "server",
+        QuickCommandIcon::Folder => "folder",
+        QuickCommandIcon::Docker => "docker",
+        QuickCommandIcon::Zap => "zap",
     }
-}
-
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(super) struct QuickCommandCategory {
-    pub id: String,
-    pub name: String,
-    pub icon: QuickCommandIcon,
-}
-
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(super) struct QuickCommand {
-    pub id: String,
-    pub name: String,
-    pub command: String,
-    pub category: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub host_pattern: Option<String>,
-    pub created_at: u64,
-    pub updated_at: u64,
-}
-
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(super) struct QuickCommandsSnapshot {
-    pub version: u32,
-    pub categories: Vec<QuickCommandCategory>,
-    pub commands: Vec<QuickCommand>,
-    pub updated_at: u64,
-}
-
-#[allow(dead_code)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum QuickCommandImportStrategy {
-    Rename,
-    Skip,
-    Replace,
-    Merge,
 }
 
 #[derive(Clone, Debug)]
@@ -131,7 +58,7 @@ pub(super) struct QuickCommandCategoryDraft {
 
 #[derive(Clone, Debug)]
 pub(super) struct QuickCommandsState {
-    path: PathBuf,
+    settings_path: PathBuf,
     pub categories: Vec<QuickCommandCategory>,
     pub commands: Vec<QuickCommand>,
     pub active_category: String,
@@ -146,14 +73,11 @@ pub(super) struct QuickCommandsState {
     pub last_persist_error: Option<String>,
 }
 
-#[allow(dead_code)]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(super) struct QuickCommandsImportResult {
-    pub imported: usize,
-    pub skipped: usize,
-    pub errors: Vec<String>,
-}
+#[path = "quick_commands_buttons.rs"]
+mod buttons;
+#[path = "quick_commands_store.rs"]
+mod store;
+#[path = "quick_commands_view.rs"]
+mod view;
 
-include!("quick_commands_store.rs");
-include!("quick_commands_view.rs");
-include!("quick_commands_buttons.rs");
+pub(in crate::workspace) use store::match_quick_command_host_pattern;

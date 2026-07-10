@@ -1,4 +1,6 @@
-fn tab_background_key(kind: &TabKind) -> &'static str {
+use super::super::*;
+
+pub(in crate::workspace) fn tab_background_key(kind: &TabKind) -> &'static str {
     match kind {
         TabKind::LocalTerminal => "local_terminal",
         TabKind::SshTerminal => "terminal",
@@ -22,12 +24,12 @@ fn tab_background_key(kind: &TabKind) -> &'static str {
     }
 }
 
-fn current_window_size(window: &Window) -> (f32, f32) {
+pub(in crate::workspace) fn current_window_size(window: &Window) -> (f32, f32) {
     let bounds = window.inner_window_bounds().get_bounds();
     (f32::from(bounds.size.width), f32::from(bounds.size.height))
 }
 
-fn terminal_background_fit(fit: BackgroundFit) -> TerminalBackgroundFit {
+pub(in crate::workspace) fn terminal_background_fit(fit: BackgroundFit) -> TerminalBackgroundFit {
     match fit {
         BackgroundFit::Cover => TerminalBackgroundFit::Cover,
         BackgroundFit::Contain => TerminalBackgroundFit::Contain,
@@ -36,7 +38,7 @@ fn terminal_background_fit(fit: BackgroundFit) -> TerminalBackgroundFit {
     }
 }
 
-fn sftp_runtime_settings_from_settings(
+pub(in crate::workspace) fn sftp_runtime_settings_from_settings(
     settings: &PersistedSettings,
 ) -> SftpTransferRuntimeSettings {
     SftpTransferRuntimeSettings {
@@ -50,7 +52,9 @@ fn sftp_runtime_settings_from_settings(
     }
 }
 
-fn reconnect_timing_from_settings(settings: &PersistedSettings) -> ReconnectTiming {
+pub(in crate::workspace) fn reconnect_timing_from_settings(
+    settings: &PersistedSettings,
+) -> ReconnectTiming {
     ReconnectTiming {
         retry_base_delay: Duration::from_millis(settings.reconnect.base_delay_ms.max(1) as u64),
         retry_max_delay: Duration::from_millis(settings.reconnect.max_delay_ms.max(1) as u64),
@@ -58,11 +62,15 @@ fn reconnect_timing_from_settings(settings: &PersistedSettings) -> ReconnectTimi
     }
 }
 
-fn reconnect_max_attempts_from_settings(settings: &PersistedSettings) -> u32 {
+pub(in crate::workspace) fn reconnect_max_attempts_from_settings(
+    settings: &PersistedSettings,
+) -> u32 {
     settings.reconnect.max_attempts.max(1) as u32
 }
 
-fn session_terminal_encoding(encoding: SettingsTerminalEncoding) -> SessionTerminalEncoding {
+pub(in crate::workspace) fn session_terminal_encoding(
+    encoding: SettingsTerminalEncoding,
+) -> SessionTerminalEncoding {
     match encoding {
         SettingsTerminalEncoding::Utf8 => SessionTerminalEncoding::Utf8,
         SettingsTerminalEncoding::Gbk => SessionTerminalEncoding::Gbk,
@@ -75,7 +83,7 @@ fn session_terminal_encoding(encoding: SettingsTerminalEncoding) -> SessionTermi
     }
 }
 
-pub(crate) fn locale_from_settings(language: Language) -> Locale {
+pub(in crate::workspace) fn root_locale_from_settings(language: Language) -> Locale {
     match language {
         Language::De => Locale::De,
         Language::En => Locale::En,
@@ -91,7 +99,7 @@ pub(crate) fn locale_from_settings(language: Language) -> Locale {
     }
 }
 
-fn settings_language_from_locale(locale: Locale) -> Language {
+pub(in crate::workspace) fn settings_language_from_locale(locale: Locale) -> Language {
     match locale {
         Locale::De => Language::De,
         Locale::En => Language::En,
@@ -107,7 +115,7 @@ fn settings_language_from_locale(locale: Locale) -> Language {
     }
 }
 
-fn tokens_from_settings(settings: &PersistedSettings) -> ThemeTokens {
+pub(in crate::workspace) fn tokens_from_settings(settings: &PersistedSettings) -> ThemeTokens {
     let mut tokens = oxideterm_settings_model::custom_theme_tokens_from_settings(settings)
         .unwrap_or_else(|| ThemeTokens::from_builtin(theme_by_id(&settings.terminal.theme)));
     let radius = settings.appearance.border_radius as f32;
@@ -121,7 +129,7 @@ fn tokens_from_settings(settings: &PersistedSettings) -> ThemeTokens {
     tokens
 }
 
-fn native_vibrancy_mode(mode: FrostedGlassMode) -> NativeVibrancyMode {
+pub(in crate::workspace) fn native_vibrancy_mode(mode: FrostedGlassMode) -> NativeVibrancyMode {
     match mode {
         FrostedGlassMode::Off => NativeVibrancyMode::Off,
         // Keep old persisted "css" values usable without exposing the
@@ -133,7 +141,7 @@ fn native_vibrancy_mode(mode: FrostedGlassMode) -> NativeVibrancyMode {
     }
 }
 
-fn effective_vibrancy_mode(
+pub(in crate::workspace) fn effective_vibrancy_mode(
     settings: &PersistedSettings,
     policy: &EffectiveRenderPolicy,
 ) -> NativeVibrancyMode {
@@ -144,7 +152,7 @@ fn effective_vibrancy_mode(
     }
 }
 
-fn render_profile_from_env() -> Option<RenderProfile> {
+pub(in crate::workspace) fn render_profile_from_env() -> Option<RenderProfile> {
     let value = std::env::var("OXIDETERM_RENDER_PROFILE").ok()?;
     let normalized = value.trim().to_ascii_lowercase().replace('_', "-");
     match normalized.as_str() {
@@ -156,7 +164,10 @@ fn render_profile_from_env() -> Option<RenderProfile> {
     }
 }
 
-fn workspace_background(tokens: &ThemeTokens, mode: NativeVibrancyMode) -> Rgba {
+pub(in crate::workspace) fn workspace_background(
+    tokens: &ThemeTokens,
+    mode: NativeVibrancyMode,
+) -> Rgba {
     match mode {
         NativeVibrancyMode::Off => rgb(tokens.ui.bg),
         NativeVibrancyMode::System | NativeVibrancyMode::Mica | NativeVibrancyMode::Acrylic => {
@@ -165,11 +176,13 @@ fn workspace_background(tokens: &ThemeTokens, mode: NativeVibrancyMode) -> Rgba 
     }
 }
 
-fn alpha_byte(alpha: f32) -> u32 {
+pub(in crate::workspace) fn alpha_byte(alpha: f32) -> u32 {
     (alpha.clamp(0.0, 1.0) * 255.0).round() as u32
 }
 
-fn settings_mono_font_family(settings: &PersistedSettings) -> SharedString {
+pub(in crate::workspace) fn settings_mono_font_family(
+    settings: &PersistedSettings,
+) -> SharedString {
     let family = settings
         .terminal
         .font_family
@@ -177,7 +190,7 @@ fn settings_mono_font_family(settings: &PersistedSettings) -> SharedString {
     settings_css_font_family_head(&family).unwrap_or_else(|| gpui_font_family_name(&family))
 }
 
-fn terminal_cjk_font_family_preference(family: &str) -> Option<String> {
+pub(in crate::workspace) fn terminal_cjk_font_family_preference(family: &str) -> Option<String> {
     let family = family.trim();
     if family.is_empty() {
         None
@@ -186,7 +199,7 @@ fn terminal_cjk_font_family_preference(family: &str) -> Option<String> {
     }
 }
 
-fn reconnect_phase_label(phase: &ReconnectPhase) -> &'static str {
+pub(in crate::workspace) fn reconnect_phase_label(phase: &ReconnectPhase) -> &'static str {
     match phase {
         ReconnectPhase::Queued => "queued",
         ReconnectPhase::Snapshot => "snapshot",
@@ -204,13 +217,13 @@ fn reconnect_phase_label(phase: &ReconnectPhase) -> &'static str {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum WorkspaceContextMenuDismissal {
+pub(in crate::workspace) enum WorkspaceContextMenuDismissal {
     Close,
     KeepOpen,
 }
 
 impl WorkspaceApp {
-    fn workspace_tooltip_icon_button(
+    pub(in crate::workspace) fn workspace_tooltip_icon_button(
         &self,
         icon: LucideIcon,
         icon_size: f32,
@@ -272,7 +285,7 @@ impl WorkspaceApp {
         .into_any_element()
     }
 
-    fn workspace_icon_action_button(
+    pub(in crate::workspace) fn workspace_icon_action_button(
         &self,
         icon: LucideIcon,
         icon_size: f32,
@@ -303,7 +316,7 @@ impl WorkspaceApp {
         })
     }
 
-    fn workspace_toolbar_action_button(
+    pub(in crate::workspace) fn workspace_toolbar_action_button(
         &self,
         label: String,
         icon: Option<AnyElement>,
@@ -326,7 +339,7 @@ impl WorkspaceApp {
             })
     }
 
-    fn workspace_confirm_footer_action_button(
+    pub(in crate::workspace) fn workspace_confirm_footer_action_button(
         &self,
         label: String,
         variant: oxideterm_gpui_ui::button::ButtonVariant,
@@ -348,7 +361,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn workspace_modal_footer_action_button<T>(
+    pub(in crate::workspace) fn workspace_modal_footer_action_button<T>(
         &self,
         label: String,
         variant: oxideterm_gpui_ui::button::ButtonVariant,
@@ -383,7 +396,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn workspace_clickable_row_action(
+    pub(in crate::workspace) fn workspace_clickable_row_action(
         &self,
         row: gpui::Div,
         disabled: bool,
@@ -398,7 +411,7 @@ impl WorkspaceApp {
         })
     }
 
-    fn workspace_context_menu_backdrop(
+    pub(in crate::workspace) fn workspace_context_menu_backdrop(
         &self,
         menu: impl gpui::IntoElement,
         cx: &mut Context<Self>,
@@ -424,7 +437,7 @@ impl WorkspaceApp {
             .child(menu)
     }
 
-    fn workspace_context_menu_action(
+    pub(in crate::workspace) fn workspace_context_menu_action(
         &self,
         item: gpui::Div,
         disabled: bool,
@@ -444,7 +457,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn workspace_context_menu_styled_action(
+    pub(in crate::workspace) fn workspace_context_menu_styled_action(
         &self,
         item: gpui::Div,
         disabled: bool,
@@ -464,7 +477,7 @@ impl WorkspaceApp {
         self.workspace_context_menu_action(item, disabled, loading, close_menu, listener, cx)
     }
 
-    fn workspace_context_menu_persistent_action(
+    pub(in crate::workspace) fn workspace_context_menu_persistent_action(
         &self,
         item: gpui::Div,
         disabled: bool,
@@ -483,7 +496,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn workspace_context_menu_persistent_styled_action(
+    pub(in crate::workspace) fn workspace_context_menu_persistent_styled_action(
         &self,
         item: gpui::Div,
         disabled: bool,
@@ -501,7 +514,7 @@ impl WorkspaceApp {
         self.workspace_context_menu_persistent_action(item, disabled, loading, listener, cx)
     }
 
-    fn workspace_context_menu_action_with_dismissal(
+    pub(in crate::workspace) fn workspace_context_menu_action_with_dismissal(
         &self,
         item: gpui::Div,
         disabled: bool,
@@ -531,7 +544,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn push_event_log_entry(
+    pub(in crate::workspace) fn push_event_log_entry(
         &mut self,
         severity: WorkspaceEventSeverity,
         category: WorkspaceEventCategory,
@@ -552,23 +565,26 @@ impl WorkspaceApp {
         );
     }
 
-    fn clear_event_log(&mut self) {
+    pub(in crate::workspace) fn clear_event_log(&mut self) {
         self.notification_center.event_log.clear();
     }
 
-    fn cycle_event_log_severity_filter(&mut self) {
+    pub(in crate::workspace) fn cycle_event_log_severity_filter(&mut self) {
         self.notification_center.event_log.cycle_severity_filter();
     }
 
-    fn cycle_event_log_category_filter(&mut self) {
+    pub(in crate::workspace) fn cycle_event_log_category_filter(&mut self) {
         self.notification_center.event_log.cycle_category_filter();
     }
 
-    fn event_log_entry_matches_filter(&self, entry: &WorkspaceEventLogEntry) -> bool {
+    pub(in crate::workspace) fn event_log_entry_matches_filter(
+        &self,
+        entry: &WorkspaceEventLogEntry,
+    ) -> bool {
         self.notification_center.event_log.matches_filter(entry)
     }
 
-    fn push_notification_entry(
+    pub(in crate::workspace) fn push_notification_entry(
         &mut self,
         kind: WorkspaceNotificationKind,
         severity: WorkspaceNotificationSeverity,
@@ -582,47 +598,53 @@ impl WorkspaceApp {
             .push(kind, severity, title, body, scope, dedupe_key);
     }
 
-    fn resolve_connection_notifications_for_node(&mut self, node_id: &NodeId) {
+    pub(in crate::workspace) fn resolve_connection_notifications_for_node(
+        &mut self,
+        node_id: &NodeId,
+    ) {
         self.notification_center
             .notifications
             .resolve_connection_for_node(&node_id.0);
     }
 
-    fn recount_notifications(&mut self) {
+    pub(in crate::workspace) fn recount_notifications(&mut self) {
         self.notification_center.notifications.recount();
     }
 
-    fn clear_notifications(&mut self) {
+    pub(in crate::workspace) fn clear_notifications(&mut self) {
         self.notification_center.notifications.clear();
     }
 
-    fn mark_all_notifications_read(&mut self) {
+    pub(in crate::workspace) fn mark_all_notifications_read(&mut self) {
         self.notification_center.notifications.mark_all_read();
     }
 
-    fn dismiss_notification(&mut self, id: u64) {
+    pub(in crate::workspace) fn dismiss_notification(&mut self, id: u64) {
         self.notification_center.notifications.remove(id);
     }
 
-    fn cycle_notification_status_filter(&mut self) {
+    pub(in crate::workspace) fn cycle_notification_status_filter(&mut self) {
         self.notification_center.notifications.cycle_status_filter();
     }
 
-    fn cycle_notification_severity_filter(&mut self) {
+    pub(in crate::workspace) fn cycle_notification_severity_filter(&mut self) {
         self.notification_center
             .notifications
             .cycle_severity_filter();
     }
 
-    fn cycle_notification_kind_filter(&mut self) {
+    pub(in crate::workspace) fn cycle_notification_kind_filter(&mut self) {
         self.notification_center.notifications.cycle_kind_filter();
     }
 
-    fn notification_matches_filter(&self, entry: &WorkspaceNotificationEntry) -> bool {
+    pub(in crate::workspace) fn notification_matches_filter(
+        &self,
+        entry: &WorkspaceNotificationEntry,
+    ) -> bool {
         self.notification_center.notifications.matches_filter(entry)
     }
 
-    fn push_reconnect_notice(
+    pub(in crate::workspace) fn push_reconnect_notice(
         &self,
         title: impl Into<String>,
         description: Option<String>,
@@ -637,7 +659,11 @@ impl WorkspaceApp {
         });
     }
 
-    fn i18n_with(&self, key: &str, replacements: &[(&str, String)]) -> String {
+    pub(in crate::workspace) fn i18n_with(
+        &self,
+        key: &str,
+        replacements: &[(&str, String)],
+    ) -> String {
         let mut text = self.i18n.t(key);
         for (name, value) in replacements {
             text = text.replace(&format!("{{{{{name}}}}}"), value);
@@ -645,14 +671,14 @@ impl WorkspaceApp {
         text
     }
 
-    fn ssh_algorithm_diagnostic_parts(&self, error: &str) -> Option<(String, String)> {
+    pub(in crate::workspace) fn ssh_algorithm_diagnostic_parts(
+        &self,
+        error: &str,
+    ) -> Option<(String, String)> {
         let diagnostic = parse_ssh_algorithm_negotiation_error(error)?;
         let kind_label = self.i18n.t(diagnostic.kind.label_key());
         let summary_key = diagnostic.kind.summary_key(&diagnostic.server_algorithms);
-        let summary = self
-            .i18n
-            .t(summary_key)
-            .replace("{{kind}}", &kind_label);
+        let summary = self.i18n.t(summary_key).replace("{{kind}}", &kind_label);
         let no_common = self
             .i18n
             .t("connections.trace.diagnostics.no_common")
@@ -681,12 +707,15 @@ impl WorkspaceApp {
         Some((summary, detail))
     }
 
-    fn ssh_algorithm_diagnostic_message(&self, error: &str) -> Option<String> {
+    pub(in crate::workspace) fn ssh_algorithm_diagnostic_message(
+        &self,
+        error: &str,
+    ) -> Option<String> {
         let (summary, detail) = self.ssh_algorithm_diagnostic_parts(error)?;
         Some(format!("{summary}\n{detail}"))
     }
 
-    fn connection_failure_notice_for_node(
+    pub(in crate::workspace) fn connection_failure_notice_for_node(
         &self,
         node_id: &NodeId,
         error: &str,
@@ -734,12 +763,12 @@ impl WorkspaceApp {
         ))
     }
 
-    fn next_connection_trace_attempt_id(&mut self) -> String {
+    pub(in crate::workspace) fn next_connection_trace_attempt_id(&mut self) -> String {
         self.connection_trace_attempt_seq = self.connection_trace_attempt_seq.wrapping_add(1);
         format!("native-connection-{}", self.connection_trace_attempt_seq)
     }
 
-    fn connection_trace_plan_for_node(
+    pub(in crate::workspace) fn connection_trace_plan_for_node(
         &mut self,
         node_id: &NodeId,
         mode: ConnectionTraceMode,
@@ -764,7 +793,7 @@ impl WorkspaceApp {
         })
     }
 
-    fn connection_trace_node_is_ready(&self, node_id: &NodeId) -> bool {
+    pub(in crate::workspace) fn connection_trace_node_is_ready(&self, node_id: &NodeId) -> bool {
         self.ssh_nodes.get(node_id).is_some_and(|node| {
             matches!(node.readiness, NodeReadiness::Ready)
                 && self
@@ -780,7 +809,7 @@ impl WorkspaceApp {
         })
     }
 
-    fn begin_connection_trace_for_node(
+    pub(in crate::workspace) fn begin_connection_trace_for_node(
         &mut self,
         node_id: &NodeId,
         plan: Option<&ConnectionTracePlan>,
@@ -839,7 +868,7 @@ impl WorkspaceApp {
         self.emit_connection_trace_stage(node_id, ConnectionTraceStage::Authentication, 62.0, None);
     }
 
-    fn emit_connection_trace_stage(
+    pub(in crate::workspace) fn emit_connection_trace_stage(
         &self,
         node_id: &NodeId,
         stage: ConnectionTraceStage,
@@ -855,7 +884,7 @@ impl WorkspaceApp {
         );
     }
 
-    fn finish_connection_trace_success(&mut self, node_id: &NodeId) {
+    pub(in crate::workspace) fn finish_connection_trace_success(&mut self, node_id: &NodeId) {
         if self.connection_trace_nodes.contains_key(node_id) {
             self.emit_connection_trace_stage(node_id, ConnectionTraceStage::Pty, 86.0, None);
             self.emit_connection_trace_stage(node_id, ConnectionTraceStage::ShellReady, 96.0, None);
@@ -870,7 +899,11 @@ impl WorkspaceApp {
         }
     }
 
-    fn finish_connection_trace_failed(&mut self, node_id: &NodeId, detail: Option<String>) {
+    pub(in crate::workspace) fn finish_connection_trace_failed(
+        &mut self,
+        node_id: &NodeId,
+        detail: Option<String>,
+    ) {
         if self.connection_trace_nodes.contains_key(node_id) {
             let stage = connection_trace_failure_stage(detail.as_deref());
             self.emit_connection_trace_event(
@@ -884,7 +917,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn cancel_connection_trace_for_node(&mut self, node_id: &NodeId) {
+    pub(in crate::workspace) fn cancel_connection_trace_for_node(&mut self, node_id: &NodeId) {
         if self.connection_trace_nodes.contains_key(node_id) {
             self.emit_connection_trace_event(
                 node_id,
@@ -897,7 +930,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn emit_connection_trace_event(
+    pub(in crate::workspace) fn emit_connection_trace_event(
         &self,
         node_id: &NodeId,
         stage: ConnectionTraceStage,
@@ -923,7 +956,7 @@ impl WorkspaceApp {
         });
     }
 
-    fn log_reconnect_phase(
+    pub(in crate::workspace) fn log_reconnect_phase(
         &mut self,
         node_id: &NodeId,
         phase: ReconnectPhase,
@@ -945,7 +978,7 @@ impl WorkspaceApp {
         );
     }
 
-    fn log_connection_event(
+    pub(in crate::workspace) fn log_connection_event(
         &mut self,
         node_id: &NodeId,
         connection_id: Option<String>,
@@ -965,13 +998,17 @@ impl WorkspaceApp {
         );
     }
 
-    fn has_active_reconnect_job(&self, node_id: &NodeId) -> bool {
+    pub(in crate::workspace) fn has_active_reconnect_job(&self, node_id: &NodeId) -> bool {
         self.reconnect_orchestrator
             .job(&node_id.0)
             .is_some_and(|job| job.ended_at.is_none())
     }
 
-    pub(super) fn cancel_reconnect_for_node(&mut self, node_id: &NodeId, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn cancel_reconnect_for_node(
+        &mut self,
+        node_id: &NodeId,
+        cx: &mut Context<Self>,
+    ) {
         let mut affected_nodes = self.node_runtime_store.subtree_postorder(node_id);
         if affected_nodes.is_empty() {
             affected_nodes.push(node_id.clone());
@@ -1019,7 +1056,7 @@ impl WorkspaceApp {
         }
     }
 
-    pub(super) fn prepare_modal_interaction_boundary(&mut self) {
+    pub(in crate::workspace) fn prepare_modal_interaction_boundary(&mut self) {
         // Tauri dialogs are Radix modal roots: opening one dismisses background
         // popovers and input focus before the overlay starts trapping events.
         self.release_active_remote_desktop_inputs();
@@ -1028,9 +1065,9 @@ impl WorkspaceApp {
         // Cloud Sync provider/config selects are Radix-like transient popovers;
         // a modal boundary must release both the open menu and the trigger
         // focus owner so keyboard rings do not leak behind the dialog.
-        self.cloud_sync_open_select = None;
+        self.cloud_sync.view.open_select = None;
         self.focused_settings_input = None;
-        self.cloud_sync_focused_select = None;
+        self.cloud_sync.view.focused_select = None;
         self.settings_slider_drag = None;
         self.ime_marked_text = None;
         self.workspace_tooltip = None;
@@ -1038,7 +1075,7 @@ impl WorkspaceApp {
         self.workspace_tooltip_generation = self.workspace_tooltip_generation.wrapping_add(1);
     }
 
-    pub(super) fn dismiss_transient_workspace_overlays(&mut self) -> bool {
+    pub(in crate::workspace) fn dismiss_transient_workspace_overlays(&mut self) -> bool {
         let mut changed = false;
 
         // Match browser/Radix outside-click behavior for non-modal UI only.
@@ -1053,11 +1090,11 @@ impl WorkspaceApp {
             self.close_new_connection_select();
             changed = true;
         }
-        if self.cloud_sync_open_select.take().is_some() {
-            self.cloud_sync_select_highlighted = None;
+        if self.cloud_sync.view.open_select.take().is_some() {
+            self.cloud_sync.view.select_highlighted = None;
             changed = true;
         }
-        if self.cloud_sync_focused_select.take().is_some() {
+        if self.cloud_sync.view.focused_select.take().is_some() {
             // Outside pointer focus in the browser leaves the Radix trigger;
             // mirror that owner release so the native focus ring cannot linger.
             changed = true;
@@ -1091,8 +1128,8 @@ impl WorkspaceApp {
         if self.has_ai_sidebar_floating_overlay() {
             self.close_ai_sidebar_popovers();
             changed = true;
-        } else if self.ai_model_selector_open
-            && self.ai_model_selector_scope == Some(AiModelSelectorScope::TerminalInline)
+        } else if self.ai.models.selector_open
+            && self.ai.models.selector_scope == Some(AiModelSelectorScope::TerminalInline)
         {
             // The terminal inline model selector is painted inside the pane
             // instead of the sidebar popover portal, so include it in the same
@@ -1113,7 +1150,7 @@ impl WorkspaceApp {
         changed
     }
 
-    pub(super) fn dismiss_workspace_context_menus(&mut self) -> bool {
+    pub(in crate::workspace) fn dismiss_workspace_context_menus(&mut self) -> bool {
         let mut changed = false;
 
         // Radix ContextMenu uses one close policy for outside pointer and Esc.
@@ -1144,7 +1181,7 @@ impl WorkspaceApp {
         changed
     }
 
-    pub(super) fn dismiss_transient_workspace_overlays_from_outside_pointer(
+    pub(in crate::workspace) fn dismiss_transient_workspace_overlays_from_outside_pointer(
         &mut self,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -1161,7 +1198,7 @@ impl WorkspaceApp {
         changed
     }
 
-    pub(super) fn handle_transient_workspace_overlay_escape(
+    pub(in crate::workspace) fn handle_transient_workspace_overlay_escape(
         &mut self,
         event: &KeyDownEvent,
         window: &mut Window,
@@ -1178,7 +1215,7 @@ impl WorkspaceApp {
         false
     }
 
-    fn restore_session_tree_snapshot(&mut self) {
+    pub(in crate::workspace) fn restore_session_tree_snapshot(&mut self) {
         let path = default_session_tree_path();
         let Ok(bytes) = fs::read(&path) else {
             return;
@@ -1191,15 +1228,13 @@ impl WorkspaceApp {
         let mut restored_ids = HashSet::new();
 
         for node in persisted.nodes {
-            let config = node
-                .config
-                .or_else(|| {
-                    saved_origin_config(
-                        &self.connection_store,
-                        self.settings_store.settings(),
-                        &node.origin,
-                    )
-                });
+            let config = node.config.or_else(|| {
+                saved_origin_config(
+                    &self.connection_store,
+                    self.settings_store.settings(),
+                    &node.origin,
+                )
+            });
             let Some(config) = config else {
                 continue;
             };
@@ -1273,7 +1308,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn persist_session_tree_snapshot(&self) {
+    pub(in crate::workspace) fn persist_session_tree_snapshot(&self) {
         let runtime = self.node_router.export_tree_snapshot();
         let nodes = runtime
             .nodes
@@ -1316,7 +1351,7 @@ impl WorkspaceApp {
     }
 }
 
-fn restored_saved_node_rank(origin: &NodeOrigin) -> u32 {
+pub(in crate::workspace) fn restored_saved_node_rank(origin: &NodeOrigin) -> u32 {
     match origin {
         NodeOrigin::ManualPreset { hop_index, .. } => *hop_index,
         NodeOrigin::Restored { .. } => u32::MAX,
@@ -1325,7 +1360,10 @@ fn restored_saved_node_rank(origin: &NodeOrigin) -> u32 {
     }
 }
 
-fn write_session_tree_snapshot(path: &Path, snapshot: &PersistedNodeTreeSnapshot) -> Result<()> {
+pub(in crate::workspace) fn write_session_tree_snapshot(
+    path: &Path,
+    snapshot: &PersistedNodeTreeSnapshot,
+) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -1334,7 +1372,10 @@ fn write_session_tree_snapshot(path: &Path, snapshot: &PersistedNodeTreeSnapshot
     Ok(())
 }
 
-fn atomic_write_session_tree_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
+pub(in crate::workspace) fn atomic_write_session_tree_file(
+    path: &Path,
+    bytes: &[u8],
+) -> io::Result<()> {
     let parent = path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
@@ -1386,7 +1427,7 @@ fn atomic_write_session_tree_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
 }
 
 #[cfg(test)]
-fn fail_before_session_tree_replace_for_tests() -> io::Result<()> {
+pub(in crate::workspace) fn fail_before_session_tree_replace_for_tests() -> io::Result<()> {
     FAIL_NEXT_SESSION_TREE_REPLACE.with(|fail| {
         if fail.replace(false) {
             Err(io::Error::other(
@@ -1399,22 +1440,28 @@ fn fail_before_session_tree_replace_for_tests() -> io::Result<()> {
 }
 
 #[cfg(not(test))]
-fn fail_before_session_tree_replace_for_tests() -> io::Result<()> {
+pub(in crate::workspace) fn fail_before_session_tree_replace_for_tests() -> io::Result<()> {
     Ok(())
 }
 
 #[cfg(test)]
-fn inject_session_tree_replace_failure() {
+pub(in crate::workspace) fn inject_session_tree_replace_failure() {
     FAIL_NEXT_SESSION_TREE_REPLACE.with(|fail| fail.set(true));
 }
 
 #[cfg(not(windows))]
-fn replace_session_tree_file(source: &Path, destination: &Path) -> io::Result<()> {
+pub(in crate::workspace) fn replace_session_tree_file(
+    source: &Path,
+    destination: &Path,
+) -> io::Result<()> {
     fs::rename(source, destination)
 }
 
 #[cfg(windows)]
-fn replace_session_tree_file(source: &Path, destination: &Path) -> io::Result<()> {
+pub(in crate::workspace) fn replace_session_tree_file(
+    source: &Path,
+    destination: &Path,
+) -> io::Result<()> {
     use std::os::windows::ffi::OsStrExt;
 
     const MOVEFILE_REPLACE_EXISTING: u32 = 0x1;
@@ -1422,7 +1469,11 @@ fn replace_session_tree_file(source: &Path, destination: &Path) -> io::Result<()
 
     #[link(name = "Kernel32")]
     unsafe extern "system" {
-        fn MoveFileExW(existing: *const u16, replacement: *const u16, flags: u32) -> i32;
+        pub(in crate::workspace) fn MoveFileExW(
+            existing: *const u16,
+            replacement: *const u16,
+            flags: u32,
+        ) -> i32;
     }
 
     let source = source
@@ -1449,14 +1500,16 @@ fn replace_session_tree_file(source: &Path, destination: &Path) -> io::Result<()
     }
 }
 
-fn persistable_session_tree_config(node: &NodeTreeSnapshotNode) -> Option<SshConfig> {
+pub(in crate::workspace) fn persistable_session_tree_config(
+    node: &NodeTreeSnapshotNode,
+) -> Option<SshConfig> {
     if node.origin.saved_connection_id().is_some() {
         return None;
     }
     config_without_runtime_secret(&node.config).then(|| node.config.clone())
 }
 
-fn connection_error_is_cancelled(error: &str) -> bool {
+pub(in crate::workspace) fn connection_error_is_cancelled(error: &str) -> bool {
     let error = error.to_ascii_lowercase();
     error.contains("cancelled")
         || error.contains("user_cancelled")
@@ -1464,7 +1517,7 @@ fn connection_error_is_cancelled(error: &str) -> bool {
         || error.contains("explicit disconnect")
 }
 
-fn connection_error_is_proxy_hop_unsupported(error: &str) -> bool {
+pub(in crate::workspace) fn connection_error_is_proxy_hop_unsupported(error: &str) -> bool {
     let error = error.to_ascii_lowercase();
     error.contains("proxy")
         && (error.contains("keyboard-interactive")
@@ -1472,7 +1525,9 @@ fn connection_error_is_proxy_hop_unsupported(error: &str) -> bool {
             || error.contains("unsupported auth"))
 }
 
-fn connection_trace_failure_stage(error: Option<&str>) -> ConnectionTraceStage {
+pub(in crate::workspace) fn connection_trace_failure_stage(
+    error: Option<&str>,
+) -> ConnectionTraceStage {
     let Some(error) = error else {
         return ConnectionTraceStage::Authentication;
     };
@@ -1506,7 +1561,7 @@ fn connection_trace_failure_stage(error: Option<&str>) -> ConnectionTraceStage {
     }
 }
 
-fn saved_origin_config(
+pub(in crate::workspace) fn saved_origin_config(
     store: &ConnectionStore,
     settings: &PersistedSettings,
     origin: &NodeOrigin,
@@ -1529,7 +1584,7 @@ fn saved_origin_config(
     }
 }
 
-fn saved_manual_preset_hop_config(
+pub(in crate::workspace) fn saved_manual_preset_hop_config(
     store: &ConnectionStore,
     settings: &PersistedSettings,
     connection: &oxideterm_connections::SavedConnection,
@@ -1556,8 +1611,9 @@ fn saved_manual_preset_hop_config(
     }
 
     if hop_index == connection.proxy_chain.len() {
-        let mut target =
-            oxideterm_session_adapter::ssh_config_from_saved_connection(store, settings, connection)?;
+        let mut target = oxideterm_session_adapter::ssh_config_from_saved_connection(
+            store, settings, connection,
+        )?;
         target.proxy_chain = None;
         return Some(target);
     }
@@ -1565,7 +1621,7 @@ fn saved_manual_preset_hop_config(
     None
 }
 
-fn config_without_runtime_secret(config: &SshConfig) -> bool {
+pub(in crate::workspace) fn config_without_runtime_secret(config: &SshConfig) -> bool {
     auth_without_runtime_secret(&config.auth)
         && config.proxy_chain.as_ref().is_none_or(|chain| {
             chain
@@ -1574,7 +1630,7 @@ fn config_without_runtime_secret(config: &SshConfig) -> bool {
         })
 }
 
-fn auth_without_runtime_secret(auth: &AuthMethod) -> bool {
+pub(in crate::workspace) fn auth_without_runtime_secret(auth: &AuthMethod) -> bool {
     match auth {
         AuthMethod::Password { .. } => false,
         AuthMethod::Key { passphrase, .. } | AuthMethod::Certificate { passphrase, .. } => {
@@ -1595,7 +1651,7 @@ enum SshAlgorithmDiagnosticKind {
 }
 
 impl SshAlgorithmDiagnosticKind {
-    fn label_key(self) -> &'static str {
+    pub(in crate::workspace) fn label_key(self) -> &'static str {
         match self {
             Self::KeyExchange => "connections.trace.diagnostics.kind.key_exchange",
             Self::HostKey => "connections.trace.diagnostics.kind.host_key",
@@ -1605,7 +1661,7 @@ impl SshAlgorithmDiagnosticKind {
         }
     }
 
-    fn summary_key(self, server_algorithms: &[String]) -> &'static str {
+    pub(in crate::workspace) fn summary_key(self, server_algorithms: &[String]) -> &'static str {
         match self {
             Self::KeyExchange => "connections.trace.diagnostics.summary.key_exchange",
             Self::HostKey if server_only_offers_ssh_rsa(server_algorithms) => {
@@ -1623,13 +1679,13 @@ impl SshAlgorithmDiagnosticKind {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-struct SshAlgorithmNegotiationDiagnostic {
+pub(in crate::workspace) struct SshAlgorithmNegotiationDiagnostic {
     kind: SshAlgorithmDiagnosticKind,
     client_algorithms: Vec<String>,
     server_algorithms: Vec<String>,
 }
 
-fn parse_ssh_algorithm_negotiation_error(
+pub(in crate::workspace) fn parse_ssh_algorithm_negotiation_error(
     error: &str,
 ) -> Option<SshAlgorithmNegotiationDiagnostic> {
     // The transport layer exposes algorithm lists through this stable display
@@ -1653,7 +1709,7 @@ fn parse_ssh_algorithm_negotiation_error(
     })
 }
 
-fn parse_debug_algorithm_list(list: &str) -> Vec<String> {
+pub(in crate::workspace) fn parse_debug_algorithm_list(list: &str) -> Vec<String> {
     let mut algorithms = Vec::new();
     let mut current = String::new();
     let mut in_string = false;
@@ -1679,7 +1735,7 @@ fn parse_debug_algorithm_list(list: &str) -> Vec<String> {
     algorithms
 }
 
-fn format_algorithm_list(algorithms: &[String]) -> String {
+pub(in crate::workspace) fn format_algorithm_list(algorithms: &[String]) -> String {
     if algorithms.is_empty() {
         "-".to_string()
     } else {
@@ -1687,18 +1743,16 @@ fn format_algorithm_list(algorithms: &[String]) -> String {
     }
 }
 
-fn server_only_offers_ssh_rsa(algorithms: &[String]) -> bool {
+pub(in crate::workspace) fn server_only_offers_ssh_rsa(algorithms: &[String]) -> bool {
     !algorithms.is_empty()
         && algorithms
             .iter()
             .all(|algorithm| algorithm == "ssh-rsa" || algorithm == "ssh-rsa-cert-v01@openssh.com")
 }
 
-fn server_offers_legacy_cipher(algorithms: &[String]) -> bool {
+pub(in crate::workspace) fn server_offers_legacy_cipher(algorithms: &[String]) -> bool {
     algorithms.iter().any(|algorithm| {
-        algorithm.contains("-cbc")
-            || algorithm.contains("3des")
-            || algorithm.contains("arcfour")
+        algorithm.contains("-cbc") || algorithm.contains("3des") || algorithm.contains("arcfour")
     })
 }
 
@@ -1707,7 +1761,7 @@ mod helper_tests {
     use super::*;
 
     #[test]
-    fn trace_failure_stage_matches_tauri_pre_connect_errors() {
+    pub(in crate::workspace) fn trace_failure_stage_matches_tauri_pre_connect_errors() {
         assert_eq!(
             connection_trace_failure_stage(Some("Node abc is already connecting")),
             ConnectionTraceStage::Preparing
@@ -1729,7 +1783,7 @@ mod helper_tests {
     }
 
     #[test]
-    fn trace_failure_stage_keeps_host_key_and_auth_classes() {
+    pub(in crate::workspace) fn trace_failure_stage_keeps_host_key_and_auth_classes() {
         assert_eq!(
             connection_trace_failure_stage(Some("Host key changed for example.com")),
             ConnectionTraceStage::HostKey
@@ -1741,7 +1795,7 @@ mod helper_tests {
     }
 
     #[test]
-    fn trace_failure_stage_covers_proxy_hop_and_manual_cancel_classes() {
+    pub(in crate::workspace) fn trace_failure_stage_covers_proxy_hop_and_manual_cancel_classes() {
         assert_eq!(
             connection_trace_failure_stage(Some(
                 "proxy_hop_kbi_unsupported: keyboard-interactive authentication is not supported for proxy chain hops"
@@ -1763,7 +1817,7 @@ mod helper_tests {
     }
 
     #[test]
-    fn parses_algorithm_negotiation_lists_from_transport_error() {
+    pub(in crate::workspace) fn parses_algorithm_negotiation_lists_from_transport_error() {
         let diagnostic = parse_ssh_algorithm_negotiation_error(
             "SSH algorithm negotiation failed: no common key exchange algorithm. Client offered: [\"curve25519-sha256\", \"diffie-hellman-group14-sha256\"]; server offered: [\"diffie-hellman-group1-sha1\"]",
         )
@@ -1774,14 +1828,11 @@ mod helper_tests {
             diagnostic.client_algorithms,
             ["curve25519-sha256", "diffie-hellman-group14-sha256"]
         );
-        assert_eq!(
-            diagnostic.server_algorithms,
-            ["diffie-hellman-group1-sha1"]
-        );
+        assert_eq!(diagnostic.server_algorithms, ["diffie-hellman-group1-sha1"]);
     }
 
     #[test]
-    fn classifies_ssh_rsa_host_key_as_specific_legacy_case() {
+    pub(in crate::workspace) fn classifies_ssh_rsa_host_key_as_specific_legacy_case() {
         let algorithms = vec!["ssh-rsa".to_string()];
 
         assert!(server_only_offers_ssh_rsa(&algorithms));
@@ -1792,7 +1843,7 @@ mod helper_tests {
     }
 
     #[test]
-    fn classifies_cbc_cipher_as_legacy_case() {
+    pub(in crate::workspace) fn classifies_cbc_cipher_as_legacy_case() {
         let algorithms = vec!["aes128-cbc".to_string(), "3des-cbc".to_string()];
 
         assert!(server_offers_legacy_cipher(&algorithms));

@@ -82,7 +82,7 @@ pub struct RawTcpSession {
     term: Arc<FairMutex<Term<LocalEventListener>>>,
     parser: Processor,
     event_rx: Receiver<AlacEvent>,
-    worker_rx: Receiver<RawTcpWorkerEvent>,
+    worker_rx: crate::backpressure::ByteBoundedReceiver<RawTcpWorkerEvent>,
     pending_events: Vec<TerminalEvent>,
     resize: TerminalResize,
     lifecycle: TerminalLifecycle,
@@ -92,8 +92,7 @@ pub struct RawTcpSession {
     graphics_ingress: GraphicsIngress,
     graphics: TerminalGraphicsState,
     graphics_alt_screen_active: bool,
-    output_queue: VecDeque<Vec<u8>>,
-    output_queue_bytes: usize,
+    output_queue: VecDeque<crate::backpressure::ByteBoundedItem<RawTcpWorkerEvent>>,
     magic_scan: MagicScanWindow,
     encoding: TerminalEncoding,
     output_decoder: TerminalOutputDecoder,
@@ -230,7 +229,9 @@ impl RawTcpSession {
             cell_height: resize.cell_height,
         };
         let (event_tx, event_rx) = unbounded();
-        let (worker_tx, worker_rx) = unbounded();
+        let (worker_tx, worker_rx) = crate::backpressure::byte_bounded_channel(
+            crate::backpressure::TRANSPORT_OUTPUT_BACKLOG_BYTES,
+        );
         let (command_tx, command_rx) = tokio::sync::mpsc::channel(256);
         let listener = LocalEventListener { tx: event_tx };
 
@@ -241,12 +242,12 @@ impl RawTcpSession {
 
         let runtime = Runtime::new().ok();
         if let Err(error) = config.validate() {
-            let _ = worker_tx.send(RawTcpWorkerEvent::Failed(error.to_string()));
+            let _ = worker_tx.send_control(RawTcpWorkerEvent::Failed(error.to_string()));
         } else if let Some(runtime) = runtime.as_ref() {
             let worker_config = config.clone();
             runtime.spawn(run_raw_tcp_worker(worker_config, command_rx, worker_tx));
         } else {
-            let _ = worker_tx.send(RawTcpWorkerEvent::Failed(
+            let _ = worker_tx.send_control(RawTcpWorkerEvent::Failed(
                 "failed to initialize Raw TCP runtime".to_string(),
             ));
         }
@@ -267,7 +268,6 @@ impl RawTcpSession {
             graphics: TerminalGraphicsState::default(),
             graphics_alt_screen_active: false,
             output_queue: VecDeque::new(),
-            output_queue_bytes: 0,
             magic_scan: MagicScanWindow::default(),
             encoding,
             output_decoder: TerminalOutputDecoder::new(encoding),
@@ -291,12 +291,15 @@ impl RawTcpSession {
             if report.drained_bytes >= budget.max_bytes
                 || report.events_drained >= budget.max_events
             {
-                report.budget_exhausted = !self.output_queue.is_empty();
+                report.budget_exhausted =
+                    !self.output_queue.is_empty() || !self.worker_rx.is_empty();
                 break;
             }
 
-            if let Some(bytes) = self.output_queue.pop_front() {
-                self.output_queue_bytes = self.output_queue_bytes.saturating_sub(bytes.len());
+            if let Some(event) = self.output_queue.pop_front() {
+                let RawTcpWorkerEvent::Output(bytes) = event.into_inner() else {
+                    unreachable!("only output events enter the local drain queue");
+                };
                 report.drained_bytes = report.drained_bytes.saturating_add(bytes.len());
                 report.events_drained += 1;
                 self.feed_transport_output(&bytes);
@@ -304,49 +307,8 @@ impl RawTcpSession {
                 continue;
             }
 
-            match self.worker_rx.try_recv() {
-                Ok(RawTcpWorkerEvent::Connected) => {
-                    self.title = Some(self.title_text());
-                    self.pending_events
-                        .push(TerminalEvent::TitleChanged(self.title_text()));
-                    report.events_drained += 1;
-                    report.mark_changed();
-                }
-                Ok(RawTcpWorkerEvent::Output(bytes)) => {
-                    if report.drained_bytes > 0
-                        && report.drained_bytes.saturating_add(bytes.len()) > budget.max_bytes
-                    {
-                        self.output_queue_bytes =
-                            self.output_queue_bytes.saturating_add(bytes.len());
-                        self.output_queue.push_back(bytes);
-                        report.budget_exhausted = true;
-                        break;
-                    }
-                    report.drained_bytes = report.drained_bytes.saturating_add(bytes.len());
-                    report.events_drained += 1;
-                    self.feed_transport_output(&bytes);
-                    report.mark_changed();
-                }
-                Ok(RawTcpWorkerEvent::Failed(error)) => {
-                    self.lifecycle = TerminalLifecycle::Exited(None);
-                    self.feed_utf8_terminal_output(
-                        format!("\r\nRaw TCP connection failed: {error}\r\n").as_bytes(),
-                    );
-                    self.pending_events.push(TerminalEvent::ChildExited(None));
-                    report.events_drained += 1;
-                    report.mark_changed();
-                    break;
-                }
-                Ok(RawTcpWorkerEvent::Closed) => {
-                    if self.lifecycle.is_running() {
-                        self.lifecycle = TerminalLifecycle::Exited(None);
-                        self.feed_utf8_terminal_output(RAW_TCP_REMOTE_CLOSE_MESSAGE);
-                        self.pending_events.push(TerminalEvent::ChildExited(None));
-                        report.mark_changed();
-                    }
-                    report.events_drained += 1;
-                    break;
-                }
+            let event = match self.worker_rx.try_recv() {
+                Ok(event) => event,
                 Err(crossbeam_channel::TryRecvError::Empty) => break,
                 Err(crossbeam_channel::TryRecvError::Disconnected) => {
                     if self.lifecycle.is_running() {
@@ -356,9 +318,53 @@ impl RawTcpSession {
                     }
                     break;
                 }
+            };
+            if let RawTcpWorkerEvent::Output(bytes) = event.value()
+                && report.drained_bytes > 0
+                && report.drained_bytes.saturating_add(bytes.len()) > budget.max_bytes
+            {
+                self.output_queue.push_back(event);
+                report.budget_exhausted = true;
+                break;
+            }
+
+            match event.into_inner() {
+                RawTcpWorkerEvent::Connected => {
+                    self.title = Some(self.title_text());
+                    self.pending_events
+                        .push(TerminalEvent::TitleChanged(self.title_text()));
+                    report.events_drained += 1;
+                    report.mark_changed();
+                }
+                RawTcpWorkerEvent::Output(bytes) => {
+                    report.drained_bytes = report.drained_bytes.saturating_add(bytes.len());
+                    report.events_drained += 1;
+                    self.feed_transport_output(&bytes);
+                    report.mark_changed();
+                }
+                RawTcpWorkerEvent::Failed(error) => {
+                    self.lifecycle = TerminalLifecycle::Exited(None);
+                    self.feed_utf8_terminal_output(
+                        format!("\r\nRaw TCP connection failed: {error}\r\n").as_bytes(),
+                    );
+                    self.pending_events.push(TerminalEvent::ChildExited(None));
+                    report.events_drained += 1;
+                    report.mark_changed();
+                    break;
+                }
+                RawTcpWorkerEvent::Closed => {
+                    if self.lifecycle.is_running() {
+                        self.lifecycle = TerminalLifecycle::Exited(None);
+                        self.feed_utf8_terminal_output(RAW_TCP_REMOTE_CLOSE_MESSAGE);
+                        self.pending_events.push(TerminalEvent::ChildExited(None));
+                        report.mark_changed();
+                    }
+                    report.events_drained += 1;
+                    break;
+                }
             }
         }
-        report.pending_bytes = self.output_queue_bytes;
+        report.pending_bytes = self.worker_rx.pending_bytes();
         report.drain_duration = started.elapsed();
         report
     }
@@ -771,36 +777,40 @@ impl TerminalSessionBackend for RawTcpSession {
 async fn run_raw_tcp_worker(
     config: RawTcpSessionConfig,
     mut command_rx: tokio::sync::mpsc::Receiver<RawTcpCommand>,
-    worker_tx: crossbeam_channel::Sender<RawTcpWorkerEvent>,
+    worker_tx: crate::backpressure::ByteBoundedSender<RawTcpWorkerEvent>,
 ) {
     let mut stream = match connect_raw_tcp_stream(&config).await {
         Ok(stream) => stream,
         Err(error) => {
-            let _ = worker_tx.send(RawTcpWorkerEvent::Failed(error));
+            let _ = worker_tx.send_control(RawTcpWorkerEvent::Failed(error));
             return;
         }
     };
 
-    let _ = worker_tx.send(RawTcpWorkerEvent::Connected);
+    let _ = worker_tx.send_control(RawTcpWorkerEvent::Connected);
     let mut buffer = vec![0_u8; RAW_TCP_READ_BUFFER_SIZE];
     loop {
         tokio::select! {
             read_result = stream.read(&mut buffer) => {
                 match read_result {
                     Ok(0) => {
-                        let _ = worker_tx.send(RawTcpWorkerEvent::Closed);
+                        let _ = worker_tx.send_control(RawTcpWorkerEvent::Closed);
                         break;
                     }
                     Ok(read_count) => {
                         if worker_tx
-                            .send(RawTcpWorkerEvent::Output(buffer[..read_count].to_vec()))
+                            .send_async(
+                                RawTcpWorkerEvent::Output(buffer[..read_count].to_vec()),
+                                read_count,
+                            )
+                            .await
                             .is_err()
                         {
                             break;
                         }
                     }
                     Err(error) => {
-                        let _ = worker_tx.send(RawTcpWorkerEvent::Failed(raw_tcp_io_error_message(
+                        let _ = worker_tx.send_control(RawTcpWorkerEvent::Failed(raw_tcp_io_error_message(
                             "read from",
                             &config.endpoint_label(),
                             &error,
@@ -813,7 +823,7 @@ async fn run_raw_tcp_worker(
                 match command {
                     Some(RawTcpCommand::Data(bytes)) => {
                         if let Err(error) = stream.write_all(&bytes).await {
-                            let _ = worker_tx.send(RawTcpWorkerEvent::Failed(raw_tcp_io_error_message(
+                            let _ = worker_tx.send_control(RawTcpWorkerEvent::Failed(raw_tcp_io_error_message(
                                 "write to",
                                 &config.endpoint_label(),
                                 &error,
@@ -823,7 +833,7 @@ async fn run_raw_tcp_worker(
                     }
                     Some(RawTcpCommand::Close) | None => {
                         let _ = stream.shutdown().await;
-                        let _ = worker_tx.send(RawTcpWorkerEvent::Closed);
+                        let _ = worker_tx.send_control(RawTcpWorkerEvent::Closed);
                         break;
                     }
                 }

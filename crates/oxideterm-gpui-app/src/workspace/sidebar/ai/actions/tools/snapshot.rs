@@ -1,7 +1,7 @@
-const AI_CONNECT_TARGET_TIMEOUT_TICKS: usize = 900;
-const AI_CONNECT_TARGET_POLL_INTERVAL_MS: u64 = 100;
+pub(in crate::workspace) const AI_CONNECT_TARGET_TIMEOUT_TICKS: usize = 900;
+pub(in crate::workspace) const AI_CONNECT_TARGET_POLL_INTERVAL_MS: u64 = 100;
 
-fn ai_sftp_target_for_node(
+pub(in crate::workspace) fn ai_sftp_target_for_node(
     node_id: &NodeId,
     node: &WorkspaceSshNode,
     sftp_session_id: String,
@@ -33,7 +33,7 @@ fn ai_sftp_target_for_node(
     }
 }
 
-fn ai_connect_result_terminal_target(
+pub(in crate::workspace) fn ai_connect_result_terminal_target(
     target: &AiOrchestratorTarget,
     original_label: &str,
     node_id: Option<&str>,
@@ -64,7 +64,9 @@ fn ai_connect_result_terminal_target(
     }
 }
 
-fn ai_opened_local_terminal_target(target: &AiOrchestratorTarget) -> AiOrchestratorTarget {
+pub(in crate::workspace) fn ai_opened_local_terminal_target(
+    target: &AiOrchestratorTarget,
+) -> AiOrchestratorTarget {
     let mut refs = BTreeMap::new();
     if let Some(session_id) = target.refs.get("sessionId") {
         refs.insert("sessionId".to_string(), session_id.clone());
@@ -84,12 +86,14 @@ fn ai_opened_local_terminal_target(target: &AiOrchestratorTarget) -> AiOrchestra
     }
 }
 
-fn ai_raw_tcp_terminal_label(config: &RawTcpSessionConfig) -> String {
+pub(in crate::workspace) fn ai_raw_tcp_terminal_label(config: &RawTcpSessionConfig) -> String {
     let scheme = if config.tls.enabled { "TLS" } else { "TCP" };
     format!("{scheme} {}", config.endpoint_label())
 }
 
-fn ai_raw_tcp_terminal_metadata(config: &RawTcpSessionConfig) -> serde_json::Value {
+pub(in crate::workspace) fn ai_raw_tcp_terminal_metadata(
+    config: &RawTcpSessionConfig,
+) -> serde_json::Value {
     // Keep the AI target schema explicit so local socket sessions do not inherit
     // shell-oriented behavior from ordinary local terminals.
     serde_json::json!({
@@ -108,11 +112,13 @@ fn ai_raw_tcp_terminal_metadata(config: &RawTcpSessionConfig) -> serde_json::Val
     })
 }
 
-fn ai_raw_udp_terminal_label(config: &RawUdpSessionConfig) -> String {
+pub(in crate::workspace) fn ai_raw_udp_terminal_label(config: &RawUdpSessionConfig) -> String {
     format!("UDP {}", config.remote_endpoint_label())
 }
 
-fn ai_raw_udp_terminal_metadata(config: &RawUdpSessionConfig) -> serde_json::Value {
+pub(in crate::workspace) fn ai_raw_udp_terminal_metadata(
+    config: &RawUdpSessionConfig,
+) -> serde_json::Value {
     // UDP targets are datagram-oriented local sockets, so expose enough shape
     // for tools to avoid stream-only assumptions.
     serde_json::json!({
@@ -128,7 +134,7 @@ fn ai_raw_udp_terminal_metadata(config: &RawUdpSessionConfig) -> serde_json::Val
     })
 }
 
-fn ai_ide_workspace_target_for_node(
+pub(in crate::workspace) fn ai_ide_workspace_target_for_node(
     node_id: &NodeId,
     node: &WorkspaceSshNode,
     active_editor_tab_id: Option<String>,
@@ -174,7 +180,10 @@ fn ai_ide_workspace_target_for_node(
 }
 
 impl WorkspaceApp {
-    fn ai_orchestrator_snapshot(&self, cx: &mut Context<Self>) -> AiOrchestratorRuntimeSnapshot {
+    pub(in crate::workspace) fn ai_orchestrator_snapshot(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AiOrchestratorRuntimeSnapshot {
         let mut targets = Vec::new();
         for connection in self.connection_store.connections() {
             let mut refs = BTreeMap::new();
@@ -442,7 +451,11 @@ impl WorkspaceApp {
                     kind: "terminal-session".to_string(),
                     label,
                     state: if is_local_terminal {
-                        if terminal_running { "connected" } else { "stale" }
+                        if terminal_running {
+                            "connected"
+                        } else {
+                            "stale"
+                        }
                     } else if accepts_input {
                         "connected"
                     } else {
@@ -547,19 +560,22 @@ impl WorkspaceApp {
                     .and_then(|node| node.terminal_ids.first().copied())
                     .map(|session_id| session_id.0.to_string())
             });
-        let active_tab = self.main_window_tabs.active_tab_id.and_then(|active_tab_id| {
-            self.tabs
-                .iter()
-                .find(|tab| tab.id == active_tab_id)
-                .map(|tab| {
-                    serde_json::json!({
-                        "id": tab.id.0.to_string(),
-                        "type": ai_tab_kind_label(&tab.kind),
-                        "title": tab.title,
-                        "sessionId": active_session_id.clone(),
+        let active_tab = self
+            .main_window_tabs
+            .active_tab_id
+            .and_then(|active_tab_id| {
+                self.tabs
+                    .iter()
+                    .find(|tab| tab.id == active_tab_id)
+                    .map(|tab| {
+                        serde_json::json!({
+                            "id": tab.id.0.to_string(),
+                            "type": ai_tab_kind_label(&tab.kind),
+                            "title": tab.title,
+                            "sessionId": active_session_id.clone(),
+                        })
                     })
-                })
-        });
+            });
         let active_node = self.active_ssh_node_id.as_ref().and_then(|node_id| {
             self.ssh_nodes.get(node_id).map(|node| {
                 serde_json::json!({
@@ -595,7 +611,7 @@ impl WorkspaceApp {
                 "directoryParallelism": settings.sftp.directory_parallelism,
             }
         });
-        let transfers = ai_transfers_state(&self.sftp_transfer_manager, &self.ai_runtime_epoch);
+        let transfers = ai_transfers_state(&self.sftp_transfer_manager, &self.ai.runtime.epoch);
         let mut ssh_node_states = std::collections::BTreeMap::<String, usize>::new();
         for node in self.ssh_nodes.values() {
             let state = match node.readiness {
@@ -626,7 +642,7 @@ impl WorkspaceApp {
         // Keep get_state(health) on the same public shape as Tauri even though
         // native derives the values from GPUI-owned stores instead of Zustand.
         let health_state = serde_json::json!({
-            "runtimeEpoch": self.ai_runtime_epoch,
+            "runtimeEpoch": self.ai.runtime.epoch,
             "tabs": {
                 "open": self.tabs.len(),
                 "activeTabId": self.main_window_tabs.active_tab_id.map(|id| id.0.to_string()),
@@ -654,30 +670,37 @@ impl WorkspaceApp {
             active_tab,
             active_node,
             active_session_id,
-            active_tab_id: self.main_window_tabs.active_tab_id.map(|tab_id| tab_id.0.to_string()),
+            active_tab_id: self
+                .main_window_tabs
+                .active_tab_id
+                .map(|tab_id| tab_id.0.to_string()),
             active_node_id,
-            memory: ai_memory_settings_json(settings.ai.memory.enabled, &settings.ai.memory.content),
+            memory: ai_memory_settings_json(
+                settings.ai.memory.enabled,
+                &settings.ai.memory.content,
+            ),
             health_state,
             node_router: self.node_router.clone(),
             sftp_transfer_manager: self.sftp_transfer_manager.clone(),
-            agent_fs: self.ai_agent_fs.clone(),
+            agent_fs: self.ai.runtime.agent_fs.clone(),
             backend_runtime: self.forwarding_runtime.clone(),
-            rag_store: self.ai_rag_store.get(),
-            ai_mcp_registry: self.ai_mcp_registry.clone(),
-            ai_acp_runtime_registry: self.ai_acp_runtime_registry.clone(),
-            ai_key_store: self.ai_key_store.clone(),
+            rag_store: self.ai.knowledge.rag_store.get(),
+            ai_mcp_registry: self.ai.runtime.mcp_registry.clone(),
+            ai_acp_runtime_registry: self.ai.runtime.acp_runtime_registry.clone(),
+            ai_key_store: self.ai.models.key_store.clone(),
             ai_providers: settings.ai.providers.clone(),
             ai_embedding_config: settings.ai.embedding_config.clone(),
             ai_context_window: AI_COMPACTION_DEFAULT_CONTEXT_WINDOW,
-            runtime_epoch: self.ai_runtime_epoch.clone(),
+            runtime_epoch: self.ai.runtime.epoch.clone(),
             // Tauri read_resource(settings) exposes the settings object, while
             // get_state(settings) returns a compact diagnostic summary.
-            settings_state: serde_json::to_value(settings).unwrap_or_else(|_| settings_summary.clone()),
+            settings_state: serde_json::to_value(settings)
+                .unwrap_or_else(|_| settings_summary.clone()),
             settings_summary,
         }
     }
 
-    fn ai_chat_orchestrator_snapshot(
+    pub(in crate::workspace) fn ai_chat_orchestrator_snapshot(
         &self,
         config: &AiChatStreamConfig,
         cx: &mut Context<Self>,
@@ -687,14 +710,19 @@ impl WorkspaceApp {
         snapshot
     }
 
-    fn resolve_ai_tool_approval(&mut self, tool_call_id: String, approved: bool, cx: &mut Context<Self>) {
-        if let Some(sender) = self.ai_pending_tool_approvals.remove(&tool_call_id) {
+    pub(in crate::workspace) fn resolve_ai_tool_approval(
+        &mut self,
+        tool_call_id: String,
+        approved: bool,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(sender) = self.ai.runtime.pending_tool_approvals.remove(&tool_call_id) {
             let _ = sender.send(approved);
         }
         cx.notify();
     }
 
-    fn execute_ai_ui_orchestrator_tool(
+    pub(in crate::workspace) fn execute_ai_ui_orchestrator_tool(
         &mut self,
         tool_call_id: String,
         tool_name: String,
@@ -725,7 +753,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn start_ai_ui_orchestrator_tool_execution(
+    pub(in crate::workspace) fn start_ai_ui_orchestrator_tool_execution(
         &mut self,
         tool_call_id: String,
         tool_name: String,
@@ -735,7 +763,14 @@ impl WorkspaceApp {
         cx: &mut Context<Self>,
     ) {
         if tool_name == "connect_target" {
-            self.start_ai_connect_target_execution(tool_call_id, tool_name, args, sender, window, cx);
+            self.start_ai_connect_target_execution(
+                tool_call_id,
+                tool_name,
+                args,
+                sender,
+                window,
+                cx,
+            );
             return;
         }
         if tool_name == "run_command"
@@ -755,11 +790,12 @@ impl WorkspaceApp {
             );
             return;
         }
-        let result = self.execute_ai_ui_orchestrator_tool(tool_call_id, tool_name, args, window, cx);
+        let result =
+            self.execute_ai_ui_orchestrator_tool(tool_call_id, tool_name, args, window, cx);
         let _ = sender.send(result);
     }
 
-    fn start_ai_connect_target_execution(
+    pub(in crate::workspace) fn start_ai_connect_target_execution(
         &mut self,
         tool_call_id: String,
         tool_name: String,
@@ -780,7 +816,10 @@ impl WorkspaceApp {
             let _ = sender.send(base);
             return;
         }
-        if base.envelope.get("summary").and_then(serde_json::Value::as_str)
+        if base
+            .envelope
+            .get("summary")
+            .and_then(serde_json::Value::as_str)
             == Some("Target is already live.")
         {
             let _ = sender.send(base);
@@ -840,7 +879,7 @@ impl WorkspaceApp {
         .detach();
     }
 
-    fn execute_ai_connect_target(
+    pub(in crate::workspace) fn execute_ai_connect_target(
         &mut self,
         args: &serde_json::Value,
         window: &mut Window,
@@ -848,29 +887,35 @@ impl WorkspaceApp {
     ) -> AiActionResultLite {
         let snapshot = self.ai_orchestrator_snapshot(cx);
         let Some(target_id) = args.get("target_id").and_then(serde_json::Value::as_str) else {
-            return snapshot.fail(
-                "Target not found.",
-                "target_not_found",
-                "Target not found: ",
-                "write",
-            )
-            .with_next_actions(vec![serde_json::json!({
-                "action": "list_targets",
-                "reason": "Refresh available targets before connecting."
-            })]);
+            return snapshot
+                .fail(
+                    "Target not found.",
+                    "target_not_found",
+                    "Target not found: ",
+                    "write",
+                )
+                .with_next_actions(vec![serde_json::json!({
+                    "action": "list_targets",
+                    "reason": "Refresh available targets before connecting."
+                })]);
         };
-        let Some(target) = snapshot.targets.iter().find(|target| target.id == target_id).cloned()
+        let Some(target) = snapshot
+            .targets
+            .iter()
+            .find(|target| target.id == target_id)
+            .cloned()
         else {
-            return snapshot.fail(
-                "Target not found.",
-                "target_not_found",
-                format!("Target not found: {target_id}"),
-                "write",
-            )
-            .with_next_actions(vec![serde_json::json!({
-                "action": "list_targets",
-                "reason": "Refresh available targets before connecting."
-            })]);
+            return snapshot
+                .fail(
+                    "Target not found.",
+                    "target_not_found",
+                    format!("Target not found: {target_id}"),
+                    "write",
+                )
+                .with_next_actions(vec![serde_json::json!({
+                    "action": "list_targets",
+                    "reason": "Refresh available targets before connecting."
+                })]);
         };
 
         match target.kind.as_str() {
@@ -921,7 +966,10 @@ impl WorkspaceApp {
                             .with_target(target);
                     }
                 }
-                let Some(node_id) = target.refs.get("nodeId").map(|value| NodeId::new(value.clone()))
+                let Some(node_id) = target
+                    .refs
+                    .get("nodeId")
+                    .map(|value| NodeId::new(value.clone()))
                 else {
                     return snapshot
                         .fail(
@@ -1044,13 +1092,7 @@ impl WorkspaceApp {
                 // Use the same saved-connection flow as the GUI. Proxy-chain
                 // saved targets must pass through the resumable SessionTree
                 // preflight plan before a terminal is created.
-                self.start_saved_connection_flow(
-                    connection_id.clone(),
-                    config,
-                    title,
-                    window,
-                    cx,
-                );
+                self.start_saved_connection_flow(connection_id.clone(), config, title, window, cx);
                 let refreshed = self.ai_orchestrator_snapshot(cx);
                 let targets = refreshed
                     .targets
@@ -1088,14 +1130,18 @@ impl WorkspaceApp {
         }
     }
 
-    fn execute_ai_send_terminal_input(
+    pub(in crate::workspace) fn execute_ai_send_terminal_input(
         &mut self,
         args: &serde_json::Value,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AiActionResultLite {
         let snapshot = self.ai_orchestrator_snapshot(cx);
-        if args.get("control").and_then(serde_json::Value::as_str).is_some() {
+        if args
+            .get("control")
+            .and_then(serde_json::Value::as_str)
+            .is_some()
+        {
             return snapshot.fail(
                 "Terminal control input is not available through this tool.",
                 "terminal_control_disabled",
@@ -1106,7 +1152,11 @@ impl WorkspaceApp {
         let Some(target_id) = args.get("target_id").and_then(serde_json::Value::as_str) else {
             return snapshot.fail_missing_target_id("interactive");
         };
-        let Some(target) = snapshot.targets.iter().find(|target| target.id == target_id).cloned()
+        let Some(target) = snapshot
+            .targets
+            .iter()
+            .find(|target| target.id == target_id)
+            .cloned()
         else {
             return snapshot.fail_target_not_found(target_id, "interactive");
         };
@@ -1186,7 +1236,7 @@ impl WorkspaceApp {
             .with_target(target)
     }
 
-    fn execute_ai_terminal_run_command(
+    pub(in crate::workspace) fn execute_ai_terminal_run_command(
         &mut self,
         args: &serde_json::Value,
         window: &mut Window,
@@ -1196,7 +1246,11 @@ impl WorkspaceApp {
         let Some(target_id) = args.get("target_id").and_then(serde_json::Value::as_str) else {
             return snapshot.fail_missing_target_id(ai_run_command_preflight_risk());
         };
-        let Some(target) = snapshot.targets.iter().find(|target| target.id == target_id).cloned()
+        let Some(target) = snapshot
+            .targets
+            .iter()
+            .find(|target| target.id == target_id)
+            .cloned()
         else {
             return snapshot.fail_target_not_found(target_id, ai_run_command_preflight_risk());
         };
@@ -1232,7 +1286,8 @@ impl WorkspaceApp {
             Ok(target) => target,
             Err(result) => return result,
         };
-        let command = ai_command_with_cwd(command, args.get("cwd").and_then(serde_json::Value::as_str));
+        let command =
+            ai_command_with_cwd(command, args.get("cwd").and_then(serde_json::Value::as_str));
         let Some(session_id) = target
             .refs
             .get("sessionId")
@@ -1311,7 +1366,7 @@ impl WorkspaceApp {
             .with_target(target)
     }
 
-    fn start_ai_terminal_run_command_execution(
+    pub(in crate::workspace) fn start_ai_terminal_run_command_execution(
         &mut self,
         tool_call_id: String,
         tool_name: String,
@@ -1332,7 +1387,11 @@ impl WorkspaceApp {
             let _ = sender.send(result);
             return;
         };
-        let Some(target) = snapshot.targets.iter().find(|target| target.id == target_id).cloned()
+        let Some(target) = snapshot
+            .targets
+            .iter()
+            .find(|target| target.id == target_id)
+            .cloned()
         else {
             let result = snapshot.to_executed_tool_result(
                 tool_call_id,
@@ -1571,7 +1630,7 @@ impl WorkspaceApp {
         .detach();
     }
 
-    fn execute_ai_write_settings_resource(
+    pub(in crate::workspace) fn execute_ai_write_settings_resource(
         &mut self,
         args: &serde_json::Value,
         window: &mut Window,
@@ -1589,7 +1648,11 @@ impl WorkspaceApp {
         let Some(target_id) = args.get("target_id").and_then(serde_json::Value::as_str) else {
             return snapshot.fail_missing_target_id("write");
         };
-        let Some(target) = snapshot.targets.iter().find(|target| target.id == target_id).cloned()
+        let Some(target) = snapshot
+            .targets
+            .iter()
+            .find(|target| target.id == target_id)
+            .cloned()
         else {
             return snapshot.fail_target_not_found(target_id, "write");
         };
@@ -1624,17 +1687,27 @@ impl WorkspaceApp {
                 "write",
             );
         };
-        let value = args.get("value").cloned().unwrap_or(serde_json::Value::Null);
-        if args.get("dry_run").and_then(serde_json::Value::as_bool).unwrap_or(false) {
-            return snapshot.ok(
-                format!("Dry-run settings write {section}.{key}."),
-                "Dry-run only; settings were not changed.",
-                serde_json::json!({ "section": section, "key": key, "value": value }),
-                "write",
-            ).with_target(target)
-            .with_verified(false);
+        let value = args
+            .get("value")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null);
+        if args
+            .get("dry_run")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false)
+        {
+            return snapshot
+                .ok(
+                    format!("Dry-run settings write {section}.{key}."),
+                    "Dry-run only; settings were not changed.",
+                    serde_json::json!({ "section": section, "key": key, "value": value }),
+                    "write",
+                )
+                .with_target(target)
+                .with_verified(false);
         }
-        match settings_with_json_patch(self.settings_store.settings(), section, key, value.clone()) {
+        match settings_with_json_patch(self.settings_store.settings(), section, key, value.clone())
+        {
             Ok(next_settings) => {
                 self.edit_settings(|settings| *settings = next_settings, cx);
                 if let Some(tab) =
@@ -1648,28 +1721,32 @@ impl WorkspaceApp {
                     self.settings_page.set_terminal_page(page);
                 }
                 self.open_settings_tab(window, cx);
-                snapshot.ok(
-                    format!("Updated settings {section}.{key}."),
-                    format!("{section}.{key} updated."),
-                    serde_json::json!({
-                        "section": section,
-                        "key": key,
-                        "value": value,
-                        "visibleSurface": "settings",
-                    }),
-                    "write",
-                ).with_target(target)
+                snapshot
+                    .ok(
+                        format!("Updated settings {section}.{key}."),
+                        format!("{section}.{key} updated."),
+                        serde_json::json!({
+                            "section": section,
+                            "key": key,
+                            "value": value,
+                            "visibleSurface": "settings",
+                        }),
+                        "write",
+                    )
+                    .with_target(target)
             }
-            Err(error) => snapshot.fail(
-                "Settings section cannot be updated.",
-                "unsupported_settings_section",
-                error,
-                "write",
-            ).with_target(target),
+            Err(error) => snapshot
+                .fail(
+                    "Settings section cannot be updated.",
+                    "unsupported_settings_section",
+                    error,
+                    "write",
+                )
+                .with_target(target),
         }
     }
 
-    fn execute_ai_remember_preference(
+    pub(in crate::workspace) fn execute_ai_remember_preference(
         &mut self,
         args: &serde_json::Value,
         cx: &mut Context<Self>,
@@ -1708,7 +1785,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn resolve_ai_run_command_terminal_target(
+    pub(in crate::workspace) fn resolve_ai_run_command_terminal_target(
         &mut self,
         target: AiOrchestratorTarget,
         window: &mut Window,
@@ -1737,7 +1814,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn resolve_ai_local_shell_terminal_target(
+    pub(in crate::workspace) fn resolve_ai_local_shell_terminal_target(
         &mut self,
         requested_target: &AiOrchestratorTarget,
         window: &mut Window,
@@ -1767,7 +1844,10 @@ impl WorkspaceApp {
                 .with_target(requested_target.clone()));
         }
 
-        let active_tab_id = self.main_window_tabs.active_tab_id.map(|tab_id| tab_id.0.to_string());
+        let active_tab_id = self
+            .main_window_tabs
+            .active_tab_id
+            .map(|tab_id| tab_id.0.to_string());
         let refreshed = self.ai_orchestrator_snapshot(cx);
         refreshed
             .targets
@@ -1792,7 +1872,7 @@ impl WorkspaceApp {
             })
     }
 
-    fn execute_ai_open_app_surface(
+    pub(in crate::workspace) fn execute_ai_open_app_surface(
         &mut self,
         args: &serde_json::Value,
         window: &mut Window,
@@ -1806,13 +1886,21 @@ impl WorkspaceApp {
         let target = args
             .get("target_id")
             .and_then(serde_json::Value::as_str)
-            .and_then(|target_id| snapshot.targets.iter().find(|target| target.id == target_id))
+            .and_then(|target_id| {
+                snapshot
+                    .targets
+                    .iter()
+                    .find(|target| target.id == target_id)
+            })
             .cloned();
 
         match surface {
             "local_terminal" | "terminal" => match self.create_local_terminal_tab(window, cx) {
                 Ok(()) => {
-                    let active_tab_id = self.main_window_tabs.active_tab_id.map(|tab_id| tab_id.0.to_string());
+                    let active_tab_id = self
+                        .main_window_tabs
+                        .active_tab_id
+                        .map(|tab_id| tab_id.0.to_string());
                     let refreshed = self.ai_orchestrator_snapshot(cx);
                     let target = refreshed
                         .targets
@@ -1862,14 +1950,21 @@ impl WorkspaceApp {
                         self.settings_page.set_active_tab(tab);
                     }
                     if let Some(page) =
-                        oxideterm_gpui_settings_view::terminal_settings_page_from_ai_section(section)
+                        oxideterm_gpui_settings_view::terminal_settings_page_from_ai_section(
+                            section,
+                        )
                     {
                         self.settings_page.set_terminal_page(page);
                     }
                 }
                 self.open_settings_tab(window, cx);
                 snapshot
-                    .ok("Opened settings.", "Opened settings.", serde_json::Value::Null, "write")
+                    .ok(
+                        "Opened settings.",
+                        "Opened settings.",
+                        serde_json::Value::Null,
+                        "write",
+                    )
                     .with_optional_target(target)
             }
             "connection_manager" => {
@@ -1939,7 +2034,12 @@ impl WorkspaceApp {
                 };
                 self.open_sftp_tab(node_id, window, cx);
                 snapshot
-                    .ok("Opened sftp.", "Opened sftp.", serde_json::Value::Null, "write")
+                    .ok(
+                        "Opened sftp.",
+                        "Opened sftp.",
+                        serde_json::Value::Null,
+                        "write",
+                    )
                     .with_optional_target(target)
             }
             "ide" => {
@@ -1965,7 +2065,12 @@ impl WorkspaceApp {
                 };
                 self.open_ide_folder_picker_tab(node_id, cx);
                 snapshot
-                    .ok("Opened ide.", "Opened ide.", serde_json::Value::Null, "write")
+                    .ok(
+                        "Opened ide.",
+                        "Opened ide.",
+                        serde_json::Value::Null,
+                        "write",
+                    )
                     .with_optional_target(target)
             }
             _ => snapshot
@@ -1979,7 +2084,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn reveal_ai_target_if_visible(
+    pub(in crate::workspace) fn reveal_ai_target_if_visible(
         &mut self,
         target: &AiOrchestratorTarget,
         window: &mut Window,
@@ -2004,7 +2109,11 @@ impl WorkspaceApp {
         // connect_target call because that would overstate the requested action.
         if let Some(node_id) = target.refs.get("nodeId") {
             let node_id = NodeId::new(node_id.clone());
-            if self.sftp_tab_nodes.values().any(|existing| existing == &node_id) {
+            if self
+                .sftp_tab_nodes
+                .values()
+                .any(|existing| existing == &node_id)
+            {
                 self.open_sftp_tab(node_id, window, cx);
                 return true;
             }
@@ -2013,7 +2122,7 @@ impl WorkspaceApp {
         false
     }
 
-    fn reveal_ai_terminal_session(
+    pub(in crate::workspace) fn reveal_ai_terminal_session(
         &mut self,
         session_id: TerminalSessionId,
         window: &mut Window,
@@ -2046,7 +2155,7 @@ impl WorkspaceApp {
         Some((pane_id, pane))
     }
 
-    fn ai_connect_target_ready_result(
+    pub(in crate::workspace) fn ai_connect_target_ready_result(
         &mut self,
         tool_call_id: &str,
         tool_name: &str,
@@ -2056,7 +2165,10 @@ impl WorkspaceApp {
     ) -> Option<AiExecutedToolResult> {
         let target_id = args.get("target_id").and_then(serde_json::Value::as_str)?;
         let snapshot = self.ai_orchestrator_snapshot(cx);
-        let original = snapshot.targets.iter().find(|target| target.id == target_id)?;
+        let original = snapshot
+            .targets
+            .iter()
+            .find(|target| target.id == target_id)?;
         let connection_id = original.refs.get("connectionId").cloned();
         let node_id = original.refs.get("nodeId").cloned();
         let ready_targets = snapshot
@@ -2115,7 +2227,11 @@ impl WorkspaceApp {
             _ => format!("Connected {}.", original.label),
         };
         let mut returned_targets = std::iter::once(primary.clone())
-            .chain(ready_targets.into_iter().filter(|target| target.id != primary.id))
+            .chain(
+                ready_targets
+                    .into_iter()
+                    .filter(|target| target.id != primary.id),
+            )
             .collect::<Vec<_>>();
         if let Some(primary_session_id) = primary_session_id.as_ref() {
             let mut returned_target_ids = returned_targets
@@ -2156,26 +2272,28 @@ impl WorkspaceApp {
                     .collect::<Vec<_>>()
                     .join("\n")
             });
-        Some(snapshot.to_executed_tool_result(
-            tool_call_id.to_string(),
-            tool_name.to_string(),
-            snapshot
-                .ok(
-                    summary,
-                    output,
-                    serde_json::json!({
-                        "nodeId": node_id,
-                        "sessionId": session_id,
-                    }),
-                    "write",
-                )
-                .with_target(primary)
-                .with_targets(returned_targets),
-            duration_ms,
-        ))
+        Some(
+            snapshot.to_executed_tool_result(
+                tool_call_id.to_string(),
+                tool_name.to_string(),
+                snapshot
+                    .ok(
+                        summary,
+                        output,
+                        serde_json::json!({
+                            "nodeId": node_id,
+                            "sessionId": session_id,
+                        }),
+                        "write",
+                    )
+                    .with_target(primary)
+                    .with_targets(returned_targets),
+                duration_ms,
+            ),
+        )
     }
 
-    fn ai_connect_target_timeout_result(
+    pub(in crate::workspace) fn ai_connect_target_timeout_result(
         &mut self,
         tool_call_id: &str,
         tool_name: &str,
@@ -2196,9 +2314,7 @@ impl WorkspaceApp {
                     .cloned()
             });
         let detail = match target.as_ref().map(|target| target.kind.as_str()) {
-            Some("saved-connection") => {
-                "The saved connection flow did not return a live terminal."
-            }
+            Some("saved-connection") => "The saved connection flow did not return a live terminal.",
             Some("ssh-node") => {
                 "The SSH target did not return a live terminal before the executor timeout."
             }
@@ -2228,7 +2344,12 @@ impl WorkspaceApp {
             tool_call_id.to_string(),
             tool_name.to_string(),
             snapshot
-                .fail("Connection did not complete.", "connect_failed", detail, "write")
+                .fail(
+                    "Connection did not complete.",
+                    "connect_failed",
+                    detail,
+                    "write",
+                )
                 .with_optional_target(target)
                 .with_next_actions(next_actions),
             duration_ms,
@@ -2246,7 +2367,7 @@ mod raw_tcp_snapshot_tests {
     };
 
     #[test]
-    fn raw_tcp_target_metadata_identifies_local_socket_transport() {
+    pub(in crate::workspace) fn raw_tcp_target_metadata_identifies_local_socket_transport() {
         let config = RawTcpSessionConfig {
             host: "socket.internal".to_string(),
             port: 9000,
@@ -2262,7 +2383,10 @@ mod raw_tcp_snapshot_tests {
 
         let metadata = ai_raw_tcp_terminal_metadata(&config);
 
-        assert_eq!(ai_raw_tcp_terminal_label(&config), "TCP socket.internal:9000");
+        assert_eq!(
+            ai_raw_tcp_terminal_label(&config),
+            "TCP socket.internal:9000"
+        );
         assert_eq!(metadata["terminalType"], "raw_tcp");
         assert_eq!(metadata["terminalTransport"], "raw_tcp");
         assert_eq!(metadata["host"], "socket.internal");
@@ -2276,7 +2400,7 @@ mod raw_tcp_snapshot_tests {
     }
 
     #[test]
-    fn raw_tcp_label_marks_tls_sessions() {
+    pub(in crate::workspace) fn raw_tcp_label_marks_tls_sessions() {
         let config = RawTcpSessionConfig {
             host: "secure.internal".to_string(),
             port: 443,
@@ -2292,13 +2416,16 @@ mod raw_tcp_snapshot_tests {
 
         let metadata = ai_raw_tcp_terminal_metadata(&config);
 
-        assert_eq!(ai_raw_tcp_terminal_label(&config), "TLS secure.internal:443");
+        assert_eq!(
+            ai_raw_tcp_terminal_label(&config),
+            "TLS secure.internal:443"
+        );
         assert_eq!(metadata["tls"]["enabled"], true);
         assert_eq!(metadata["tls"]["serverName"], "secure.internal");
     }
 
     #[test]
-    fn raw_udp_target_metadata_identifies_local_datagram_transport() {
+    pub(in crate::workspace) fn raw_udp_target_metadata_identifies_local_datagram_transport() {
         let config = RawUdpSessionConfig {
             remote_host: "udp.internal".to_string(),
             remote_port: 8125,

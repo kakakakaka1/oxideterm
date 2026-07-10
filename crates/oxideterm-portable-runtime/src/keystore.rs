@@ -8,6 +8,7 @@ use std::{collections::BTreeMap, fmt, fs, path::Path, sync::LazyLock};
 use argon2::{Algorithm, Argon2, Params, Version};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use chacha20poly1305::{ChaCha20Poly1305, KeyInit, Nonce, aead::Aead};
+use oxideterm_atomic_file::{durable_remove, durable_write};
 use parking_lot::RwLock;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
@@ -205,12 +206,8 @@ fn persist_session_to_path(
         ciphertext: BASE64.encode(ciphertext),
     };
 
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    let tmp_path = path.with_extension("vault.tmp");
-    fs::write(&tmp_path, serde_json::to_vec_pretty(&envelope)?)?;
-    fs::rename(&tmp_path, path)?;
+    let serialized = Zeroizing::new(serde_json::to_vec_pretty(&envelope)?);
+    durable_write(path, &serialized)?;
     Ok(())
 }
 
@@ -282,9 +279,7 @@ pub fn change_portable_keystore_password(
 pub fn delete_portable_keystore() -> Result<(), PortableKeystoreError> {
     let path = portable_keystore_path()?;
     lock_portable_keystore();
-    if path.exists() {
-        fs::remove_file(path)?;
-    }
+    durable_remove(&path)?;
     let _ = crate::set_portable_bootstrap_status(crate::PortableBootstrapStatus::NeedsSetup);
     Ok(())
 }

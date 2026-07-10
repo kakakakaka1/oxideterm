@@ -1,3 +1,4 @@
+use super::*;
 use gpui::StatefulInteractiveElement;
 use std::{
     collections::hash_map::DefaultHasher,
@@ -5,7 +6,10 @@ use std::{
 };
 
 impl WorkspaceApp {
-    pub(super) fn render_activity_bar(&mut self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn render_activity_bar(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let theme = self.tokens.ui;
         let top_items_before_plugins = [
             (SidebarSection::Sessions, LucideIcon::Link2),
@@ -106,7 +110,8 @@ impl WorkspaceApp {
         // Tauri inserts plugin-provided sidebar panels as independent activity
         // buttons immediately after the built-in Plugin Manager tab button.
         for panel in self
-            .plugin_registry
+            .native_plugin_runtime
+            .registry
             .contributions()
             .runtime_sidebar_panels()
         {
@@ -136,12 +141,10 @@ impl WorkspaceApp {
             bottom = bottom.child(popover);
         }
 
-        bar.child(div().flex_1())
-            .child(bottom)
-            .into_any_element()
+        bar.child(div().flex_1()).child(bottom).into_any_element()
     }
 
-    pub(super) fn render_activity_icon(
+    pub(in crate::workspace) fn render_activity_icon(
         &self,
         section: SidebarSection,
         icon: LucideIcon,
@@ -157,7 +160,8 @@ impl WorkspaceApp {
                 .active_tab()
                 .is_some_and(|tab| tab.kind == TabKind::ConnectionMonitor),
             SidebarSection::Network => {
-                self.active_tab().is_some_and(|tab| tab.kind == TabKind::Runtime)
+                self.active_tab()
+                    .is_some_and(|tab| tab.kind == TabKind::Runtime)
                     && self.active_connection_runtime_section == ConnectionRuntimeSection::Topology
             }
             SidebarSection::Files => self
@@ -208,8 +212,10 @@ impl WorkspaceApp {
             0
         };
         let badge_is_error = section == SidebarSection::Notifications
-            && ((!self.notification_center.notifications.dnd_enabled && self.notification_center.notifications.unread_critical_count > 0)
-                || (!self.notification_center.event_log.dnd_enabled && self.notification_center.event_log.unread_errors > 0));
+            && ((!self.notification_center.notifications.dnd_enabled
+                && self.notification_center.notifications.unread_critical_count > 0)
+                || (!self.notification_center.event_log.dnd_enabled
+                    && self.notification_center.event_log.unread_errors > 0));
         let badge_color = if badge_is_error {
             0xef4444
         } else if section == SidebarSection::Workspace && !self.detached_local_terminals.is_empty()
@@ -225,7 +231,11 @@ impl WorkspaceApp {
         // radius settings affect this surface the same way as browser buttons.
         let button = oxideterm_gpui_ui::button::icon_button(
             &self.tokens,
-            Self::render_lucide_icon(icon, self.tokens.metrics.activity_icon_glyph_size, rgb(theme.text)),
+            Self::render_lucide_icon(
+                icon,
+                self.tokens.metrics.activity_icon_glyph_size,
+                rgb(theme.text),
+            ),
             oxideterm_gpui_ui::button::IconButtonOptions {
                 size: self.tokens.metrics.activity_icon_size,
                 radius: oxideterm_gpui_ui::button::ButtonRadius::Md,
@@ -353,7 +363,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn activity_icon_tooltip(&self, section: SidebarSection) -> String {
+    pub(in crate::workspace) fn activity_icon_tooltip(&self, section: SidebarSection) -> String {
         match section {
             SidebarSection::Sessions => self.i18n.t("sidebar.panels.sessions"),
             SidebarSection::Connections => self.i18n.t("sidebar.panels.open_session_manager"),
@@ -379,7 +389,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn render_plugin_sidebar_activity_icon(
+    pub(in crate::workspace) fn render_plugin_sidebar_activity_icon(
         &self,
         panel: plugin_host::NativePluginRuntimeSidebarPanelContribution,
         cx: &mut Context<Self>,
@@ -391,20 +401,22 @@ impl WorkspaceApp {
         };
         let active = self.active_sidebar_section == SidebarSection::Extensions
             && self
-                .active_native_plugin_sidebar_panel
+                .native_plugin_manager
+                .active_sidebar_panel
                 .as_ref()
                 .is_some_and(|active_panel| active_panel == &selection);
         let tooltip = panel.title.clone();
-        let tooltip_id = format!(
-            "activity-plugin-{}-{}",
-            panel.plugin_id, panel.panel_id
-        );
+        let tooltip_id = format!("activity-plugin-{}-{}", panel.plugin_id, panel.panel_id);
         let tooltip_id_for_move = tooltip_id.clone();
         let icon = native_plugin_sidebar_icon(&panel.icon);
 
         let button = oxideterm_gpui_ui::button::icon_button(
             &self.tokens,
-            Self::render_lucide_icon(icon, self.tokens.metrics.activity_icon_glyph_size, rgb(theme.text)),
+            Self::render_lucide_icon(
+                icon,
+                self.tokens.metrics.activity_icon_glyph_size,
+                rgb(theme.text),
+            ),
             oxideterm_gpui_ui::button::IconButtonOptions {
                 size: self.tokens.metrics.activity_icon_size,
                 radius: oxideterm_gpui_ui::button::ButtonRadius::Md,
@@ -460,7 +472,7 @@ impl WorkspaceApp {
                     // Mirrors Tauri's `sidebarActiveSection = "plugin:<id>:<panel>"`
                     // path: choosing a plugin panel switches only the sidebar
                     // content, while Plugin Manager remains a separate tab.
-                    this.active_native_plugin_sidebar_panel = Some(selection.clone());
+                    this.native_plugin_manager.active_sidebar_panel = Some(selection.clone());
                     this.active_sidebar_section = SidebarSection::Extensions;
                     this.active_surface = ActiveSurface::Terminal;
                     this.persist_sidebar_settings();
@@ -471,7 +483,11 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    pub(super) fn render_lucide_icon(icon: LucideIcon, size: f32, color: Rgba) -> AnyElement {
+    pub(in crate::workspace) fn render_lucide_icon(
+        icon: LucideIcon,
+        size: f32,
+        color: Rgba,
+    ) -> AnyElement {
         svg()
             .path(icon.path())
             .size(px(size))
@@ -480,7 +496,7 @@ impl WorkspaceApp {
     }
 }
 
-fn native_plugin_sidebar_icon(icon: &str) -> LucideIcon {
+pub(in crate::workspace) fn native_plugin_sidebar_icon(icon: &str) -> LucideIcon {
     // Tauri resolves plugin sidebar icons through lucide-react names. Native
     // maps the same common names to bundled lucide assets and falls back to
     // Puzzle when a plugin asks for an icon this build does not expose yet.
@@ -499,7 +515,7 @@ fn native_plugin_sidebar_icon(icon: &str) -> LucideIcon {
     }
 }
 
-fn native_plugin_sidebar_activity_id(
+pub(in crate::workspace) fn native_plugin_sidebar_activity_id(
     panel: &plugin_host::NativePluginRuntimeSidebarPanelContribution,
 ) -> u64 {
     let mut hasher = DefaultHasher::new();

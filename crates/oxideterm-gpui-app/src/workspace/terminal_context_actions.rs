@@ -40,7 +40,7 @@ impl WorkspaceApp {
                     return false;
                 };
                 self.search.visible = false;
-                if self.ai_inline_panel.open {
+                if self.ai.chat.inline_panel.open {
                     self.close_terminal_ai_inline_panel(window, cx);
                 }
                 self.close_terminal_command_overlays(cx);

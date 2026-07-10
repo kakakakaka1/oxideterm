@@ -1,5 +1,11 @@
+use super::*;
+
 impl WorkspaceApp {
-    pub(super) fn handle_sftp_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) -> bool {
+    pub(in crate::workspace) fn handle_sftp_key(
+        &mut self,
+        event: &KeyDownEvent,
+        cx: &mut Context<Self>,
+    ) -> bool {
         let key = event.keystroke.key.as_str();
         if matches!(self.sftp_view.dialog, Some(SftpDialog::Editor { .. })) {
             if event.keystroke.modifiers.platform && key == "s" {
@@ -64,7 +70,10 @@ impl WorkspaceApp {
                 return true;
             }
             match key {
-                "tab" if !event.keystroke.modifiers.platform && !event.keystroke.modifiers.control => {
+                "tab"
+                    if !event.keystroke.modifiers.platform
+                        && !event.keystroke.modifiers.control =>
+                {
                     self.handle_sftp_input_tab(input);
                     cx.notify();
                     return true;
@@ -215,7 +224,7 @@ impl WorkspaceApp {
         }
     }
 
-    pub(super) fn sftp_input_value(&self, input: SftpInput) -> &str {
+    pub(in crate::workspace) fn sftp_input_value(&self, input: SftpInput) -> &str {
         match input {
             SftpInput::LocalPath => &self.sftp_view.local_path_input,
             SftpInput::RemotePath => &self.sftp_view.remote_path_input,
@@ -225,7 +234,7 @@ impl WorkspaceApp {
         }
     }
 
-    pub(super) fn sftp_input_value_mut(&mut self, input: SftpInput) -> &mut String {
+    pub(in crate::workspace) fn sftp_input_value_mut(&mut self, input: SftpInput) -> &mut String {
         match input {
             SftpInput::LocalPath => &mut self.sftp_view.local_path_input,
             SftpInput::RemotePath => &mut self.sftp_view.remote_path_input,
@@ -235,7 +244,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn set_sftp_path(&mut self, pane: SftpPane, path: String) {
+    pub(in crate::workspace::sftp) fn set_sftp_path(&mut self, pane: SftpPane, path: String) {
         match pane {
             SftpPane::Local => {
                 self.sftp_view.local_path_scroll_x = 0.0;
@@ -262,8 +271,7 @@ impl WorkspaceApp {
                 self.sftp_view.remote_path = path.clone();
                 self.sftp_view.remote_path_input = path;
                 self.sftp_view.editing_remote_path = false;
-                self.sftp_view.remote_loading = true;
-                self.sftp_view.remote_load_pending = true;
+                self.request_sftp_remote_load();
                 self.sftp_view.remote_selected.clear();
                 self.sftp_view.remote_last_selected = None;
             }
@@ -327,7 +335,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn handle_sftp_breadcrumb_scroll(
+    pub(in crate::workspace::sftp) fn handle_sftp_breadcrumb_scroll(
         &mut self,
         pane: SftpPane,
         event: &ScrollWheelEvent,
@@ -372,7 +380,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn commit_sftp_path_input(&mut self, pane: SftpPane) {
+    pub(in crate::workspace::sftp) fn commit_sftp_path_input(&mut self, pane: SftpPane) {
         let path = match pane {
             SftpPane::Local => self.sftp_view.local_path_input.trim().to_string(),
             SftpPane::Remote => normalize_remote_path(&self.sftp_view.remote_path_input),
@@ -382,7 +390,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn navigate_sftp_path(&mut self, pane: SftpPane, target: &str) {
+    pub(in crate::workspace::sftp) fn navigate_sftp_path(&mut self, pane: SftpPane, target: &str) {
         let next = match (pane, target) {
             (SftpPane::Local, "~") => home_path(),
             (SftpPane::Remote, "~") => self
@@ -399,7 +407,11 @@ impl WorkspaceApp {
         self.set_sftp_path(pane, next);
     }
 
-    fn toggle_sftp_sort(&mut self, pane: SftpPane, field: SftpSortField) {
+    pub(in crate::workspace::sftp) fn toggle_sftp_sort(
+        &mut self,
+        pane: SftpPane,
+        field: SftpSortField,
+    ) {
         let (sort_field, sort_direction) = match pane {
             SftpPane::Local => (
                 &mut self.sftp_view.local_sort_field,
@@ -421,7 +433,12 @@ impl WorkspaceApp {
         }
     }
 
-    fn select_sftp_file(&mut self, pane: SftpPane, name: String, modifiers: gpui::Modifiers) {
+    pub(in crate::workspace::sftp) fn select_sftp_file(
+        &mut self,
+        pane: SftpPane,
+        name: String,
+        modifiers: gpui::Modifiers,
+    ) {
         self.sftp_view.active_pane = pane;
         self.sftp_view.dismiss_context_menu();
         let range_names = self.sftp_ordered_file_names(pane);
@@ -459,7 +476,12 @@ impl WorkspaceApp {
         *last_selected = Some(name);
     }
 
-    fn start_sftp_drag_candidate(&mut self, pane: SftpPane, x: f32, y: f32) {
+    pub(in crate::workspace::sftp) fn start_sftp_drag_candidate(
+        &mut self,
+        pane: SftpPane,
+        x: f32,
+        y: f32,
+    ) {
         let names = self.sftp_selected_names(pane);
         if names.is_empty() {
             self.sftp_view.drag_state = None;
@@ -477,7 +499,12 @@ impl WorkspaceApp {
         self.stop_sftp_drag_autoscroll();
     }
 
-    fn update_sftp_drag(&mut self, pane: SftpPane, x: f32, y: f32) -> bool {
+    pub(in crate::workspace::sftp) fn update_sftp_drag(
+        &mut self,
+        pane: SftpPane,
+        x: f32,
+        y: f32,
+    ) -> bool {
         // Mouse move fires continuously over file lists. Notify only when the
         // drag actually activates or the nominated drop pane changes.
         let Some(was_active) = self.sftp_view.drag_state.as_ref().map(|drag| drag.active) else {
@@ -525,7 +552,7 @@ impl WorkspaceApp {
         drag.active
     }
 
-    fn finish_sftp_drag(&mut self, pane: SftpPane) -> bool {
+    pub(in crate::workspace::sftp) fn finish_sftp_drag(&mut self, pane: SftpPane) -> bool {
         let Some(drag) = self.sftp_view.drag_state.take() else {
             let had_target = self.sftp_view.drag_over_pane.take().is_some();
             self.stop_sftp_drag_autoscroll();
@@ -609,7 +636,7 @@ impl WorkspaceApp {
         self.sftp_view.drag_autoscroll_scheduled = false;
     }
 
-    fn clear_sftp_selection(&mut self, pane: SftpPane) -> bool {
+    pub(in crate::workspace::sftp) fn clear_sftp_selection(&mut self, pane: SftpPane) -> bool {
         match pane {
             SftpPane::Local => {
                 let changed = !self.sftp_view.local_selected.is_empty()
@@ -726,7 +753,7 @@ impl WorkspaceApp {
             .collect()
     }
 
-    fn sftp_selected_names(&self, pane: SftpPane) -> Vec<String> {
+    pub(in crate::workspace::sftp) fn sftp_selected_names(&self, pane: SftpPane) -> Vec<String> {
         let selected = match pane {
             SftpPane::Local => &self.sftp_view.local_selected,
             SftpPane::Remote => &self.sftp_view.remote_selected,

@@ -1,5 +1,7 @@
+use super::*;
+
 impl WorkspaceApp {
-    fn ai_provider_key_display_state(
+    pub(in crate::workspace) fn ai_provider_key_display_state(
         &self,
         provider: &AiProviderView,
     ) -> AiProviderKeyDisplayState {
@@ -9,7 +11,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn ai_provider_key_input(
+    pub(in crate::workspace) fn ai_provider_key_input(
         &self,
         index: usize,
         provider: &AiProviderView,
@@ -17,12 +19,18 @@ impl WorkspaceApp {
     ) -> AnyElement {
         match self.ai_provider_key_display_state(provider) {
             AiProviderKeyDisplayState::Keyless => div().into_any_element(),
-            AiProviderKeyDisplayState::Stored => self.ai_provider_stored_key_input(index, provider, cx),
+            AiProviderKeyDisplayState::Stored => {
+                self.ai_provider_stored_key_input(index, provider, cx)
+            }
             AiProviderKeyDisplayState::Missing => self.ai_provider_empty_key_input(index, cx),
         }
     }
 
-    fn ai_provider_empty_key_input(&self, index: usize, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn ai_provider_empty_key_input(
+        &self,
+        index: usize,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let input = SettingsInput::AiProviderApiKey(index);
         let focused = self.focused_settings_input == Some(input);
         let draft = if focused {
@@ -48,15 +56,18 @@ impl WorkspaceApp {
                 div()
                     .flex()
                     .gap(px(8.0))
-                    .child(div().flex_1().min_w(px(0.0)).child(
-                        self.ai_provider_secret_input(
-                            input,
-                            draft,
-                            "sk-...".to_string(),
-                            focused,
-                            cx,
-                        ),
-                    ))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w(px(0.0))
+                            .child(self.ai_provider_secret_input(
+                                input,
+                                draft,
+                                "sk-...".to_string(),
+                                focused,
+                                cx,
+                            )),
+                    )
                     .child(
                         // ProviderKeyInput.tsx uses a secondary small Button
                         // with h-8 text-xs for save. Route activation through
@@ -87,7 +98,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn ai_provider_stored_key_input(
+    pub(in crate::workspace) fn ai_provider_stored_key_input(
         &self,
         index: usize,
         provider: &AiProviderView,
@@ -168,7 +179,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn ai_provider_secret_input(
+    pub(in crate::workspace) fn ai_provider_secret_input(
         &self,
         input: SettingsInput,
         value: &str,
@@ -209,11 +220,11 @@ impl WorkspaceApp {
                     cx.stop_propagation();
                 }),
             )
-            .on_mouse_move(
-                cx.listener(|this, event: &gpui::MouseMoveEvent, window, cx| {
+            .on_mouse_move(cx.listener(
+                |this, event: &gpui::MouseMoveEvent, window, cx| {
                     this.update_ime_selection_drag_from_mouse_move(event, window, cx);
-                }),
-            ),
+                },
+            )),
             move |anchor, _window, cx| {
                 let _ = workspace.update(cx, |this, cx| {
                     this.update_text_input_anchor(anchor, cx);
@@ -223,8 +234,10 @@ impl WorkspaceApp {
         .into_any_element()
     }
 
-    fn ai_provider_has_key_cached(&self, provider_id: &str) -> bool {
-        self.ai_provider_key_status
+    pub(in crate::workspace) fn ai_provider_has_key_cached(&self, provider_id: &str) -> bool {
+        self.ai
+            .models
+            .provider_key_status
             .get(provider_id)
             .copied()
             .unwrap_or(false)
@@ -251,22 +264,32 @@ impl WorkspaceApp {
             .collect();
 
         for provider_id in provider_jobs {
-            if self.ai_provider_key_status.contains_key(&provider_id)
-                || self.ai_provider_key_status_pending.contains(&provider_id)
+            if self
+                .ai
+                .models
+                .provider_key_status
+                .contains_key(&provider_id)
+                || self
+                    .ai
+                    .models
+                    .provider_key_status_pending
+                    .contains(&provider_id)
             {
                 continue;
             }
-            self.ai_provider_key_status_pending
+            self.ai
+                .models
+                .provider_key_status_pending
                 .insert(provider_id.clone());
-            if self.ai_provider_key_status_tx.is_none() {
+            if self.ai.models.provider_key_status_tx.is_none() {
                 let (tx, rx) = std::sync::mpsc::channel();
-                self.ai_provider_key_status_tx = Some(tx);
-                self.ai_provider_key_status_rx = Some(rx);
+                self.ai.models.provider_key_status_tx = Some(tx);
+                self.ai.models.provider_key_status_rx = Some(rx);
             }
-            let Some(ui_tx) = self.ai_provider_key_status_tx.as_ref().cloned() else {
+            let Some(ui_tx) = self.ai.models.provider_key_status_tx.as_ref().cloned() else {
                 continue;
             };
-            let key_store = self.ai_key_store.clone();
+            let key_store = self.ai.models.key_store.clone();
             self.forwarding_runtime.spawn(async move {
                 let provider_id_for_check = provider_id.clone();
                 let has_key = tokio::task::spawn_blocking(move || {
@@ -281,30 +304,34 @@ impl WorkspaceApp {
             });
         }
 
-        if !self.ai_provider_key_status_pending.is_empty() {
+        if !self.ai.models.provider_key_status_pending.is_empty() {
             self.schedule_ai_provider_key_status_poll(cx);
         }
     }
 
-    fn poll_ai_provider_key_statuses(&mut self, cx: &mut Context<Self>) {
-        let Some(rx) = self.ai_provider_key_status_rx.take() else {
+    pub(in crate::workspace) fn poll_ai_provider_key_statuses(&mut self, cx: &mut Context<Self>) {
+        let Some(rx) = self.ai.models.provider_key_status_rx.take() else {
             return;
         };
         let mut changed = false;
         loop {
             match rx.try_recv() {
                 Ok(delivery) => {
-                    self.ai_provider_key_status_pending
+                    self.ai
+                        .models
+                        .provider_key_status_pending
                         .remove(&delivery.provider_id);
                     let previous = self
-                        .ai_provider_key_status
+                        .ai
+                        .models
+                        .provider_key_status
                         .insert(delivery.provider_id, delivery.has_key);
                     changed |= previous != Some(delivery.has_key);
                 }
                 Err(std::sync::mpsc::TryRecvError::Empty) => break,
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                    self.ai_provider_key_status_pending.clear();
-                    self.ai_provider_key_status_tx = None;
+                    self.ai.models.provider_key_status_pending.clear();
+                    self.ai.models.provider_key_status_tx = None;
                     break;
                 }
             }
@@ -312,24 +339,27 @@ impl WorkspaceApp {
         if changed {
             cx.notify();
         }
-        if self.ai_provider_key_status_pending.is_empty() {
-            self.ai_provider_key_status_tx = None;
+        if self.ai.models.provider_key_status_pending.is_empty() {
+            self.ai.models.provider_key_status_tx = None;
         } else {
-            self.ai_provider_key_status_rx = Some(rx);
+            self.ai.models.provider_key_status_rx = Some(rx);
         }
     }
 
-    fn schedule_ai_provider_key_status_poll(&mut self, cx: &mut Context<Self>) {
-        if self.ai_provider_key_status_polling {
+    pub(in crate::workspace) fn schedule_ai_provider_key_status_poll(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) {
+        if self.ai.models.provider_key_status_polling {
             return;
         }
-        self.ai_provider_key_status_polling = true;
+        self.ai.models.provider_key_status_polling = true;
         cx.spawn(async move |weak, cx| {
             Timer::after(Duration::from_millis(50)).await;
             let _ = weak.update(cx, |this, cx| {
-                this.ai_provider_key_status_polling = false;
+                this.ai.models.provider_key_status_polling = false;
                 this.poll_ai_provider_key_statuses(cx);
-                if !this.ai_provider_key_status_pending.is_empty() {
+                if !this.ai.models.provider_key_status_pending.is_empty() {
                     this.schedule_ai_provider_key_status_poll(cx);
                 }
             });
@@ -337,7 +367,11 @@ impl WorkspaceApp {
         .detach();
     }
 
-    fn save_ai_provider_api_key(&mut self, index: usize, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn save_ai_provider_api_key(
+        &mut self,
+        index: usize,
+        cx: &mut Context<Self>,
+    ) {
         let Some(provider_id) = self
             .settings_store
             .settings()
@@ -360,19 +394,24 @@ impl WorkspaceApp {
             cx.notify();
             return;
         };
-        let key_store = self.ai_key_store.clone();
+        let key_store = self.ai.models.key_store.clone();
         let runtime = self.forwarding_runtime.clone();
         cx.spawn(async move |weak, cx| {
             let provider_id_for_store = provider_id.clone();
             let result = runtime
-                .spawn_blocking(move || key_store.store_provider_key(&provider_id_for_store, secret))
+                .spawn_blocking(move || {
+                    key_store.store_provider_key(&provider_id_for_store, secret)
+                })
                 .await
                 .map_err(|error| error.to_string())
                 .and_then(|result| result.map_err(|error| error.to_string()));
             let _ = weak.update(cx, |this, cx| {
                 match result {
                     Ok(()) => {
-                        this.ai_provider_key_status.insert(provider_id.clone(), true);
+                        this.ai
+                            .models
+                            .provider_key_status
+                            .insert(provider_id.clone(), true);
                         this.focused_settings_input = None;
                         if let Some(provider) = this
                             .settings_store
@@ -399,14 +438,14 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn remove_ai_provider_api_key(
+    pub(in crate::workspace) fn remove_ai_provider_api_key(
         &mut self,
         _index: usize,
         provider_id: &str,
         cx: &mut Context<Self>,
     ) {
         let provider_id = provider_id.to_string();
-        let key_store = self.ai_key_store.clone();
+        let key_store = self.ai.models.key_store.clone();
         let runtime = self.forwarding_runtime.clone();
         cx.spawn(async move |weak, cx| {
             let provider_id_for_delete = provider_id.clone();
@@ -418,7 +457,10 @@ impl WorkspaceApp {
             let _ = weak.update(cx, |this, cx| {
                 match result {
                     Ok(()) => {
-                        this.ai_provider_key_status.insert(provider_id.clone(), false);
+                        this.ai
+                            .models
+                            .provider_key_status
+                            .insert(provider_id.clone(), false);
                     }
                     Err(error) => {
                         this.push_ai_settings_toast(
@@ -433,5 +475,4 @@ impl WorkspaceApp {
         .detach();
         cx.notify();
     }
-
 }

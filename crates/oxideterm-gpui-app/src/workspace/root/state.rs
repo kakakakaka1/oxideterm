@@ -1,25 +1,27 @@
+use super::super::*;
+
 #[derive(Clone, Debug)]
-struct WorkspaceSshNode {
-    saved_connection_id: Option<String>,
-    config: SshConfig,
-    title: String,
-    terminal_ids: Vec<TerminalSessionId>,
-    readiness: NodeReadiness,
+pub(in crate::workspace) struct WorkspaceSshNode {
+    pub(in crate::workspace) saved_connection_id: Option<String>,
+    pub(in crate::workspace) config: SshConfig,
+    pub(in crate::workspace) title: String,
+    pub(in crate::workspace) terminal_ids: Vec<TerminalSessionId>,
+    pub(in crate::workspace) readiness: NodeReadiness,
 }
 
 #[derive(Clone, Debug)]
-struct PendingSshTerminalOpen {
-    node_id: NodeId,
-    post_connect_command: Option<String>,
-    saved_connection_id: Option<String>,
-    mark_used_connection_id: Option<String>,
-    save_after_open: Option<SaveConnectionRequest>,
-    cleanup_node_id: Option<NodeId>,
-    title: String,
+pub(in crate::workspace) struct PendingSshTerminalOpen {
+    pub(in crate::workspace) node_id: NodeId,
+    pub(in crate::workspace) post_connect_command: Option<String>,
+    pub(in crate::workspace) saved_connection_id: Option<String>,
+    pub(in crate::workspace) mark_used_connection_id: Option<String>,
+    pub(in crate::workspace) save_after_open: Option<SaveConnectionRequest>,
+    pub(in crate::workspace) cleanup_node_id: Option<NodeId>,
+    pub(in crate::workspace) title: String,
 }
 
 #[derive(Debug)]
-pub(super) enum ReconnectWorkerResult {
+pub(in crate::workspace) enum ReconnectWorkerResult {
     NodeConnected {
         node_id: NodeId,
         connection_id: String,

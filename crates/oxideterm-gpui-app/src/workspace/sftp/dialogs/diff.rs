@@ -1,5 +1,7 @@
+use super::*;
+
 impl WorkspaceApp {
-    fn render_sftp_diff_body(
+    pub(in crate::workspace::sftp) fn render_sftp_diff_body(
         &self,
         local_path: &str,
         local_content: &str,
@@ -68,18 +70,15 @@ impl WorkspaceApp {
                                         cx,
                                     )),
                             )
-                            .child(
-                                div()
-                                    .ml_auto()
-                                    .text_color(rgb(SFTP_RED))
-                                    .child(self.render_selectable_text_scoped(
-                                        "sftp-diff-local-removed",
-                                        (),
-                                        format!("-{}", stats.removed),
-                                        SFTP_RED,
-                                        cx,
-                                    )),
-                            ),
+                            .child(div().ml_auto().text_color(rgb(SFTP_RED)).child(
+                                self.render_selectable_text_scoped(
+                                    "sftp-diff-local-removed",
+                                    (),
+                                    format!("-{}", stats.removed),
+                                    SFTP_RED,
+                                    cx,
+                                ),
+                            )),
                     )
                     .child(
                         div()
@@ -120,18 +119,15 @@ impl WorkspaceApp {
                                         cx,
                                     )),
                             )
-                            .child(
-                                div()
-                                    .ml_auto()
-                                    .text_color(rgb(SFTP_GREEN))
-                                    .child(self.render_selectable_text_scoped(
-                                        "sftp-diff-remote-added",
-                                        (),
-                                        format!("+{}", stats.added),
-                                        SFTP_GREEN,
-                                        cx,
-                                    )),
-                            ),
+                            .child(div().ml_auto().text_color(rgb(SFTP_GREEN)).child(
+                                self.render_selectable_text_scoped(
+                                    "sftp-diff-remote-added",
+                                    (),
+                                    format!("+{}", stats.added),
+                                    SFTP_GREEN,
+                                    cx,
+                                ),
+                            )),
                     ),
             )
             .child(
@@ -171,15 +167,17 @@ impl WorkspaceApp {
                                     range
                                         .map(|index| {
                                             let line = diff_lines[index].clone();
-                                            let removed =
-                                                line.kind == SftpDiffLineKind::Removed;
+                                            let removed = line.kind == SftpDiffLineKind::Removed;
                                             let added = line.kind == SftpDiffLineKind::Added;
                                             div()
                                                 .w_full()
                                                 .h(px(SFTP_DIFF_ROW_HEIGHT))
                                                 .flex()
                                                 .border_b_1()
-                                                .border_color(rgba((theme.border << 8) | SFTP_DIALOG_BORDER_HALF_ALPHA))
+                                                .border_color(rgba(
+                                                    (theme.border << 8)
+                                                        | SFTP_DIALOG_BORDER_HALF_ALPHA,
+                                                ))
                                                 .child(diff_cell(
                                                     &line.left_line_num,
                                                     &line.left_content,

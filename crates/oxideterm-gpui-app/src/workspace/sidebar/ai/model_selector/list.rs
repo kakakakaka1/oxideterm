@@ -1,11 +1,13 @@
 impl WorkspaceApp {
-    fn render_ai_model_selector_list(
+    pub(in crate::workspace) fn render_ai_model_selector_list(
         &self,
         providers: &[AiProviderView],
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let groups =
-            model_selector_visible_provider_groups(providers, &self.ai_model_selector_search_query);
+        let groups = model_selector_visible_provider_groups(
+            providers,
+            &self.ai.models.selector_search_query,
+        );
         let mut list = ai_model_selector_list("ai-model-selector-list");
         if groups.is_empty() {
             return list
@@ -20,31 +22,31 @@ impl WorkspaceApp {
             let provider = group.provider;
             let has_key = self.ai_model_selector_has_key(&provider);
             let online = self.ai_model_selector_provider_is_online(&provider);
-            let expanded = !self.ai_model_selector_search_query.trim().is_empty()
+            let expanded = !self.ai.models.selector_search_query.trim().is_empty()
                 || self
-                    .ai_model_selector_expanded_providers
+                    .ai
+                    .models
+                    .selector_expanded_providers
                     .contains(&provider.id);
-            let active_provider = self
-                .ai_active_model_selector_provider_id()
-                .as_deref()
+            let active_provider = self.ai_active_model_selector_provider_id().as_deref()
                 == Some(provider.id.as_str());
             let active_provider_model = (active_provider
                 && Self::ai_acp_agent_id_from_provider_id(&provider.id).is_none())
-                .then(|| {
-                    self.settings_store
-                        .settings()
-                        .ai
-                        .active_model
-                        .as_deref()
-                        .and_then(|model| model.rsplit('/').next())
-                        .map(str::to_string)
-                })
-                .flatten();
+            .then(|| {
+                self.settings_store
+                    .settings()
+                    .ai
+                    .active_model
+                    .as_deref()
+                    .and_then(|model| model.rsplit('/').next())
+                    .map(str::to_string)
+            })
+            .flatten();
             let status = self.render_ai_model_selector_provider_status(&provider, has_key, online);
             let refresh = (has_key
                 && online
                 && Self::ai_acp_agent_id_from_provider_id(&provider.id).is_none())
-                .then(|| {
+            .then(|| {
                 let provider_for_refresh = provider.clone();
                 ai_model_selector_refresh_button(
                     &self.tokens,
@@ -54,7 +56,7 @@ impl WorkspaceApp {
                         rgb(self.tokens.ui.text_muted),
                     ),
                 )
-                .opacity(if self.ai_model_refreshing.contains(&provider.id) {
+                .opacity(if self.ai.models.refreshing.contains(&provider.id) {
                     0.45
                 } else {
                     1.0
@@ -92,16 +94,20 @@ impl WorkspaceApp {
                 MouseButton::Left,
                 cx.listener(move |this, _event, _window, cx| {
                     if !this
-                        .ai_model_selector_expanded_providers
+                        .ai
+                        .models
+                        .selector_expanded_providers
                         .remove(&provider_id)
                     {
-                        this.ai_model_selector_expanded_providers
+                        this.ai
+                            .models
+                            .selector_expanded_providers
                             .insert(provider_id.clone());
                     }
                     // Collapsing/expanding changes which model rows are
                     // focusable, so clear the active item like Radix does when
                     // menu content is restructured.
-                    this.ai_model_selector_highlighted_model = None;
+                    this.ai.models.selector_highlighted_model = None;
                     cx.stop_propagation();
                     cx.notify();
                 }),
@@ -122,7 +128,7 @@ impl WorkspaceApp {
         list.into_any_element()
     }
 
-    fn render_ai_model_selector_provider_status(
+    pub(in crate::workspace) fn render_ai_model_selector_provider_status(
         &self,
         provider: &AiProviderView,
         has_key: bool,
@@ -156,6 +162,4 @@ impl WorkspaceApp {
             .into_any_element(),
         }
     }
-
-
 }

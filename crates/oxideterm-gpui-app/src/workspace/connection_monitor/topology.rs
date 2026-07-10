@@ -1,7 +1,17 @@
+use super::*;
+
+use gpui::{PathBuilder, canvas, fill, point};
+use oxideterm_gpui_ui::context_menu::{ContextMenuActionableStyle, context_menu_event_boundary};
 use oxideterm_gpui_ui::modal::rounded_shell_child_radius;
+use oxideterm_topology::{
+    ConnectionTopologyLayout, TOPOLOGY_NODE_HEIGHT, TOPOLOGY_NODE_WIDTH, TopologyLayoutNode,
+};
 
 impl WorkspaceApp {
-    pub(super) fn render_topology_surface(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn render_topology_surface(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let theme = self.tokens.ui;
         let has_background = self.terminal_background_preferences("topology").is_some();
         div()
@@ -56,7 +66,10 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    pub(super) fn render_connection_runtime_topology(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn render_connection_runtime_topology(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let theme = self.tokens.ui;
         let has_background = self.terminal_background_preferences("runtime").is_some();
         div()
@@ -73,7 +86,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_connection_pool_monitor(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn render_connection_pool_monitor(&self, cx: &mut Context<Self>) -> AnyElement {
         let theme = self.tokens.ui;
         if let Some(error) = &self.connection_monitor.pool_error {
             return monitor_center_state(
@@ -279,7 +292,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_pool_stat_card(
+    pub(super) fn render_pool_stat_card(
         &self,
         label: String,
         value: usize,
@@ -298,50 +311,50 @@ impl WorkspaceApp {
             oxideterm_gpui_ui::SurfaceOptions::new(oxideterm_gpui_ui::SurfaceKind::InsetGroup)
                 .padding(oxideterm_gpui_ui::SurfacePadding::None),
         )
-            // Runtime stat cards use a value tint as their semantic signal, while
-            // the shared surface keeps radius and future border policy aligned.
-            .bg(background)
-            .p_3()
-            .shadow_sm()
-            .flex()
-            .flex_col()
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .child(Self::render_lucide_icon(icon, 16.0, rgb(color)))
-                    .child(
-                        div()
-                            .text_size(px(12.0))
-                            .text_color(rgb(theme.text_muted))
-                            .child(self.render_selectable_display_text(
-                                "connection-pool-stat-label",
-                                &label,
-                                label.clone(),
-                                theme.text_muted,
-                                cx,
-                            )),
-                    ),
-            )
-            .child(
-                div()
-                    .mt_1()
-                    .flex()
-                    .items_baseline()
-                    .gap_1()
-                    .text_size(px(24.0))
-                    .font_weight(gpui::FontWeight::BOLD)
-                    .text_color(rgb(color))
-                    .child(self.render_selectable_display_text(
-                        "connection-pool-stat-value",
-                        &label,
-                        value.to_string(),
-                        color,
-                        cx,
-                    )),
-            )
-            .into_any_element()
+        // Runtime stat cards use a value tint as their semantic signal, while
+        // the shared surface keeps radius and future border policy aligned.
+        .bg(background)
+        .p_3()
+        .shadow_sm()
+        .flex()
+        .flex_col()
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(Self::render_lucide_icon(icon, 16.0, rgb(color)))
+                .child(
+                    div()
+                        .text_size(px(12.0))
+                        .text_color(rgb(theme.text_muted))
+                        .child(self.render_selectable_display_text(
+                            "connection-pool-stat-label",
+                            &label,
+                            label.clone(),
+                            theme.text_muted,
+                            cx,
+                        )),
+                ),
+        )
+        .child(
+            div()
+                .mt_1()
+                .flex()
+                .items_baseline()
+                .gap_1()
+                .text_size(px(24.0))
+                .font_weight(gpui::FontWeight::BOLD)
+                .text_color(rgb(color))
+                .child(self.render_selectable_display_text(
+                    "connection-pool-stat-value",
+                    &label,
+                    value.to_string(),
+                    color,
+                    cx,
+                )),
+        )
+        .into_any_element()
     }
 
     fn render_connection_topology(
@@ -380,20 +393,16 @@ impl WorkspaceApp {
                             cx,
                         )),
                 )
-                .child(
-                    div()
-                        .mt_2()
-                        .text_size(px(14.0))
-                        .opacity(0.7)
-                        .child(self.render_display_text_with_role(
-                            SelectableTextRole::PlainDocument,
-                            "topology-empty",
-                            "hint",
-                            self.i18n.t("topology.page.connect_hint"),
-                            theme.text_muted,
-                            cx,
-                        )),
-                )
+                .child(div().mt_2().text_size(px(14.0)).opacity(0.7).child(
+                    self.render_display_text_with_role(
+                        SelectableTextRole::PlainDocument,
+                        "topology-empty",
+                        "hint",
+                        self.i18n.t("topology.page.connect_hint"),
+                        theme.text_muted,
+                        cx,
+                    ),
+                ))
                 .into_any_element();
         }
 
@@ -600,12 +609,10 @@ impl WorkspaceApp {
             // Topology node actions are a context menu, not a graph child popover:
             // keep outside pointer and Esc dismissal on the same workspace menu
             // owner as FileManager/SFTP/session menus.
-            graph = graph.child(
-                self.workspace_context_menu_backdrop(
-                    self.render_topology_node_action_menu(menu, cx),
-                    cx,
-                ),
-            );
+            graph = graph.child(self.workspace_context_menu_backdrop(
+                self.render_topology_node_action_menu(menu, cx),
+                cx,
+            ));
         }
 
         div()
@@ -814,82 +821,84 @@ impl WorkspaceApp {
                 ));
         }
 
-        context_menu_event_boundary(div()
-            .absolute()
-            .left(px(menu.x))
-            .top(px(menu.y))
-            .min_w(px(TOPOLOGY_MENU_WIDTH))
-            .overflow_hidden()
-            .rounded(px(self.tokens.radii.lg))
-            .border_1()
-            .border_color(rgb(theme.border))
-            .bg(rgba((theme.bg_elevated << 8) | 0xf2))
-            .shadow_lg())
-            .child(
-                div()
-                    .px_3()
-                    .py_2()
-                    .border_b_1()
-                    .border_color(rgba((theme.border << 8) | TOPOLOGY_PANEL_BORDER_ALPHA_50))
-                    // Match Tauri menu clipping: the header paints at the top
-                    // edge but must still follow the rounded shell.
-                    .rounded_t(px(rounded_shell_child_radius(self.tokens.radii.lg)))
-                    .bg(rgba((theme.bg << 8) | 0x80))
-                    .child(
-                        div()
-                            .max_w(px(TOPOLOGY_MENU_WIDTH - 24.0))
-                            .truncate()
-                            .text_size(px(12.0))
-                            .font_weight(gpui::FontWeight::SEMIBOLD)
-                            .text_color(rgb(theme.text))
-                            .child(self.render_display_text_with_role(
-                                SelectableTextRole::PlainDocument,
-                                "topology-menu-title",
-                                (menu_key.as_str(), "name"),
-                                menu.name,
-                                theme.text,
-                                cx,
-                            )),
-                    )
-                    .child(
-                        div()
-                            .font_family("monospace")
-                            .text_size(px(10.0))
-                            .text_color(rgb(theme.text_muted))
-                            .child(self.render_display_text_with_role(
-                                SelectableTextRole::PlainDocument,
-                                "topology-menu-host",
-                                (menu_key.as_str(), "host"),
-                                menu.host,
-                                theme.text_muted,
-                                cx,
-                            )),
-                    ),
-            )
-            .child(actions)
-            .child(
-                div()
-                    .px_3()
-                    .py(px(6.0))
-                    .border_t_1()
-                    .border_color(rgba((theme.border << 8) | TOPOLOGY_PANEL_BORDER_ALPHA_50))
-                    // Footer paint is flush with the popover bottom; keep it
-                    // inside the same rounded menu boundary as the browser UI.
-                    .rounded_b(px(rounded_shell_child_radius(self.tokens.radii.lg)))
-                    .bg(rgba((theme.bg << 8) | 0x4d))
-                    .text_align(gpui::TextAlign::Center)
-                    .text_size(px(10.0))
-                    .text_color(rgb(theme.text_muted))
-                    .child(self.render_display_text_with_role(
-                        SelectableTextRole::PlainDocument,
-                        "topology-menu-close-hint",
-                        "label",
-                        self.i18n.t("topology.menu.close_hint"),
-                        theme.text_muted,
-                        cx,
-                    )),
-            )
-            .into_any_element()
+        context_menu_event_boundary(
+            div()
+                .absolute()
+                .left(px(menu.x))
+                .top(px(menu.y))
+                .min_w(px(TOPOLOGY_MENU_WIDTH))
+                .overflow_hidden()
+                .rounded(px(self.tokens.radii.lg))
+                .border_1()
+                .border_color(rgb(theme.border))
+                .bg(rgba((theme.bg_elevated << 8) | 0xf2))
+                .shadow_lg(),
+        )
+        .child(
+            div()
+                .px_3()
+                .py_2()
+                .border_b_1()
+                .border_color(rgba((theme.border << 8) | TOPOLOGY_PANEL_BORDER_ALPHA_50))
+                // Match Tauri menu clipping: the header paints at the top
+                // edge but must still follow the rounded shell.
+                .rounded_t(px(rounded_shell_child_radius(self.tokens.radii.lg)))
+                .bg(rgba((theme.bg << 8) | 0x80))
+                .child(
+                    div()
+                        .max_w(px(TOPOLOGY_MENU_WIDTH - 24.0))
+                        .truncate()
+                        .text_size(px(12.0))
+                        .font_weight(gpui::FontWeight::SEMIBOLD)
+                        .text_color(rgb(theme.text))
+                        .child(self.render_display_text_with_role(
+                            SelectableTextRole::PlainDocument,
+                            "topology-menu-title",
+                            (menu_key.as_str(), "name"),
+                            menu.name,
+                            theme.text,
+                            cx,
+                        )),
+                )
+                .child(
+                    div()
+                        .font_family("monospace")
+                        .text_size(px(10.0))
+                        .text_color(rgb(theme.text_muted))
+                        .child(self.render_display_text_with_role(
+                            SelectableTextRole::PlainDocument,
+                            "topology-menu-host",
+                            (menu_key.as_str(), "host"),
+                            menu.host,
+                            theme.text_muted,
+                            cx,
+                        )),
+                ),
+        )
+        .child(actions)
+        .child(
+            div()
+                .px_3()
+                .py(px(6.0))
+                .border_t_1()
+                .border_color(rgba((theme.border << 8) | TOPOLOGY_PANEL_BORDER_ALPHA_50))
+                // Footer paint is flush with the popover bottom; keep it
+                // inside the same rounded menu boundary as the browser UI.
+                .rounded_b(px(rounded_shell_child_radius(self.tokens.radii.lg)))
+                .bg(rgba((theme.bg << 8) | 0x4d))
+                .text_align(gpui::TextAlign::Center)
+                .text_size(px(10.0))
+                .text_color(rgb(theme.text_muted))
+                .child(self.render_display_text_with_role(
+                    SelectableTextRole::PlainDocument,
+                    "topology-menu-close-hint",
+                    "label",
+                    self.i18n.t("topology.menu.close_hint"),
+                    theme.text_muted,
+                    cx,
+                )),
+        )
+        .into_any_element()
     }
 
     fn render_topology_menu_action(
@@ -1018,5 +1027,4 @@ impl WorkspaceApp {
             y,
         });
     }
-
 }

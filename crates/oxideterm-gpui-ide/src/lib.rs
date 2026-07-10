@@ -13,8 +13,8 @@ mod labels;
 mod surface;
 
 pub use labels::IdeLabels;
+pub use oxideterm_ide_core::{IdePluginFileSnapshot, IdePluginProjectSnapshot, IdePluginSnapshot};
 pub use oxideterm_ide_fs::NodeAgentMode;
 pub use surface::{
-    IdeAiContextSnapshot, IdeLoadState, IdePluginFileSnapshot, IdePluginProjectSnapshot,
-    IdePluginSnapshot, IdeRuntimeSettings, IdeSurface, IdeSurfaceEvent,
+    IdeAiContextSnapshot, IdeLoadState, IdeRuntimeSettings, IdeSurface, IdeSurfaceEvent,
 };

@@ -1,5 +1,5 @@
 impl WorkspaceApp {
-    fn finish_ai_compaction(
+    pub(in crate::workspace) fn finish_ai_compaction(
         &mut self,
         conversation_id: String,
         base_ids: Vec<String>,
@@ -10,7 +10,10 @@ impl WorkspaceApp {
         silent: bool,
         cx: &mut Context<Self>,
     ) {
-        self.ai_compacting_conversations.remove(&conversation_id);
+        self.ai
+            .chat
+            .compacting_conversations
+            .remove(&conversation_id);
         if let Some(error) = stream_error {
             if silent {
                 self.clear_ai_compaction_notice_for(&conversation_id, cx);
@@ -33,7 +36,9 @@ impl WorkspaceApp {
         let now = ai_now_ms();
         let anchor_id = self.next_ai_chat_id(now);
         let Some(conversation) = self
-            .ai_chat
+            .ai
+            .chat
+            .conversation_state
             .conversations
             .iter_mut()
             .find(|conversation| conversation.id == conversation_id)
@@ -119,7 +124,10 @@ impl WorkspaceApp {
             .session_metadata
             .get_or_insert_with(|| serde_json::json!({ "conversationId": conversation_id }));
         if let Some(object) = metadata.as_object_mut() {
-            object.insert("conversationId".to_string(), serde_json::json!(conversation_id));
+            object.insert(
+                "conversationId".to_string(),
+                serde_json::json!(conversation_id),
+            );
             object.insert("lastSummaryAt".to_string(), serde_json::json!(now));
             if let Some(compacted_until_entry_id) = compacted_until_entry_id.as_deref() {
                 object.insert(
@@ -154,16 +162,16 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn resume_ai_chat_after_pre_send_compaction(
+    pub(in crate::workspace) fn resume_ai_chat_after_pre_send_compaction(
         &mut self,
         resume_after: Option<AiPendingChatStream>,
         cx: &mut Context<Self>,
     ) {
-        let pending = resume_after.or_else(|| self.ai_pending_chat_after_compaction.take());
+        let pending = resume_after.or_else(|| self.ai.chat.pending_after_compaction.take());
         let Some(pending) = pending else {
             return;
         };
-        self.ai_pending_chat_after_compaction = None;
+        self.ai.chat.pending_after_compaction = None;
         self.start_ai_chat_stream_after_budget_preflight(
             pending.conversation_id,
             pending.config,
@@ -175,7 +183,7 @@ impl WorkspaceApp {
         );
     }
 
-    fn finish_ai_summary(
+    pub(in crate::workspace) fn finish_ai_summary(
         &mut self,
         conversation_id: String,
         base_ids: Vec<String>,
@@ -183,8 +191,11 @@ impl WorkspaceApp {
         stream_error: Option<String>,
         cx: &mut Context<Self>,
     ) {
-        self.ai_compacting_conversations.remove(&conversation_id);
-        self.ai_chat_loading = false;
+        self.ai
+            .chat
+            .compacting_conversations
+            .remove(&conversation_id);
+        self.ai.chat.loading = false;
         if let Some(error) = stream_error {
             self.push_ai_settings_toast(error, TerminalNoticeVariant::Error);
             cx.notify();
@@ -202,7 +213,9 @@ impl WorkspaceApp {
             .t("ai.context.summary_prefix")
             .replace("{{count}}", &original_count.to_string());
         let Some(conversation) = self
-            .ai_chat
+            .ai
+            .chat
+            .conversation_state
             .conversations
             .iter_mut()
             .find(|conversation| conversation.id == conversation_id)
@@ -270,7 +283,7 @@ impl WorkspaceApp {
             }
         }
         conversation.updated_at_ms = now;
-        self.ai_model_switch_warning_percentage = None;
+        self.ai.chat.model_switch_warning_percentage = None;
         self.persist_ai_chat_state();
         self.persist_ai_summary_created(
             &conversation_id,
@@ -286,5 +299,4 @@ impl WorkspaceApp {
         );
         cx.notify();
     }
-
 }

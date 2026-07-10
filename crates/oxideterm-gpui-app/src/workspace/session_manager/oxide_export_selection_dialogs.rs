@@ -1,4 +1,6 @@
-fn oxide_export_connection_signature(connection: &SavedConnection) -> u64 {
+use super::*;
+
+pub(super) fn oxide_export_connection_signature(connection: &SavedConnection) -> u64 {
     let mut hasher = DefaultHasher::new();
     // Export rows are keyed by saved connection id. Other visible fields affect
     // labels/badges and should remeasure the dialog row after edits/imports.
@@ -12,7 +14,10 @@ fn oxide_export_connection_signature(connection: &SavedConnection) -> u64 {
     hasher.finish()
 }
 
-fn oxide_export_forward_group_signature(owner: &str, forwards: &[PersistedForward]) -> u64 {
+pub(super) fn oxide_export_forward_group_signature(
+    owner: &str,
+    forwards: &[PersistedForward],
+) -> u64 {
     let mut hasher = DefaultHasher::new();
     // Owner groups are the virtual rows. Hash child forwards because the group
     // row height and selected checkbox labels depend on every child row.
@@ -30,7 +35,7 @@ fn oxide_export_forward_group_signature(owner: &str, forwards: &[PersistedForwar
     hasher.finish()
 }
 
-fn oxide_export_logical_scroll_changed(
+pub(super) fn oxide_export_logical_scroll_changed(
     before_item_ix: usize,
     before_offset: f32,
     after_item_ix: usize,
@@ -39,18 +44,22 @@ fn oxide_export_logical_scroll_changed(
     before_item_ix != after_item_ix || (after_offset - before_offset).abs() >= 0.01
 }
 
-fn oxide_export_selection_count_label(template: String, selected: usize, total: usize) -> String {
+pub(super) fn oxide_export_selection_count_label(
+    template: String,
+    selected: usize,
+    total: usize,
+) -> String {
     template
         .replace("{{selected}}", &selected.to_string())
         .replace("{{total}}", &total.to_string())
 }
 
-fn oxide_export_count_label(template: String, count: usize) -> String {
+pub(super) fn oxide_export_count_label(template: String, count: usize) -> String {
     template.replace("{{count}}", &count.to_string())
 }
 
 impl WorkspaceApp {
-    fn toggle_oxide_export_connection_selection(&mut self, connection_id: &str) {
+    pub(super) fn toggle_oxide_export_connection_selection(&mut self, connection_id: &str) {
         if let Some(dialog) = self.session_manager.oxide_export_dialog.as_mut() {
             if dialog.selected_ids.contains(connection_id) {
                 dialog.selected_ids.remove(connection_id);
@@ -61,7 +70,7 @@ impl WorkspaceApp {
         self.refresh_oxide_export_preflight();
     }
 
-    fn handle_oxide_export_connection_list_wheel(
+    pub(super) fn handle_oxide_export_connection_list_wheel(
         &mut self,
         event: &ScrollWheelEvent,
         cx: &mut Context<Self>,
@@ -90,7 +99,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn render_oxide_connection_selection(
+    pub(super) fn render_oxide_connection_selection(
         &self,
         connections: &[SavedConnection],
         selected_count: usize,
@@ -130,19 +139,19 @@ impl WorkspaceApp {
                 .bg(rgb(theme.bg))
                 .p(px(8.0))
                 .child(
-                div()
-                    .py(px(16.0))
-                    .text_align(gpui::TextAlign::Center)
-                    .text_size(px(self.tokens.metrics.ui_text_sm))
-                    .text_color(rgb(theme.text_muted))
-                    .child(self.render_display_text_with_role(
-                        SelectableTextRole::PlainDocument,
-                        "oxide-export-connections",
-                        "empty",
-                        self.i18n.t("export.no_connections"),
-                        theme.text_muted,
-                        cx,
-                    )),
+                    div()
+                        .py(px(16.0))
+                        .text_align(gpui::TextAlign::Center)
+                        .text_size(px(self.tokens.metrics.ui_text_sm))
+                        .text_color(rgb(theme.text_muted))
+                        .child(self.render_display_text_with_role(
+                            SelectableTextRole::PlainDocument,
+                            "oxide-export-connections",
+                            "empty",
+                            self.i18n.t("export.no_connections"),
+                            theme.text_muted,
+                            cx,
+                        )),
                 )
                 .into_any_element()
         } else {
@@ -170,16 +179,11 @@ impl WorkspaceApp {
                         })
                     },
                 ))
-                .child(
-                    div()
-                        .absolute()
-                        .inset_0()
-                        .on_scroll_wheel(cx.listener(
-                            move |this, event: &ScrollWheelEvent, _window, cx| {
-                                this.handle_oxide_export_connection_list_wheel(event, cx);
-                            },
-                        )),
-                )
+                .child(div().absolute().inset_0().on_scroll_wheel(cx.listener(
+                    move |this, event: &ScrollWheelEvent, _window, cx| {
+                        this.handle_oxide_export_connection_list_wheel(event, cx);
+                    },
+                )))
                 .into_any_element()
         };
 
@@ -277,7 +281,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn sync_oxide_export_connection_list_state(&self, connections: &[SavedConnection]) {
+    pub(super) fn sync_oxide_export_connection_list_state(&self, connections: &[SavedConnection]) {
         let signatures = connections
             .iter()
             .map(oxide_export_connection_signature)
@@ -291,14 +295,14 @@ impl WorkspaceApp {
         );
     }
 
-    fn oxide_export_connection_list_spec(&self) -> TauriVirtualListSpec {
+    pub(super) fn oxide_export_connection_list_spec(&self) -> TauriVirtualListSpec {
         TauriVirtualListSpec::new(
             px(OXIDE_EXPORT_CONNECTION_LIST_ESTIMATED_HEIGHT),
             OXIDE_EXPORT_CONNECTION_LIST_OVERSCAN,
         )
     }
 
-    fn render_oxide_export_connection_list_item(
+    pub(super) fn render_oxide_export_connection_list_item(
         &self,
         index: usize,
         cx: &mut Context<Self>,
@@ -315,7 +319,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_oxide_export_connection_row(
+    pub(super) fn render_oxide_export_connection_row(
         &self,
         connection: SavedConnection,
         cx: &mut Context<Self>,
@@ -401,9 +405,7 @@ impl WorkspaceApp {
                                         .px(px(6.0))
                                         .py(px(2.0))
                                         .rounded_full()
-                                        .bg(rgba(
-                                            (OXIDE_GREEN_500 << 8) | OXIDE_NEW_BADGE_BG_ALPHA,
-                                        ))
+                                        .bg(rgba((OXIDE_GREEN_500 << 8) | OXIDE_NEW_BADGE_BG_ALPHA))
                                         .flex()
                                         .items_center()
                                         .gap(px(2.0))
@@ -444,7 +446,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_oxide_export_options(
+    pub(super) fn render_oxide_export_options(
         &self,
         dialog: &OxideExportDialogState,
         cx: &mut Context<Self>,
@@ -558,63 +560,69 @@ impl WorkspaceApp {
                 }),
                 cx,
             ))
-            .child(self.render_oxide_option_row(
-                self.i18n.t("export.include_serial_profiles"),
-                self.i18n
-                    .t("export.include_serial_profiles_description")
-                    .replace(
-                        "{{count}}",
-                        &self.connection_store.serial_profiles().len().to_string(),
-                    ),
-                dialog.include_serial_profiles,
-                cx.listener(|this, _event, _window, cx| {
-                    if let Some(dialog) = this.session_manager.oxide_export_dialog.as_mut() {
-                        dialog.include_serial_profiles = !dialog.include_serial_profiles;
-                    }
-                    this.refresh_oxide_export_preflight();
-                    cx.notify();
-                    cx.stop_propagation();
-                }),
-                cx,
-            ))
-            .child(self.render_oxide_option_row(
-                self.i18n.t("export.include_raw_tcp_profiles"),
-                self.i18n
-                    .t("export.include_raw_tcp_profiles_description")
-                    .replace(
-                        "{{count}}",
-                        &self.connection_store.raw_tcp_profiles().len().to_string(),
-                    ),
-                dialog.include_raw_tcp_profiles,
-                cx.listener(|this, _event, _window, cx| {
-                    if let Some(dialog) = this.session_manager.oxide_export_dialog.as_mut() {
-                        dialog.include_raw_tcp_profiles = !dialog.include_raw_tcp_profiles;
-                    }
-                    this.refresh_oxide_export_preflight();
-                    cx.notify();
-                    cx.stop_propagation();
-                }),
-                cx,
-            ))
-            .child(self.render_oxide_option_row(
-                self.i18n.t("export.include_raw_udp_profiles"),
-                self.i18n
-                    .t("export.include_raw_udp_profiles_description")
-                    .replace(
-                        "{{count}}",
-                        &self.connection_store.raw_udp_profiles().len().to_string(),
-                    ),
-                dialog.include_raw_udp_profiles,
-                cx.listener(|this, _event, _window, cx| {
-                    if let Some(dialog) = this.session_manager.oxide_export_dialog.as_mut() {
-                        dialog.include_raw_udp_profiles = !dialog.include_raw_udp_profiles;
-                    }
-                    this.refresh_oxide_export_preflight();
-                    cx.notify();
-                    cx.stop_propagation();
-                }),
-                cx,
-            ))
+            .child(
+                self.render_oxide_option_row(
+                    self.i18n.t("export.include_serial_profiles"),
+                    self.i18n
+                        .t("export.include_serial_profiles_description")
+                        .replace(
+                            "{{count}}",
+                            &self.connection_store.serial_profiles().len().to_string(),
+                        ),
+                    dialog.include_serial_profiles,
+                    cx.listener(|this, _event, _window, cx| {
+                        if let Some(dialog) = this.session_manager.oxide_export_dialog.as_mut() {
+                            dialog.include_serial_profiles = !dialog.include_serial_profiles;
+                        }
+                        this.refresh_oxide_export_preflight();
+                        cx.notify();
+                        cx.stop_propagation();
+                    }),
+                    cx,
+                ),
+            )
+            .child(
+                self.render_oxide_option_row(
+                    self.i18n.t("export.include_raw_tcp_profiles"),
+                    self.i18n
+                        .t("export.include_raw_tcp_profiles_description")
+                        .replace(
+                            "{{count}}",
+                            &self.connection_store.raw_tcp_profiles().len().to_string(),
+                        ),
+                    dialog.include_raw_tcp_profiles,
+                    cx.listener(|this, _event, _window, cx| {
+                        if let Some(dialog) = this.session_manager.oxide_export_dialog.as_mut() {
+                            dialog.include_raw_tcp_profiles = !dialog.include_raw_tcp_profiles;
+                        }
+                        this.refresh_oxide_export_preflight();
+                        cx.notify();
+                        cx.stop_propagation();
+                    }),
+                    cx,
+                ),
+            )
+            .child(
+                self.render_oxide_option_row(
+                    self.i18n.t("export.include_raw_udp_profiles"),
+                    self.i18n
+                        .t("export.include_raw_udp_profiles_description")
+                        .replace(
+                            "{{count}}",
+                            &self.connection_store.raw_udp_profiles().len().to_string(),
+                        ),
+                    dialog.include_raw_udp_profiles,
+                    cx.listener(|this, _event, _window, cx| {
+                        if let Some(dialog) = this.session_manager.oxide_export_dialog.as_mut() {
+                            dialog.include_raw_udp_profiles = !dialog.include_raw_udp_profiles;
+                        }
+                        this.refresh_oxide_export_preflight();
+                        cx.notify();
+                        cx.stop_propagation();
+                    }),
+                    cx,
+                ),
+            )
             .child(self.render_oxide_option_row(
                 "包含插件偏好设置".to_string(),
                 "导出存放在 OxideTerm 本地存储中的声明式插件 settings。".to_string(),
@@ -647,25 +655,26 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-
-    fn render_oxide_forward_card(
+    pub(super) fn render_oxide_forward_card(
         &self,
         dialog: &OxideExportDialogState,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let mut children = vec![div()
-            .text_size(px(self.tokens.metrics.ui_text_xs))
-            .line_height(px(16.0))
-            .text_color(rgb(self.tokens.ui.text_muted))
-            .child(self.render_display_text_with_role(
-                SelectableTextRole::PlainDocument,
-                "oxide-export-forwards",
-                "description",
-                "所选的已保存端口转发会连同其所属的连接配置一起导出。",
-                self.tokens.ui.text_muted,
-                cx,
-            ))
-            .into_any_element()];
+        let mut children = vec![
+            div()
+                .text_size(px(self.tokens.metrics.ui_text_xs))
+                .line_height(px(16.0))
+                .text_color(rgb(self.tokens.ui.text_muted))
+                .child(self.render_display_text_with_role(
+                    SelectableTextRole::PlainDocument,
+                    "oxide-export-forwards",
+                    "description",
+                    "所选的已保存端口转发会连同其所属的连接配置一起导出。",
+                    self.tokens.ui.text_muted,
+                    cx,
+                ))
+                .into_any_element(),
+        ];
         if dialog.available_forwards.is_empty() {
             children.push(
                 div()
@@ -694,7 +703,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn render_oxide_forward_selection(
+    pub(super) fn render_oxide_forward_selection(
         &self,
         dialog: &OxideExportDialogState,
         cx: &mut Context<Self>,
@@ -721,7 +730,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn oxide_export_forward_groups(
+    pub(super) fn oxide_export_forward_groups(
         &self,
         dialog: &OxideExportDialogState,
     ) -> Vec<(String, Vec<PersistedForward>)> {
@@ -745,7 +754,7 @@ impl WorkspaceApp {
         entries
     }
 
-    fn sync_oxide_export_forward_group_list_state(
+    pub(super) fn sync_oxide_export_forward_group_list_state(
         &self,
         entries: &[(String, Vec<PersistedForward>)],
     ) {
@@ -755,23 +764,21 @@ impl WorkspaceApp {
             .collect::<Vec<_>>();
         sync_tauri_variable_list_state_by_signatures(
             &self.oxide_export_forward_group_list_state,
-            &mut self
-                .oxide_export_forward_group_list_cache
-                .borrow_mut(),
+            &mut self.oxide_export_forward_group_list_cache.borrow_mut(),
             "oxide-export-forward-groups",
             &signatures,
             self.oxide_export_forward_group_list_spec(),
         );
     }
 
-    fn oxide_export_forward_group_list_spec(&self) -> TauriVirtualListSpec {
+    pub(super) fn oxide_export_forward_group_list_spec(&self) -> TauriVirtualListSpec {
         TauriVirtualListSpec::new(
             px(OXIDE_EXPORT_FORWARD_GROUP_LIST_ESTIMATED_HEIGHT),
             OXIDE_EXPORT_FORWARD_GROUP_LIST_OVERSCAN,
         )
     }
 
-    fn render_oxide_export_forward_group_item(
+    pub(super) fn render_oxide_export_forward_group_item(
         &self,
         index: usize,
         cx: &mut Context<Self>,
@@ -789,7 +796,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_oxide_export_forward_group(
+    pub(super) fn render_oxide_export_forward_group(
         &self,
         owner: String,
         forwards: Vec<PersistedForward>,
@@ -797,12 +804,12 @@ impl WorkspaceApp {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let mut group = div().flex().flex_col().gap(px(4.0)).child(
-                div()
-                    .text_size(px(self.tokens.metrics.ui_text_xs))
-                    .font_weight(gpui::FontWeight::SEMIBOLD)
-                    .text_color(rgb(self.tokens.ui.text))
-                    .child(owner),
-            );
+            div()
+                .text_size(px(self.tokens.metrics.ui_text_xs))
+                .font_weight(gpui::FontWeight::SEMIBOLD)
+                .text_color(rgb(self.tokens.ui.text))
+                .child(owner),
+        );
         for forward in forwards {
             let forward_id = forward.id.clone();
             let checked = dialog.selected_forward_ids.contains(&forward.id);
@@ -855,7 +862,7 @@ impl WorkspaceApp {
         group.into_any_element()
     }
 
-    fn render_oxide_export_plugin_settings(
+    pub(super) fn render_oxide_export_plugin_settings(
         &self,
         dialog: &OxideExportDialogState,
         cx: &mut Context<Self>,
@@ -869,18 +876,20 @@ impl WorkspaceApp {
         if entries.is_empty() {
             return self.render_oxide_card(
                 None,
-                vec![div()
-                    .text_size(px(self.tokens.metrics.ui_text_xs))
-                    .text_color(rgb(self.tokens.ui.text_muted))
-                    .child(self.render_display_text_with_role(
-                        SelectableTextRole::PlainDocument,
-                        "oxide-export-plugin-settings",
-                        "empty",
-                        "没有可导出的插件偏好设置",
-                        self.tokens.ui.text_muted,
-                        cx,
-                    ))
-                    .into_any_element()],
+                vec![
+                    div()
+                        .text_size(px(self.tokens.metrics.ui_text_xs))
+                        .text_color(rgb(self.tokens.ui.text_muted))
+                        .child(self.render_display_text_with_role(
+                            SelectableTextRole::PlainDocument,
+                            "oxide-export-plugin-settings",
+                            "empty",
+                            "没有可导出的插件偏好设置",
+                            self.tokens.ui.text_muted,
+                            cx,
+                        ))
+                        .into_any_element(),
+                ],
                 cx,
             );
         }
@@ -901,8 +910,7 @@ impl WorkspaceApp {
                         String::new(),
                         selected,
                         cx.listener(move |this, _event, _window, cx| {
-                            if let Some(dialog) =
-                                this.session_manager.oxide_export_dialog.as_mut()
+                            if let Some(dialog) = this.session_manager.oxide_export_dialog.as_mut()
                             {
                                 if dialog.selected_plugin_ids.contains(&row_plugin_id) {
                                     dialog.selected_plugin_ids.remove(&row_plugin_id);
@@ -932,5 +940,4 @@ impl WorkspaceApp {
         }
         self.render_oxide_card(None, children, cx)
     }
-
 }

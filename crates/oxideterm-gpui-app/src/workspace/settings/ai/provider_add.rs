@@ -1,5 +1,10 @@
+use super::*;
+
 impl WorkspaceApp {
-    fn add_ai_provider_from_selected_template(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn add_ai_provider_from_selected_template(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) {
         let template = ai_provider_template_by_type(&self.settings_page.ai_new_provider_type);
         let now_ms = current_time_millis();
         let id = generated_provider_id(template.provider_type, now_ms);
@@ -19,5 +24,4 @@ impl WorkspaceApp {
             cx,
         );
     }
-
 }

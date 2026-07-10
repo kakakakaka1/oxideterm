@@ -1,4 +1,6 @@
-fn terminal_command_fig_suggestions(
+use super::*;
+
+pub(super) fn terminal_command_fig_suggestions(
     parsed: &TerminalShellParseResult,
     specs: &[TerminalFigSpec],
 ) -> Vec<TerminalCommandSuggestion> {
@@ -98,7 +100,7 @@ fn terminal_command_fig_suggestions(
     suggestions
 }
 
-fn active_fig_arg_type(
+pub(super) fn active_fig_arg_type(
     parsed: &TerminalShellParseResult,
     specs: &[TerminalFigSpec],
 ) -> TerminalFigArgType {

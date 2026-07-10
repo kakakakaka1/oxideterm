@@ -1,5 +1,26 @@
+use gpui::prelude::*;
+
+use super::helpers::{
+    ForwardButtonVariant, ForwardRowCorners, format_bytes, forward_status_key, forward_type_key,
+    forwards_palette_alpha, forwards_palette_color, forwards_text_has_cjk, forwards_theme_border,
+    forwards_theme_border_half, forwards_theme_card_bg, forwards_theme_card_surface,
+    forwards_theme_hover_bg, forwards_theme_panel_bg, forwards_theme_sunken_bg,
+    forwards_theme_with_alpha, forwards_transparent,
+};
+use super::{
+    AnyElement, App, ButtonOptions, ButtonRadius, ButtonSize, Context, DetectedPort,
+    FORWARDS_TABLE_HEADER_H, FORWARDS_TABLE_ROW_H, FORWARDS_TW_ALPHA_05, FORWARDS_TW_ALPHA_30,
+    FORWARDS_TW_ALPHA_40, FORWARDS_TW_ALPHA_50, FORWARDS_TYPE_BADGE_H, ForwardRule, ForwardStats,
+    ForwardStatus, ForwardType, IconButtonOptions, LucideIcon, MouseDownEvent, NodeId,
+    SharedString, TW_BLUE_300, TW_BLUE_400, TW_BLUE_500, TW_BLUE_900, TW_EMERALD_400,
+    TW_EMERALD_800, TW_EMERALD_900, TW_GREEN_500, TW_ORANGE_400, TW_ORANGE_500, TW_PURPLE_400,
+    TW_PURPLE_900, TW_RED_400, TW_RED_500, TW_RED_900, TW_RED_950, TW_YELLOW_400, TW_YELLOW_900,
+    TabId, ToolbarButtonOptions, UiButtonVariant, Window, WorkspaceApp, div,
+    forwards_cjk_ui_font_family, px, rgb, rounded_shell_child_radius, settings_mono_font_family,
+};
+
 impl WorkspaceApp {
-    fn render_forward_type_badge(&self, forward_type: ForwardType) -> AnyElement {
+    pub(super) fn render_forward_type_badge(&self, forward_type: ForwardType) -> AnyElement {
         let (bg, text) = match forward_type {
             ForwardType::Local => (TW_BLUE_900, TW_BLUE_400),
             ForwardType::Remote => (TW_PURPLE_900, TW_PURPLE_400),
@@ -19,7 +40,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_forward_status(
+    pub(super) fn render_forward_status(
         &self,
         status: &ForwardStatus,
         stats: Option<ForwardStats>,
@@ -70,7 +91,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_forward_button(
+    pub(super) fn render_forward_button(
         &self,
         label: String,
         icon: Option<LucideIcon>,
@@ -128,7 +149,7 @@ impl WorkspaceApp {
         .child(self.render_forward_ui_text(label))
     }
 
-    fn render_forward_icon_button(
+    pub(super) fn render_forward_icon_button(
         &self,
         icon: LucideIcon,
         color: u32,
@@ -153,7 +174,7 @@ impl WorkspaceApp {
         .into_any_element()
     }
 
-    fn render_forward_ui_text(&self, text: String) -> gpui::Div {
+    pub(super) fn render_forward_ui_text(&self, text: String) -> gpui::Div {
         let has_cjk = forwards_text_has_cjk(&text);
         div()
             .when(has_cjk, |label| {
@@ -164,11 +185,11 @@ impl WorkspaceApp {
             .child(text)
     }
 
-    fn forward_mono_font(&self) -> SharedString {
+    pub(super) fn forward_mono_font(&self) -> SharedString {
         settings_mono_font_family(self.settings_store.settings())
     }
 
-    fn render_forwards_section_title(&self, label: String) -> AnyElement {
+    pub(super) fn render_forwards_section_title(&self, label: String) -> AnyElement {
         div()
             .when(forwards_text_has_cjk(&label), |title| {
                 title.font_family(forwards_cjk_ui_font_family(
@@ -182,7 +203,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_forwards_separator(&self, has_background: bool) -> AnyElement {
+    pub(super) fn render_forwards_separator(&self, has_background: bool) -> AnyElement {
         div()
             .h(px(1.0))
             .w_full()
@@ -190,7 +211,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_forwards_error(&self, error: &str) -> AnyElement {
+    pub(super) fn render_forwards_error(&self, error: &str) -> AnyElement {
         div()
             .rounded(px(self.tokens.radii.xs))
             .border_1()
@@ -217,7 +238,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_port_detection_banner(
+    pub(super) fn render_port_detection_banner(
         &self,
         node_id: NodeId,
         tab_id: TabId,
@@ -335,7 +356,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_remote_ports_section(
+    pub(super) fn render_remote_ports_section(
         &self,
         node_id: NodeId,
         tab_id: TabId,
@@ -389,71 +410,73 @@ impl WorkspaceApp {
             .child(
                 forwards_theme_card_surface(
                     div()
-                    .rounded(px(self.tokens.radii.lg))
-                    .border_1()
-                    .border_color(forwards_theme_border(theme.border, has_background))
-                    .overflow_hidden()
-                    .bg(forwards_theme_card_bg(theme.bg_card, has_background)),
+                        .rounded(px(self.tokens.radii.lg))
+                        .border_1()
+                        .border_color(forwards_theme_border(theme.border, has_background))
+                        .overflow_hidden()
+                        .bg(forwards_theme_card_bg(theme.bg_card, has_background)),
                     theme.bg_card,
                 )
-                    .child(
-                        self.forward_row_base(
-                            FORWARDS_TABLE_HEADER_H,
-                            forwards_theme_panel_bg(theme.bg_panel, has_background),
-                            ForwardRowCorners::Top,
-                        )
-                        .border_b_1()
-                        .border_color(forwards_theme_border(theme.border, has_background))
-                        .text_size(px(self.tokens.metrics.ui_text_sm))
-                        .text_color(rgb(theme.text_muted))
-                        .child(self.forward_cell(1.0, self.i18n.t("forwards.detection.port")))
-                        .child(self.forward_cell(1.4, self.i18n.t("forwards.detection.bindAddr")))
-                        .child(self.forward_cell(1.4, self.i18n.t("forwards.detection.process")))
-                        .child(
-                            div()
-                                .w(px(128.0))
-                                .pr(px(16.0))
-                                .text_align(gpui::TextAlign::Right)
-                                .child(self.render_forward_ui_text(
-                                    self.i18n.t("forwards.detection.action"),
-                                )),
-                        ),
+                .child(
+                    self.forward_row_base(
+                        FORWARDS_TABLE_HEADER_H,
+                        forwards_theme_panel_bg(theme.bg_panel, has_background),
+                        ForwardRowCorners::Top,
                     )
-                    .when(visible_ports.is_empty(), |table| {
-                        table.child(
-                            div()
-                                .h(px(72.0))
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .rounded_b(px(rounded_shell_child_radius(self.tokens.radii.lg)))
-                                .text_size(px(self.tokens.metrics.ui_text_xs))
-                                .text_color(rgb(theme.text_muted))
-                                .child(if self.forwarding_view.port_scan_pending {
-                                    self.i18n.t("forwards.detection.scanning")
-                                } else if let Some(error) =
-                                    self.forwarding_view.port_scan_error.as_ref()
-                                {
-                                    error.clone()
-                                } else if self.forwarding_view.has_scanned_ports {
-                                    self.i18n.t("forwards.detection.noPorts")
-                                } else {
-                                    self.i18n.t("forwards.detection.scanning")
-                                }),
-                        )
-                    })
-                    .children(visible_ports.into_iter().enumerate().map(|(index, port)| {
-                        let already_forwarded = forwarded_ports.contains(&port.port);
-                        self.render_detected_port_row(
-                            node_id.clone(),
-                            tab_id,
-                            port,
-                            already_forwarded,
-                            index + 1 == visible_port_count,
-                            has_background,
-                            cx,
-                        )
-                    })),
+                    .border_b_1()
+                    .border_color(forwards_theme_border(theme.border, has_background))
+                    .text_size(px(self.tokens.metrics.ui_text_sm))
+                    .text_color(rgb(theme.text_muted))
+                    .child(self.forward_cell(1.0, self.i18n.t("forwards.detection.port")))
+                    .child(self.forward_cell(1.4, self.i18n.t("forwards.detection.bindAddr")))
+                    .child(self.forward_cell(1.4, self.i18n.t("forwards.detection.process")))
+                    .child(
+                        div()
+                            .w(px(128.0))
+                            .pr(px(16.0))
+                            .text_align(gpui::TextAlign::Right)
+                            .child(
+                                self.render_forward_ui_text(
+                                    self.i18n.t("forwards.detection.action"),
+                                ),
+                            ),
+                    ),
+                )
+                .when(visible_ports.is_empty(), |table| {
+                    table.child(
+                        div()
+                            .h(px(72.0))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded_b(px(rounded_shell_child_radius(self.tokens.radii.lg)))
+                            .text_size(px(self.tokens.metrics.ui_text_xs))
+                            .text_color(rgb(theme.text_muted))
+                            .child(if self.forwarding_view.port_scan_pending {
+                                self.i18n.t("forwards.detection.scanning")
+                            } else if let Some(error) =
+                                self.forwarding_view.port_scan_error.as_ref()
+                            {
+                                error.clone()
+                            } else if self.forwarding_view.has_scanned_ports {
+                                self.i18n.t("forwards.detection.noPorts")
+                            } else {
+                                self.i18n.t("forwards.detection.scanning")
+                            }),
+                    )
+                })
+                .children(visible_ports.into_iter().enumerate().map(|(index, port)| {
+                    let already_forwarded = forwarded_ports.contains(&port.port);
+                    self.render_detected_port_row(
+                        node_id.clone(),
+                        tab_id,
+                        port,
+                        already_forwarded,
+                        index + 1 == visible_port_count,
+                        has_background,
+                        cx,
+                    )
+                })),
             )
             .into_any_element()
     }
@@ -579,7 +602,7 @@ impl WorkspaceApp {
         .into_any_element()
     }
 
-    fn forward_row_base(
+    pub(super) fn forward_row_base(
         &self,
         height: f32,
         bg: gpui::Rgba,
@@ -599,7 +622,7 @@ impl WorkspaceApp {
             })
     }
 
-    fn forward_cell(&self, flex: f32, text: String) -> AnyElement {
+    pub(super) fn forward_cell(&self, flex: f32, text: String) -> AnyElement {
         self.forward_cell_element(
             flex,
             self.render_forward_ui_text(text)
@@ -608,7 +631,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn forward_mono_cell(&self, flex: f32, text: String) -> AnyElement {
+    pub(super) fn forward_mono_cell(&self, flex: f32, text: String) -> AnyElement {
         self.forward_cell_element(
             flex,
             div()
@@ -619,7 +642,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn forward_cell_element(&self, flex: f32, child: AnyElement) -> AnyElement {
+    pub(super) fn forward_cell_element(&self, flex: f32, child: AnyElement) -> AnyElement {
         div()
             .flex_grow()
             .flex_basis(px(0.0))
@@ -629,5 +652,4 @@ impl WorkspaceApp {
             .child(child)
             .into_any_element()
     }
-
 }

@@ -1,5 +1,7 @@
+use super::*;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum AuthSelectorContext {
+pub(super) enum AuthSelectorContext {
     Standard,
     EditProperties,
     Prompt,
@@ -8,7 +10,9 @@ enum AuthSelectorContext {
 }
 
 impl WorkspaceApp {
-    fn new_connection_select_anchor_id(select_id: NewConnectionSelect) -> SelectAnchorId {
+    pub(super) fn new_connection_select_anchor_id(
+        select_id: NewConnectionSelect,
+    ) -> SelectAnchorId {
         match select_id {
             NewConnectionSelect::Group => SelectAnchorId::NewConnectionGroup,
             NewConnectionSelect::KeyAuthSource => SelectAnchorId::NewConnectionKeyAuthSource,
@@ -26,14 +30,20 @@ impl WorkspaceApp {
             NewConnectionSelect::UpstreamProxyProtocol => {
                 SelectAnchorId::NewConnectionUpstreamProxyProtocol
             }
-            NewConnectionSelect::UpstreamProxyAuth => SelectAnchorId::NewConnectionUpstreamProxyAuth,
+            NewConnectionSelect::UpstreamProxyAuth => {
+                SelectAnchorId::NewConnectionUpstreamProxyAuth
+            }
             NewConnectionSelect::SerialPort => SelectAnchorId::NewConnectionSerialPort,
             NewConnectionSelect::SerialDataBits => SelectAnchorId::NewConnectionSerialDataBits,
             NewConnectionSelect::SerialStopBits => SelectAnchorId::NewConnectionSerialStopBits,
             NewConnectionSelect::SerialParity => SelectAnchorId::NewConnectionSerialParity,
-            NewConnectionSelect::SerialFlowControl => SelectAnchorId::NewConnectionSerialFlowControl,
+            NewConnectionSelect::SerialFlowControl => {
+                SelectAnchorId::NewConnectionSerialFlowControl
+            }
             NewConnectionSelect::RawTcpLineEnding => SelectAnchorId::NewConnectionRawTcpLineEnding,
-            NewConnectionSelect::RawTcpDisplayMode => SelectAnchorId::NewConnectionRawTcpDisplayMode,
+            NewConnectionSelect::RawTcpDisplayMode => {
+                SelectAnchorId::NewConnectionRawTcpDisplayMode
+            }
             NewConnectionSelect::RawTcpSendMode => SelectAnchorId::NewConnectionRawTcpSendMode,
             NewConnectionSelect::RawTcpTlsMode => SelectAnchorId::NewConnectionRawTcpTlsMode,
             NewConnectionSelect::RawTcpTlsVerification => {
@@ -63,7 +73,10 @@ impl WorkspaceApp {
             value,
             placeholder,
             disabled,
-            browser_behavior::browser_focus_visible(focused, self.new_connection_select_focus_origin),
+            browser_behavior::browser_focus_visible(
+                focused,
+                self.new_connection_select_focus_origin,
+            ),
         )
     }
 
@@ -85,11 +98,12 @@ impl WorkspaceApp {
         );
     }
 
-    fn clear_new_connection_select_anchor(&mut self) {
+    pub(super) fn clear_new_connection_select_anchor(&mut self) {
         // The group select overlay is anchored inside the new-connection scroll
         // body. Drop its cached bounds when the body scrolls so a reopened
         // overlay cannot reuse pre-scroll coordinates.
-        self.select_anchors.remove(&SelectAnchorId::NewConnectionGroup);
+        self.select_anchors
+            .remove(&SelectAnchorId::NewConnectionGroup);
         self.select_anchors
             .remove(&SelectAnchorId::NewConnectionKeyAuthSource);
         self.select_anchors
@@ -134,11 +148,11 @@ impl WorkspaceApp {
             .remove(&SelectAnchorId::NewConnectionRawUdpSendMode);
     }
 
-    fn render_connection_hint(&self, text: String) -> AnyElement {
+    pub(super) fn render_connection_hint(&self, text: String) -> AnyElement {
         self.render_connection_hint_with_color(text, self.tokens.ui.text_muted)
     }
 
-    fn render_connection_hint_with_color(&self, text: String, color: u32) -> AnyElement {
+    pub(super) fn render_connection_hint_with_color(&self, text: String, color: u32) -> AnyElement {
         div()
             .text_size(px(self.tokens.metrics.ui_text_xs))
             .text_color(rgb(color))
@@ -146,9 +160,12 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_agent_status(&self, available: Option<bool>) -> AnyElement {
+    pub(super) fn render_agent_status(&self, available: Option<bool>) -> AnyElement {
         let (color, label) = match available {
-            Some(true) => (self.tokens.ui.success, self.i18n.t("ssh.form.agent_detected")),
+            Some(true) => (
+                self.tokens.ui.success,
+                self.i18n.t("ssh.form.agent_detected"),
+            ),
             Some(false) => (
                 self.tokens.ui.error,
                 self.i18n.t("ssh.form.agent_not_detected"),
@@ -165,7 +182,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_prompt_error_box(&self, error: String) -> AnyElement {
+    pub(super) fn render_prompt_error_box(&self, error: String) -> AnyElement {
         let error_color = self.tokens.ui.error;
         div()
             .rounded(px(self.tokens.radii.sm))
@@ -180,7 +197,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_connection_field(
+    pub(super) fn render_connection_field(
         &self,
         label: String,
         value: &str,
@@ -196,7 +213,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn render_edit_saved_password_field(
+    pub(super) fn render_edit_saved_password_field(
         &self,
         form: &NewConnectionForm,
         cx: &mut Context<Self>,
@@ -260,7 +277,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn render_connection_field_with_browse(
+    pub(super) fn render_connection_field_with_browse(
         &self,
         label: String,
         value: &str,
@@ -306,7 +323,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn render_connection_group_select(
+    pub(super) fn render_connection_group_select(
         &self,
         label: String,
         value: &str,
@@ -348,7 +365,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn set_new_connection_group(&mut self, group: String, cx: &mut Context<Self>) {
+    pub(super) fn set_new_connection_group(&mut self, group: String, cx: &mut Context<Self>) {
         if let Some(form) = self.new_connection_form.as_mut() {
             form.group = group;
             form.field_focused = false;
@@ -360,7 +377,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn render_managed_key_select(
+    pub(super) fn render_managed_key_select(
         &self,
         label: String,
         selected_id: &str,
@@ -426,7 +443,7 @@ impl WorkspaceApp {
         .into_any_element()
     }
 
-    fn render_jump_saved_connection_select(
+    pub(super) fn render_jump_saved_connection_select(
         &self,
         selected_id: &str,
         cx: &mut Context<Self>,
@@ -488,7 +505,7 @@ impl WorkspaceApp {
         .into_any_element()
     }
 
-    fn set_new_connection_managed_key(
+    pub(super) fn set_new_connection_managed_key(
         &mut self,
         select_id: NewConnectionSelect,
         key_id: String,
@@ -537,7 +554,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn clear_new_connection_jump_saved_connection(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn clear_new_connection_jump_saved_connection(&mut self, cx: &mut Context<Self>) {
         if let Some(form) = self.new_connection_form.as_mut() {
             if let Some(jump_form) = form.jump_server_form.as_mut() {
                 jump_form.saved_connection_id.clear();
@@ -551,7 +568,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn set_new_connection_jump_saved_connection(
+    pub(super) fn set_new_connection_jump_saved_connection(
         &mut self,
         connection_id: String,
         cx: &mut Context<Self>,
@@ -561,9 +578,10 @@ impl WorkspaceApp {
             .connection_infos()
             .into_iter()
             .find(|connection| connection.id == connection_id);
-        if let (Some(form), Some(connection)) =
-            (self.new_connection_form.as_mut(), selected_connection.as_ref())
-        {
+        if let (Some(form), Some(connection)) = (
+            self.new_connection_form.as_mut(),
+            selected_connection.as_ref(),
+        ) {
             if let Some(jump_form) = form.jump_server_form.as_mut() {
                 jump_form.apply_saved_connection(connection);
             }
@@ -576,7 +594,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn connection_form_group_options(&self, current_group: &str) -> Vec<String> {
+    pub(super) fn connection_form_group_options(&self, current_group: &str) -> Vec<String> {
         let mut groups = self.connection_store.groups().to_vec();
         let current = current_group.trim();
         if !current.is_empty()
@@ -590,7 +608,7 @@ impl WorkspaceApp {
         groups
     }
 
-    fn connection_form_group_is_ungrouped(&self, group: &str) -> bool {
+    pub(super) fn connection_form_group_is_ungrouped(&self, group: &str) -> bool {
         let group = group.trim();
         group.is_empty()
             || group == "Ungrouped"
@@ -599,7 +617,7 @@ impl WorkspaceApp {
             || group == self.i18n.t("sessionManager.edit_properties.ungrouped")
     }
 
-    fn connection_form_ungrouped_label(&self) -> String {
+    pub(super) fn connection_form_ungrouped_label(&self) -> String {
         self.i18n.t("ssh.form.ungrouped")
     }
 
@@ -766,11 +784,11 @@ impl WorkspaceApp {
                     cx.stop_propagation();
                 }),
             )
-            .on_mouse_move(
-                cx.listener(|this, event: &gpui::MouseMoveEvent, window, cx| {
+            .on_mouse_move(cx.listener(
+                |this, event: &gpui::MouseMoveEvent, window, cx| {
                     this.update_ime_selection_drag_from_mouse_move(event, window, cx);
-                }),
-            ),
+                },
+            )),
             move |anchor, _window, cx| {
                 let _ = workspace.update(cx, |this, cx| {
                     this.update_text_input_anchor(anchor, cx);
@@ -780,7 +798,7 @@ impl WorkspaceApp {
         .into_any_element()
     }
 
-    fn render_auth_selector(
+    pub(super) fn render_auth_selector(
         &self,
         active_tab: SshAuthTab,
         context: AuthSelectorContext,
@@ -789,7 +807,9 @@ impl WorkspaceApp {
     ) -> AnyElement {
         let active_family = auth_family_from_tab(active_tab);
         let label = match context {
-            AuthSelectorContext::EditProperties => self.i18n.t("sessionManager.edit_properties.auth_type"),
+            AuthSelectorContext::EditProperties => {
+                self.i18n.t("sessionManager.edit_properties.auth_type")
+            }
             AuthSelectorContext::DrillDown => self.i18n.t("ssh.drill_down.auth_method"),
             AuthSelectorContext::Jump => self.i18n.t("ssh.form.proxy_jump_auth"),
             AuthSelectorContext::Standard | AuthSelectorContext::Prompt => {
@@ -799,17 +819,21 @@ impl WorkspaceApp {
         let mut row = segmented_tabs(&self.tokens);
         for (family, label_key) in Self::auth_family_choices(context) {
             row = row.child(
-                segmented_tab(&self.tokens, self.i18n.t(label_key), *family == active_family)
-                    .min_h(px(self.tokens.metrics.ui_tabs_list_height))
-                    .whitespace_normal()
-                    .text_align(gpui::TextAlign::Center)
-                    .line_height(px(self.tokens.metrics.ui_text_sm + 2.0))
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(move |this, _event, _window, cx| {
-                            this.set_new_connection_auth_family(*family, context, jump_form, cx);
-                        }),
-                    ),
+                segmented_tab(
+                    &self.tokens,
+                    self.i18n.t(label_key),
+                    *family == active_family,
+                )
+                .min_h(px(self.tokens.metrics.ui_tabs_list_height))
+                .whitespace_normal()
+                .text_align(gpui::TextAlign::Center)
+                .line_height(px(self.tokens.metrics.ui_text_sm + 2.0))
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(move |this, _event, _window, cx| {
+                        this.set_new_connection_auth_family(*family, context, jump_form, cx);
+                    }),
+                ),
             );
         }
 
@@ -820,12 +844,18 @@ impl WorkspaceApp {
             .child(form_field(&self.tokens, label, row))
             .when(
                 active_family == SshAuthFamily::Key && context != AuthSelectorContext::DrillDown,
-                |content| content.child(self.render_key_auth_source_select(active_tab, context, jump_form, cx)),
+                |content| {
+                    content.child(
+                        self.render_key_auth_source_select(active_tab, context, jump_form, cx),
+                    )
+                },
             )
             .into_any_element()
     }
 
-    fn auth_family_choices(context: AuthSelectorContext) -> &'static [(SshAuthFamily, &'static str)] {
+    fn auth_family_choices(
+        context: AuthSelectorContext,
+    ) -> &'static [(SshAuthFamily, &'static str)] {
         match context {
             AuthSelectorContext::DrillDown => &[
                 (SshAuthFamily::Agent, "ssh.drill_down.auth_agent"),
@@ -851,7 +881,9 @@ impl WorkspaceApp {
         }
     }
 
-    fn key_auth_source_choices(context: AuthSelectorContext) -> &'static [SshKeyAuthSource] {
+    pub(super) fn key_auth_source_choices(
+        context: AuthSelectorContext,
+    ) -> &'static [SshKeyAuthSource] {
         match context {
             AuthSelectorContext::Standard | AuthSelectorContext::Jump => &[
                 SshKeyAuthSource::DefaultKey,
@@ -868,7 +900,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn current_main_auth_selector_context(&self) -> AuthSelectorContext {
+    pub(super) fn current_main_auth_selector_context(&self) -> AuthSelectorContext {
         let mode = new_connection_form_mode(
             self.editing_saved_connection_id.as_deref(),
             self.duplicating_saved_connection_id.as_deref(),
@@ -885,7 +917,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn key_auth_source_label(&self, source: SshKeyAuthSource) -> String {
+    pub(super) fn key_auth_source_label(&self, source: SshKeyAuthSource) -> String {
         let key = match source {
             SshKeyAuthSource::DefaultKey => "ssh.auth.key_source_default",
             SshKeyAuthSource::SshKey => "ssh.auth.key_source_file",
@@ -895,7 +927,7 @@ impl WorkspaceApp {
         self.i18n.t(key)
     }
 
-    fn normalized_key_source_for_context(
+    pub(super) fn normalized_key_source_for_context(
         active_tab: SshAuthTab,
         context: AuthSelectorContext,
     ) -> SshKeyAuthSource {
@@ -924,7 +956,12 @@ impl WorkspaceApp {
         let anchor_id = Self::new_connection_select_anchor_id(select_id);
         let workspace = cx.entity();
         let trigger = self
-            .new_connection_select_trigger(select_id, self.key_auth_source_label(source), false, false)
+            .new_connection_select_trigger(
+                select_id,
+                self.key_auth_source_label(source),
+                false,
+                false,
+            )
             .cursor_pointer()
             .on_mouse_down(
                 MouseButton::Left,
@@ -1011,7 +1048,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn set_new_connection_key_auth_source(
+    pub(super) fn set_new_connection_key_auth_source(
         &mut self,
         select_id: NewConnectionSelect,
         source: SshKeyAuthSource,
@@ -1029,7 +1066,10 @@ impl WorkspaceApp {
                 }
                 _ => return,
             }
-            form.focused_field = Self::focus_field_for_auth_tab(tab, select_id == NewConnectionSelect::JumpKeyAuthSource);
+            form.focused_field = Self::focus_field_for_auth_tab(
+                tab,
+                select_id == NewConnectionSelect::JumpKeyAuthSource,
+            );
             form.field_focused = false;
             clear_connection_selection(form);
             form.error = None;
@@ -1060,7 +1100,11 @@ impl WorkspaceApp {
         }
     }
 
-    fn render_edit_color_field(&self, value: &str, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn render_edit_color_field(
+        &self,
+        value: &str,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let swatch = parse_form_hex_color(value).unwrap_or(TAURI_EDIT_COLOR_FALLBACK);
         form_field(
             &self.tokens,
@@ -1106,7 +1150,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn render_edit_icon_field(
+    pub(super) fn render_edit_icon_field(
         &self,
         icon_value: &str,
         color_value: &str,
@@ -1116,10 +1160,7 @@ impl WorkspaceApp {
         let theme = self.tokens.ui;
         let preview_color = parse_form_hex_color(color_value).unwrap_or(theme.accent);
         let active_icon = session_icon_from_id(Some(icon_value)).unwrap_or(LucideIcon::Server);
-        let mut grid = div()
-            .flex()
-            .flex_wrap()
-            .gap(px(self.tokens.spacing.two));
+        let mut grid = div().flex().flex_wrap().gap(px(self.tokens.spacing.two));
 
         for choice in SESSION_ICON_CHOICES {
             let selected = icon_value.trim() == choice.id;
@@ -1219,8 +1260,7 @@ impl WorkspaceApp {
                             row.child(
                                 button(
                                     &self.tokens,
-                                    self.i18n
-                                        .t("sessionManager.edit_properties.default_icon"),
+                                    self.i18n.t("sessionManager.edit_properties.default_icon"),
                                     ButtonTone::Secondary,
                                 )
                                 .on_mouse_down(
@@ -1254,7 +1294,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn render_transport_selector(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn render_transport_selector(&self, cx: &mut Context<Self>) -> AnyElement {
         let theme = self.tokens.ui;
         let active_transport = self
             .new_connection_form
@@ -1308,8 +1348,7 @@ impl WorkspaceApp {
         if cfg!(target_os = "windows") {
             choices.push((
                 NewConnectionTransport::WslGraphics,
-                self.i18n
-                    .t("modals.new_connection.transport_wsl_graphics"),
+                self.i18n.t("modals.new_connection.transport_wsl_graphics"),
                 NewConnectionField::Name,
                 LucideIcon::AppWindow,
             ));
@@ -1359,11 +1398,7 @@ impl WorkspaceApp {
                         if let Some(form) = this.new_connection_form.as_mut() {
                             let previous_transport = form.transport;
                             apply_transport_default_port(form, previous_transport, transport);
-                            apply_transport_default_username(
-                                form,
-                                previous_transport,
-                                transport,
-                            );
+                            apply_transport_default_username(form, previous_transport, transport);
                             form.transport = transport;
                             form.focused_field = focus_field;
                             form.field_focused = false;
@@ -1385,7 +1420,7 @@ impl WorkspaceApp {
         sidebar.into_any_element()
     }
 
-    fn render_wsl_graphics_form_branch(&self, _cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn render_wsl_graphics_form_branch(&self, _cx: &mut Context<Self>) -> AnyElement {
         let theme = self.tokens.ui;
         div()
             .rounded(px(self.tokens.radii.md))
@@ -1414,21 +1449,24 @@ impl WorkspaceApp {
                             .child(self.i18n.t("modals.new_connection.transport_wsl_graphics")),
                     ),
             )
-            .child(self.render_connection_hint(
-                self.i18n
-                    .t("modals.new_connection.wsl_graphics_detail"),
-            ))
+            .child(
+                self.render_connection_hint(
+                    self.i18n.t("modals.new_connection.wsl_graphics_detail"),
+                ),
+            )
             .when(!cfg!(target_os = "windows"), |panel| {
-                panel.child(self.render_connection_hint_with_color(
-                    self.i18n
-                        .t("modals.new_connection.wsl_graphics_windows_only"),
-                    theme.error,
-                ))
+                panel.child(
+                    self.render_connection_hint_with_color(
+                        self.i18n
+                            .t("modals.new_connection.wsl_graphics_windows_only"),
+                        theme.error,
+                    ),
+                )
             })
             .into_any_element()
     }
 
-    fn render_remote_desktop_form_branch(
+    pub(super) fn render_remote_desktop_form_branch(
         &self,
         protocol: oxideterm_remote_desktop::RemoteDesktopProtocol,
         cx: &mut Context<Self>,
@@ -1468,24 +1506,25 @@ impl WorkspaceApp {
                         false,
                         cx,
                     )))
-                    .child(
-                        div()
-                            .w(px(self.tokens.metrics.form_port_width))
-                            .child(self.render_connection_field(
-                                self.i18n.t("ssh.form.port"),
-                                &form.port,
-                                port_placeholder.to_string(),
-                                NewConnectionField::Port,
-                                false,
-                                cx,
-                            )),
-                    ),
+                    .child(div().w(px(self.tokens.metrics.form_port_width)).child(
+                        self.render_connection_field(
+                            self.i18n.t("ssh.form.port"),
+                            &form.port,
+                            port_placeholder.to_string(),
+                            NewConnectionField::Port,
+                            false,
+                            cx,
+                        ),
+                    )),
             )
             .when(port_invalid, |section| {
-                section.child(self.render_connection_hint_with_color(
-                    self.i18n.t("modals.new_connection.remote_desktop_invalid_port"),
-                    self.tokens.ui.error,
-                ))
+                section.child(
+                    self.render_connection_hint_with_color(
+                        self.i18n
+                            .t("modals.new_connection.remote_desktop_invalid_port"),
+                        self.tokens.ui.error,
+                    ),
+                )
             })
             .when(
                 protocol == oxideterm_remote_desktop::RemoteDesktopProtocol::Rdp,
@@ -1499,21 +1538,23 @@ impl WorkspaceApp {
                             false,
                             cx,
                         ))
-                        .child(self.render_connection_field(
-                            self.i18n.t("ssh.form.password"),
-                            &form.password,
-                            self.i18n
-                                .t("modals.new_connection.remote_desktop_password_placeholder"),
-                            NewConnectionField::Password,
-                            true,
-                            cx,
-                        ))
+                        .child(
+                            self.render_connection_field(
+                                self.i18n.t("ssh.form.password"),
+                                &form.password,
+                                self.i18n
+                                    .t("modals.new_connection.remote_desktop_password_placeholder"),
+                                NewConnectionField::Password,
+                                true,
+                                cx,
+                            ),
+                        )
                 },
             )
             .into_any_element()
     }
 
-    fn render_raw_tcp_form_branch(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn render_raw_tcp_form_branch(&self, cx: &mut Context<Self>) -> AnyElement {
         let Some(form) = self.new_connection_form.as_ref() else {
             return div().into_any_element();
         };
@@ -1532,9 +1573,7 @@ impl WorkspaceApp {
                     .rounded(px(self.tokens.radii.lg))
                     .border_1()
                     .border_color(rgb(self.tokens.ui.border))
-                    .bg(rgba(
-                        (self.tokens.ui.bg << 8) | TAURI_SERIAL_PANEL_BG_ALPHA,
-                    ))
+                    .bg(rgba((self.tokens.ui.bg << 8) | TAURI_SERIAL_PANEL_BG_ALPHA))
                     .p(px(self.tokens.spacing.three))
                     .child(
                         div()
@@ -1556,25 +1595,31 @@ impl WorkspaceApp {
                     .flex()
                     .flex_row()
                     .gap(px(self.tokens.metrics.form_host_port_gap))
-                    .child(div().flex_1().child(self.render_connection_field(
-                        self.i18n.t("modals.new_connection.raw_tcp_host"),
-                        &form.host,
-                        self.i18n.t("modals.new_connection.raw_tcp_host_placeholder"),
-                        NewConnectionField::Host,
-                        false,
-                        cx,
-                    )))
                     .child(
-                        div()
-                            .w(px(self.tokens.metrics.form_port_width))
-                            .child(self.render_connection_field(
+                        div().flex_1().child(
+                            self.render_connection_field(
+                                self.i18n.t("modals.new_connection.raw_tcp_host"),
+                                &form.host,
+                                self.i18n
+                                    .t("modals.new_connection.raw_tcp_host_placeholder"),
+                                NewConnectionField::Host,
+                                false,
+                                cx,
+                            ),
+                        ),
+                    )
+                    .child(
+                        div().w(px(self.tokens.metrics.form_port_width)).child(
+                            self.render_connection_field(
                                 self.i18n.t("modals.new_connection.raw_tcp_port"),
                                 &form.port,
-                                self.i18n.t("modals.new_connection.raw_tcp_port_placeholder"),
+                                self.i18n
+                                    .t("modals.new_connection.raw_tcp_port_placeholder"),
                                 NewConnectionField::Port,
                                 false,
                                 cx,
-                            )),
+                            ),
+                        ),
                     ),
             )
             .when(raw_tcp_port_invalid, |section| {
@@ -1588,28 +1633,28 @@ impl WorkspaceApp {
                     .grid()
                     .grid_cols(3)
                     .gap(px(TAURI_SERIAL_GRID_GAP))
-                    .child(self.render_raw_tcp_line_ending_select(
-                        form.raw_tcp_line_ending.clone(),
-                        cx,
-                    ))
-                    .child(self.render_raw_tcp_display_mode_select(
-                        form.raw_tcp_display_mode.clone(),
-                        cx,
-                    ))
-                    .child(self.render_raw_tcp_send_mode_select(
-                        form.raw_tcp_send_mode.clone(),
-                        cx,
-                    )),
+                    .child(
+                        self.render_raw_tcp_line_ending_select(
+                            form.raw_tcp_line_ending.clone(),
+                            cx,
+                        ),
+                    )
+                    .child(
+                        self.render_raw_tcp_display_mode_select(
+                            form.raw_tcp_display_mode.clone(),
+                            cx,
+                        ),
+                    )
+                    .child(
+                        self.render_raw_tcp_send_mode_select(form.raw_tcp_send_mode.clone(), cx),
+                    ),
             )
             .child(
                 div()
                     .grid()
                     .grid_cols(2)
                     .gap(px(TAURI_SERIAL_GRID_GAP))
-                    .child(self.render_raw_tcp_tls_mode_select(
-                        form.raw_tcp_tls_mode.clone(),
-                        cx,
-                    ))
+                    .child(self.render_raw_tcp_tls_mode_select(form.raw_tcp_tls_mode.clone(), cx))
                     .child(self.render_raw_tcp_tls_verification_select(
                         form.raw_tcp_tls_verification.clone(),
                         !tls_enabled,
@@ -1621,24 +1666,24 @@ impl WorkspaceApp {
                     .flex()
                     .flex_col()
                     .gap(px(self.tokens.spacing.two))
-                    .child(self.render_connection_field(
-                        self.i18n.t("modals.new_connection.raw_tcp_tls_server_name"),
-                        &form.raw_tcp_tls_server_name,
+                    .child(
+                        self.render_connection_field(
+                            self.i18n.t("modals.new_connection.raw_tcp_tls_server_name"),
+                            &form.raw_tcp_tls_server_name,
+                            self.i18n
+                                .t("modals.new_connection.raw_tcp_tls_server_name_placeholder"),
+                            NewConnectionField::RawTcpTlsServerName,
+                            false,
+                            cx,
+                        ),
+                    )
+                    .child(self.render_connection_hint(if tls_enabled {
                         self.i18n
-                            .t("modals.new_connection.raw_tcp_tls_server_name_placeholder"),
-                        NewConnectionField::RawTcpTlsServerName,
-                        false,
-                        cx,
-                    ))
-                    .child(self.render_connection_hint(
-                        if tls_enabled {
-                            self.i18n
-                                .t("modals.new_connection.raw_tcp_tls_server_name_hint")
-                        } else {
-                            self.i18n
-                                .t("modals.new_connection.raw_tcp_tls_server_name_disabled_hint")
-                        },
-                    )),
+                            .t("modals.new_connection.raw_tcp_tls_server_name_hint")
+                    } else {
+                        self.i18n
+                            .t("modals.new_connection.raw_tcp_tls_server_name_disabled_hint")
+                    })),
             )
             .child(
                 div()
@@ -1648,20 +1693,22 @@ impl WorkspaceApp {
                     .border_1()
                     .border_color(rgb(self.tokens.ui.border))
                     .p(px(self.tokens.spacing.three))
-                    .child(self.render_connection_field(
-                        self.i18n.t("modals.new_connection.raw_tcp_profile_name"),
-                        &form.raw_tcp_profile_name,
-                        self.i18n
-                            .t("modals.new_connection.raw_tcp_profile_name_placeholder"),
-                        NewConnectionField::RawTcpProfileName,
-                        false,
-                        cx,
-                    )),
+                    .child(
+                        self.render_connection_field(
+                            self.i18n.t("modals.new_connection.raw_tcp_profile_name"),
+                            &form.raw_tcp_profile_name,
+                            self.i18n
+                                .t("modals.new_connection.raw_tcp_profile_name_placeholder"),
+                            NewConnectionField::RawTcpProfileName,
+                            false,
+                            cx,
+                        ),
+                    ),
             )
             .into_any_element()
     }
 
-    fn render_raw_udp_form_branch(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn render_raw_udp_form_branch(&self, cx: &mut Context<Self>) -> AnyElement {
         let Some(form) = self.new_connection_form.as_ref() else {
             return div().into_any_element();
         };
@@ -1678,9 +1725,7 @@ impl WorkspaceApp {
                     .rounded(px(self.tokens.radii.lg))
                     .border_1()
                     .border_color(rgb(self.tokens.ui.border))
-                    .bg(rgba(
-                        (self.tokens.ui.bg << 8) | TAURI_SERIAL_PANEL_BG_ALPHA,
-                    ))
+                    .bg(rgba((self.tokens.ui.bg << 8) | TAURI_SERIAL_PANEL_BG_ALPHA))
                     .p(px(self.tokens.spacing.three))
                     .child(
                         div()
@@ -1702,25 +1747,31 @@ impl WorkspaceApp {
                     .flex()
                     .flex_row()
                     .gap(px(self.tokens.metrics.form_host_port_gap))
-                    .child(div().flex_1().child(self.render_connection_field(
-                        self.i18n.t("modals.new_connection.raw_udp_host"),
-                        &form.host,
-                        self.i18n.t("modals.new_connection.raw_udp_host_placeholder"),
-                        NewConnectionField::Host,
-                        false,
-                        cx,
-                    )))
                     .child(
-                        div()
-                            .w(px(self.tokens.metrics.form_port_width))
-                            .child(self.render_connection_field(
+                        div().flex_1().child(
+                            self.render_connection_field(
+                                self.i18n.t("modals.new_connection.raw_udp_host"),
+                                &form.host,
+                                self.i18n
+                                    .t("modals.new_connection.raw_udp_host_placeholder"),
+                                NewConnectionField::Host,
+                                false,
+                                cx,
+                            ),
+                        ),
+                    )
+                    .child(
+                        div().w(px(self.tokens.metrics.form_port_width)).child(
+                            self.render_connection_field(
                                 self.i18n.t("modals.new_connection.raw_udp_port"),
                                 &form.port,
-                                self.i18n.t("modals.new_connection.raw_udp_port_placeholder"),
+                                self.i18n
+                                    .t("modals.new_connection.raw_udp_port_placeholder"),
                                 NewConnectionField::Port,
                                 false,
                                 cx,
-                            )),
+                            ),
+                        ),
                     ),
             )
             .when(raw_udp_remote_port_invalid, |section| {
@@ -1734,19 +1785,22 @@ impl WorkspaceApp {
                     .flex()
                     .flex_row()
                     .gap(px(self.tokens.metrics.form_host_port_gap))
-                    .child(div().flex_1().child(self.render_connection_field(
-                        self.i18n.t("modals.new_connection.raw_udp_local_bind_host"),
-                        &form.raw_udp_local_bind_host,
-                        self.i18n
-                            .t("modals.new_connection.raw_udp_local_bind_host_placeholder"),
-                        NewConnectionField::RawUdpLocalBindHost,
-                        false,
-                        cx,
-                    )))
                     .child(
-                        div()
-                            .w(px(self.tokens.metrics.form_port_width))
-                            .child(self.render_connection_field(
+                        div().flex_1().child(
+                            self.render_connection_field(
+                                self.i18n.t("modals.new_connection.raw_udp_local_bind_host"),
+                                &form.raw_udp_local_bind_host,
+                                self.i18n
+                                    .t("modals.new_connection.raw_udp_local_bind_host_placeholder"),
+                                NewConnectionField::RawUdpLocalBindHost,
+                                false,
+                                cx,
+                            ),
+                        ),
+                    )
+                    .child(
+                        div().w(px(self.tokens.metrics.form_port_width)).child(
+                            self.render_connection_field(
                                 self.i18n.t("modals.new_connection.raw_udp_local_bind_port"),
                                 &form.raw_udp_local_bind_port,
                                 self.i18n
@@ -1754,33 +1808,39 @@ impl WorkspaceApp {
                                 NewConnectionField::RawUdpLocalBindPort,
                                 false,
                                 cx,
-                            )),
+                            ),
+                        ),
                     ),
             )
             .when(raw_udp_local_port_invalid, |section| {
-                section.child(self.render_connection_hint_with_color(
-                    self.i18n
-                        .t("modals.new_connection.raw_udp_invalid_local_bind_port"),
-                    self.tokens.ui.error,
-                ))
+                section.child(
+                    self.render_connection_hint_with_color(
+                        self.i18n
+                            .t("modals.new_connection.raw_udp_invalid_local_bind_port"),
+                        self.tokens.ui.error,
+                    ),
+                )
             })
             .child(
                 div()
                     .grid()
                     .grid_cols(3)
                     .gap(px(TAURI_SERIAL_GRID_GAP))
-                    .child(self.render_raw_udp_line_ending_select(
-                        form.raw_udp_line_ending.clone(),
-                        cx,
-                    ))
-                    .child(self.render_raw_udp_display_mode_select(
-                        form.raw_udp_display_mode.clone(),
-                        cx,
-                    ))
-                    .child(self.render_raw_udp_send_mode_select(
-                        form.raw_udp_send_mode.clone(),
-                        cx,
-                    )),
+                    .child(
+                        self.render_raw_udp_line_ending_select(
+                            form.raw_udp_line_ending.clone(),
+                            cx,
+                        ),
+                    )
+                    .child(
+                        self.render_raw_udp_display_mode_select(
+                            form.raw_udp_display_mode.clone(),
+                            cx,
+                        ),
+                    )
+                    .child(
+                        self.render_raw_udp_send_mode_select(form.raw_udp_send_mode.clone(), cx),
+                    ),
             )
             .child(
                 div()
@@ -1790,20 +1850,22 @@ impl WorkspaceApp {
                     .border_1()
                     .border_color(rgb(self.tokens.ui.border))
                     .p(px(self.tokens.spacing.three))
-                    .child(self.render_connection_field(
-                        self.i18n.t("modals.new_connection.raw_udp_profile_name"),
-                        &form.raw_udp_profile_name,
-                        self.i18n
-                            .t("modals.new_connection.raw_udp_profile_name_placeholder"),
-                        NewConnectionField::RawUdpProfileName,
-                        false,
-                        cx,
-                    )),
+                    .child(
+                        self.render_connection_field(
+                            self.i18n.t("modals.new_connection.raw_udp_profile_name"),
+                            &form.raw_udp_profile_name,
+                            self.i18n
+                                .t("modals.new_connection.raw_udp_profile_name_placeholder"),
+                            NewConnectionField::RawUdpProfileName,
+                            false,
+                            cx,
+                        ),
+                    ),
             )
             .into_any_element()
     }
 
-    fn render_telnet_form_branch(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn render_telnet_form_branch(&self, cx: &mut Context<Self>) -> AnyElement {
         let Some(form) = self.new_connection_form.as_ref() else {
             return div().into_any_element();
         };
@@ -1818,9 +1880,7 @@ impl WorkspaceApp {
                     .rounded(px(self.tokens.radii.lg))
                     .border_1()
                     .border_color(rgb(self.tokens.ui.border))
-                    .bg(rgba(
-                        (self.tokens.ui.bg << 8) | TAURI_SERIAL_PANEL_BG_ALPHA,
-                    ))
+                    .bg(rgba((self.tokens.ui.bg << 8) | TAURI_SERIAL_PANEL_BG_ALPHA))
                     .p(px(self.tokens.spacing.three))
                     .child(
                         div()
@@ -1850,18 +1910,16 @@ impl WorkspaceApp {
                         false,
                         cx,
                     )))
-                    .child(
-                        div()
-                            .w(px(self.tokens.metrics.form_port_width))
-                            .child(self.render_connection_field(
-                                self.i18n.t("modals.new_connection.telnet_port"),
-                                &form.port,
-                                TELNET_DEFAULT_PORT_TEXT.to_string(),
-                                NewConnectionField::Port,
-                                false,
-                                cx,
-                            )),
-                    ),
+                    .child(div().w(px(self.tokens.metrics.form_port_width)).child(
+                        self.render_connection_field(
+                            self.i18n.t("modals.new_connection.telnet_port"),
+                            &form.port,
+                            TELNET_DEFAULT_PORT_TEXT.to_string(),
+                            NewConnectionField::Port,
+                            false,
+                            cx,
+                        ),
+                    )),
             )
             .when(telnet_port_invalid, |section| {
                 section.child(self.render_connection_hint_with_color(
@@ -1877,15 +1935,17 @@ impl WorkspaceApp {
                     .border_1()
                     .border_color(rgb(self.tokens.ui.border))
                     .p(px(self.tokens.spacing.three))
-                    .child(self.render_connection_field(
-                        self.i18n.t("modals.new_connection.telnet_profile_name"),
-                        &form.telnet_profile_name,
-                        self.i18n
-                            .t("modals.new_connection.telnet_profile_name_placeholder"),
-                        NewConnectionField::TelnetProfileName,
-                        false,
-                        cx,
-                    )),
+                    .child(
+                        self.render_connection_field(
+                            self.i18n.t("modals.new_connection.telnet_profile_name"),
+                            &form.telnet_profile_name,
+                            self.i18n
+                                .t("modals.new_connection.telnet_profile_name_placeholder"),
+                            NewConnectionField::TelnetProfileName,
+                            false,
+                            cx,
+                        ),
+                    ),
             )
             .into_any_element()
     }
@@ -1912,7 +1972,8 @@ impl WorkspaceApp {
                 Err(error) => {
                     form.error = Some(format!(
                         "{}: {error}",
-                        self.i18n.t("modals.new_connection.serial_load_ports_failed")
+                        self.i18n
+                            .t("modals.new_connection.serial_load_ports_failed")
                     ));
                 }
             }
@@ -1920,7 +1981,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn render_serial_form_branch(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn render_serial_form_branch(&self, cx: &mut Context<Self>) -> AnyElement {
         let Some(form) = self.new_connection_form.as_ref() else {
             return div().into_any_element();
         };
@@ -1940,9 +2001,7 @@ impl WorkspaceApp {
                     .rounded(px(self.tokens.radii.lg))
                     .border_1()
                     .border_color(rgb(self.tokens.ui.border))
-                    .bg(rgba(
-                        (self.tokens.ui.bg << 8) | TAURI_SERIAL_PANEL_BG_ALPHA,
-                    ))
+                    .bg(rgba((self.tokens.ui.bg << 8) | TAURI_SERIAL_PANEL_BG_ALPHA))
                     .p(px(self.tokens.spacing.three))
                     .child(
                         div()
@@ -1979,11 +2038,13 @@ impl WorkspaceApp {
                                 cx,
                             ))
                             .when(serial_baud_rate_invalid, |section| {
-                                section.child(self.render_connection_hint_with_color(
-                                    self.i18n
-                                        .t("modals.new_connection.serial_invalid_baud_rate"),
-                                    self.tokens.ui.error,
-                                ))
+                                section.child(
+                                    self.render_connection_hint_with_color(
+                                        self.i18n
+                                            .t("modals.new_connection.serial_invalid_baud_rate"),
+                                        self.tokens.ui.error,
+                                    ),
+                                )
                             }),
                     )
                     .child(self.render_serial_u8_select(
@@ -2017,15 +2078,17 @@ impl WorkspaceApp {
                     .border_1()
                     .border_color(rgb(self.tokens.ui.border))
                     .p(px(self.tokens.spacing.three))
-                    .child(self.render_connection_field(
-                        self.i18n.t("modals.new_connection.serial_profile_name"),
-                        &form.serial_profile_name,
-                        self.i18n
-                            .t("modals.new_connection.serial_profile_name_placeholder"),
-                        NewConnectionField::SerialProfileName,
-                        false,
-                        cx,
-                    )),
+                    .child(
+                        self.render_connection_field(
+                            self.i18n.t("modals.new_connection.serial_profile_name"),
+                            &form.serial_profile_name,
+                            self.i18n
+                                .t("modals.new_connection.serial_profile_name_placeholder"),
+                            NewConnectionField::SerialProfileName,
+                            false,
+                            cx,
+                        ),
+                    ),
             )
             .into_any_element()
     }
@@ -2090,33 +2153,31 @@ impl WorkspaceApp {
                                 self.i18n.t("modals.new_connection.serial_port")
                             )),
                     )
-                    .child(
-                        self.workspace_toolbar_action_button(
-                            self.i18n.t("modals.new_connection.serial_refresh_ports"),
-                            Some(Self::render_lucide_icon(
-                                if loading {
-                                    LucideIcon::LoaderCircle
-                                } else {
-                                    LucideIcon::RefreshCw
-                                },
-                                14.0,
-                                rgb(self.tokens.ui.text),
-                            )),
-                            ToolbarButtonOptions {
-                                button: ButtonOptions {
-                                    variant: ButtonVariant::Outline,
-                                    size: ButtonSize::Sm,
-                                    disabled: loading,
-                                    ..ButtonOptions::default()
-                                },
-                                ..ToolbarButtonOptions::default()
+                    .child(self.workspace_toolbar_action_button(
+                        self.i18n.t("modals.new_connection.serial_refresh_ports"),
+                        Some(Self::render_lucide_icon(
+                            if loading {
+                                LucideIcon::LoaderCircle
+                            } else {
+                                LucideIcon::RefreshCw
                             },
-                            cx.listener(|this, _event, _window, cx| {
-                                this.refresh_serial_ports(cx);
-                                cx.stop_propagation();
-                            }),
-                        ),
-                    ),
+                            14.0,
+                            rgb(self.tokens.ui.text),
+                        )),
+                        ToolbarButtonOptions {
+                            button: ButtonOptions {
+                                variant: ButtonVariant::Outline,
+                                size: ButtonSize::Sm,
+                                disabled: loading,
+                                ..ButtonOptions::default()
+                            },
+                            ..ToolbarButtonOptions::default()
+                        },
+                        cx.listener(|this, _event, _window, cx| {
+                            this.refresh_serial_ports(cx);
+                            cx.stop_propagation();
+                        }),
+                    )),
             )
             .child(self.render_connection_input(
                 &selected_port,
@@ -2392,7 +2453,9 @@ impl WorkspaceApp {
     fn upstream_proxy_protocol_label(&self, protocol: SavedUpstreamProxyProtocol) -> String {
         let key = match protocol {
             SavedUpstreamProxyProtocol::Socks5 => "settings_view.network.protocol_socks5",
-            SavedUpstreamProxyProtocol::HttpConnect => "settings_view.network.protocol_http_connect",
+            SavedUpstreamProxyProtocol::HttpConnect => {
+                "settings_view.network.protocol_http_connect"
+            }
         };
         self.i18n.t(key)
     }
@@ -2405,7 +2468,7 @@ impl WorkspaceApp {
         self.i18n.t(key)
     }
 
-    fn render_upstream_proxy_policy_section(
+    pub(super) fn render_upstream_proxy_policy_section(
         &self,
         form: &NewConnectionForm,
         cx: &mut Context<Self>,
@@ -2429,9 +2492,7 @@ impl WorkspaceApp {
                     cx,
                 ),
             ))
-            .child(self.render_connection_hint(
-                self.i18n.t("modals.upstream_proxy.policy_hint"),
-            ))
+            .child(self.render_connection_hint(self.i18n.t("modals.upstream_proxy.policy_hint")))
             .when(custom, |content| {
                 content
                     .child(
@@ -2443,24 +2504,24 @@ impl WorkspaceApp {
                                 self.i18n.t("settings_view.network.protocol"),
                                 self.render_new_connection_select_control(
                                     NewConnectionSelect::UpstreamProxyProtocol,
-                                    self.upstream_proxy_protocol_label(form.upstream_proxy_protocol),
+                                    self.upstream_proxy_protocol_label(
+                                        form.upstream_proxy_protocol,
+                                    ),
                                     false,
                                     false,
                                     cx,
                                 ),
                             )))
-                            .child(
-                                div()
-                                    .w(px(self.tokens.metrics.form_port_width))
-                                    .child(self.render_connection_field(
-                                        self.i18n.t("settings_view.network.port"),
-                                        &form.upstream_proxy_port,
-                                        "1080".to_string(),
-                                        NewConnectionField::UpstreamProxyPort,
-                                        false,
-                                        cx,
-                                    )),
-                            ),
+                            .child(div().w(px(self.tokens.metrics.form_port_width)).child(
+                                self.render_connection_field(
+                                    self.i18n.t("settings_view.network.port"),
+                                    &form.upstream_proxy_port,
+                                    "1080".to_string(),
+                                    NewConnectionField::UpstreamProxyPort,
+                                    false,
+                                    cx,
+                                ),
+                            )),
                     )
                     .child(self.render_connection_field(
                         self.i18n.t("settings_view.network.host"),
@@ -2495,33 +2556,36 @@ impl WorkspaceApp {
                             cx,
                         ),
                     ))
-                    .when(form.upstream_proxy_auth == NewConnectionUpstreamProxyAuth::Password, |content| {
-                        content
-                            .child(self.render_connection_field(
-                                self.i18n.t("settings_view.network.username"),
-                                &form.upstream_proxy_username,
-                                String::new(),
-                                NewConnectionField::UpstreamProxyUsername,
-                                false,
-                                cx,
-                            ))
-                            .child(self.render_connection_field(
-                                self.i18n.t("settings_view.network.password"),
-                                &form.upstream_proxy_password,
-                                String::new(),
-                                NewConnectionField::UpstreamProxyPassword,
-                                true,
-                                cx,
-                            ))
-                            .child(self.render_connection_hint(
-                                self.i18n.t("settings_view.network.password_hint"),
-                            ))
-                    })
+                    .when(
+                        form.upstream_proxy_auth == NewConnectionUpstreamProxyAuth::Password,
+                        |content| {
+                            content
+                                .child(self.render_connection_field(
+                                    self.i18n.t("settings_view.network.username"),
+                                    &form.upstream_proxy_username,
+                                    String::new(),
+                                    NewConnectionField::UpstreamProxyUsername,
+                                    false,
+                                    cx,
+                                ))
+                                .child(self.render_connection_field(
+                                    self.i18n.t("settings_view.network.password"),
+                                    &form.upstream_proxy_password,
+                                    String::new(),
+                                    NewConnectionField::UpstreamProxyPassword,
+                                    true,
+                                    cx,
+                                ))
+                                .child(self.render_connection_hint(
+                                    self.i18n.t("settings_view.network.password_hint"),
+                                ))
+                        },
+                    )
             })
             .into_any_element()
     }
 
-    fn serial_parity_label(&self, parity: oxideterm_terminal::SerialParity) -> String {
+    pub(super) fn serial_parity_label(&self, parity: oxideterm_terminal::SerialParity) -> String {
         match parity {
             oxideterm_terminal::SerialParity::None => {
                 self.i18n.t("modals.new_connection.serial_parity_none")
@@ -2535,7 +2599,10 @@ impl WorkspaceApp {
         }
     }
 
-    fn serial_flow_control_label(&self, flow: oxideterm_terminal::SerialFlowControl) -> String {
+    pub(super) fn serial_flow_control_label(
+        &self,
+        flow: oxideterm_terminal::SerialFlowControl,
+    ) -> String {
         match flow {
             oxideterm_terminal::SerialFlowControl::None => {
                 self.i18n.t("modals.new_connection.serial_flow_none")
@@ -2549,7 +2616,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn raw_tcp_line_ending_label(
+    pub(super) fn raw_tcp_line_ending_label(
         &self,
         line_ending: &oxideterm_connections::RawTcpLineEnding,
     ) -> String {
@@ -2570,7 +2637,7 @@ impl WorkspaceApp {
         self.i18n.t(key)
     }
 
-    fn raw_tcp_display_mode_label(
+    pub(super) fn raw_tcp_display_mode_label(
         &self,
         display_mode: &oxideterm_connections::RawTcpDisplayMode,
     ) -> String {
@@ -2588,19 +2655,20 @@ impl WorkspaceApp {
         self.i18n.t(key)
     }
 
-    fn raw_tcp_send_mode_label(&self, send_mode: &oxideterm_connections::RawTcpSendMode) -> String {
+    pub(super) fn raw_tcp_send_mode_label(
+        &self,
+        send_mode: &oxideterm_connections::RawTcpSendMode,
+    ) -> String {
         let key = match send_mode {
             oxideterm_connections::RawTcpSendMode::Text => {
                 "modals.new_connection.raw_tcp_send_text"
             }
-            oxideterm_connections::RawTcpSendMode::Hex => {
-                "modals.new_connection.raw_tcp_send_hex"
-            }
+            oxideterm_connections::RawTcpSendMode::Hex => "modals.new_connection.raw_tcp_send_hex",
         };
         self.i18n.t(key)
     }
 
-    fn raw_udp_line_ending_label(
+    pub(super) fn raw_udp_line_ending_label(
         &self,
         line_ending: &oxideterm_connections::RawUdpLineEnding,
     ) -> String {
@@ -2621,7 +2689,7 @@ impl WorkspaceApp {
         self.i18n.t(key)
     }
 
-    fn raw_udp_display_mode_label(
+    pub(super) fn raw_udp_display_mode_label(
         &self,
         display_mode: &oxideterm_connections::RawUdpDisplayMode,
     ) -> String {
@@ -2639,19 +2707,23 @@ impl WorkspaceApp {
         self.i18n.t(key)
     }
 
-    fn raw_udp_send_mode_label(&self, send_mode: &oxideterm_connections::RawUdpSendMode) -> String {
+    pub(super) fn raw_udp_send_mode_label(
+        &self,
+        send_mode: &oxideterm_connections::RawUdpSendMode,
+    ) -> String {
         let key = match send_mode {
             oxideterm_connections::RawUdpSendMode::Text => {
                 "modals.new_connection.raw_udp_send_text"
             }
-            oxideterm_connections::RawUdpSendMode::Hex => {
-                "modals.new_connection.raw_udp_send_hex"
-            }
+            oxideterm_connections::RawUdpSendMode::Hex => "modals.new_connection.raw_udp_send_hex",
         };
         self.i18n.t(key)
     }
 
-    fn raw_tcp_tls_mode_label(&self, mode: &oxideterm_connections::RawTcpTlsMode) -> String {
+    pub(super) fn raw_tcp_tls_mode_label(
+        &self,
+        mode: &oxideterm_connections::RawTcpTlsMode,
+    ) -> String {
         let key = match mode {
             oxideterm_connections::RawTcpTlsMode::Disabled => {
                 "modals.new_connection.raw_tcp_tls_disabled"
@@ -2663,7 +2735,7 @@ impl WorkspaceApp {
         self.i18n.t(key)
     }
 
-    fn raw_tcp_tls_verification_label(
+    pub(super) fn raw_tcp_tls_verification_label(
         &self,
         verification: &oxideterm_connections::RawTcpTlsVerification,
     ) -> String {
@@ -2678,7 +2750,11 @@ impl WorkspaceApp {
         self.i18n.t(key)
     }
 
-    fn set_new_connection_serial_port(&mut self, port_path: String, cx: &mut Context<Self>) {
+    pub(super) fn set_new_connection_serial_port(
+        &mut self,
+        port_path: String,
+        cx: &mut Context<Self>,
+    ) {
         if let Some(form) = self.new_connection_form.as_mut() {
             form.serial_port_path = port_path;
             form.focused_field = NewConnectionField::SerialPortPath;
@@ -2691,7 +2767,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn set_new_connection_serial_u8(
+    pub(super) fn set_new_connection_serial_u8(
         &mut self,
         select_id: NewConnectionSelect,
         value: u8,
@@ -2712,7 +2788,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn set_new_connection_serial_parity(
+    pub(super) fn set_new_connection_serial_parity(
         &mut self,
         parity: oxideterm_terminal::SerialParity,
         cx: &mut Context<Self>,
@@ -2728,7 +2804,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn set_new_connection_serial_flow_control(
+    pub(super) fn set_new_connection_serial_flow_control(
         &mut self,
         flow: oxideterm_terminal::SerialFlowControl,
         cx: &mut Context<Self>,
@@ -2744,7 +2820,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn set_new_connection_raw_tcp_line_ending(
+    pub(super) fn set_new_connection_raw_tcp_line_ending(
         &mut self,
         line_ending: oxideterm_connections::RawTcpLineEnding,
         cx: &mut Context<Self>,
@@ -2760,7 +2836,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn set_new_connection_raw_tcp_display_mode(
+    pub(super) fn set_new_connection_raw_tcp_display_mode(
         &mut self,
         display_mode: oxideterm_connections::RawTcpDisplayMode,
         cx: &mut Context<Self>,
@@ -2776,7 +2852,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn set_new_connection_raw_tcp_send_mode(
+    pub(super) fn set_new_connection_raw_tcp_send_mode(
         &mut self,
         send_mode: oxideterm_connections::RawTcpSendMode,
         cx: &mut Context<Self>,
@@ -2792,7 +2868,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn set_new_connection_raw_udp_line_ending(
+    pub(super) fn set_new_connection_raw_udp_line_ending(
         &mut self,
         line_ending: oxideterm_connections::RawUdpLineEnding,
         cx: &mut Context<Self>,
@@ -2808,7 +2884,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn set_new_connection_raw_udp_display_mode(
+    pub(super) fn set_new_connection_raw_udp_display_mode(
         &mut self,
         display_mode: oxideterm_connections::RawUdpDisplayMode,
         cx: &mut Context<Self>,
@@ -2824,7 +2900,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn set_new_connection_raw_udp_send_mode(
+    pub(super) fn set_new_connection_raw_udp_send_mode(
         &mut self,
         send_mode: oxideterm_connections::RawUdpSendMode,
         cx: &mut Context<Self>,
@@ -2840,7 +2916,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn set_new_connection_raw_tcp_tls_mode(
+    pub(super) fn set_new_connection_raw_tcp_tls_mode(
         &mut self,
         tls_mode: oxideterm_connections::RawTcpTlsMode,
         cx: &mut Context<Self>,
@@ -2856,7 +2932,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn set_new_connection_raw_tcp_tls_verification(
+    pub(super) fn set_new_connection_raw_tcp_tls_verification(
         &mut self,
         verification: oxideterm_connections::RawTcpTlsVerification,
         cx: &mut Context<Self>,
@@ -2872,7 +2948,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn set_new_connection_upstream_proxy_policy(
+    pub(super) fn set_new_connection_upstream_proxy_policy(
         &mut self,
         policy: NewConnectionUpstreamProxyPolicy,
         cx: &mut Context<Self>,
@@ -2888,7 +2964,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn set_new_connection_upstream_proxy_protocol(
+    pub(super) fn set_new_connection_upstream_proxy_protocol(
         &mut self,
         protocol: SavedUpstreamProxyProtocol,
         cx: &mut Context<Self>,
@@ -2904,7 +2980,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn set_new_connection_upstream_proxy_auth(
+    pub(super) fn set_new_connection_upstream_proxy_auth(
         &mut self,
         auth: NewConnectionUpstreamProxyAuth,
         cx: &mut Context<Self>,
@@ -2926,7 +3002,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn render_connection_checkbox(
+    pub(super) fn render_connection_checkbox(
         &self,
         label: String,
         checked: bool,
@@ -2947,7 +3023,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_connection_button(
+    pub(super) fn render_connection_button(
         &self,
         label: String,
         primary: bool,
@@ -3003,11 +3079,11 @@ impl WorkspaceApp {
                 }
             }),
         )
-            .into_any_element()
+        .into_any_element()
     }
 }
 
-fn serial_port_display_label(port: &oxideterm_terminal::SerialPortInfo) -> String {
+pub(super) fn serial_port_display_label(port: &oxideterm_terminal::SerialPortInfo) -> String {
     if port.display_name.trim().is_empty() {
         port.port_path.clone()
     } else {

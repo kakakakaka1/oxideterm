@@ -1,5 +1,5 @@
 impl WorkspaceApp {
-    fn start_ai_chat_stream_after_rag_lookup(
+    pub(in crate::workspace) fn start_ai_chat_stream_after_rag_lookup(
         &mut self,
         conversation_id: String,
         config: AiChatStreamConfig,
@@ -62,7 +62,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn start_ai_chat_stream_after_budget_preflight(
+    pub(in crate::workspace) fn start_ai_chat_stream_after_budget_preflight(
         &mut self,
         conversation_id: String,
         config: AiChatStreamConfig,
@@ -94,8 +94,7 @@ impl WorkspaceApp {
                 true,
                 Some(pending.clone()),
                 cx,
-            )
-            {
+            ) {
                 return;
             }
 
@@ -125,7 +124,9 @@ impl WorkspaceApp {
         let now = ai_now_ms();
         let assistant_id = self.next_ai_chat_id(now);
         let request_message = self
-            .ai_chat
+            .ai
+            .chat
+            .conversation_state
             .conversations
             .iter()
             .find(|conversation| conversation.id == conversation_id)
@@ -142,19 +143,20 @@ impl WorkspaceApp {
             .map(|message| message.id.clone())
             .unwrap_or_else(|| format!("{assistant_id}-request"));
         let (budget_decision, budget_diagnostic_payload) = self
-            .ai_chat
+            .ai
+            .chat
+            .conversation_state
             .conversations
             .iter()
             .find(|conversation| conversation.id == conversation_id)
             .map(|conversation| {
-                let decision =
-                    self.ai_send_budget_decision(
-                        conversation,
-                        &config,
-                        request_content.as_deref(),
-                        task_system_prompt.as_deref(),
-                        rag_system_prompt.as_deref(),
-                    );
+                let decision = self.ai_send_budget_decision(
+                    conversation,
+                    &config,
+                    request_content.as_deref(),
+                    task_system_prompt.as_deref(),
+                    rag_system_prompt.as_deref(),
+                );
                 let payload = self.ai_budget_diagnostic_payload(
                     conversation,
                     &config,
@@ -178,7 +180,7 @@ impl WorkspaceApp {
                 });
                 (decision, payload)
             });
-        self.ai_chat.add_message(
+        self.ai.chat.conversation_state.add_message(
             &conversation_id,
             AiChatMessage {
                 id: assistant_id.clone(),
@@ -196,11 +198,13 @@ impl WorkspaceApp {
                 transcript_ref: None,
                 summary_ref: None,
                 branches: None,
-            suggestions: Vec::new(),
+                suggestions: Vec::new(),
             },
         );
         if let Some(conversation) = self
-            .ai_chat
+            .ai
+            .chat
+            .conversation_state
             .conversations
             .iter_mut()
             .find(|conversation| conversation.id == conversation_id)
@@ -209,7 +213,10 @@ impl WorkspaceApp {
                 .session_metadata
                 .get_or_insert_with(|| serde_json::json!({ "conversationId": conversation_id }));
             if let Some(object) = metadata.as_object_mut() {
-                object.insert("conversationId".to_string(), serde_json::json!(conversation_id));
+                object.insert(
+                    "conversationId".to_string(),
+                    serde_json::json!(conversation_id),
+                );
                 object.insert("origin".to_string(), serde_json::json!("sidebar"));
                 object.insert(
                     "lastBudgetLevel".to_string(),
@@ -273,28 +280,25 @@ impl WorkspaceApp {
         ));
         self.persist_ai_transcript_entries(conversation_id.clone(), transcript_entries);
         self.persist_ai_diagnostic_events(conversation_id.clone(), diagnostic_events);
-        self.ai_chat_loading = true;
-        self.ai_chat_stream_generation = self.ai_chat_stream_generation.saturating_add(1);
-        let generation = self.ai_chat_stream_generation;
+        self.ai.chat.loading = true;
+        self.ai.chat.stream_generation = self.ai.chat.stream_generation.saturating_add(1);
+        let generation = self.ai.chat.stream_generation;
         let (ui_tx, ui_rx) = std::sync::mpsc::channel();
-        if let Some(task) = self.ai_chat_stream_task.take() {
+        if let Some(task) = self.ai.chat.stream_task.take() {
             task.abort();
         }
         let snapshot = self.ai_chat_orchestrator_snapshot(&config, cx);
-        self.ai_chat_stream_rx = Some(ui_rx);
-        self.ai_chat_stream_task = Some(
-            self.forwarding_runtime
-                .spawn(run_ai_chat_tool_loop(
-                    config,
-                    history,
-                    snapshot,
-                    budget_decision.map(|decision| decision.level).unwrap_or(0),
-                    generation,
-                    conversation_id,
-                    assistant_id,
-                    ui_tx,
-                )),
-        );
+        self.ai.chat.stream_rx = Some(ui_rx);
+        self.ai.chat.stream_task = Some(self.forwarding_runtime.spawn(run_ai_chat_tool_loop(
+            config,
+            history,
+            snapshot,
+            budget_decision.map(|decision| decision.level).unwrap_or(0),
+            generation,
+            conversation_id,
+            assistant_id,
+            ui_tx,
+        )));
         self.schedule_ai_chat_stream_poll(cx);
     }
 }

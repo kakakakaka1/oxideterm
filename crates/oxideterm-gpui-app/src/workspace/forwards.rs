@@ -1,17 +1,20 @@
 use std::{
+    collections::hash_map::DefaultHasher,
+    hash::{Hash, Hasher},
     sync::Arc,
     thread,
     time::{Duration, Instant},
 };
 
 use gpui::{
-    AnyElement, Context, IntoElement, MouseButton, ParentElement, SharedString, Styled, Window,
-    div, prelude::*, px, rgb,
+    AnyElement, App, ClipboardItem, Context, KeyDownEvent, MouseButton, MouseDownEvent,
+    SharedString, Timer, Window, div, px, rgb,
 };
 use oxideterm_forwarding::{
     DetectedPort, ForwardEvent, ForwardRule, ForwardStats, ForwardStatus, ForwardType,
     ForwardUpdate, ForwardingManager, ForwardingRegistry, PortDetectionSnapshot,
 };
+use oxideterm_gpui_terminal::{TerminalNotice, TerminalNoticeVariant};
 use oxideterm_gpui_ui::{
     ConfirmDialogVariant, ConfirmDialogView,
     button::{
@@ -27,11 +30,24 @@ use oxideterm_gpui_ui::{
     text_input::{TextInputView, text_input, text_input_anchor_probe},
     typography::tauri_cjk_ui_font_family as forwards_cjk_ui_font_family,
 };
-use oxideterm_ssh::NodeId;
+use oxideterm_i18n::I18n;
+use oxideterm_ssh::{ConnectionConsumer, ConnectionState, NodeId, NodeReadiness, NodeRouter};
 use oxideterm_workspace::{Tab, TabId, TabKind, TabTitleSource};
 
 use super::ime::WorkspaceImeTarget;
-use super::*;
+use super::{
+    ActiveSurface, FORWARDS_SECTION_LIST_ESTIMATED_HEIGHT, FORWARDS_SECTION_LIST_OVERSCAN,
+    FORWARDS_TABLE_ROW_LIST_OVERSCAN, LucideIcon, TauriVirtualListSpec, WorkspaceApp,
+    settings_mono_font_family, settings_ui_font_family,
+    sync_tauri_variable_list_state_by_signatures, tauri_virtual_list,
+};
+
+// Real modules keep forwarding UI dependencies and visibility boundaries compiler-checked.
+mod actions;
+mod components;
+mod forms;
+mod helpers;
+mod surface;
 
 const FORWARDS_PAGE_PADDING: f32 = 16.0; // Tauri p-4
 const FORWARDS_SECTION_GAP: f32 = 24.0; // Tauri space-y-6
@@ -52,7 +68,7 @@ const FORWARDS_TW_ALPHA_50: u32 = 0x80; // Tauri /50
 const FORWARDS_ALPHA_TRANSPARENT: u32 = 0x00; // Tauri transparent root when tab background is active
 const FORWARDS_DEFAULT_BIND_ADDRESS: &str = "localhost"; // Tauri create form default bindAddress
 const FORWARDS_DEFAULT_TARGET_HOST: &str = "localhost"; // Tauri create form default targetHost
-pub(crate) const FORWARDS_NODE_SESSION_PREFIX: &str = "node:";
+pub(super) const FORWARDS_NODE_SESSION_PREFIX: &str = "node:";
 // Tailwind palette literals used by the Tauri ForwardsView source.
 const TW_BLACK: u32 = 0x000000;
 const TW_BLUE_300: u32 = 0x93c5fd;
@@ -191,9 +207,3 @@ pub(super) enum ForwardingWorkerResult {
         result: Result<PortDetectionSnapshot, String>,
     },
 }
-
-include!("forwards/surface.rs");
-include!("forwards/forms.rs");
-include!("forwards/components.rs");
-include!("forwards/actions.rs");
-include!("forwards/helpers.rs");

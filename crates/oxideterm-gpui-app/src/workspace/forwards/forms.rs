@@ -1,5 +1,19 @@
+use gpui::prelude::*;
+
+use super::helpers::{
+    ForwardButtonVariant, forward_type_label, forwards_palette_alpha, forwards_theme_border,
+    forwards_theme_border_half, forwards_theme_panel_bg, forwards_theme_sunken_bg,
+    forwards_theme_with_alpha, forwards_transparent,
+};
+use super::{
+    AnyElement, ConfirmDialogVariant, ConfirmDialogView, Context, FORWARDS_TW_ALPHA_30,
+    FORWARDS_TW_ALPHA_50, ForwardInput, ForwardType, LucideIcon, MouseButton, NodeId, TW_BLACK,
+    TabId, TextInputView, WorkspaceApp, WorkspaceImeTarget, confirm_dialog, div, px, rgb,
+    settings_mono_font_family, text_input, text_input_anchor_probe,
+};
+
 impl WorkspaceApp {
-    fn render_forward_create_form(
+    pub(super) fn render_forward_create_form(
         &self,
         node_id: NodeId,
         tab_id: TabId,
@@ -84,7 +98,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_forward_edit_modal(
+    pub(super) fn render_forward_edit_modal(
         &self,
         node_id: NodeId,
         tab_id: TabId,
@@ -204,7 +218,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_forward_delete_confirm(
+    pub(super) fn render_forward_delete_confirm(
         &self,
         node_id: NodeId,
         tab_id: TabId,
@@ -224,8 +238,10 @@ impl WorkspaceApp {
                     .render_forward_ui_text(self.i18n.t("forwards.actions.confirm_delete_title"))
                     .into_any_element(),
                 description: Some(
-                    self.render_forward_ui_text(self.i18n.t("forwards.actions.confirm_delete_desc"))
-                        .into_any_element(),
+                    self.render_forward_ui_text(
+                        self.i18n.t("forwards.actions.confirm_delete_desc"),
+                    )
+                    .into_any_element(),
                 ),
                 cancel_label: self
                     .render_forward_ui_text(self.i18n.t("common.actions.cancel"))
@@ -571,5 +587,4 @@ impl WorkspaceApp {
         )
         .into_any_element()
     }
-
 }

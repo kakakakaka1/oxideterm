@@ -1,5 +1,5 @@
 impl AiOrchestratorRuntimeSnapshot {
-    async fn build_rag_system_prompt(
+    pub(in crate::workspace) async fn build_rag_system_prompt(
         &self,
         query: Option<&str>,
         config: &AiChatStreamConfig,
@@ -47,7 +47,7 @@ impl AiOrchestratorRuntimeSnapshot {
         ))
     }
 
-    async fn embedding_query_vector(
+    pub(in crate::workspace) async fn embedding_query_vector(
         &self,
         query: &str,
         config: &AiChatStreamConfig,
@@ -89,7 +89,10 @@ impl AiOrchestratorRuntimeSnapshot {
             .and_then(|vectors| vectors.into_iter().next())
     }
 
-    fn target_kind_for_args(&self, args: &serde_json::Value) -> Option<String> {
+    pub(in crate::workspace) fn target_kind_for_args(
+        &self,
+        args: &serde_json::Value,
+    ) -> Option<String> {
         let target_id = args.get("target_id").and_then(serde_json::Value::as_str)?;
         self.targets
             .iter()
@@ -97,7 +100,7 @@ impl AiOrchestratorRuntimeSnapshot {
             .map(|target| target.kind.clone())
     }
 
-    async fn execute_tool(
+    pub(in crate::workspace) async fn execute_tool(
         &self,
         tool_call_id: String,
         tool_name: String,
@@ -132,18 +135,29 @@ impl AiOrchestratorRuntimeSnapshot {
                     "read",
                 )
             }
-            "connect_target" | "send_terminal_input" | "open_app_surface" | "remember_preference" => {
-                self.ui_thread_required_action(&tool_name, &args)
-            }
+            "connect_target"
+            | "send_terminal_input"
+            | "open_app_surface"
+            | "remember_preference" => self.ui_thread_required_action(&tool_name, &args),
             _ if oxideterm_ai::is_mcp_tool_name(&tool_name) => {
                 self.call_mcp_tool(&tool_name, args).await
             }
-            _ => self.fail("Unknown orchestrator tool.", "unknown_tool", format!("{tool_name} is not an OxideSens task tool."), "read"),
+            _ => self.fail(
+                "Unknown orchestrator tool.",
+                "unknown_tool",
+                format!("{tool_name} is not an OxideSens task tool."),
+                "read",
+            ),
         };
-        self.to_executed_tool_result(tool_call_id, tool_name, result, started.elapsed().as_millis())
+        self.to_executed_tool_result(
+            tool_call_id,
+            tool_name,
+            result,
+            started.elapsed().as_millis(),
+        )
     }
 
-    fn list_mcp_resources(&self) -> AiActionResultLite {
+    pub(in crate::workspace) fn list_mcp_resources(&self) -> AiActionResultLite {
         let resources = self.ai_mcp_registry.resources();
         if resources.is_empty() {
             return self.ok(
@@ -187,14 +201,21 @@ impl AiOrchestratorRuntimeSnapshot {
             .collect::<Vec<_>>()
             .join("\n");
         self.ok(
-            format!("Found {} MCP resource{}.", resources.len(), if resources.len() == 1 { "" } else { "s" }),
+            format!(
+                "Found {} MCP resource{}.",
+                resources.len(),
+                if resources.len() == 1 { "" } else { "s" }
+            ),
             output,
             serde_json::Value::Array(data),
             "read",
         )
     }
 
-    async fn read_mcp_resource(&self, args: &serde_json::Value) -> AiActionResultLite {
+    pub(in crate::workspace) async fn read_mcp_resource(
+        &self,
+        args: &serde_json::Value,
+    ) -> AiActionResultLite {
         let server_id = args
             .get("server_id")
             .and_then(serde_json::Value::as_str)
@@ -231,12 +252,16 @@ impl AiOrchestratorRuntimeSnapshot {
         }
     }
 
-    async fn call_mcp_tool(
+    pub(in crate::workspace) async fn call_mcp_tool(
         &self,
         tool_name: &str,
         args: serde_json::Value,
     ) -> AiActionResultLite {
-        match self.ai_mcp_registry.call_prefixed_tool(tool_name, args).await {
+        match self
+            .ai_mcp_registry
+            .call_prefixed_tool(tool_name, args)
+            .await
+        {
             Ok(result) => {
                 let (success, output, truncated) = oxideterm_ai::mcp_tool_output(&result);
                 if success {
@@ -269,11 +294,16 @@ impl AiOrchestratorRuntimeSnapshot {
         }
     }
 
-    fn list_targets(&self, args: &serde_json::Value) -> AiActionResultLite {
-        let view =
-            normalized_ai_target_view(args.get("view").and_then(serde_json::Value::as_str));
+    pub(in crate::workspace) fn list_targets(
+        &self,
+        args: &serde_json::Value,
+    ) -> AiActionResultLite {
+        let view = normalized_ai_target_view(args.get("view").and_then(serde_json::Value::as_str));
         let query = normalized_ai_query(args.get("query").and_then(serde_json::Value::as_str));
-        let kind = args.get("kind").and_then(serde_json::Value::as_str).unwrap_or("all");
+        let kind = args
+            .get("kind")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("all");
         let targets = self
             .targets
             .iter()
@@ -298,19 +328,28 @@ impl AiOrchestratorRuntimeSnapshot {
                 targets.len(),
                 if targets.len() == 1 { "" } else { "s" }
             ),
-            if output.is_empty() { "No targets found.".to_string() } else { output },
+            if output.is_empty() {
+                "No targets found.".to_string()
+            } else {
+                output
+            },
             serde_json::json!(targets.iter().map(target_json).collect::<Vec<_>>()),
             "read",
         )
         .with_targets(targets)
     }
 
-    fn select_target(&self, args: &serde_json::Value) -> AiActionResultLite {
+    pub(in crate::workspace) fn select_target(
+        &self,
+        args: &serde_json::Value,
+    ) -> AiActionResultLite {
         let query = args
             .get("query")
             .and_then(serde_json::Value::as_str)
             .unwrap_or("");
-        let Some(intent) = normalized_ai_intent(args.get("intent").and_then(serde_json::Value::as_str)) else {
+        let Some(intent) =
+            normalized_ai_intent(args.get("intent").and_then(serde_json::Value::as_str))
+        else {
             return self
                 .fail(
                     "Target intent is required.",
@@ -325,7 +364,11 @@ impl AiOrchestratorRuntimeSnapshot {
                     })]);
         };
         if matches!(intent, "command" | "terminal") && is_ai_command_like_query(query) {
-            let view = if intent == "command" { "live_sessions" } else { "connections" };
+            let view = if intent == "command" {
+                "live_sessions"
+            } else {
+                "connections"
+            };
             return self
                 .fail(
                     "Command text is not a target.",
@@ -349,9 +392,7 @@ impl AiOrchestratorRuntimeSnapshot {
             .filter(|target| target_in_ai_view(target, view))
             // Tauri validates select_target.kind before filtering; unknown
             // values are ignored instead of producing an empty candidate set.
-            .filter(|target| {
-                select_kind.is_none_or(|kind| kind == "all" || target.kind == kind)
-            })
+            .filter(|target| select_kind.is_none_or(|kind| kind == "all" || target.kind == kind))
             .filter(|target| target_matches_ai_query(target, &lowered))
             .cloned()
             .collect::<Vec<_>>();
@@ -377,12 +418,15 @@ impl AiOrchestratorRuntimeSnapshot {
                 )
                 .with_next_actions(next_actions)
             }
-            [target] => self.ok(
-                format!("Selected target: {}", target.label),
-                serde_json::to_string_pretty(&target_json(target)).unwrap_or_else(|_| target.id.clone()),
-                target_json(target),
-                "read",
-            ).with_target(target.clone()),
+            [target] => self
+                .ok(
+                    format!("Selected target: {}", target.label),
+                    serde_json::to_string_pretty(&target_json(target))
+                        .unwrap_or_else(|_| target.id.clone()),
+                    target_json(target),
+                    "read",
+                )
+                .with_target(target.clone()),
             _ => {
                 let mut retry_args = serde_json::Map::from_iter([
                     ("query".to_string(), serde_json::json!(query)),
@@ -394,23 +438,43 @@ impl AiOrchestratorRuntimeSnapshot {
                 self.fail(
                     "Multiple targets match. Ask the user to choose one.",
                     "target_disambiguation_required",
-                    matches.iter().enumerate().map(|(index, target)| format!("{}. {} — {} [{}]", index + 1, target.id, target.label, target.kind)).collect::<Vec<_>>().join("\n"),
+                    matches
+                        .iter()
+                        .enumerate()
+                        .map(|(index, target)| {
+                            format!(
+                                "{}. {} — {} [{}]",
+                                index + 1,
+                                target.id,
+                                target.label,
+                                target.kind
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n"),
                     "read",
-                ).with_targets(matches)
+                )
+                .with_targets(matches)
                 .with_next_actions(vec![serde_json::json!({
                     "action": "select_target",
                     "args": retry_args,
                     "reason": "Retry with a more specific label, host, or target id."
                 })])
-            },
+            }
         }
     }
 
-    async fn run_command(&self, args: &serde_json::Value) -> AiActionResultLite {
+    pub(in crate::workspace) async fn run_command(
+        &self,
+        args: &serde_json::Value,
+    ) -> AiActionResultLite {
         let Some(target_id) = args.get("target_id").and_then(serde_json::Value::as_str) else {
             return self.fail_missing_target_id("execute");
         };
-        let timeout_secs = args.get("timeout_secs").and_then(serde_json::Value::as_u64).unwrap_or(30);
+        let timeout_secs = args
+            .get("timeout_secs")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(30);
         let Some(target) = self.targets.iter().find(|target| target.id == target_id) else {
             return self.fail_target_not_found(target_id, "execute");
         };
@@ -419,16 +483,28 @@ impl AiOrchestratorRuntimeSnapshot {
                 .fail(
                     "Target is not ready.",
                     "target_not_ready",
-                    format!("{target_id} is {}; run_command requires a connected target.", target.state),
+                    format!(
+                        "{target_id} is {}; run_command requires a connected target.",
+                        target.state
+                    ),
                     "execute",
                 )
                 .with_target(target.clone())
                 .with_next_actions(recovery_actions_for_target(target));
         }
-        let Some(command) = args.get("command").and_then(serde_json::Value::as_str).filter(|command| !command.trim().is_empty()) else {
+        let Some(command) = args
+            .get("command")
+            .and_then(serde_json::Value::as_str)
+            .filter(|command| !command.trim().is_empty())
+        else {
             // Tauri resolves the target before runCommandOnTarget validates the
             // command, so target recovery hints win when both inputs are bad.
-            return self.fail("Command is required.", "missing_command", "run_command requires a command.", "execute");
+            return self.fail(
+                "Command is required.",
+                "missing_command",
+                "run_command requires a command.",
+                "execute",
+            );
         };
 
         match target.kind.as_str() {
@@ -470,7 +546,10 @@ impl AiOrchestratorRuntimeSnapshot {
         }
     }
 
-    fn observe_terminal(&self, args: &serde_json::Value) -> AiActionResultLite {
+    pub(in crate::workspace) fn observe_terminal(
+        &self,
+        args: &serde_json::Value,
+    ) -> AiActionResultLite {
         let Some(target_id) = args.get("target_id").and_then(serde_json::Value::as_str) else {
             return self.fail_missing_target_id("read");
         };
@@ -526,13 +605,21 @@ impl AiOrchestratorRuntimeSnapshot {
         ).with_target(target.clone())
     }
 
-    async fn read_resource(&self, args: &serde_json::Value) -> AiActionResultLite {
+    pub(in crate::workspace) async fn read_resource(
+        &self,
+        args: &serde_json::Value,
+    ) -> AiActionResultLite {
         let resource =
             normalized_ai_resource_kind(args.get("resource").and_then(serde_json::Value::as_str));
         let Some(target_id) = args.get("target_id").and_then(serde_json::Value::as_str) else {
             return self.fail_missing_target_id("read");
         };
-        let Some(target) = self.targets.iter().find(|target| target.id == target_id).cloned() else {
+        let Some(target) = self
+            .targets
+            .iter()
+            .find(|target| target.id == target_id)
+            .cloned()
+        else {
             return self.fail_target_not_found(target_id, "read");
         };
         if target_requires_live_state(&target) && target.state != "connected" {
@@ -540,19 +627,27 @@ impl AiOrchestratorRuntimeSnapshot {
                 .fail(
                     "Target is not ready.",
                     "target_not_ready",
-                    format!("{target_id} is {}; read_resource requires a connected target.", target.state),
+                    format!(
+                        "{target_id} is {}; read_resource requires a connected target.",
+                        target.state
+                    ),
                     "read",
                 )
                 .with_target(target.clone())
                 .with_next_actions(recovery_actions_for_target(&target));
         }
-        if !matches!(resource, "settings" | "file" | "ide" | "directory" | "sftp" | "rag") {
-            return self.fail(
-                "Unsupported resource read.",
-                "unsupported_resource",
-                format!("Cannot read unsupported resource \"{resource}\"."),
-                "read",
-            ).with_target(target);
+        if !matches!(
+            resource,
+            "settings" | "file" | "ide" | "directory" | "sftp" | "rag"
+        ) {
+            return self
+                .fail(
+                    "Unsupported resource read.",
+                    "unsupported_resource",
+                    format!("Cannot read unsupported resource \"{resource}\"."),
+                    "read",
+                )
+                .with_target(target);
         }
         if resource == "settings" {
             let section = args.get("section").and_then(serde_json::Value::as_str);
@@ -582,20 +677,22 @@ impl AiOrchestratorRuntimeSnapshot {
                 },
             );
             return match results {
-                Ok(results) => self.ok(
-                    format!("Found {} knowledge results.", results.len()),
-                    serde_json::to_string_pretty(&results).unwrap_or_default(),
-                    serde_json::to_value(results).unwrap_or_else(|_| serde_json::json!([])),
-                    "read",
-                )
-                .with_target(target),
-                Err(error) => self.fail(
-                    "Knowledge search failed.",
-                    "rag_search_error",
-                    error,
-                    "read",
-                )
-                .with_target(target),
+                Ok(results) => self
+                    .ok(
+                        format!("Found {} knowledge results.", results.len()),
+                        serde_json::to_string_pretty(&results).unwrap_or_default(),
+                        serde_json::to_value(results).unwrap_or_else(|_| serde_json::json!([])),
+                        "read",
+                    )
+                    .with_target(target),
+                Err(error) => self
+                    .fail(
+                        "Knowledge search failed.",
+                        "rag_search_error",
+                        error,
+                        "read",
+                    )
+                    .with_target(target),
             };
         }
         if ai_target_is_serial_terminal(&target) {
@@ -611,20 +708,28 @@ impl AiOrchestratorRuntimeSnapshot {
             .get("nodeId")
             .map(|value| NodeId::new(value.clone()));
         if node_id.is_none() && target.kind != "sftp-session" {
-            return self.fail(
-                "Target cannot read resources.",
-                "unsupported_read_target",
-                format!("{} does not expose readable resources.", target.kind),
-                "read",
-            ).with_target(target);
+            return self
+                .fail(
+                    "Target cannot read resources.",
+                    "unsupported_read_target",
+                    format!("{} does not expose readable resources.", target.kind),
+                    "read",
+                )
+                .with_target(target);
         };
-        let Some(path) = args.get("path").and_then(serde_json::Value::as_str).filter(|value| !value.trim().is_empty()) else {
-            return self.fail(
-                "Resource path is required.",
-                "missing_path",
-                "read_resource requires path for file or directory resources.",
-                "read",
-            ).with_target(target);
+        let Some(path) = args
+            .get("path")
+            .and_then(serde_json::Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+        else {
+            return self
+                .fail(
+                    "Resource path is required.",
+                    "missing_path",
+                    "read_resource requires path for file or directory resources.",
+                    "read",
+                )
+                .with_target(target);
         };
 
         if matches!(resource, "file" | "ide")
@@ -658,12 +763,14 @@ impl AiOrchestratorRuntimeSnapshot {
         }
 
         if matches!(resource, "file" | "ide") && node_id.is_none() {
-            return self.fail(
-                "Unsupported resource read.",
-                "unsupported_resource",
-                format!("Cannot read resource \"{resource}\" from {}.", target.kind),
-                "read",
-            ).with_target(target);
+            return self
+                .fail(
+                    "Unsupported resource read.",
+                    "unsupported_resource",
+                    format!("Cannot read resource \"{resource}\" from {}.", target.kind),
+                    "read",
+                )
+                .with_target(target);
         }
 
         if matches!(resource, "directory" | "sftp") && node_id.is_none() {
@@ -679,17 +786,25 @@ impl AiOrchestratorRuntimeSnapshot {
         }
 
         let Some(node_id) = node_id else {
-            return self.fail(
-                "Target cannot read resources.",
-                "unsupported_read_target",
-                format!("{} does not expose readable resources.", target.kind),
-                "read",
-            ).with_target(target);
+            return self
+                .fail(
+                    "Target cannot read resources.",
+                    "unsupported_read_target",
+                    format!("{} does not expose readable resources.", target.kind),
+                    "read",
+                )
+                .with_target(target);
         };
         let shared = match self.node_router.acquire_sftp(&node_id).await {
             Ok(shared) => shared,
             Err(error) => {
-                return self.fail("Resource read failed.", "resource_read_failed", error.to_string(), "read")
+                return self
+                    .fail(
+                        "Resource read failed.",
+                        "resource_read_failed",
+                        error.to_string(),
+                        "read",
+                    )
                     .with_target(target);
             }
         };
@@ -710,14 +825,18 @@ impl AiOrchestratorRuntimeSnapshot {
                 // Tauri falls back from node-agent reads to nodeSftpPreview,
                 // so the model sees preview-shaped data instead of full file
                 // contents when the agent path is unavailable.
-                sftp.preview(path).await.map(|preview| serde_json::json!(preview))
+                sftp.preview(path)
+                    .await
+                    .map(|preview| serde_json::json!(preview))
             }
         }
         .await;
         match result {
             Ok(data) => {
-                let output =
-                    truncate_for_model(serde_json::to_string_pretty(&data).unwrap_or_default(), 12_000);
+                let output = truncate_for_model(
+                    serde_json::to_string_pretty(&data).unwrap_or_default(),
+                    12_000,
+                );
                 self.ok(
                     if matches!(resource, "directory" | "sftp") {
                         format!(
@@ -737,7 +856,11 @@ impl AiOrchestratorRuntimeSnapshot {
                 // Tauri wraps node_sftp_list_dir/node_sftp_preview in
                 // sftp_with_retry!, so AI read_resource must rebuild a stale
                 // shared SFTP channel once before exposing a read failure.
-                let rebuilt = match self.node_router.invalidate_and_reacquire_sftp(&node_id).await {
+                let rebuilt = match self
+                    .node_router
+                    .invalidate_and_reacquire_sftp(&node_id)
+                    .await
+                {
                     Ok(shared) => shared,
                     Err(route_error) => {
                         return self
@@ -764,7 +887,9 @@ impl AiOrchestratorRuntimeSnapshot {
                         .await
                         .map(|entries| serde_json::json!(entries))
                     } else {
-                        sftp.preview(path).await.map(|preview| serde_json::json!(preview))
+                        sftp.preview(path)
+                            .await
+                            .map(|preview| serde_json::json!(preview))
                     }
                 }
                 .await;
@@ -799,18 +924,32 @@ impl AiOrchestratorRuntimeSnapshot {
                         .with_target(target),
                 }
             }
-            Err(error) => self.fail("Resource read failed.", "resource_read_failed", error.to_string(), "read")
+            Err(error) => self
+                .fail(
+                    "Resource read failed.",
+                    "resource_read_failed",
+                    error.to_string(),
+                    "read",
+                )
                 .with_target(target),
         }
     }
 
-    async fn write_resource(&self, args: &serde_json::Value) -> AiActionResultLite {
+    pub(in crate::workspace) async fn write_resource(
+        &self,
+        args: &serde_json::Value,
+    ) -> AiActionResultLite {
         let resource =
             normalized_ai_resource_kind(args.get("resource").and_then(serde_json::Value::as_str));
         let Some(target_id) = args.get("target_id").and_then(serde_json::Value::as_str) else {
             return self.fail_missing_target_id("write");
         };
-        let Some(target) = self.targets.iter().find(|target| target.id == target_id).cloned() else {
+        let Some(target) = self
+            .targets
+            .iter()
+            .find(|target| target.id == target_id)
+            .cloned()
+        else {
             return self.fail_target_not_found(target_id, "write");
         };
         if target_requires_live_state(&target) && target.state != "connected" {
@@ -818,7 +957,10 @@ impl AiOrchestratorRuntimeSnapshot {
                 .fail(
                     "Target is not ready.",
                     "target_not_ready",
-                    format!("{target_id} is {}; write_resource requires a connected target.", target.state),
+                    format!(
+                        "{target_id} is {}; write_resource requires a connected target.",
+                        target.state
+                    ),
                     "write",
                 )
                 .with_target(target.clone())
@@ -834,7 +976,10 @@ impl AiOrchestratorRuntimeSnapshot {
         }
         if resource != "file" {
             let mut read_args = serde_json::Map::new();
-            read_args.insert("target_id".to_string(), serde_json::json!(target.id.clone()));
+            read_args.insert(
+                "target_id".to_string(),
+                serde_json::json!(target.id.clone()),
+            );
             read_args.insert("resource".to_string(), serde_json::json!(resource));
             if let Some(path) = args.get("path") {
                 read_args.insert("path".to_string(), path.clone());
@@ -842,18 +987,19 @@ impl AiOrchestratorRuntimeSnapshot {
             if let Some(section) = args.get("section") {
                 read_args.insert("section".to_string(), section.clone());
             }
-            return self.fail(
-                "Unsupported resource write.",
-                "unsupported_resource_write",
-                format!("write_resource only supports settings or file, not \"{resource}\"."),
-                "write",
-            )
-            .with_target(target.clone())
-            .with_next_actions(vec![serde_json::json!({
-                "action": "read_resource",
-                "args": read_args,
-                "reason": "Read or inspect the resource instead of writing it."
-            })]);
+            return self
+                .fail(
+                    "Unsupported resource write.",
+                    "unsupported_resource_write",
+                    format!("write_resource only supports settings or file, not \"{resource}\"."),
+                    "write",
+                )
+                .with_target(target.clone())
+                .with_next_actions(vec![serde_json::json!({
+                    "action": "read_resource",
+                    "args": read_args,
+                    "reason": "Read or inspect the resource instead of writing it."
+                })]);
         };
         if ai_target_is_serial_terminal(&target) {
             return self.fail(
@@ -863,31 +1009,49 @@ impl AiOrchestratorRuntimeSnapshot {
                 "write",
             ).with_target(target);
         }
-        let Some(node_id) = target.refs.get("nodeId").map(|value| NodeId::new(value.clone())) else {
-            return self.fail(
-                "Target cannot write resources.",
-                "unsupported_write_target",
-                format!("{} does not expose writable resources.", target.kind),
-                "write",
-            ).with_target(target);
+        let Some(node_id) = target
+            .refs
+            .get("nodeId")
+            .map(|value| NodeId::new(value.clone()))
+        else {
+            return self
+                .fail(
+                    "Target cannot write resources.",
+                    "unsupported_write_target",
+                    format!("{} does not expose writable resources.", target.kind),
+                    "write",
+                )
+                .with_target(target);
         };
-        let Some(path) = args.get("path").and_then(serde_json::Value::as_str).filter(|value| !value.trim().is_empty()) else {
-            return self.fail(
-                "Path and content are required.",
-                "missing_file_write_args",
-                "write_resource(file) requires path and content.",
-                "write",
-            ).with_target(target);
+        let Some(path) = args
+            .get("path")
+            .and_then(serde_json::Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+        else {
+            return self
+                .fail(
+                    "Path and content are required.",
+                    "missing_file_write_args",
+                    "write_resource(file) requires path and content.",
+                    "write",
+                )
+                .with_target(target);
         };
         let Some(content) = args.get("content").and_then(serde_json::Value::as_str) else {
-            return self.fail(
-                "Path and content are required.",
-                "missing_file_write_args",
-                "write_resource(file) requires path and content.",
-                "write",
-            ).with_target(target);
+            return self
+                .fail(
+                    "Path and content are required.",
+                    "missing_file_write_args",
+                    "write_resource(file) requires path and content.",
+                    "write",
+                )
+                .with_target(target);
         };
-        if args.get("dry_run").and_then(serde_json::Value::as_bool).unwrap_or(false) {
+        if args
+            .get("dry_run")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false)
+        {
             return self
                 .ok(
                     format!("Dry-run file write {path}."),
@@ -980,11 +1144,19 @@ impl AiOrchestratorRuntimeSnapshot {
         }
     }
 
-    async fn transfer_resource(&self, args: &serde_json::Value) -> AiActionResultLite {
+    pub(in crate::workspace) async fn transfer_resource(
+        &self,
+        args: &serde_json::Value,
+    ) -> AiActionResultLite {
         let Some(target_id) = args.get("target_id").and_then(serde_json::Value::as_str) else {
             return self.fail_missing_target_id("write");
         };
-        let Some(target) = self.targets.iter().find(|target| target.id == target_id).cloned() else {
+        let Some(target) = self
+            .targets
+            .iter()
+            .find(|target| target.id == target_id)
+            .cloned()
+        else {
             return self.fail_target_not_found(target_id, "write");
         };
         if target_requires_live_state(&target) && target.state != "connected" {
@@ -992,20 +1164,28 @@ impl AiOrchestratorRuntimeSnapshot {
                 .fail(
                     "Target is not ready.",
                     "target_not_ready",
-                    format!("{target_id} is {}; transfer_resource requires a connected target.", target.state),
+                    format!(
+                        "{target_id} is {}; transfer_resource requires a connected target.",
+                        target.state
+                    ),
                     "write",
                 )
                 .with_target(target.clone())
                 .with_next_actions(recovery_actions_for_target(&target));
         }
-        let direction = args.get("direction").and_then(serde_json::Value::as_str).unwrap_or("");
+        let direction = args
+            .get("direction")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
         if direction != "upload" && direction != "download" {
-            return self.fail(
-                "Transfer direction is required.",
-                "missing_transfer_direction",
-                "direction must be upload or download.",
-                "write",
-            ).with_target(target);
+            return self
+                .fail(
+                    "Transfer direction is required.",
+                    "missing_transfer_direction",
+                    "direction must be upload or download.",
+                    "write",
+                )
+                .with_target(target);
         }
         if ai_target_is_serial_terminal(&target) {
             return self.fail(
@@ -1015,13 +1195,19 @@ impl AiOrchestratorRuntimeSnapshot {
                 "write",
             ).with_target(target);
         }
-        let Some(node_id) = target.refs.get("nodeId").map(|value| NodeId::new(value.clone())) else {
-            return self.fail(
-                "SFTP transfer requires an SSH/SFTP target.",
-                "missing_node_id",
-                "transfer_resource requires a target with nodeId.",
-                "write",
-            ).with_target(target);
+        let Some(node_id) = target
+            .refs
+            .get("nodeId")
+            .map(|value| NodeId::new(value.clone()))
+        else {
+            return self
+                .fail(
+                    "SFTP transfer requires an SSH/SFTP target.",
+                    "missing_node_id",
+                    "transfer_resource requires a target with nodeId.",
+                    "write",
+                )
+                .with_target(target);
         };
         let source_path = args
             .get("source_path")
@@ -1067,12 +1253,17 @@ impl AiOrchestratorRuntimeSnapshot {
                 )
                 .with_target(target),
             Err(error) => self
-                .fail("SFTP transfer failed.", "sftp_transfer_failed", error, "write")
+                .fail(
+                    "SFTP transfer failed.",
+                    "sftp_transfer_failed",
+                    error,
+                    "write",
+                )
                 .with_target(target),
         }
     }
 
-    fn get_state(&self, args: &serde_json::Value) -> AiActionResultLite {
+    pub(in crate::workspace) fn get_state(&self, args: &serde_json::Value) -> AiActionResultLite {
         let scope = args
             .get("scope")
             .and_then(serde_json::Value::as_str)
@@ -1292,7 +1483,9 @@ impl AiOrchestratorRuntimeSnapshot {
             "connections" => format!("Found {} connection targets.", result_targets.len()),
             "transfers" => format!(
                 "Found {} tracked transfers.",
-                data.get("total").and_then(serde_json::Value::as_u64).unwrap_or(0)
+                data.get("total")
+                    .and_then(serde_json::Value::as_u64)
+                    .unwrap_or(0)
             ),
             "health" => "Read OxideTerm health state.".to_string(),
             _ => unreachable!("scope was validated above"),
@@ -1313,7 +1506,7 @@ impl AiOrchestratorRuntimeSnapshot {
         }
     }
 
-    fn ui_thread_required_action(
+    pub(in crate::workspace) fn ui_thread_required_action(
         &self,
         tool_name: &str,
         args: &serde_json::Value,
@@ -1327,7 +1520,7 @@ impl AiOrchestratorRuntimeSnapshot {
         .with_data(serde_json::json!({ "requestedArgs": args }))
     }
 
-    async fn write_remote_file(
+    pub(in crate::workspace) async fn write_remote_file(
         &self,
         node_id: &NodeId,
         path: &str,
@@ -1343,14 +1536,17 @@ impl AiOrchestratorRuntimeSnapshot {
         let write_once = async {
             let sftp = shared.lock().await;
             if let Some(expected) = expected_hash {
-                let current_bytes = sftp.read_file_bytes(path).await.map_err(|error| match error {
-                    oxideterm_ssh::SftpError::FileNotFound(_) => {
-                        AiRemoteFileWriteError::ExpectedFileMissing {
-                            path: path.to_string(),
-                        }
-                    }
-                    other => AiRemoteFileWriteError::Sftp(other),
-                })?;
+                let current_bytes =
+                    sftp.read_file_bytes(path)
+                        .await
+                        .map_err(|error| match error {
+                            oxideterm_ssh::SftpError::FileNotFound(_) => {
+                                AiRemoteFileWriteError::ExpectedFileMissing {
+                                    path: path.to_string(),
+                                }
+                            }
+                            other => AiRemoteFileWriteError::Sftp(other),
+                        })?;
                 let current_content = String::from_utf8(current_bytes).map_err(|_| {
                     AiRemoteFileWriteError::ExistingFileNotText {
                         path: path.to_string(),
@@ -1368,7 +1564,10 @@ impl AiOrchestratorRuntimeSnapshot {
                 .write_content(path, &bytes)
                 .await
                 .map_err(AiRemoteFileWriteError::Sftp)?;
-            let info = sftp.stat(path).await.map_err(AiRemoteFileWriteError::Sftp)?;
+            let info = sftp
+                .stat(path)
+                .await
+                .map_err(AiRemoteFileWriteError::Sftp)?;
             let hash = ai_hash_text_content(content, "utf-8");
             Ok::<_, AiRemoteFileWriteError>(serde_json::json!({
                 "path": info.path,
@@ -1387,17 +1586,22 @@ impl AiOrchestratorRuntimeSnapshot {
                     .node_router
                     .invalidate_and_reacquire_sftp(node_id)
                     .await
-                    .map_err(|route_error| AiRemoteFileWriteError::Other(route_error.to_string()))?;
+                    .map_err(|route_error| {
+                        AiRemoteFileWriteError::Other(route_error.to_string())
+                    })?;
                 let sftp = rebuilt.lock().await;
                 if let Some(expected) = expected_hash {
-                    let current_bytes = sftp.read_file_bytes(path).await.map_err(|error| match error {
-                        oxideterm_ssh::SftpError::FileNotFound(_) => {
-                            AiRemoteFileWriteError::ExpectedFileMissing {
-                                path: path.to_string(),
-                            }
-                        }
-                        other => AiRemoteFileWriteError::Sftp(other),
-                    })?;
+                    let current_bytes =
+                        sftp.read_file_bytes(path)
+                            .await
+                            .map_err(|error| match error {
+                                oxideterm_ssh::SftpError::FileNotFound(_) => {
+                                    AiRemoteFileWriteError::ExpectedFileMissing {
+                                        path: path.to_string(),
+                                    }
+                                }
+                                other => AiRemoteFileWriteError::Sftp(other),
+                            })?;
                     let current_content = String::from_utf8(current_bytes).map_err(|_| {
                         AiRemoteFileWriteError::ExistingFileNotText {
                             path: path.to_string(),
@@ -1414,7 +1618,9 @@ impl AiOrchestratorRuntimeSnapshot {
                 let write = sftp
                     .write_content(path, &bytes)
                     .await
-                    .map_err(|retry_error| AiRemoteFileWriteError::Other(retry_error.to_string()))?;
+                    .map_err(|retry_error| {
+                        AiRemoteFileWriteError::Other(retry_error.to_string())
+                    })?;
                 let info = sftp
                     .stat(path)
                     .await
@@ -1436,7 +1642,7 @@ impl AiOrchestratorRuntimeSnapshot {
         }
     }
 
-    async fn run_sftp_transfer(
+    pub(in crate::workspace) async fn run_sftp_transfer(
         &self,
         node_id: &NodeId,
         direction: &str,
@@ -1465,26 +1671,14 @@ impl AiOrchestratorRuntimeSnapshot {
         let item_count = match (direction, is_directory) {
             ("upload", false) => {
                 let bytes = sftp
-                    .upload_file(
-                        source_path,
-                        destination_path,
-                        transfer_id,
-                        None,
-                        manager,
-                    )
+                    .upload_file(source_path, destination_path, transfer_id, None, manager)
                     .await
                     .map_err(|error| error.to_string())?;
                 serde_json::json!({ "bytes": bytes })
             }
             ("download", false) => {
                 let bytes = sftp
-                    .download_file(
-                        source_path,
-                        destination_path,
-                        transfer_id,
-                        None,
-                        manager,
-                    )
+                    .download_file(source_path, destination_path, transfer_id, None, manager)
                     .await
                     .map_err(|error| error.to_string())?;
                 serde_json::json!({ "bytes": bytes })
@@ -1501,7 +1695,7 @@ impl AiOrchestratorRuntimeSnapshot {
         }))
     }
 
-    async fn start_sftp_directory_transfer(
+    pub(in crate::workspace) async fn start_sftp_directory_transfer(
         &self,
         node_id: &NodeId,
         direction: &str,
@@ -1739,7 +1933,7 @@ impl AiOrchestratorRuntimeSnapshot {
         }))
     }
 
-    fn ok(
+    pub(in crate::workspace) fn ok(
         &self,
         summary: impl Into<String>,
         output: impl Into<String>,
@@ -1763,7 +1957,7 @@ impl AiOrchestratorRuntimeSnapshot {
         }
     }
 
-    fn fail(
+    pub(in crate::workspace) fn fail(
         &self,
         summary: impl Into<String>,
         code: impl Into<String>,
@@ -1788,7 +1982,10 @@ impl AiOrchestratorRuntimeSnapshot {
         }
     }
 
-    fn fail_missing_target_id(&self, risk: &'static str) -> AiActionResultLite {
+    pub(in crate::workspace) fn fail_missing_target_id(
+        &self,
+        risk: &'static str,
+    ) -> AiActionResultLite {
         self.fail(
             "target_id is required.",
             "missing_target_id",
@@ -1801,7 +1998,7 @@ impl AiOrchestratorRuntimeSnapshot {
         })])
     }
 
-    fn fail_target_not_found(
+    pub(in crate::workspace) fn fail_target_not_found(
         &self,
         target_id: &str,
         risk: &'static str,
@@ -1818,7 +2015,7 @@ impl AiOrchestratorRuntimeSnapshot {
         })])
     }
 
-    fn to_executed_tool_result(
+    pub(in crate::workspace) fn to_executed_tool_result(
         &self,
         tool_call_id: String,
         tool_name: String,
@@ -1842,9 +2039,10 @@ impl AiOrchestratorRuntimeSnapshot {
             .data
             .get("waitingForInput")
             .and_then(serde_json::Value::as_bool);
-        let data_is_internal_waiting_hint = result.data.as_object().is_some_and(|object| {
-            object.len() == 1 && object.contains_key("waitingForInput")
-        });
+        let data_is_internal_waiting_hint = result
+            .data
+            .as_object()
+            .is_some_and(|object| object.len() == 1 && object.contains_key("waitingForInput"));
         let mut envelope = serde_json::Map::new();
         envelope.insert("ok".to_string(), serde_json::json!(result.ok));
         envelope.insert("summary".to_string(), serde_json::json!(result.summary));
@@ -1929,13 +2127,13 @@ impl AiOrchestratorRuntimeSnapshot {
     }
 }
 
-fn ai_transfer_path_looks_directory(path: &str) -> bool {
+pub(in crate::workspace) fn ai_transfer_path_looks_directory(path: &str) -> bool {
     // Tauri uses /[\\/]$/ so both POSIX and Windows-style trailing separators
     // select directory transfer semantics.
     path.ends_with('/') || path.ends_with('\\')
 }
 
-fn ai_target_is_serial_terminal(target: &AiOrchestratorTarget) -> bool {
+pub(in crate::workspace) fn ai_target_is_serial_terminal(target: &AiOrchestratorTarget) -> bool {
     target
         .metadata
         .get("terminalTransport")
@@ -1948,7 +2146,10 @@ fn ai_target_is_serial_terminal(target: &AiOrchestratorTarget) -> bool {
             == Some("serial")
 }
 
-fn make_ai_state_version(scope: &str, parts: impl IntoIterator<Item = String>) -> String {
+pub(in crate::workspace) fn make_ai_state_version(
+    scope: &str,
+    parts: impl IntoIterator<Item = String>,
+) -> String {
     std::iter::once(scope.to_string())
         .chain(parts.into_iter().map(|part| {
             if part.is_empty() {
@@ -1961,7 +2162,7 @@ fn make_ai_state_version(scope: &str, parts: impl IntoIterator<Item = String>) -
         .join(":")
 }
 
-async fn execute_ai_tool(
+pub(in crate::workspace) async fn execute_ai_tool(
     snapshot: &AiOrchestratorRuntimeSnapshot,
     ui_tx: &std::sync::mpsc::Sender<AiStreamDelivery>,
     generation: u64,

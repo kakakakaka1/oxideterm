@@ -2,7 +2,8 @@ use super::session_manager::{
     SAVED_CONNECTION_VIRTUAL_OVERSCAN, SAVED_CONNECTION_VIRTUAL_ROW_HEIGHT, SessionManagerInput,
 };
 use super::*;
-use oxideterm_gpui_ui::{TreeBranchMetrics, tree_child};
+use oxideterm_gpui_ui::button::ButtonRadius;
+use oxideterm_gpui_ui::{IconButtonOptions, TreeBranchMetrics, tree_child};
 
 const SESSION_TREE_NODE_HEIGHT: f32 = 32.0;
 const SESSION_TREE_ITEM_HEIGHT: f32 = 28.0;
@@ -81,7 +82,7 @@ pub(super) enum ContextSidebarTool {
 }
 
 #[derive(Clone, Copy)]
-struct SessionStatusStyle {
+pub(in crate::workspace) struct SessionStatusStyle {
     icon: LucideIcon,
     text_color: u32,
     dot_color: u32,
@@ -90,7 +91,7 @@ struct SessionStatusStyle {
 }
 
 #[derive(Clone, Copy)]
-enum SessionActionVariant {
+pub(in crate::workspace) enum SessionActionVariant {
     Primary,
     Danger,
 }
@@ -178,14 +179,20 @@ impl WorkspaceApp {
     }
 }
 
-include!("sidebar/state.rs");
-include!("sidebar/titlebar.rs");
-include!("sidebar/activity.rs");
-include!("sidebar/ai.rs");
-include!("sidebar/region.rs");
-include!("sidebar/sessions.rs");
-include!("sidebar/saved.rs");
-include!("sidebar/helpers.rs");
+mod activity;
+mod ai;
+mod helpers;
+mod region;
+mod saved;
+mod sessions;
+mod state;
+mod titlebar;
+
+pub(in crate::workspace) use ai::{
+    AiCompactionDelivery, AiInlinePanelState, AiModelSelectorProbeDelivery, AiPendingChatStream,
+    AiStreamDelivery,
+};
+use helpers::*;
 
 #[cfg(test)]
 mod sidebar_persistence_tests {

@@ -1,4 +1,4 @@
-fn upsert_ai_tool_call(
+pub(in crate::workspace) fn upsert_ai_tool_call(
     message: &mut AiChatMessage,
     id: &str,
     name: &str,
@@ -26,7 +26,7 @@ fn upsert_ai_tool_call(
     }
 }
 
-fn update_ai_tool_call_status(
+pub(in crate::workspace) fn update_ai_tool_call_status(
     message: &mut AiChatMessage,
     id: &str,
     name: &str,
@@ -70,7 +70,7 @@ fn update_ai_tool_call_status(
     }
 }
 
-fn ensure_ai_turn(message: &mut AiChatMessage) {
+pub(in crate::workspace) fn ensure_ai_turn(message: &mut AiChatMessage) {
     let needs_init = !message
         .turn
         .as_ref()
@@ -95,9 +95,13 @@ fn ensure_ai_turn(message: &mut AiChatMessage) {
     object
         .entry("id".to_string())
         .or_insert_with(|| serde_json::json!(message.id.clone()));
-    object
-        .entry("status".to_string())
-        .or_insert_with(|| serde_json::json!(if message.is_streaming { "streaming" } else { "complete" }));
+    object.entry("status".to_string()).or_insert_with(|| {
+        serde_json::json!(if message.is_streaming {
+            "streaming"
+        } else {
+            "complete"
+        })
+    });
     object
         .entry("parts".to_string())
         .or_insert_with(|| serde_json::json!([]));
@@ -109,7 +113,7 @@ fn ensure_ai_turn(message: &mut AiChatMessage) {
         .or_insert_with(|| serde_json::json!([]));
 }
 
-fn set_ai_turn_status(message: &mut AiChatMessage, status: &str) {
+pub(in crate::workspace) fn set_ai_turn_status(message: &mut AiChatMessage, status: &str) {
     ensure_ai_turn(message);
     if let Some(object) = message
         .turn
@@ -124,7 +128,7 @@ fn set_ai_turn_status(message: &mut AiChatMessage, status: &str) {
     }
 }
 
-fn finalize_ai_turn_suggestions(message: &mut AiChatMessage) {
+pub(in crate::workspace) fn finalize_ai_turn_suggestions(message: &mut AiChatMessage) {
     let parsed = parse_ai_suggestions(&message.content);
     if !parsed.has_suggestions_block {
         return;
@@ -138,15 +142,19 @@ fn finalize_ai_turn_suggestions(message: &mut AiChatMessage) {
         .as_mut()
         .and_then(|turn| turn.get_mut("parts"))
         .and_then(serde_json::Value::as_array_mut)
-        && let Some(text_part) = parts.iter_mut().rev().find(|part| {
-            part.get("type").and_then(serde_json::Value::as_str) == Some("text")
-        })
+        && let Some(text_part) = parts
+            .iter_mut()
+            .rev()
+            .find(|part| part.get("type").and_then(serde_json::Value::as_str) == Some("text"))
         && let Some(object) = text_part.as_object_mut()
         && let Some(text) = object.get("text").and_then(serde_json::Value::as_str)
     {
         let part_parsed = parse_ai_suggestions(text);
         if part_parsed.has_suggestions_block {
-            object.insert("text".to_string(), serde_json::json!(part_parsed.clean_content));
+            object.insert(
+                "text".to_string(),
+                serde_json::json!(part_parsed.clean_content),
+            );
         }
     }
 
@@ -162,7 +170,10 @@ fn finalize_ai_turn_suggestions(message: &mut AiChatMessage) {
     }
 }
 
-fn mutate_ai_turn_parts(message: &mut AiChatMessage, f: impl FnOnce(&mut Vec<serde_json::Value>)) {
+pub(in crate::workspace) fn mutate_ai_turn_parts(
+    message: &mut AiChatMessage,
+    f: impl FnOnce(&mut Vec<serde_json::Value>),
+) {
     ensure_ai_turn(message);
     if let Some(parts) = message
         .turn
@@ -174,7 +185,10 @@ fn mutate_ai_turn_parts(message: &mut AiChatMessage, f: impl FnOnce(&mut Vec<ser
     }
 }
 
-fn mutate_ai_turn_rounds(message: &mut AiChatMessage, f: impl FnOnce(&mut Vec<serde_json::Value>)) {
+pub(in crate::workspace) fn mutate_ai_turn_rounds(
+    message: &mut AiChatMessage,
+    f: impl FnOnce(&mut Vec<serde_json::Value>),
+) {
     ensure_ai_turn(message);
     if let Some(rounds) = message
         .turn
@@ -186,7 +200,7 @@ fn mutate_ai_turn_rounds(message: &mut AiChatMessage, f: impl FnOnce(&mut Vec<se
     }
 }
 
-fn upsert_ai_round_summary(
+pub(in crate::workspace) fn upsert_ai_round_summary(
     message: &mut AiChatMessage,
     round_id: &str,
     text: &str,
@@ -226,7 +240,7 @@ fn upsert_ai_round_summary(
     }
 }
 
-fn normalize_ai_pending_summaries(message: &mut AiChatMessage) {
+pub(in crate::workspace) fn normalize_ai_pending_summaries(message: &mut AiChatMessage) {
     ensure_ai_turn(message);
     let pending = message
         .turn
@@ -272,7 +286,7 @@ fn normalize_ai_pending_summaries(message: &mut AiChatMessage) {
     }
 }
 
-fn attach_ai_round_summary(
+pub(in crate::workspace) fn attach_ai_round_summary(
     message: &mut AiChatMessage,
     round_id: &str,
     text: &str,
@@ -306,7 +320,10 @@ fn attach_ai_round_summary(
     true
 }
 
-fn remove_ai_pending_round_summary(message: &mut AiChatMessage, round_id: &str) {
+pub(in crate::workspace) fn remove_ai_pending_round_summary(
+    message: &mut AiChatMessage,
+    round_id: &str,
+) {
     if let Some(pending) = message
         .turn
         .as_mut()
@@ -322,7 +339,7 @@ fn remove_ai_pending_round_summary(message: &mut AiChatMessage, round_id: &str) 
     }
 }
 
-fn set_ai_turn_round_stateful_marker(
+pub(in crate::workspace) fn set_ai_turn_round_stateful_marker(
     message: &mut AiChatMessage,
     round_id: &str,
     marker: Option<&str>,
@@ -348,7 +365,7 @@ fn set_ai_turn_round_stateful_marker(
     });
 }
 
-fn ai_turn_plain_text_summary(message: &AiChatMessage) -> Option<String> {
+pub(in crate::workspace) fn ai_turn_plain_text_summary(message: &AiChatMessage) -> Option<String> {
     let parts = message
         .turn
         .as_ref()
@@ -362,7 +379,7 @@ fn ai_turn_plain_text_summary(message: &AiChatMessage) -> Option<String> {
     Some(summary)
 }
 
-fn append_ai_turn_text_part(
+pub(in crate::workspace) fn append_ai_turn_text_part(
     message: &mut AiChatMessage,
     part_type: &str,
     text: &str,
@@ -402,7 +419,7 @@ fn append_ai_turn_text_part(
     });
 }
 
-fn append_ai_turn_error_part(message: &mut AiChatMessage, error: &str) {
+pub(in crate::workspace) fn append_ai_turn_error_part(message: &mut AiChatMessage, error: &str) {
     mutate_ai_turn_parts(message, |parts| {
         parts.push(serde_json::json!({
             "type": "error",
@@ -412,7 +429,7 @@ fn append_ai_turn_error_part(message: &mut AiChatMessage, error: &str) {
     });
 }
 
-fn append_ai_turn_guardrail_part(
+pub(in crate::workspace) fn append_ai_turn_guardrail_part(
     message: &mut AiChatMessage,
     code: &str,
     guardrail_message: &str,
@@ -433,7 +450,7 @@ fn append_ai_turn_guardrail_part(
     });
 }
 
-fn upsert_ai_turn_tool_call(
+pub(in crate::workspace) fn upsert_ai_turn_tool_call(
     message: &mut AiChatMessage,
     id: &str,
     name: &str,
@@ -464,10 +481,18 @@ fn upsert_ai_turn_tool_call(
             "status": status,
         }));
     });
-    upsert_ai_turn_round_tool_call(message, id, name, arguments, status, &round_id, round_number);
+    upsert_ai_turn_round_tool_call(
+        message,
+        id,
+        name,
+        arguments,
+        status,
+        &round_id,
+        round_number,
+    );
 }
 
-fn update_ai_turn_tool_status(
+pub(in crate::workspace) fn update_ai_turn_tool_status(
     message: &mut AiChatMessage,
     id: &str,
     name: &str,
@@ -479,12 +504,24 @@ fn update_ai_turn_tool_status(
     if round_id_override.is_none() {
         upsert_ai_turn_tool_call(message, id, name, arguments, "complete");
     }
-    let (round_id, round_number) =
-        ai_turn_round_for_tool_call_with_override(message, id, round_id_override, round_number_override);
-    upsert_ai_turn_round_tool_call(message, id, name, arguments, status, &round_id, round_number);
+    let (round_id, round_number) = ai_turn_round_for_tool_call_with_override(
+        message,
+        id,
+        round_id_override,
+        round_number_override,
+    );
+    upsert_ai_turn_round_tool_call(
+        message,
+        id,
+        name,
+        arguments,
+        status,
+        &round_id,
+        round_number,
+    );
 }
 
-fn upsert_ai_turn_round_tool_call(
+pub(in crate::workspace) fn upsert_ai_turn_round_tool_call(
     message: &mut AiChatMessage,
     id: &str,
     name: &str,
@@ -560,7 +597,10 @@ fn upsert_ai_turn_round_tool_call(
     normalize_ai_pending_summaries(message);
 }
 
-fn ai_turn_round_for_tool_call(message: &AiChatMessage, id: &str) -> (String, i64) {
+pub(in crate::workspace) fn ai_turn_round_for_tool_call(
+    message: &AiChatMessage,
+    id: &str,
+) -> (String, i64) {
     if let Some(existing) = ai_turn_round_for_existing_tool_call(message, id) {
         return existing;
     }
@@ -595,7 +635,7 @@ fn ai_turn_round_for_tool_call(message: &AiChatMessage, id: &str) -> (String, i6
     }
 }
 
-fn ai_turn_round_for_tool_call_with_override(
+pub(in crate::workspace) fn ai_turn_round_for_tool_call_with_override(
     message: &AiChatMessage,
     id: &str,
     round_id_override: Option<&str>,
@@ -614,7 +654,10 @@ fn ai_turn_round_for_tool_call_with_override(
     ai_turn_round_for_tool_call(message, id)
 }
 
-fn ai_turn_round_for_existing_tool_call(message: &AiChatMessage, id: &str) -> Option<(String, i64)> {
+pub(in crate::workspace) fn ai_turn_round_for_existing_tool_call(
+    message: &AiChatMessage,
+    id: &str,
+) -> Option<(String, i64)> {
     let rounds = message
         .turn
         .as_ref()
@@ -641,7 +684,10 @@ fn ai_turn_round_for_existing_tool_call(message: &AiChatMessage, id: &str) -> Op
     None
 }
 
-fn ai_turn_round_has_result(message: &AiChatMessage, round_id: &str) -> bool {
+pub(in crate::workspace) fn ai_turn_round_has_result(
+    message: &AiChatMessage,
+    round_id: &str,
+) -> bool {
     let Some(round_tool_ids) = message
         .turn
         .as_ref()
@@ -679,12 +725,14 @@ fn ai_turn_round_has_result(message: &AiChatMessage, round_id: &str) -> bool {
                     && part
                         .get("toolCallId")
                         .and_then(serde_json::Value::as_str)
-                        .is_some_and(|tool_call_id| round_tool_ids.iter().any(|id| id == tool_call_id))
+                        .is_some_and(|tool_call_id| {
+                            round_tool_ids.iter().any(|id| id == tool_call_id)
+                        })
             })
         })
 }
 
-fn append_ai_turn_tool_result(
+pub(in crate::workspace) fn append_ai_turn_tool_result(
     message: &mut AiChatMessage,
     id: &str,
     name: &str,

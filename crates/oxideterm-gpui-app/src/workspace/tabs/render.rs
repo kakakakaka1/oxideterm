@@ -1,7 +1,14 @@
+use super::helpers::shortcut_key;
+use super::*;
+
 use gpui::StatefulInteractiveElement;
 
 impl WorkspaceApp {
-    pub(super) fn render_tab_bar(&self, _window: &Window, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn render_tab_bar(
+        &self,
+        _window: &Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let theme = self.tokens.ui;
         let bar = div()
             .h(px(self.tokens.metrics.tabbar_height))
@@ -209,13 +216,16 @@ impl WorkspaceApp {
         // or scroll viewport as WindowControlArea::Drag; those elements contain
         // interactive tabs and close buttons that must keep receiving normal
         // GPUI mouse events.
-        scroll_viewport =
-            scroll_viewport.child(self.render_window_drag_region("workspace-tabbar-drag-region", cx));
+        scroll_viewport = scroll_viewport
+            .child(self.render_window_drag_region("workspace-tabbar-drag-region", cx));
 
         bar.child(scroll_viewport).into_any_element()
     }
 
-    pub(super) fn render_node_disconnect_confirm_dialog(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn render_node_disconnect_confirm_dialog(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let Some(confirm) = self.node_disconnect_confirm.as_ref() else {
             return div().into_any_element();
         };
@@ -248,7 +258,10 @@ impl WorkspaceApp {
         )
     }
 
-    pub(super) fn render_tab_close_confirm_dialog(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn render_tab_close_confirm_dialog(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let Some(confirm) = self.main_window_tabs.close_confirm.as_ref() else {
             return div().into_any_element();
         };
@@ -458,7 +471,10 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    pub(super) fn render_empty_workspace(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn render_empty_workspace(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let theme = self.tokens.ui;
         div()
             .size_full()
@@ -558,7 +574,7 @@ impl WorkspaceApp {
                                     .bg(rgb(theme.accent))
                                     .shadow(caret_glow),
                             ),
-                    )
+                    ),
             )
             .into_any_element()
     }
@@ -683,5 +699,4 @@ impl WorkspaceApp {
             .child(self.i18n.t(label_key))
             .into_any_element()
     }
-
 }

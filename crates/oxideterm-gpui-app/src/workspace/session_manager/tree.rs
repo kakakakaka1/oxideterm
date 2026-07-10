@@ -1,5 +1,7 @@
+use super::*;
+
 impl WorkspaceApp {
-    fn render_session_manager_toolbar(
+    pub(super) fn render_session_manager_toolbar(
         &self,
         window: &Window,
         has_background: bool,
@@ -79,18 +81,22 @@ impl WorkspaceApp {
                 .flex_none(),
             )
             .child(
-                div().flex_none().child(self.render_session_manager_sort_trigger(
-                    has_background,
-                    show_transfer_labels,
-                    cx,
-                )),
+                div()
+                    .flex_none()
+                    .child(self.render_session_manager_sort_trigger(
+                        has_background,
+                        show_transfer_labels,
+                        cx,
+                    )),
             )
             .child(
-                div().flex_none().child(self.render_session_manager_view_mode_trigger(
-                    has_background,
-                    show_transfer_labels,
-                    cx,
-                )),
+                div()
+                    .flex_none()
+                    .child(self.render_session_manager_view_mode_trigger(
+                        has_background,
+                        show_transfer_labels,
+                        cx,
+                    )),
             )
             .when(selected_count > 0, |toolbar| {
                 toolbar.child(
@@ -153,29 +159,25 @@ impl WorkspaceApp {
                     .flex()
                     .items_center()
                     .gap(px(22.0))
-                    .child(
-                        div().flex_none().child(self.render_toolbar_link_icon(
-                            LucideIcon::Download,
-                            "sessionManager.toolbar.import",
-                            SessionTransferAction::ImportOxide,
-                            show_transfer_labels,
-                            cx,
-                        )),
-                    )
-                    .child(
-                        div().flex_none().child(self.render_toolbar_link_icon(
-                            LucideIcon::Upload,
-                            "sessionManager.toolbar.export",
-                            SessionTransferAction::ExportOxide,
-                            show_transfer_labels,
-                            cx,
-                        )),
-                    ),
+                    .child(div().flex_none().child(self.render_toolbar_link_icon(
+                        LucideIcon::Download,
+                        "sessionManager.toolbar.import",
+                        SessionTransferAction::ImportOxide,
+                        show_transfer_labels,
+                        cx,
+                    )))
+                    .child(div().flex_none().child(self.render_toolbar_link_icon(
+                        LucideIcon::Upload,
+                        "sessionManager.toolbar.export",
+                        SessionTransferAction::ExportOxide,
+                        show_transfer_labels,
+                        cx,
+                    ))),
             )
             .into_any_element()
     }
 
-    fn render_session_manager_view_mode_trigger(
+    pub(super) fn render_session_manager_view_mode_trigger(
         &self,
         has_background: bool,
         show_label: bool,
@@ -214,7 +216,7 @@ impl WorkspaceApp {
         .into_any_element()
     }
 
-    fn render_session_manager_sort_trigger(
+    pub(super) fn render_session_manager_sort_trigger(
         &self,
         has_background: bool,
         show_label: bool,
@@ -252,7 +254,7 @@ impl WorkspaceApp {
         .into_any_element()
     }
 
-    fn render_session_manager_view_mode_menu(
+    pub(super) fn render_session_manager_view_mode_menu(
         &self,
         window: &Window,
         has_background: bool,
@@ -319,7 +321,7 @@ impl WorkspaceApp {
         .into_any_element()
     }
 
-    fn render_session_manager_sort_menu(
+    pub(super) fn render_session_manager_sort_menu(
         &self,
         window: &Window,
         has_background: bool,

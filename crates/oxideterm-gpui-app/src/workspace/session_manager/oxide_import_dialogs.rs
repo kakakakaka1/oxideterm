@@ -1,4 +1,6 @@
-fn oxide_import_connection_preview_signature(name: &String) -> u64 {
+use super::*;
+
+pub(super) fn oxide_import_connection_preview_signature(name: &String) -> u64 {
     let mut hasher = DefaultHasher::new();
     // The file-info preview is read-only; the connection name is both identity
     // and visible text for each virtual row.
@@ -170,8 +172,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-
-    fn render_oxide_import_file_info(
+    pub(super) fn render_oxide_import_file_info(
         &self,
         metadata: OxideMetadata,
         cx: &mut Context<Self>,
@@ -191,7 +192,10 @@ impl WorkspaceApp {
                 format!("{} 个连接", metadata.num_connections),
             ),
         ];
-        if let Some(description) = metadata.description.filter(|value| !value.trim().is_empty()) {
+        if let Some(description) = metadata
+            .description
+            .filter(|value| !value.trim().is_empty())
+        {
             rows.insert(2, ("描述:".to_string(), description));
         }
         if metadata.has_app_settings.unwrap_or(false) {
@@ -266,17 +270,15 @@ impl WorkspaceApp {
                 .gap(px(4.0))
                 .text_size(px(self.tokens.metrics.ui_text_sm))
                 .text_color(rgb(self.tokens.ui.text))
-                .child(
-                    div()
-                        .text_color(rgb(self.tokens.ui.text_muted))
-                        .child(self.render_selectable_text_scoped(
-                            "oxide-import-file-info-label",
-                            index,
-                            label,
-                            self.tokens.ui.text_muted,
-                            cx,
-                        )),
-                )
+                .child(div().text_color(rgb(self.tokens.ui.text_muted)).child(
+                    self.render_selectable_text_scoped(
+                        "oxide-import-file-info-label",
+                        index,
+                        label,
+                        self.tokens.ui.text_muted,
+                        cx,
+                    ),
+                ))
                 .child(
                     div()
                         .flex_1()
@@ -349,30 +351,28 @@ impl WorkspaceApp {
         self.render_oxide_padded_card(16.0, None, children, cx)
     }
 
-    fn sync_oxide_import_connection_preview_list_state(&self, names: &[String]) {
+    pub(super) fn sync_oxide_import_connection_preview_list_state(&self, names: &[String]) {
         let signatures = names
             .iter()
             .map(oxide_import_connection_preview_signature)
             .collect::<Vec<_>>();
         sync_tauri_variable_list_state_by_signatures(
             &self.oxide_import_connection_preview_list_state,
-            &mut self
-                .oxide_import_connection_preview_list_cache
-                .borrow_mut(),
+            &mut self.oxide_import_connection_preview_list_cache.borrow_mut(),
             "oxide-import-connection-preview",
             &signatures,
             self.oxide_import_connection_preview_list_spec(),
         );
     }
 
-    fn oxide_import_connection_preview_list_spec(&self) -> TauriVirtualListSpec {
+    pub(super) fn oxide_import_connection_preview_list_spec(&self) -> TauriVirtualListSpec {
         TauriVirtualListSpec::new(
             px(OXIDE_IMPORT_CONNECTION_PREVIEW_LIST_ESTIMATED_HEIGHT),
             OXIDE_IMPORT_CONNECTION_PREVIEW_LIST_OVERSCAN,
         )
     }
 
-    fn render_oxide_import_connection_preview_item(
+    pub(super) fn render_oxide_import_connection_preview_item(
         &self,
         index: usize,
         cx: &mut Context<Self>,
@@ -399,7 +399,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_oxide_conflict_strategy(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn render_oxide_conflict_strategy(&self, cx: &mut Context<Self>) -> AnyElement {
         let current = self
             .session_manager
             .oxide_import_dialog
@@ -464,8 +464,7 @@ impl WorkspaceApp {
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(move |this, _event, _window, cx| {
-                            if let Some(dialog) =
-                                this.session_manager.oxide_import_dialog.as_mut()
+                            if let Some(dialog) = this.session_manager.oxide_import_dialog.as_mut()
                             {
                                 dialog.conflict_strategy = strategy;
                                 dialog.preview = None;
@@ -498,8 +497,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-
-    fn render_oxide_import_warning(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn render_oxide_import_warning(&self, cx: &mut Context<Self>) -> AnyElement {
         div()
             .px_3()
             .py_2()
@@ -556,6 +554,4 @@ impl WorkspaceApp {
             )
             .into_any_element()
     }
-
-
 }

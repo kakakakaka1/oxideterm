@@ -1,4 +1,9 @@
-fn monitor_center_state(
+use super::*;
+
+use gpui::{PathBuilder, canvas, point};
+use oxideterm_topology::TopologyViewStatus;
+
+pub(super) fn monitor_center_state(
     app: &WorkspaceApp,
     icon: LucideIcon,
     color: u32,
@@ -19,40 +24,45 @@ fn monitor_center_state(
                 .mb_2()
                 .child(WorkspaceApp::render_lucide_icon(icon, 20.0, rgb(color))),
         )
-        .child(div().text_size(px(14.0)).child(
-            app.render_display_text_with_role(
-                SelectableTextRole::PlainDocument,
-                "monitor-center-state",
-                label_key,
-                label,
-                color,
-                cx,
-            ),
-        ))
+        .child(
+            div()
+                .text_size(px(14.0))
+                .child(app.render_display_text_with_role(
+                    SelectableTextRole::PlainDocument,
+                    "monitor-center-state",
+                    label_key,
+                    label,
+                    color,
+                    cx,
+                )),
+        )
         .into_any_element()
 }
 
-fn monitor_connection_label(connection: &MonitorConnectionOption) -> String {
+pub(super) fn monitor_connection_label(connection: &MonitorConnectionOption) -> String {
     format!(
         "{}@{}:{}",
         connection.username, connection.host, connection.port
     )
 }
 
-fn monitor_connection_can_switch(connections: &[MonitorConnectionOption]) -> bool {
+pub(super) fn monitor_connection_can_switch(connections: &[MonitorConnectionOption]) -> bool {
     // A single Host Tools connection is already identified by the monitor and
     // process headers. Only expose switch affordances when another host exists.
     connections.len() > 1
 }
 
-fn host_process_table_uses_separate_user_column(sidebar_width: f32) -> bool {
+pub(super) fn host_process_table_uses_separate_user_column(sidebar_width: f32) -> bool {
     // The default Host Tools sidebar is too narrow for Program/User/PID/CPU/Mem
     // plus action affordances. Merge Program and User until the user drags the
     // sidebar wide enough for a btop-like separate User column.
     sidebar_width >= HOST_PROCESS_SEPARATE_USER_COLUMN_MIN_WIDTH
 }
 
-fn host_process_identity_header_label(i18n: &I18n, separate_user_column: bool) -> String {
+pub(super) fn host_process_identity_header_label(
+    i18n: &I18n,
+    separate_user_column: bool,
+) -> String {
     if separate_user_column {
         return i18n.t("sidebar.host_processes.sort.command");
     }
@@ -64,7 +74,7 @@ fn host_process_identity_header_label(i18n: &I18n, separate_user_column: bool) -
     )
 }
 
-fn monitor_connection_selected_index(
+pub(super) fn monitor_connection_selected_index(
     connections: &[MonitorConnectionOption],
     selected_id: &str,
 ) -> usize {
@@ -77,15 +87,15 @@ fn monitor_connection_selected_index(
         .unwrap_or(0)
 }
 
-fn topology_transform_x(x: f32, transform: TopologyTransform) -> f32 {
+pub(super) fn topology_transform_x(x: f32, transform: TopologyTransform) -> f32 {
     transform.x + x * transform.k
 }
 
-fn topology_transform_y(y: f32, transform: TopologyTransform) -> f32 {
+pub(super) fn topology_transform_y(y: f32, transform: TopologyTransform) -> f32 {
     transform.y + y * transform.k
 }
 
-fn topology_view_status_color(status: TopologyViewStatus) -> u32 {
+pub(super) fn topology_view_status_color(status: TopologyViewStatus) -> u32 {
     match status {
         TopologyViewStatus::Connected => TOPOLOGY_CONNECTED,
         TopologyViewStatus::Connecting => TOPOLOGY_CONNECTING,
@@ -95,15 +105,15 @@ fn topology_view_status_color(status: TopologyViewStatus) -> u32 {
     }
 }
 
-fn threshold_color(value: Option<f64>) -> u32 {
+pub(super) fn threshold_color(value: Option<f64>) -> u32 {
     monitor_value_level_color(percent_level(value), 0x94a3b8)
 }
 
-fn rtt_color(value: Option<u64>) -> u32 {
+pub(super) fn rtt_color(value: Option<u64>) -> u32 {
     monitor_value_level_color(rtt_level(value), 0x94a3b8)
 }
 
-fn monitor_value_level_color(level: MonitorValueLevel, muted_color: u32) -> u32 {
+pub(super) fn monitor_value_level_color(level: MonitorValueLevel, muted_color: u32) -> u32 {
     match level {
         MonitorValueLevel::Muted => muted_color,
         MonitorValueLevel::Normal => MONITOR_EMERALD,
@@ -112,7 +122,7 @@ fn monitor_value_level_color(level: MonitorValueLevel, muted_color: u32) -> u32 
     }
 }
 
-fn render_sparkline(values: Vec<Option<f64>>, color: u32) -> AnyElement {
+pub(super) fn render_sparkline(values: Vec<Option<f64>>, color: u32) -> AnyElement {
     if values.iter().filter_map(|value| *value).count() < 2 {
         return div().into_any_element();
     }
@@ -153,7 +163,11 @@ fn render_sparkline(values: Vec<Option<f64>>, color: u32) -> AnyElement {
         .into_any_element()
 }
 
-fn sparkline_polyline_points(values: &[Option<f64>], width: f32, height: f32) -> Vec<(f32, f32)> {
+pub(super) fn sparkline_polyline_points(
+    values: &[Option<f64>],
+    width: f32,
+    height: f32,
+) -> Vec<(f32, f32)> {
     let valid = values.iter().filter_map(|value| *value).collect::<Vec<_>>();
     if valid.len() < 2 {
         return Vec::new();

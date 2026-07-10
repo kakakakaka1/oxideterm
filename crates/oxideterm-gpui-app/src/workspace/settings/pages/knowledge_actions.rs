@@ -1,12 +1,18 @@
+use super::*;
+
 impl WorkspaceApp {
     pub(in crate::workspace) fn knowledge_create_collection(&mut self, cx: &mut Context<Self>) {
-        let name = self.settings_page.knowledge_new_collection_name.trim().to_string();
+        let name = self
+            .settings_page
+            .knowledge_new_collection_name
+            .trim()
+            .to_string();
         if name.is_empty() {
             cx.notify();
             return;
         }
         match oxideterm_ai::rag_create_collection(
-            &self.ai_rag_store.get(),
+            &self.ai.knowledge.rag_store.get(),
             oxideterm_ai::RagCreateCollectionRequest {
                 name,
                 scope: oxideterm_ai::RagDocScopeRequest::Global,
@@ -25,21 +31,32 @@ impl WorkspaceApp {
     }
 
     pub(in crate::workspace) fn knowledge_create_blank_document(&mut self, cx: &mut Context<Self>) {
-        let Some(collection_id) = self.settings_page.knowledge_selected_collection_id.clone().or_else(|| {
-            oxideterm_ai::rag_list_collections(&self.ai_rag_store.get(), None)
-                .ok()
-                .and_then(|collections| collections.first().map(|collection| collection.id.clone()))
-        }) else {
+        let Some(collection_id) = self
+            .settings_page
+            .knowledge_selected_collection_id
+            .clone()
+            .or_else(|| {
+                oxideterm_ai::rag_list_collections(&self.ai.knowledge.rag_store.get(), None)
+                    .ok()
+                    .and_then(|collections| {
+                        collections.first().map(|collection| collection.id.clone())
+                    })
+            })
+        else {
             cx.notify();
             return;
         };
-        let title = self.settings_page.knowledge_new_document_title.trim().to_string();
+        let title = self
+            .settings_page
+            .knowledge_new_document_title
+            .trim()
+            .to_string();
         if title.is_empty() {
             cx.notify();
             return;
         }
         match oxideterm_ai::rag_create_blank_document(
-            &self.ai_rag_store.get(),
+            &self.ai.knowledge.rag_store.get(),
             oxideterm_ai::RagCreateBlankDocumentRequest {
                 collection_id,
                 title,
@@ -58,8 +75,15 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn knowledge_delete_collection(&mut self, collection_id: String, cx: &mut Context<Self>) {
-        match oxideterm_ai::rag_delete_collection(&self.ai_rag_store.get(), &collection_id) {
+    pub(in crate::workspace) fn knowledge_delete_collection(
+        &mut self,
+        collection_id: String,
+        cx: &mut Context<Self>,
+    ) {
+        match oxideterm_ai::rag_delete_collection(
+            &self.ai.knowledge.rag_store.get(),
+            &collection_id,
+        ) {
             Ok(()) => {
                 self.settings_page
                     .clear_deleted_knowledge_collection(&collection_id);
@@ -71,11 +95,16 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn knowledge_delete_document(&mut self, document_id: String, cx: &mut Context<Self>) {
-        match oxideterm_ai::rag_remove_document(&self.ai_rag_store.get(), &document_id) {
+    pub(in crate::workspace) fn knowledge_delete_document(
+        &mut self,
+        document_id: String,
+        cx: &mut Context<Self>,
+    ) {
+        match oxideterm_ai::rag_remove_document(&self.ai.knowledge.rag_store.get(), &document_id) {
             Ok(()) => {
                 if self
-                    .settings_page.knowledge_external_edit
+                    .settings_page
+                    .knowledge_external_edit
                     .as_ref()
                     .is_some_and(|edit| edit.doc_id == document_id)
                 {
@@ -90,18 +119,22 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn knowledge_reindex(&mut self, collection_id: String, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn knowledge_reindex(
+        &mut self,
+        collection_id: String,
+        cx: &mut Context<Self>,
+    ) {
         if self.settings_page.knowledge_reindex_progress.is_some() {
             cx.notify();
             return;
         }
         let cancel = Arc::new(AtomicBool::new(false));
         let cancel_for_task = cancel.clone();
-        let store = self.ai_rag_store.get();
+        let store = self.ai.knowledge.rag_store.get();
         let (tx, rx) = std::sync::mpsc::channel();
         self.settings_page.start_knowledge_reindex();
-        self.knowledge_reindex_cancel = Some(cancel);
-        self.knowledge_reindex_rx = Some(rx);
+        self.ai.knowledge.reindex_cancel = Some(cancel);
+        self.ai.knowledge.reindex_rx = Some(rx);
         self.schedule_knowledge_reindex_poll(cx);
         self.forwarding_runtime.spawn(async move {
             let mut last_emitted = 0usize;
@@ -122,28 +155,27 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn knowledge_cancel_reindex(&mut self, cx: &mut Context<Self>) {
-        if let Some(cancel) = self.knowledge_reindex_cancel.as_ref() {
+    pub(in crate::workspace) fn knowledge_cancel_reindex(&mut self, cx: &mut Context<Self>) {
+        if let Some(cancel) = self.ai.knowledge.reindex_cancel.as_ref() {
             cancel.store(true, Ordering::Relaxed);
         }
         cx.notify();
     }
 
-    fn poll_knowledge_reindex_results(&mut self, cx: &mut Context<Self>) {
-        let Some(rx) = self.knowledge_reindex_rx.take() else {
+    pub(in crate::workspace) fn poll_knowledge_reindex_results(&mut self, cx: &mut Context<Self>) {
+        let Some(rx) = self.ai.knowledge.reindex_rx.take() else {
             return;
         };
         let mut keep_rx = true;
         while let Ok(delivery) = rx.try_recv() {
             match delivery {
                 KnowledgeReindexDelivery::Progress { current, total } => {
-                    self.settings_page
-                        .update_knowledge_reindex(current, total);
+                    self.settings_page.update_knowledge_reindex(current, total);
                 }
                 KnowledgeReindexDelivery::Finished(result) => {
                     keep_rx = false;
                     self.settings_page.finish_knowledge_reindex();
-                    self.knowledge_reindex_cancel = None;
+                    self.ai.knowledge.reindex_cancel = None;
                     if let Err(error) = result {
                         let message = format!(
                             "{}: {error}",
@@ -157,21 +189,21 @@ impl WorkspaceApp {
             }
         }
         if keep_rx {
-            self.knowledge_reindex_rx = Some(rx);
+            self.ai.knowledge.reindex_rx = Some(rx);
         }
         cx.notify();
     }
 
-    fn schedule_knowledge_reindex_poll(&mut self, cx: &mut Context<Self>) {
-        if self.knowledge_reindex_polling {
+    pub(in crate::workspace) fn schedule_knowledge_reindex_poll(&mut self, cx: &mut Context<Self>) {
+        if self.ai.knowledge.reindex_polling {
             return;
         }
-        self.knowledge_reindex_polling = true;
+        self.ai.knowledge.reindex_polling = true;
         cx.spawn(async move |weak, cx| {
             Timer::after(Duration::from_millis(33)).await;
             let _ = weak.update(cx, |this, cx| {
-                this.knowledge_reindex_polling = false;
-                if this.knowledge_reindex_rx.is_some() {
+                this.ai.knowledge.reindex_polling = false;
+                if this.ai.knowledge.reindex_rx.is_some() {
                     this.poll_knowledge_reindex_results(cx);
                     this.schedule_knowledge_reindex_poll(cx);
                 }
@@ -180,7 +212,7 @@ impl WorkspaceApp {
         .detach();
     }
 
-    fn knowledge_import_files(
+    pub(in crate::workspace) fn knowledge_import_files(
         &mut self,
         collection_id: String,
         _window: &mut Window,
@@ -197,7 +229,7 @@ impl WorkspaceApp {
                 self.i18n.t("settings_view.knowledge.import_files"),
             )),
         });
-        let store = self.ai_rag_store.get();
+        let store = self.ai.knowledge.rag_store.get();
         let error_title = self.i18n.t("settings_view.knowledge.error_import");
         cx.spawn(async move |weak, cx| {
             let Ok(Ok(Some(paths))) = receiver.await else {
@@ -238,7 +270,11 @@ impl WorkspaceApp {
         .detach();
     }
 
-    fn knowledge_generate_embeddings(&mut self, collection_id: String, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn knowledge_generate_embeddings(
+        &mut self,
+        collection_id: String,
+        cx: &mut Context<Self>,
+    ) {
         if self.settings_page.knowledge_embedding_progress.is_some() {
             return;
         }
@@ -278,8 +314,8 @@ impl WorkspaceApp {
             cx.notify();
             return;
         }
-        let store = self.ai_rag_store.get();
-        let key_store = self.ai_key_store.clone();
+        let store = self.ai.knowledge.rag_store.get();
+        let key_store = self.ai.models.key_store.clone();
         let key_provider_id = provider.id.clone();
         let key_lookup_runtime = self.forwarding_runtime.clone();
         let requires_api_key = oxideterm_ai::ai_embedding_requires_api_key(&provider);
@@ -296,7 +332,9 @@ impl WorkspaceApp {
         cx.spawn(async move |weak, cx| {
             let api_key = if requires_api_key {
                 let key_lookup = key_lookup_runtime
-                    .spawn_blocking(move || key_store.get_provider_key(&key_provider_id).ok().flatten())
+                    .spawn_blocking(move || {
+                        key_store.get_provider_key(&key_provider_id).ok().flatten()
+                    })
                     .await
                     .ok()
                     .flatten();
@@ -318,8 +356,7 @@ impl WorkspaceApp {
                 None
             };
             let pending =
-                match oxideterm_ai::rag_get_pending_embeddings(&store, &collection_id, Some(500))
-                {
+                match oxideterm_ai::rag_get_pending_embeddings(&store, &collection_id, Some(500)) {
                     Ok(pending) => pending,
                     Err(error) => {
                         let _ = weak.update(cx, |this, cx| {
@@ -398,19 +435,24 @@ impl WorkspaceApp {
         .detach();
     }
 
-    fn knowledge_open_external(&mut self, document_id: String, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn knowledge_open_external(
+        &mut self,
+        document_id: String,
+        cx: &mut Context<Self>,
+    ) {
         if uuid::Uuid::parse_str(&document_id).is_err() {
-            self.settings_page.set_knowledge_error(self.i18n.t("settings_view.knowledge.error_open_external"));
+            self.settings_page
+                .set_knowledge_error(self.i18n.t("settings_view.knowledge.error_open_external"));
             cx.notify();
             return;
         }
-        let docs = oxideterm_ai::rag_list_collections(&self.ai_rag_store.get(), None)
+        let docs = oxideterm_ai::rag_list_collections(&self.ai.knowledge.rag_store.get(), None)
             .ok()
             .into_iter()
             .flatten()
             .find_map(|collection| {
                 oxideterm_ai::rag_list_documents(
-                    &self.ai_rag_store.get(),
+                    &self.ai.knowledge.rag_store.get(),
                     &collection.id,
                     None,
                     Some(500),
@@ -423,12 +465,15 @@ impl WorkspaceApp {
                 })
             });
         let Some(document) = docs else {
-            self.settings_page.set_knowledge_error(self.i18n.t("settings_view.knowledge.error_open_external"));
+            self.settings_page
+                .set_knowledge_error(self.i18n.t("settings_view.knowledge.error_open_external"));
             cx.notify();
             return;
         };
-        let content = match oxideterm_ai::rag_get_document_content(&self.ai_rag_store.get(), &document_id)
-        {
+        let content = match oxideterm_ai::rag_get_document_content(
+            &self.ai.knowledge.rag_store.get(),
+            &document_id,
+        ) {
             Ok(content) => content,
             Err(error) => {
                 self.settings_page.set_knowledge_error(format!(
@@ -503,11 +548,12 @@ impl WorkspaceApp {
         let opened = open_path_external(&path).map_err(|error| error.to_string());
         match opened {
             Ok(()) => {
-                self.settings_page.set_knowledge_external_edit(KnowledgeExternalEdit {
-                    doc_id: document.id,
-                    path,
-                    version: document.version,
-                });
+                self.settings_page
+                    .set_knowledge_external_edit(KnowledgeExternalEdit {
+                        doc_id: document.id,
+                        path,
+                        version: document.version,
+                    });
                 self.settings_page.clear_knowledge_error();
             }
             Err(error) => {
@@ -541,7 +587,10 @@ impl WorkspaceApp {
                 return;
             }
         };
-        match oxideterm_ai::rag_get_document_content(&self.ai_rag_store.get(), &edit.doc_id) {
+        match oxideterm_ai::rag_get_document_content(
+            &self.ai.knowledge.rag_store.get(),
+            &edit.doc_id,
+        ) {
             Ok(current) if current == content => {
                 let _ = fs::remove_file(&edit.path);
                 self.settings_page.clear_knowledge_external_edit();
@@ -565,7 +614,7 @@ impl WorkspaceApp {
             }
         }
         match oxideterm_ai::rag_update_document(
-            &self.ai_rag_store.get(),
+            &self.ai.knowledge.rag_store.get(),
             &edit.doc_id,
             content,
             Some(edit.version),

@@ -1,5 +1,21 @@
+use super::helpers::parse_port;
+use super::{
+    Arc, ConnectionConsumer, ConnectionState, Context, DetectedPort, Duration,
+    FORWARDS_DEFAULT_BIND_ADDRESS, FORWARDS_DEFAULT_TARGET_HOST, FORWARDS_NODE_SESSION_PREFIX,
+    FORWARDS_PORT_SCAN_INTERVAL, FORWARDS_STATS_REFRESH_INTERVAL, ForwardEvent, ForwardInput,
+    ForwardRule, ForwardStatus, ForwardType, ForwardUpdate, ForwardingManager, ForwardingRegistry,
+    ForwardingWorkerResult, Instant, KeyDownEvent, NodeId, NodeReadiness, NodeRouter,
+    PortDetectionSnapshot, TabId, TabKind, TerminalNotice, TerminalNoticeVariant, WorkspaceApp,
+    thread,
+};
+
 impl WorkspaceApp {
-    fn submit_forward_create(&mut self, tab_id: TabId, node_id: NodeId, cx: &mut Context<Self>) {
+    pub(super) fn submit_forward_create(
+        &mut self,
+        tab_id: TabId,
+        node_id: NodeId,
+        cx: &mut Context<Self>,
+    ) {
         let forward_type = self.forwarding_view.forward_type;
         let bind_port_value = self.forwarding_view.bind_port.clone();
         let target_port_value = self.forwarding_view.target_port.clone();
@@ -56,7 +72,7 @@ impl WorkspaceApp {
         );
     }
 
-    fn create_local_forward_for_detected_port(
+    pub(super) fn create_local_forward_for_detected_port(
         &mut self,
         tab_id: TabId,
         node_id: NodeId,
@@ -108,7 +124,7 @@ impl WorkspaceApp {
         );
     }
 
-    fn dismiss_detected_port(&mut self, port: u16) {
+    pub(super) fn dismiss_detected_port(&mut self, port: u16) {
         self.forwarding_view
             .new_ports
             .retain(|detected| detected.port != port);
@@ -129,7 +145,12 @@ impl WorkspaceApp {
         }
     }
 
-    fn submit_forward_edit(&mut self, tab_id: TabId, node_id: NodeId, cx: &mut Context<Self>) {
+    pub(super) fn submit_forward_edit(
+        &mut self,
+        tab_id: TabId,
+        node_id: NodeId,
+        cx: &mut Context<Self>,
+    ) {
         let Some(editing) = self.forwarding_view.editing_forward.clone() else {
             return;
         };
@@ -206,7 +227,7 @@ impl WorkspaceApp {
         Some((bind_port, Some(target_port)))
     }
 
-    fn start_forward_operation<F>(
+    pub(super) fn start_forward_operation<F>(
         &mut self,
         tab_id: TabId,
         node_id: NodeId,
@@ -272,7 +293,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn start_port_profiler_for_node(&mut self, node_id: NodeId, cx: &mut Context<Self>) {
+    pub(super) fn start_port_profiler_for_node(&mut self, node_id: NodeId, cx: &mut Context<Self>) {
         // Tauri starts a per-connection ResourceProfiler from usePortDetection
         // and leaves it running after the Forwards view unmounts. Native mirrors
         // that lifecycle with a node-owned scanner that emits PortScan results
@@ -282,12 +303,15 @@ impl WorkspaceApp {
         self.start_port_scan(node_id, true, cx);
     }
 
-    pub(super) fn start_port_profiler_for_node_without_notify(&mut self, node_id: NodeId) {
+    pub(in crate::workspace) fn start_port_profiler_for_node_without_notify(
+        &mut self,
+        node_id: NodeId,
+    ) {
         self.forwarding_port_profiler_nodes.insert(node_id.clone());
         self.sync_forwarding_view_port_detection(&node_id);
     }
 
-    pub(super) fn maybe_start_forwards_port_scan(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn maybe_start_forwards_port_scan(&mut self, cx: &mut Context<Self>) {
         let nodes = self
             .forwarding_port_profiler_nodes
             .iter()
@@ -310,7 +334,7 @@ impl WorkspaceApp {
         }
     }
 
-    pub(super) fn maybe_refresh_forwards_stats(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn maybe_refresh_forwards_stats(&mut self, cx: &mut Context<Self>) {
         let Some(tab_id) = self.main_window_tabs.active_tab_id else {
             return;
         };
@@ -443,7 +467,7 @@ impl WorkspaceApp {
                 })
     }
 
-    pub(super) fn poll_forwarding_worker_results(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn poll_forwarding_worker_results(&mut self, cx: &mut Context<Self>) {
         let mut results = Vec::new();
         while let Ok(result) = self.forwarding_worker_rx.try_recv() {
             results.push(result);
@@ -502,7 +526,7 @@ impl WorkspaceApp {
         }
     }
 
-    pub(super) fn poll_forwarding_events(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn poll_forwarding_events(&mut self, cx: &mut Context<Self>) {
         let mut events = Vec::new();
         while let Ok(event) = self.forwarding_event_rx.try_recv() {
             events.push(event);
@@ -632,7 +656,10 @@ impl WorkspaceApp {
             .is_some_and(|active_node_id| active_node_id == node_id)
     }
 
-    pub(super) fn forwarding_connection_id_for_node(&self, node_id: &NodeId) -> Option<String> {
+    pub(in crate::workspace) fn forwarding_connection_id_for_node(
+        &self,
+        node_id: &NodeId,
+    ) -> Option<String> {
         let session_id = self.forwarding_session_id_for_node(node_id);
         self.forwarding_connection_consumers
             .get(&session_id)
@@ -640,19 +667,19 @@ impl WorkspaceApp {
     }
 
     fn forwarding_node_for_connection_id(&self, connection_id: &str) -> Option<NodeId> {
-        self.forwarding_connection_consumers
-            .iter()
-            .find_map(|(session_id, (candidate_connection_id, _))| {
+        self.forwarding_connection_consumers.iter().find_map(
+            |(session_id, (candidate_connection_id, _))| {
                 if candidate_connection_id != connection_id {
                     return None;
                 }
                 session_id
                     .strip_prefix(FORWARDS_NODE_SESSION_PREFIX)
                     .map(|raw_node_id| NodeId(raw_node_id.to_string()))
-            })
+            },
+        )
     }
 
-    pub(super) fn release_forwarding_binding_for_node(
+    pub(in crate::workspace) fn release_forwarding_binding_for_node(
         &mut self,
         node_id: &NodeId,
     ) -> Option<String> {
@@ -735,11 +762,8 @@ impl WorkspaceApp {
                     );
                 }
                 if !snapshot.closed_ports.is_empty() {
-                    let closed: std::collections::HashSet<u16> = snapshot
-                        .closed_ports
-                        .iter()
-                        .map(|port| port.port)
-                        .collect();
+                    let closed: std::collections::HashSet<u16> =
+                        snapshot.closed_ports.iter().map(|port| port.port).collect();
                     state.new_ports.retain(|port| !closed.contains(&port.port));
                 }
                 state.port_scan_error = None;
@@ -769,7 +793,7 @@ impl WorkspaceApp {
         self.forwarding_view.last_port_scan_started = state.last_port_scan_started;
     }
 
-    fn forwarding_manager_for_node_readonly(
+    pub(super) fn forwarding_manager_for_node_readonly(
         &self,
         node_id: &NodeId,
     ) -> Option<Arc<ForwardingManager>> {
@@ -777,7 +801,7 @@ impl WorkspaceApp {
             .get(&self.forwarding_session_id_for_node(node_id))
     }
 
-    pub(super) fn remember_forwarding_binding(
+    pub(in crate::workspace) fn remember_forwarding_binding(
         &mut self,
         binding: Option<(String, String, ConnectionConsumer)>,
     ) {
@@ -820,10 +844,12 @@ impl WorkspaceApp {
     }
 
     fn forwarding_binding_is_current(&self, session_id: &str, connection_id: &str) -> bool {
-        let manager_matches_connection = self
-            .forwarding_registry
-            .get(session_id)
-            .is_some_and(|manager| manager.ssh_connection_handle().connection_id() == connection_id);
+        let manager_matches_connection =
+            self.forwarding_registry
+                .get(session_id)
+                .is_some_and(|manager| {
+                    manager.ssh_connection_handle().connection_id() == connection_id
+                });
         if !manager_matches_connection {
             return false;
         }
@@ -877,9 +903,9 @@ impl WorkspaceApp {
         // connection id, so no forward path keeps liveness through an old
         // terminal/session handle.
         if let Some(owner_connection_id) = owner_connection_id.as_ref() {
-            let _ = registry
-                .saved_store()
-                .map(|store| store.bind_owned_forwards_to_session(owner_connection_id, &session_id));
+            let _ = registry.saved_store().map(|store| {
+                store.bind_owned_forwards_to_session(owner_connection_id, &session_id)
+            });
         }
         if manager_existed {
             return Ok((manager, Some((session_id, connection_id, consumer))));
@@ -903,7 +929,7 @@ impl WorkspaceApp {
         Ok((manager, Some((session_id, connection_id, consumer))))
     }
 
-    fn forward_persist_context_for_node(
+    pub(super) fn forward_persist_context_for_node(
         &self,
         node_id: &NodeId,
     ) -> Option<(String, Option<String>)> {
@@ -914,11 +940,11 @@ impl WorkspaceApp {
         ))
     }
 
-    pub(super) fn forwarding_session_id_for_node(&self, node_id: &NodeId) -> String {
+    pub(in crate::workspace) fn forwarding_session_id_for_node(&self, node_id: &NodeId) -> String {
         format!("{FORWARDS_NODE_SESSION_PREFIX}{}", node_id.0)
     }
 
-    fn open_forward_edit_form(&mut self, rule: ForwardRule, cx: &mut Context<Self>) {
+    pub(super) fn open_forward_edit_form(&mut self, rule: ForwardRule, cx: &mut Context<Self>) {
         self.forwarding_view.edit_bind_address = rule.bind_address.clone();
         self.forwarding_view.edit_bind_port = rule.bind_port.to_string();
         self.forwarding_view.edit_target_host = rule.target_host.clone();
@@ -929,7 +955,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    pub(super) fn handle_forwards_key(
+    pub(in crate::workspace) fn handle_forwards_key(
         &mut self,
         event: &KeyDownEvent,
         cx: &mut Context<Self>,
@@ -962,7 +988,7 @@ impl WorkspaceApp {
         }
     }
 
-    pub(super) fn forward_input_value(&self, input: ForwardInput) -> &str {
+    pub(in crate::workspace) fn forward_input_value(&self, input: ForwardInput) -> &str {
         match input {
             ForwardInput::CreateBindAddress => &self.forwarding_view.bind_address,
             ForwardInput::CreateBindPort => &self.forwarding_view.bind_port,
@@ -975,7 +1001,10 @@ impl WorkspaceApp {
         }
     }
 
-    pub(super) fn forward_input_value_mut(&mut self, input: ForwardInput) -> &mut String {
+    pub(in crate::workspace) fn forward_input_value_mut(
+        &mut self,
+        input: ForwardInput,
+    ) -> &mut String {
         match input {
             ForwardInput::CreateBindAddress => &mut self.forwarding_view.bind_address,
             ForwardInput::CreateBindPort => &mut self.forwarding_view.bind_port,

@@ -1,51 +1,53 @@
+use super::*;
+
 #[allow(dead_code)]
 #[derive(Clone, Debug)]
-pub(super) struct OxideClientStateImportOptions {
-    pub(super) oxide_options: OxideImportOptions,
-    pub(super) import_quick_commands: bool,
-    pub(super) quick_command_strategy: QuickCommandImportStrategy,
-    pub(super) import_plugin_settings: bool,
-    pub(super) selected_plugin_ids: Option<HashSet<String>>,
-    pub(super) import_app_settings: bool,
-    pub(super) selected_app_settings_sections: Option<HashSet<String>>,
+pub(in crate::workspace) struct OxideClientStateImportOptions {
+    pub(in crate::workspace) oxide_options: OxideImportOptions,
+    pub(in crate::workspace) import_quick_commands: bool,
+    pub(in crate::workspace) quick_command_strategy: QuickCommandImportStrategy,
+    pub(in crate::workspace) import_plugin_settings: bool,
+    pub(in crate::workspace) selected_plugin_ids: Option<HashSet<String>>,
+    pub(in crate::workspace) import_app_settings: bool,
+    pub(in crate::workspace) selected_app_settings_sections: Option<HashSet<String>>,
 }
 
 #[allow(dead_code)]
 #[derive(Clone, Debug)]
-pub(super) struct OxideClientStateImportResult {
-    pub(super) envelope: ImportResultEnvelope,
-    pub(super) imported_app_settings: bool,
-    pub(super) skipped_app_settings: bool,
-    pub(super) imported_quick_commands: usize,
-    pub(super) skipped_quick_commands: bool,
-    pub(super) quick_commands_errors: Vec<String>,
-    pub(super) imported_plugin_settings: usize,
-    pub(super) skipped_plugin_settings: bool,
+pub(in crate::workspace) struct OxideClientStateImportResult {
+    pub(in crate::workspace) envelope: ImportResultEnvelope,
+    pub(in crate::workspace) imported_app_settings: bool,
+    pub(in crate::workspace) skipped_app_settings: bool,
+    pub(in crate::workspace) imported_quick_commands: usize,
+    pub(in crate::workspace) skipped_quick_commands: bool,
+    pub(in crate::workspace) quick_commands_errors: Vec<String>,
+    pub(in crate::workspace) imported_plugin_settings: usize,
+    pub(in crate::workspace) skipped_plugin_settings: bool,
 }
 
-struct OxideCoreImportResult {
+pub(super) struct OxideCoreImportResult {
     store: ConnectionStore,
     envelope: ImportResultEnvelope,
 }
 
-enum OxidePreviewWorkerMessage {
+pub(super) enum OxidePreviewWorkerMessage {
     Progress(OxideTransferProgress),
     Done(Result<ImportPreview, String>),
 }
 
-enum OxideImportWorkerMessage {
+pub(super) enum OxideImportWorkerMessage {
     Progress(OxideTransferProgress),
     Done(Result<OxideCoreImportResult, String>),
 }
 
-enum OxideExportWorkerMessage {
+pub(super) enum OxideExportWorkerMessage {
     Progress(OxideTransferProgress),
     Done(Result<Vec<u8>, String>),
 }
 
 #[derive(Default, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-struct OxideClientStateSnapshot {
+pub(super) struct OxideClientStateSnapshot {
     #[serde(default)]
     last_export_timestamp: Option<i64>,
 }
@@ -84,7 +86,7 @@ impl WorkspaceApp {
         self.open_oxide_export_dialog_with_portable_mode(true, cx);
     }
 
-    fn open_oxide_export_dialog_with_portable_mode(
+    pub(super) fn open_oxide_export_dialog_with_portable_mode(
         &mut self,
         portable_migration: bool,
         cx: &mut Context<Self>,
@@ -100,9 +102,10 @@ impl WorkspaceApp {
             .iter()
             .map(|forward| forward.id.clone())
             .collect();
-        let plugin_settings =
-            crate::workspace::plugin_settings_store::load_plugin_settings(self.settings_store.path())
-                .unwrap_or_default();
+        let plugin_settings = crate::workspace::plugin_settings_store::load_plugin_settings(
+            self.settings_store.path(),
+        )
+        .unwrap_or_default();
         for setting in plugin_settings {
             if let Some(plugin_id) = plugin_id_from_setting_storage_key(&setting.storage_key) {
                 *dialog.plugin_groups.entry(plugin_id).or_insert(0) += 1;
@@ -116,7 +119,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    pub(super) fn handle_oxide_dialog_footer_key(
+    pub(in crate::workspace) fn handle_oxide_dialog_footer_key(
         &mut self,
         event: &KeyDownEvent,
         cx: &mut Context<Self>,
@@ -134,7 +137,7 @@ impl WorkspaceApp {
         false
     }
 
-    fn handle_oxide_import_footer_key(
+    pub(super) fn handle_oxide_import_footer_key(
         &mut self,
         event: &KeyDownEvent,
         cx: &mut Context<Self>,
@@ -197,7 +200,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn activate_oxide_import_footer_action(
+    pub(super) fn activate_oxide_import_footer_action(
         &mut self,
         action: OxideDialogFooterAction,
         cx: &mut Context<Self>,
@@ -242,7 +245,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn handle_oxide_export_footer_key(
+    pub(super) fn handle_oxide_export_footer_key(
         &mut self,
         event: &KeyDownEvent,
         cx: &mut Context<Self>,
@@ -253,7 +256,10 @@ impl WorkspaceApp {
         if dialog.busy {
             return false;
         }
-        let actions = [OxideDialogFooterAction::Cancel, OxideDialogFooterAction::Primary];
+        let actions = [
+            OxideDialogFooterAction::Cancel,
+            OxideDialogFooterAction::Primary,
+        ];
         let body_inputs = oxide_export_footer_body_inputs(dialog);
         let current_input = self
             .session_manager
@@ -315,7 +321,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn exportable_saved_forwards(&self) -> Vec<PersistedForward> {
+    pub(super) fn exportable_saved_forwards(&self) -> Vec<PersistedForward> {
         let connection_ids = self
             .connection_store
             .connections()
@@ -351,7 +357,7 @@ impl WorkspaceApp {
         forwards
     }
 
-    fn select_oxide_import_file(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn select_oxide_import_file(&mut self, cx: &mut Context<Self>) {
         let receiver = cx.prompt_for_paths(PathPromptOptions {
             files: true,
             directories: false,
@@ -374,9 +380,9 @@ impl WorkspaceApp {
                 Err(error) => Err(error.to_string()),
             };
             let _ = weak.update(cx, |this, cx| {
-            let Some(dialog) = this.session_manager.oxide_import_dialog.as_mut() else {
-                return;
-            };
+                let Some(dialog) = this.session_manager.oxide_import_dialog.as_mut() else {
+                    return;
+                };
                 match result {
                     Ok((path, bytes)) => match OxideFile::from_bytes(&bytes) {
                         Ok(file) => {
@@ -413,7 +419,7 @@ impl WorkspaceApp {
         .detach();
     }
 
-    fn preview_oxide_import_dialog(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn preview_oxide_import_dialog(&mut self, cx: &mut Context<Self>) {
         let Some(dialog) = self.session_manager.oxide_import_dialog.as_mut() else {
             return;
         };
@@ -459,7 +465,7 @@ impl WorkspaceApp {
         self.poll_oxide_import_preview_worker(generation, rx, cx);
     }
 
-    fn apply_oxide_import_dialog(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn apply_oxide_import_dialog(&mut self, cx: &mut Context<Self>) {
         let Some(dialog) = self.session_manager.oxide_import_dialog.as_ref() else {
             return;
         };
@@ -539,7 +545,7 @@ impl WorkspaceApp {
         self.poll_oxide_import_worker(generation, options, rx, cx);
     }
 
-    fn poll_oxide_import_preview_worker(
+    pub(super) fn poll_oxide_import_preview_worker(
         &mut self,
         generation: u64,
         rx: std::sync::mpsc::Receiver<OxidePreviewWorkerMessage>,
@@ -630,7 +636,7 @@ impl WorkspaceApp {
         .detach();
     }
 
-    fn poll_oxide_import_worker(
+    pub(super) fn poll_oxide_import_worker(
         &mut self,
         generation: u64,
         options: OxideClientStateImportOptions,
@@ -702,7 +708,7 @@ impl WorkspaceApp {
         .detach();
     }
 
-    fn finish_oxide_import_core_result(
+    pub(super) fn finish_oxide_import_core_result(
         &mut self,
         core: OxideCoreImportResult,
         options: OxideClientStateImportOptions,
@@ -714,8 +720,8 @@ impl WorkspaceApp {
         let imported_forwards = self.apply_oxide_import_forward_records(&mut envelope);
         envelope.imported_forwards = imported_forwards;
 
-        let (imported_quick_commands, skipped_quick_commands, quick_commands_errors) =
-            self.apply_oxide_import_quick_commands(
+        let (imported_quick_commands, skipped_quick_commands, quick_commands_errors) = self
+            .apply_oxide_import_quick_commands(
                 envelope.quick_commands_json.as_deref(),
                 options.import_quick_commands,
                 options.quick_command_strategy,
@@ -752,7 +758,7 @@ impl WorkspaceApp {
         self.present_oxide_import_result(result, cx);
     }
 
-    fn present_oxide_import_result(
+    pub(super) fn present_oxide_import_result(
         &mut self,
         result: OxideClientStateImportResult,
         cx: &mut Context<Self>,
@@ -798,7 +804,10 @@ impl WorkspaceApp {
             parts.push("应用设置".to_string());
         }
         if result_view.imported_quick_commands > 0 {
-            parts.push(format!("{} 条快捷命令", result_view.imported_quick_commands));
+            parts.push(format!(
+                "{} 条快捷命令",
+                result_view.imported_quick_commands
+            ));
         }
         if result_view.imported_serial_profiles > 0 {
             parts.push(
@@ -868,7 +877,10 @@ impl WorkspaceApp {
         }
     }
 
-    fn oxide_export_connection_ids(&self, dialog: &OxideExportDialogState) -> HashSet<String> {
+    pub(super) fn oxide_export_connection_ids(
+        &self,
+        dialog: &OxideExportDialogState,
+    ) -> HashSet<String> {
         let mut ids = dialog.selected_ids.clone();
         if dialog.include_forwards {
             for forward in &dialog.available_forwards {
@@ -882,7 +894,7 @@ impl WorkspaceApp {
         ids
     }
 
-    fn oxide_export_has_content(&self, dialog: &OxideExportDialogState) -> bool {
+    pub(super) fn oxide_export_has_content(&self, dialog: &OxideExportDialogState) -> bool {
         !self.oxide_export_connection_ids(dialog).is_empty()
             || (dialog.include_app_settings && !dialog.selected_app_settings_sections.is_empty())
             || dialog.include_quick_commands
@@ -900,11 +912,14 @@ impl WorkspaceApp {
         }
         oxideterm_ai::provider_views(&self.settings_store.settings().ai.providers)
             .into_iter()
-            .filter(|provider| self.ai_key_store.has_provider_key(&provider.id))
+            .filter(|provider| self.ai.models.key_store.has_provider_key(&provider.id))
             .count()
     }
 
-    fn oxide_export_preflight(&self, dialog: &OxideExportDialogState) -> ExportPreflightResult {
+    pub(super) fn oxide_export_preflight(
+        &self,
+        dialog: &OxideExportDialogState,
+    ) -> ExportPreflightResult {
         let selected_ids = self
             .oxide_export_connection_ids(dialog)
             .into_iter()
@@ -918,7 +933,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn refresh_oxide_export_preflight(&mut self) {
+    pub(super) fn refresh_oxide_export_preflight(&mut self) {
         let Some(dialog) = self.session_manager.oxide_export_dialog.as_ref() else {
             return;
         };
@@ -928,7 +943,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn oxide_export_preflight_for_dialog(
+    pub(super) fn oxide_export_preflight_for_dialog(
         &self,
         dialog: &OxideExportDialogState,
     ) -> Option<ExportPreflightResult> {
@@ -937,7 +952,7 @@ impl WorkspaceApp {
         has_preflight_content.then(|| self.oxide_export_preflight(dialog))
     }
 
-    fn export_oxide_dialog(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn export_oxide_dialog(&mut self, cx: &mut Context<Self>) {
         let Some(dialog) = self.session_manager.oxide_export_dialog.as_ref() else {
             return;
         };
@@ -981,7 +996,8 @@ impl WorkspaceApp {
         if let Some(dialog) = self.session_manager.oxide_export_dialog.as_mut() {
             dialog.busy = true;
             dialog.operation_generation = dialog.operation_generation.wrapping_add(1);
-            dialog.progress_stage = Some(OxideTransferProgress::new("collecting_connections", 0, 1));
+            dialog.progress_stage =
+                Some(OxideTransferProgress::new("collecting_connections", 0, 1));
             dialog.error = None;
             dialog.preflight = Some(preflight);
         }
@@ -1031,7 +1047,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn poll_oxide_export_worker(
+    pub(super) fn poll_oxide_export_worker(
         &mut self,
         generation: u64,
         rx: std::sync::mpsc::Receiver<OxideExportWorkerMessage>,
@@ -1114,7 +1130,7 @@ impl WorkspaceApp {
         .detach();
     }
 
-    fn prompt_save_oxide_export(
+    pub(super) fn prompt_save_oxide_export(
         &mut self,
         bytes: Vec<u8>,
         exported_count: usize,
@@ -1124,7 +1140,10 @@ impl WorkspaceApp {
             .map(PathBuf::from)
             .map(|home| home.join("Downloads"))
             .unwrap_or_else(|| PathBuf::from("."));
-        let suggested = format!("oxideterm-export-{}.oxide", Utc::now().format("%Y%m%d-%H%M%S"));
+        let suggested = format!(
+            "oxideterm-export-{}.oxide",
+            Utc::now().format("%Y%m%d-%H%M%S")
+        );
         let receiver = cx.prompt_for_new_path(&directory, Some(&suggested));
         cx.spawn(async move |weak, cx| {
             let result = match receiver.await {
@@ -1171,7 +1190,7 @@ impl WorkspaceApp {
         .detach();
     }
 
-    fn build_oxide_export_options(
+    pub(super) fn build_oxide_export_options(
         &self,
         dialog: &OxideExportDialogState,
     ) -> Result<OxideExportOptions, String> {
@@ -1232,13 +1251,15 @@ impl WorkspaceApp {
             None
         };
         let plugin_settings = if dialog.include_plugin_settings {
-            crate::workspace::plugin_settings_store::load_plugin_settings(self.settings_store.path())?
-                .into_iter()
-                .filter(|setting| {
-                    plugin_id_from_setting_storage_key(&setting.storage_key)
-                        .is_some_and(|plugin_id| dialog.selected_plugin_ids.contains(&plugin_id))
-                })
-                .collect()
+            crate::workspace::plugin_settings_store::load_plugin_settings(
+                self.settings_store.path(),
+            )?
+            .into_iter()
+            .filter(|setting| {
+                plugin_id_from_setting_storage_key(&setting.storage_key)
+                    .is_some_and(|plugin_id| dialog.selected_plugin_ids.contains(&plugin_id))
+            })
+            .collect()
         } else {
             Vec::new()
         };
@@ -1274,20 +1295,25 @@ impl WorkspaceApp {
             Vec::new()
         };
         let portable_secrets = if dialog.include_portable_secrets {
-            let provider_ids = oxideterm_ai::provider_views(&self.settings_store.settings().ai.providers)
-                .into_iter()
-                .map(|provider| provider.id)
-                .filter(|provider_id| self.ai_key_store.has_provider_key(provider_id))
-                .collect::<Vec<_>>();
-            self.ai_key_store
+            let provider_ids =
+                oxideterm_ai::provider_views(&self.settings_store.settings().ai.providers)
+                    .into_iter()
+                    .map(|provider| provider.id)
+                    .filter(|provider_id| self.ai.models.key_store.has_provider_key(provider_id))
+                    .collect::<Vec<_>>();
+            self.ai
+                .models
+                .key_store
                 .get_provider_keys(&provider_ids)
                 .map_err(|error| error.to_string())?
                 .into_iter()
-                .map(|(id, secret)| oxideterm_connections::oxide_file::EncryptedPortableSecret {
-                    kind: "ai_provider_key".to_string(),
-                    id,
-                    secret,
-                })
+                .map(
+                    |(id, secret)| oxideterm_connections::oxide_file::EncryptedPortableSecret {
+                        kind: "ai_provider_key".to_string(),
+                        id,
+                        secret,
+                    },
+                )
                 .collect()
         } else {
             Vec::new()
@@ -1313,7 +1339,7 @@ impl WorkspaceApp {
     }
 
     #[allow(dead_code)]
-    fn import_oxide_with_client_state(
+    pub(super) fn import_oxide_with_client_state(
         &mut self,
         bytes: &[u8],
         password: &str,
@@ -1333,8 +1359,8 @@ impl WorkspaceApp {
         let imported_forwards = self.apply_oxide_import_forward_records(&mut envelope);
         envelope.imported_forwards = imported_forwards;
 
-        let (imported_quick_commands, skipped_quick_commands, quick_commands_errors) =
-            self.apply_oxide_import_quick_commands(
+        let (imported_quick_commands, skipped_quick_commands, quick_commands_errors) = self
+            .apply_oxide_import_quick_commands(
                 envelope.quick_commands_json.as_deref(),
                 options.import_quick_commands,
                 options.quick_command_strategy,
@@ -1371,7 +1397,7 @@ impl WorkspaceApp {
     }
 
     #[allow(dead_code)]
-    pub(super) fn apply_oxide_import_forward_records(
+    pub(in crate::workspace) fn apply_oxide_import_forward_records(
         &mut self,
         envelope: &mut ImportResultEnvelope,
     ) -> usize {
@@ -1411,7 +1437,7 @@ impl WorkspaceApp {
     }
 
     #[allow(dead_code)]
-    pub(super) fn apply_oxide_import_quick_commands(
+    pub(in crate::workspace) fn apply_oxide_import_quick_commands(
         &mut self,
         quick_commands_json: Option<&str>,
         should_import: bool,
@@ -1425,15 +1451,11 @@ impl WorkspaceApp {
         }
 
         let result = self.quick_commands.apply_snapshot_json(snapshot, strategy);
-        (
-            result.imported,
-            !result.errors.is_empty(),
-            result.errors,
-        )
+        (result.imported, !result.errors.is_empty(), result.errors)
     }
 
     #[allow(dead_code)]
-    pub(super) fn apply_oxide_import_plugin_settings(
+    pub(in crate::workspace) fn apply_oxide_import_plugin_settings(
         &mut self,
         plugin_settings: &[oxideterm_connections::oxide_file::EncryptedPluginSetting],
         should_import: bool,
@@ -1461,7 +1483,7 @@ impl WorkspaceApp {
     }
 
     #[allow(dead_code)]
-    pub(super) fn apply_oxide_import_app_settings(
+    pub(in crate::workspace) fn apply_oxide_import_app_settings(
         &mut self,
         app_settings_json: Option<&str>,
         should_import: bool,
@@ -1494,7 +1516,7 @@ impl WorkspaceApp {
     }
 
     #[allow(dead_code)]
-    pub(super) fn apply_oxide_import_portable_secrets(
+    pub(in crate::workspace) fn apply_oxide_import_portable_secrets(
         &mut self,
         envelope: &mut ImportResultEnvelope,
     ) {
@@ -1513,7 +1535,12 @@ impl WorkspaceApp {
                 continue;
             }
 
-            match self.ai_key_store.store_provider_key(&secret.id, secret.secret) {
+            match self
+                .ai
+                .models
+                .key_store
+                .store_provider_key(&secret.id, secret.secret)
+            {
                 Ok(()) => imported += 1,
                 Err(error) => envelope.errors.push(format!(
                     "Failed to import portable secret '{}': {error}",
@@ -1527,7 +1554,7 @@ impl WorkspaceApp {
     }
 }
 
-fn owned_forward_import_record(record: &OxideForwardRecord) -> OwnedForwardImportRecord {
+pub(super) fn owned_forward_import_record(record: &OxideForwardRecord) -> OwnedForwardImportRecord {
     OwnedForwardImportRecord {
         owner_connection_id: record.connection_id.clone(),
         forward_type: record.forward_type.clone(),
@@ -1540,7 +1567,7 @@ fn owned_forward_import_record(record: &OxideForwardRecord) -> OwnedForwardImpor
     }
 }
 
-fn plugin_id_from_setting_storage_key(storage_key: &str) -> Option<String> {
+pub(super) fn plugin_id_from_setting_storage_key(storage_key: &str) -> Option<String> {
     const PREFIX: &str = "oxide-plugin-";
     const SEPARATOR: &str = "-setting-";
 
@@ -1554,7 +1581,7 @@ fn plugin_id_from_setting_storage_key(storage_key: &str) -> Option<String> {
     Some(plugin_id.to_string())
 }
 
-fn oxide_forward_export_identity(forward: &PersistedForward) -> String {
+pub(super) fn oxide_forward_export_identity(forward: &PersistedForward) -> String {
     format!(
         "{}\u{1f}{}\u{1f}{}\u{1f}{}\u{1f}{}\u{1f}{}",
         forward.owner_connection_id.as_deref().unwrap_or_default(),
@@ -1570,7 +1597,7 @@ fn oxide_forward_export_identity(forward: &PersistedForward) -> String {
     )
 }
 
-fn quick_command_strategy_from_oxide(
+pub(super) fn quick_command_strategy_from_oxide(
     strategy: ImportConflictStrategy,
 ) -> QuickCommandImportStrategy {
     match strategy {
@@ -1581,7 +1608,10 @@ fn quick_command_strategy_from_oxide(
     }
 }
 
-fn oxide_file_error_message(error: OxideFileError, i18n: &oxideterm_i18n::I18n) -> String {
+pub(super) fn oxide_file_error_message(
+    error: OxideFileError,
+    i18n: &oxideterm_i18n::I18n,
+) -> String {
     match error {
         OxideFileError::DecryptionFailed => i18n.t("modals.import.error_password"),
         OxideFileError::ChecksumMismatch => i18n.t("modals.import.error_tampered"),
@@ -1590,7 +1620,9 @@ fn oxide_file_error_message(error: OxideFileError, i18n: &oxideterm_i18n::I18n) 
     }
 }
 
-fn persist_oxide_last_export_timestamp(settings_path: &std::path::Path) -> Result<(), String> {
+pub(super) fn persist_oxide_last_export_timestamp(
+    settings_path: &std::path::Path,
+) -> Result<(), String> {
     let path = oxide_client_state_path(settings_path);
     let mut snapshot = if path.exists() {
         fs::read_to_string(&path)
@@ -1608,7 +1640,7 @@ fn persist_oxide_last_export_timestamp(settings_path: &std::path::Path) -> Resul
     fs::write(path, bytes).map_err(|error| error.to_string())
 }
 
-fn load_oxide_last_export_timestamp(settings_path: &std::path::Path) -> Option<i64> {
+pub(super) fn load_oxide_last_export_timestamp(settings_path: &std::path::Path) -> Option<i64> {
     let path = oxide_client_state_path(settings_path);
     let contents = fs::read_to_string(path).ok()?;
     serde_json::from_str::<OxideClientStateSnapshot>(&contents)
@@ -1616,7 +1648,7 @@ fn load_oxide_last_export_timestamp(settings_path: &std::path::Path) -> Option<i
         .and_then(|snapshot| snapshot.last_export_timestamp)
 }
 
-fn oxide_client_state_path(settings_path: &std::path::Path) -> PathBuf {
+pub(super) fn oxide_client_state_path(settings_path: &std::path::Path) -> PathBuf {
     settings_path
         .parent()
         .unwrap_or(settings_path)

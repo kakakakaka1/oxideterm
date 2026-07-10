@@ -1,4 +1,6 @@
-fn auth_label(auth_type: AuthType) -> String {
+use super::*;
+
+pub(super) fn auth_label(auth_type: AuthType) -> String {
     match auth_type {
         AuthType::Password => "Password",
         AuthType::Key => "Key",
@@ -10,7 +12,7 @@ fn auth_label(auth_type: AuthType) -> String {
     .to_string()
 }
 
-fn add_group_path_segments(group: &str, paths: &mut HashSet<String>) {
+pub(super) fn add_group_path_segments(group: &str, paths: &mut HashSet<String>) {
     if group.trim().is_empty() {
         return;
     }
@@ -23,7 +25,7 @@ fn add_group_path_segments(group: &str, paths: &mut HashSet<String>) {
     }
 }
 
-fn expand_group_path(group: &str, expanded_groups: &mut HashSet<String>) {
+pub(super) fn expand_group_path(group: &str, expanded_groups: &mut HashSet<String>) {
     let parts = group
         .split('/')
         .filter(|part| !part.is_empty())
@@ -36,7 +38,7 @@ fn expand_group_path(group: &str, expanded_groups: &mut HashSet<String>) {
     }
 }
 
-fn format_last_used(last_used: Option<&str>, i18n: &I18n) -> String {
+pub(super) fn format_last_used(last_used: Option<&str>, i18n: &I18n) -> String {
     let Some(last_used) = last_used else {
         return i18n.t("sessionManager.table.never_used");
     };
@@ -73,31 +75,31 @@ fn format_last_used(last_used: Option<&str>, i18n: &I18n) -> String {
     format!("{}/{}/{}", local.year(), local.month(), local.day())
 }
 
-fn theme_bg(color: u32, has_background: bool) -> Rgba {
+pub(super) fn theme_bg(color: u32, has_background: bool) -> Rgba {
     color_for_background(color, has_background, BG_ACTIVE_THEME_ALPHA)
 }
 
-fn theme_secondary_bg(color: u32, has_background: bool) -> Rgba {
+pub(super) fn theme_secondary_bg(color: u32, has_background: bool) -> Rgba {
     theme_bg(color, has_background)
 }
 
-fn theme_hover_bg(color: u32, has_background: bool) -> Rgba {
+pub(super) fn theme_hover_bg(color: u32, has_background: bool) -> Rgba {
     color_for_background(color, has_background, BG_ACTIVE_HOVER_ALPHA)
 }
 
-fn theme_input_bg(color: u32, has_background: bool) -> Rgba {
+pub(super) fn theme_input_bg(color: u32, has_background: bool) -> Rgba {
     color_for_background_or_alpha(color, has_background, BG_ACTIVE_THEME_ALPHA / 2, 0x80)
 }
 
-fn theme_border(color: u32, has_background: bool) -> Rgba {
+pub(super) fn theme_border(color: u32, has_background: bool) -> Rgba {
     color_for_background(color, has_background, BG_ACTIVE_BORDER_ALPHA)
 }
 
-fn theme_border_half(color: u32, has_background: bool) -> Rgba {
+pub(super) fn theme_border_half(color: u32, has_background: bool) -> Rgba {
     color_for_background_or_alpha(color, has_background, BG_ACTIVE_BORDER_HALF_ALPHA, 0x80)
 }
 
-fn parse_hex_color(value: &str) -> Option<u32> {
+pub(super) fn parse_hex_color(value: &str) -> Option<u32> {
     let hex = value.trim().strip_prefix('#')?;
     let expanded;
     let hex = match hex.len() {
@@ -111,29 +113,29 @@ fn parse_hex_color(value: &str) -> Option<u32> {
     u32::from_str_radix(&hex[..6], 16).ok()
 }
 
-fn group_label(i18n: &I18n, group: Option<&str>) -> String {
+pub(super) fn group_label(i18n: &I18n, group: Option<&str>) -> String {
     group
         .filter(|group| !group.trim().is_empty())
         .map(str::to_string)
         .unwrap_or_else(|| i18n.t("sessionManager.folder_tree.ungrouped"))
 }
 
-fn selected_count_label(i18n: &I18n, count: usize) -> String {
+pub(super) fn selected_count_label(i18n: &I18n, count: usize) -> String {
     i18n.t("sessionManager.table.selected_count")
         .replace("{{count}}", &count.to_string())
 }
 
-fn confirm_delete_connection_label(i18n: &I18n, name: &str) -> String {
+pub(super) fn confirm_delete_connection_label(i18n: &I18n, name: &str) -> String {
     i18n.t("sessionManager.actions.confirm_delete")
         .replace("{{name}}", name)
 }
 
-fn confirm_batch_delete_label(i18n: &I18n, count: usize) -> String {
+pub(super) fn confirm_batch_delete_label(i18n: &I18n, count: usize) -> String {
     i18n.t("sessionManager.actions.confirm_batch_delete")
         .replace("{{count}}", &count.to_string())
 }
 
-fn connections_deleted_label(i18n: &I18n, count: usize) -> String {
+pub(super) fn connections_deleted_label(i18n: &I18n, count: usize) -> String {
     i18n.t("sessionManager.toast.connections_deleted")
         .replace("{{count}}", &count.to_string())
 }
@@ -163,7 +165,7 @@ pub(in crate::workspace) fn duplicate_connection_template_name<'a>(
     unreachable!("unbounded duplicate-name search must eventually find a free name")
 }
 
-fn duplicate_template_base_name(source_name: &str) -> String {
+pub(super) fn duplicate_template_base_name(source_name: &str) -> String {
     let trimmed = source_name.trim();
     let stripped = if let Some(base_name) = trimmed.strip_suffix(" Copy") {
         base_name.trim()
@@ -183,13 +185,13 @@ fn duplicate_template_base_name(source_name: &str) -> String {
     }
 }
 
-fn connections_moved_label(i18n: &I18n, count: usize, group: String) -> String {
+pub(super) fn connections_moved_label(i18n: &I18n, count: usize, group: String) -> String {
     i18n.t("sessionManager.toast.connections_moved")
         .replace("{{count}}", &count.to_string())
         .replace("{{group}}", &group)
 }
 
-fn terminal_serial_parity_from_profile(
+pub(super) fn terminal_serial_parity_from_profile(
     parity: &oxideterm_connections::SerialParity,
 ) -> oxideterm_terminal::SerialParity {
     match parity {
@@ -199,7 +201,7 @@ fn terminal_serial_parity_from_profile(
     }
 }
 
-fn terminal_serial_flow_from_profile(
+pub(super) fn terminal_serial_flow_from_profile(
     flow: &oxideterm_connections::SerialFlowControl,
 ) -> oxideterm_terminal::SerialFlowControl {
     match flow {
@@ -215,107 +217,114 @@ fn terminal_serial_flow_from_profile(
     }
 }
 
-fn current_username() -> String {
+pub(super) fn current_username() -> String {
     std::env::var("USER")
         .or_else(|_| std::env::var("USERNAME"))
         .unwrap_or_else(|_| "root".to_string())
 }
 
-pub(super) fn form_from_saved_connection(
+pub(in crate::workspace) fn form_from_saved_connection(
     conn: &SavedConnection,
     error: Option<String>,
 ) -> NewConnectionForm {
-    let (auth_tab, password, key_path, managed_key_id, cert_path, passphrase, save_password) = match &conn.auth {
-        SavedAuth::Password {
-            keychain_id,
-            plaintext_password,
-        } => (
-            SshAuthTab::Password,
-            plaintext_password
-                .as_ref()
-                .map(|password| password.expose_secret().to_string())
-                .unwrap_or_default(),
-            String::new(),
-            String::new(),
-            String::new(),
-            String::new(),
-            keychain_id.is_some() || plaintext_password.is_some(),
-        ),
-        SavedAuth::Key {
-            key_path,
-            has_passphrase,
-            passphrase_keychain_id,
-            plaintext_passphrase,
-        } if key_path.is_empty() => (
-            SshAuthTab::DefaultKey,
-            String::new(),
-            key_path.clone(),
-            String::new(),
-            String::new(),
-            String::new(),
-            *has_passphrase || passphrase_keychain_id.is_some() || plaintext_passphrase.is_some(),
-        ),
-        SavedAuth::Key {
-            key_path,
-            has_passphrase,
-            passphrase_keychain_id,
-            plaintext_passphrase,
-        } => (
-            SshAuthTab::SshKey,
-            String::new(),
-            key_path.clone(),
-            String::new(),
-            String::new(),
-            String::new(),
-            *has_passphrase || passphrase_keychain_id.is_some() || plaintext_passphrase.is_some(),
-        ),
-        SavedAuth::Certificate {
-            key_path,
-            cert_path,
-            has_passphrase,
-            passphrase_keychain_id,
-            plaintext_passphrase,
-        } => (
-            SshAuthTab::Certificate,
-            String::new(),
-            key_path.clone(),
-            String::new(),
-            cert_path.clone(),
-            String::new(),
-            *has_passphrase || passphrase_keychain_id.is_some() || plaintext_passphrase.is_some(),
-        ),
-        SavedAuth::ManagedKey {
-            key_id,
-            passphrase_keychain_id,
-            plaintext_passphrase,
-        } => (
-            SshAuthTab::ManagedKey,
-            String::new(),
-            String::new(),
-            key_id.clone(),
-            String::new(),
-            String::new(),
-            passphrase_keychain_id.is_some() || plaintext_passphrase.is_some(),
-        ),
-        SavedAuth::KeyboardInteractive => (
-            SshAuthTab::TwoFactor,
-            String::new(),
-            String::new(),
-            String::new(),
-            String::new(),
-            String::new(),
-            false,
-        ),
-        SavedAuth::Agent => (
-            SshAuthTab::Agent,
-            String::new(),
-            String::new(),
-            String::new(),
-            String::new(),
-            String::new(),
-            false,
-        ),
-    };
+    let (auth_tab, password, key_path, managed_key_id, cert_path, passphrase, save_password) =
+        match &conn.auth {
+            SavedAuth::Password {
+                keychain_id,
+                plaintext_password,
+            } => (
+                SshAuthTab::Password,
+                plaintext_password
+                    .as_ref()
+                    .map(|password| password.expose_secret().to_string())
+                    .unwrap_or_default(),
+                String::new(),
+                String::new(),
+                String::new(),
+                String::new(),
+                keychain_id.is_some() || plaintext_password.is_some(),
+            ),
+            SavedAuth::Key {
+                key_path,
+                has_passphrase,
+                passphrase_keychain_id,
+                plaintext_passphrase,
+            } if key_path.is_empty() => (
+                SshAuthTab::DefaultKey,
+                String::new(),
+                key_path.clone(),
+                String::new(),
+                String::new(),
+                String::new(),
+                *has_passphrase
+                    || passphrase_keychain_id.is_some()
+                    || plaintext_passphrase.is_some(),
+            ),
+            SavedAuth::Key {
+                key_path,
+                has_passphrase,
+                passphrase_keychain_id,
+                plaintext_passphrase,
+            } => (
+                SshAuthTab::SshKey,
+                String::new(),
+                key_path.clone(),
+                String::new(),
+                String::new(),
+                String::new(),
+                *has_passphrase
+                    || passphrase_keychain_id.is_some()
+                    || plaintext_passphrase.is_some(),
+            ),
+            SavedAuth::Certificate {
+                key_path,
+                cert_path,
+                has_passphrase,
+                passphrase_keychain_id,
+                plaintext_passphrase,
+            } => (
+                SshAuthTab::Certificate,
+                String::new(),
+                key_path.clone(),
+                String::new(),
+                cert_path.clone(),
+                String::new(),
+                *has_passphrase
+                    || passphrase_keychain_id.is_some()
+                    || plaintext_passphrase.is_some(),
+            ),
+            SavedAuth::ManagedKey {
+                key_id,
+                passphrase_keychain_id,
+                plaintext_passphrase,
+            } => (
+                SshAuthTab::ManagedKey,
+                String::new(),
+                String::new(),
+                key_id.clone(),
+                String::new(),
+                String::new(),
+                passphrase_keychain_id.is_some() || plaintext_passphrase.is_some(),
+            ),
+            SavedAuth::KeyboardInteractive => (
+                SshAuthTab::TwoFactor,
+                String::new(),
+                String::new(),
+                String::new(),
+                String::new(),
+                String::new(),
+                false,
+            ),
+            SavedAuth::Agent => (
+                SshAuthTab::Agent,
+                String::new(),
+                String::new(),
+                String::new(),
+                String::new(),
+                String::new(),
+                false,
+            ),
+        };
     let upstream_proxy_form = upstream_proxy_form_fields(&conn.upstream_proxy);
     NewConnectionForm {
         name: conn.name.clone(),
@@ -360,7 +369,7 @@ pub(super) fn form_from_saved_connection(
     }
 }
 
-fn connection_has_unloaded_keychain_password(conn: &SavedConnection) -> bool {
+pub(super) fn connection_has_unloaded_keychain_password(conn: &SavedConnection) -> bool {
     matches!(
         &conn.auth,
         SavedAuth::Password {
@@ -370,7 +379,7 @@ fn connection_has_unloaded_keychain_password(conn: &SavedConnection) -> bool {
     )
 }
 
-struct UpstreamProxyFormFields {
+pub(super) struct UpstreamProxyFormFields {
     policy: NewConnectionUpstreamProxyPolicy,
     protocol: SavedUpstreamProxyProtocol,
     host: String,
@@ -382,7 +391,9 @@ struct UpstreamProxyFormFields {
     no_proxy: String,
 }
 
-fn upstream_proxy_form_fields(policy: &SavedUpstreamProxyPolicy) -> UpstreamProxyFormFields {
+pub(super) fn upstream_proxy_form_fields(
+    policy: &SavedUpstreamProxyPolicy,
+) -> UpstreamProxyFormFields {
     match policy {
         SavedUpstreamProxyPolicy::UseGlobal => {
             default_upstream_proxy_form_fields(NewConnectionUpstreamProxyPolicy::UseGlobal)
@@ -392,11 +403,9 @@ fn upstream_proxy_form_fields(policy: &SavedUpstreamProxyPolicy) -> UpstreamProx
         }
         SavedUpstreamProxyPolicy::Custom { proxy } => {
             let (auth, username, password_keychain_id) = match &proxy.auth {
-                SavedUpstreamProxyAuth::None => (
-                    NewConnectionUpstreamProxyAuth::None,
-                    String::new(),
-                    None,
-                ),
+                SavedUpstreamProxyAuth::None => {
+                    (NewConnectionUpstreamProxyAuth::None, String::new(), None)
+                }
                 SavedUpstreamProxyAuth::Password {
                     username,
                     keychain_id,
@@ -422,7 +431,7 @@ fn upstream_proxy_form_fields(policy: &SavedUpstreamProxyPolicy) -> UpstreamProx
     }
 }
 
-fn default_upstream_proxy_form_fields(
+pub(super) fn default_upstream_proxy_form_fields(
     policy: NewConnectionUpstreamProxyPolicy,
 ) -> UpstreamProxyFormFields {
     UpstreamProxyFormFields {
@@ -438,14 +447,14 @@ fn default_upstream_proxy_form_fields(
     }
 }
 
-pub(super) fn save_request_from_form(
+pub(in crate::workspace) fn save_request_from_form(
     form: &NewConnectionForm,
     id: Option<String>,
 ) -> anyhow::Result<SaveConnectionRequest> {
     save_request_from_form_with_existing_auth(form, id, None)
 }
 
-pub(super) fn save_request_from_form_with_existing_auth(
+pub(in crate::workspace) fn save_request_from_form_with_existing_auth(
     form: &NewConnectionForm,
     id: Option<String>,
     existing_auth: Option<&SavedAuth>,
@@ -455,7 +464,7 @@ pub(super) fn save_request_from_form_with_existing_auth(
     Ok(request)
 }
 
-fn connection_draft_from_form(form: &NewConnectionForm) -> ConnectionDraft {
+pub(super) fn connection_draft_from_form(form: &NewConnectionForm) -> ConnectionDraft {
     ConnectionDraft {
         name: form.name.clone(),
         host: form.host.clone(),
@@ -477,7 +486,9 @@ fn connection_draft_from_form(form: &NewConnectionForm) -> ConnectionDraft {
     }
 }
 
-fn proxy_hop_draft_from_form(hop: &super::new_connection::NewConnectionProxyHop) -> ProxyHopDraft {
+pub(super) fn proxy_hop_draft_from_form(
+    hop: &super::new_connection::NewConnectionProxyHop,
+) -> ProxyHopDraft {
     ProxyHopDraft {
         host: hop.host.clone(),
         port: hop.port.clone(),
@@ -497,7 +508,7 @@ fn proxy_hop_draft_from_form(hop: &super::new_connection::NewConnectionProxyHop)
     }
 }
 
-fn auth_draft_from_form(form: &NewConnectionForm) -> ConnectionAuthDraft {
+pub(super) fn auth_draft_from_form(form: &NewConnectionForm) -> ConnectionAuthDraft {
     ConnectionAuthDraft {
         kind: auth_draft_kind(form.auth_tab),
         password: secret_from_ui_draft(&form.password),
@@ -511,13 +522,13 @@ fn auth_draft_from_form(form: &NewConnectionForm) -> ConnectionAuthDraft {
     }
 }
 
-fn secret_from_ui_draft(value: &str) -> SecretString {
+pub(super) fn secret_from_ui_draft(value: &str) -> SecretString {
     // GPUI text inputs require plain String drafts. At the persistence boundary,
     // clone into SecretString's Zeroizing owner before any store/keychain logic sees it.
     SecretString::from(zeroize::Zeroizing::new(value.to_string()))
 }
 
-pub(super) fn saved_upstream_proxy_policy_from_form(
+pub(in crate::workspace) fn saved_upstream_proxy_policy_from_form(
     form: &NewConnectionForm,
 ) -> anyhow::Result<SavedUpstreamProxyPolicy> {
     match form.upstream_proxy_policy {
@@ -529,7 +540,7 @@ pub(super) fn saved_upstream_proxy_policy_from_form(
     }
 }
 
-fn saved_upstream_proxy_config_from_form(
+pub(super) fn saved_upstream_proxy_config_from_form(
     form: &NewConnectionForm,
 ) -> anyhow::Result<SavedUpstreamProxyConfig> {
     Ok(SavedUpstreamProxyConfig {
@@ -542,7 +553,9 @@ fn saved_upstream_proxy_config_from_form(
     })
 }
 
-fn saved_upstream_proxy_auth_from_form(form: &NewConnectionForm) -> SavedUpstreamProxyAuth {
+pub(super) fn saved_upstream_proxy_auth_from_form(
+    form: &NewConnectionForm,
+) -> SavedUpstreamProxyAuth {
     match form.upstream_proxy_auth {
         NewConnectionUpstreamProxyAuth::None => SavedUpstreamProxyAuth::None,
         NewConnectionUpstreamProxyAuth::Password => SavedUpstreamProxyAuth::Password {
@@ -556,12 +569,12 @@ fn saved_upstream_proxy_auth_from_form(form: &NewConnectionForm) -> SavedUpstrea
     }
 }
 
-fn upstream_proxy_port_from_form(form: &NewConnectionForm) -> anyhow::Result<u16> {
+pub(super) fn upstream_proxy_port_from_form(form: &NewConnectionForm) -> anyhow::Result<u16> {
     let port = form.upstream_proxy_port.trim().parse::<u16>()?;
     Ok(port.max(1))
 }
 
-pub(super) fn upstream_proxy_config_from_form(
+pub(in crate::workspace) fn upstream_proxy_config_from_form(
     store: &ConnectionStore,
     settings: &PersistedSettings,
     form: &NewConnectionForm,
@@ -579,7 +592,7 @@ pub(super) fn upstream_proxy_config_from_form(
     }
 }
 
-fn runtime_upstream_proxy_config_from_form(
+pub(super) fn runtime_upstream_proxy_config_from_form(
     store: &ConnectionStore,
     form: &NewConnectionForm,
 ) -> anyhow::Result<UpstreamProxyConfig> {
@@ -589,7 +602,9 @@ fn runtime_upstream_proxy_config_from_form(
             let username = form.upstream_proxy_username.trim().to_string();
             let password = if form.upstream_proxy_password.is_empty() {
                 let saved_auth = saved_upstream_proxy_auth_from_form(form);
-                store.get_saved_upstream_proxy_password(&saved_auth)?.into_zeroizing()
+                store
+                    .get_saved_upstream_proxy_password(&saved_auth)?
+                    .into_zeroizing()
             } else {
                 zeroize::Zeroizing::new(form.upstream_proxy_password.clone())
             };
@@ -610,7 +625,7 @@ fn runtime_upstream_proxy_config_from_form(
     })
 }
 
-fn auth_draft_kind(tab: SshAuthTab) -> ConnectionAuthDraftKind {
+pub(super) fn auth_draft_kind(tab: SshAuthTab) -> ConnectionAuthDraftKind {
     match tab {
         SshAuthTab::Password => ConnectionAuthDraftKind::Password,
         SshAuthTab::DefaultKey => ConnectionAuthDraftKind::DefaultKey,
@@ -622,6 +637,6 @@ fn auth_draft_kind(tab: SshAuthTab) -> ConnectionAuthDraftKind {
     }
 }
 
-fn group_label_for_form(group: Option<&str>) -> String {
+pub(super) fn group_label_for_form(group: Option<&str>) -> String {
     group.unwrap_or_default().to_string()
 }

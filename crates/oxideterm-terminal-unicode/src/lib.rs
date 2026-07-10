@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use oxideterm_terminal::{TerminalCell, TerminalRow};
+use oxideterm_terminal_model::{TerminalCell, TerminalRow};
 use unicode_bidi::BidiInfo;
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -353,7 +353,7 @@ fn reordered_cluster_indices(levels: &[u8]) -> Vec<usize> {
 mod tests {
     use std::sync::Arc;
 
-    use oxideterm_terminal::{TerminalAttrs, TerminalCell, TerminalColor, TerminalRow};
+    use oxideterm_terminal_model::{TerminalAttrs, TerminalCell, TerminalColor, TerminalRow};
 
     use super::*;
 

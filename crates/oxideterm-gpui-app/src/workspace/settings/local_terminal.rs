@@ -1,18 +1,20 @@
-const LOCAL_GIT_BASH_ID: &str = "git-bash";
+use super::*;
 
-fn normalized_local_git_bash_path(path: Option<&str>) -> Option<PathBuf> {
+pub(in crate::workspace) const LOCAL_GIT_BASH_ID: &str = "git-bash";
+
+pub(in crate::workspace) fn normalized_local_git_bash_path(path: Option<&str>) -> Option<PathBuf> {
     let path = path?.trim();
     (!path.is_empty()).then(|| PathBuf::from(path))
 }
 
-fn local_home_path_buf() -> Option<PathBuf> {
+pub(in crate::workspace) fn local_home_path_buf() -> Option<PathBuf> {
     std::env::var_os("HOME")
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("USERPROFILE").map(PathBuf::from))
 }
 
 /// Expands home aliases before the configured cwd is passed to the PTY layer.
-fn expand_local_terminal_cwd(path: &str) -> PathBuf {
+pub(in crate::workspace) fn expand_local_terminal_cwd(path: &str) -> PathBuf {
     let trimmed = path.trim();
     if trimmed == "~" || trimmed == "$HOME" {
         return local_home_path_buf().unwrap_or_else(|| PathBuf::from(trimmed));
@@ -29,15 +31,15 @@ fn expand_local_terminal_cwd(path: &str) -> PathBuf {
     PathBuf::from(trimmed)
 }
 
-fn local_git_bash_override(path: Option<&str>) -> Option<ShellInfo> {
+pub(in crate::workspace) fn local_git_bash_override(path: Option<&str>) -> Option<ShellInfo> {
     let path = normalized_local_git_bash_path(path)?;
-    Some(
-        ShellInfo::new(LOCAL_GIT_BASH_ID, "Git Bash", path)
-            .with_args(vec!["--login".to_string()]),
-    )
+    Some(ShellInfo::new(LOCAL_GIT_BASH_ID, "Git Bash", path).with_args(vec!["--login".to_string()]))
 }
 
-fn effective_local_shells(shells: &[ShellInfo], git_bash_path: Option<&str>) -> Vec<ShellInfo> {
+pub(in crate::workspace) fn effective_local_shells(
+    shells: &[ShellInfo],
+    git_bash_path: Option<&str>,
+) -> Vec<ShellInfo> {
     let Some(override_shell) = local_git_bash_override(git_bash_path) else {
         return shells.to_vec();
     };
@@ -52,7 +54,7 @@ fn effective_local_shells(shells: &[ShellInfo], git_bash_path: Option<&str>) -> 
 }
 
 impl WorkspaceApp {
-    fn effective_local_shells_for_settings(
+    pub(in crate::workspace) fn effective_local_shells_for_settings(
         &self,
         settings: &PersistedSettings,
     ) -> Vec<ShellInfo> {
@@ -62,7 +64,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn local_shell_select_row(
+    pub(in crate::workspace) fn local_shell_select_row(
         &self,
         settings: &PersistedSettings,
         cx: &mut Context<Self>,
@@ -86,7 +88,10 @@ impl WorkspaceApp {
         )
     }
 
-    fn local_shell_path_hint(&self, settings: &PersistedSettings) -> Option<AnyElement> {
+    pub(in crate::workspace) fn local_shell_path_hint(
+        &self,
+        settings: &PersistedSettings,
+    ) -> Option<AnyElement> {
         let effective_shells = self.effective_local_shells_for_settings(settings);
         let default_shell = settings
             .local_terminal
@@ -129,7 +134,11 @@ impl WorkspaceApp {
         )
     }
 
-    fn local_shortcut_row(&self, label_key: &str, shortcut: &'static str) -> AnyElement {
+    pub(in crate::workspace) fn local_shortcut_row(
+        &self,
+        label_key: &str,
+        shortcut: &'static str,
+    ) -> AnyElement {
         div()
             .flex()
             .flex_row()
@@ -146,7 +155,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn local_kbd(&self, shortcut: &'static str) -> AnyElement {
+    pub(in crate::workspace) fn local_kbd(&self, shortcut: &'static str) -> AnyElement {
         div()
             .px(px(8.0))
             .py(px(4.0))
@@ -160,7 +169,11 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn available_shell_row(&self, shell: &ShellInfo, default_shell_id: Option<&str>) -> AnyElement {
+    pub(in crate::workspace) fn available_shell_row(
+        &self,
+        shell: &ShellInfo,
+        default_shell_id: Option<&str>,
+    ) -> AnyElement {
         div()
             .flex()
             .flex_row()
@@ -202,7 +215,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    pub(super) fn local_terminal_config(&self) -> LocalPtyConfig {
+    pub(in crate::workspace) fn local_terminal_config(&self) -> LocalPtyConfig {
         let settings = &self.settings_store.settings().local_terminal;
         let effective_shells =
             effective_local_shells(&self.local_shells, settings.git_bash_path.as_deref());
@@ -241,7 +254,7 @@ impl WorkspaceApp {
         }
     }
 
-    pub(super) fn local_terminal_tab_title(&self) -> String {
+    pub(in crate::workspace) fn local_terminal_tab_title(&self) -> String {
         let settings = &self.settings_store.settings().local_terminal;
         let effective_shells =
             effective_local_shells(&self.local_shells, settings.git_bash_path.as_deref());
@@ -260,16 +273,13 @@ mod local_terminal_tests {
     use super::*;
 
     #[test]
-    fn git_bash_override_replaces_scanned_git_bash_shell() {
+    pub(in crate::workspace) fn git_bash_override_replaces_scanned_git_bash_shell() {
         let shells = vec![
             ShellInfo::new("cmd", "Command Prompt", "cmd.exe"),
             ShellInfo::new("git-bash", "Git Bash", r"C:\Program Files\Git\bin\bash.exe"),
         ];
 
-        let effective = effective_local_shells(
-            &shells,
-            Some(r" D:\PortableGit\bin\bash.exe "),
-        );
+        let effective = effective_local_shells(&shells, Some(r" D:\PortableGit\bin\bash.exe "));
 
         assert_eq!(effective.len(), 2);
         let git_bash = effective
@@ -281,7 +291,7 @@ mod local_terminal_tests {
     }
 
     #[test]
-    fn blank_git_bash_override_keeps_scanned_shells() {
+    pub(in crate::workspace) fn blank_git_bash_override_keeps_scanned_shells() {
         let shells = vec![ShellInfo::new("cmd", "Command Prompt", "cmd.exe")];
         assert_eq!(effective_local_shells(&shells, Some("  ")), shells);
     }

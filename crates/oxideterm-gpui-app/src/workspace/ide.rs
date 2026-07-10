@@ -66,7 +66,7 @@ impl WorkspaceApp {
             *tab_id
         } else {
             let tab_id = self.alloc_tab_id();
-            let fs = self.ai_agent_fs.clone();
+            let fs = self.ai.runtime.agent_fs.clone();
             let tokens = self.tokens;
             let labels = self.ide_labels();
             let runtime_settings = self.ide_runtime_settings();
@@ -192,7 +192,7 @@ impl WorkspaceApp {
             *tab_id
         } else {
             let tab_id = self.alloc_tab_id();
-            let fs = self.ai_agent_fs.clone();
+            let fs = self.ai.runtime.agent_fs.clone();
             let tokens = self.tokens;
             let labels = self.ide_labels();
             let runtime_settings = self.ide_runtime_settings();
@@ -573,7 +573,7 @@ impl WorkspaceApp {
             NodeAgentMode::Disabled => IdeAgentMode::Disabled,
         };
         let _ = self.settings_store.save();
-        self.ai_agent_fs.set_mode(mode);
+        self.ai.runtime.agent_fs.set_mode(mode);
         self.apply_ide_runtime_settings_to_surfaces(cx);
         cx.notify();
     }

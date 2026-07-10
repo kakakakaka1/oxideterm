@@ -3,22 +3,20 @@
 
 use std::{
     collections::BTreeMap,
-    ffi::OsString,
-    fs::{self, OpenOptions},
-    io::{self, Write},
+    fs, io,
     path::{Path, PathBuf},
-    sync::atomic::{AtomicU64, Ordering},
 };
 
-#[cfg(unix)]
-use std::fs::File;
+#[cfg(test)]
+use std::sync::atomic::{AtomicU64, Ordering};
 
+use oxideterm_atomic_file::{durable_remove, durable_write_with_before_replace};
 use oxideterm_connections::oxide_file::EncryptedPluginSetting;
 use serde::{Deserialize, Serialize};
 
 const PLUGIN_SETTINGS_FILENAME: &str = "plugin-settings.json";
 const PLUGIN_SETTINGS_SCHEMA_VERSION: u32 = 1;
-const MAX_ATOMIC_TEMP_ATTEMPTS: usize = 128;
+#[cfg(test)]
 static ATOMIC_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[cfg(test)]
@@ -170,81 +168,12 @@ fn tauri_fnv1a_stable_hash_text(text: &str) -> String {
 }
 
 fn atomic_write_file(path: &Path, contents: &[u8]) -> io::Result<()> {
-    let parent = path
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."));
-    let file_name = path.file_name().ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "plugin settings path has no file name",
-        )
-    })?;
-    let (temporary_path, mut temporary_file) = (0..MAX_ATOMIC_TEMP_ATTEMPTS)
-        .find_map(|_| {
-            let sequence = ATOMIC_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-            let mut temporary_name = OsString::from(".");
-            temporary_name.push(file_name);
-            temporary_name.push(format!(".{}.{sequence}.tmp", std::process::id()));
-            let temporary_path = parent.join(temporary_name);
-            match OpenOptions::new()
-                .create_new(true)
-                .write(true)
-                .open(&temporary_path)
-            {
-                Ok(file) => Some(Ok((temporary_path, file))),
-                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => None,
-                Err(error) => Some(Err(error)),
-            }
-        })
-        .transpose()?
-        .ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::AlreadyExists,
-                "plugin settings atomic temp path exhausted",
-            )
-        })?;
-
-    // The destination changes only after the complete replacement is durable.
-    let write_result = (|| {
-        temporary_file.write_all(contents)?;
-        temporary_file.flush()?;
-        temporary_file.sync_all()?;
-        drop(temporary_file);
-        fail_before_atomic_replace_for_tests()?;
-        atomic_replace_file(&temporary_path, path)?;
-        sync_parent_directory(parent)
-    })();
-    if write_result.is_err() {
-        let _ = fs::remove_file(&temporary_path);
-    }
-    write_result
+    durable_write_with_before_replace(path, contents, fail_before_atomic_replace_for_tests)
 }
 
 fn remove_restored_plugin_settings_file(path: &Path) -> Result<(), String> {
     fail_before_restore_delete_for_tests().map_err(|error| error.to_string())?;
-    match fs::remove_file(path) {
-        Ok(()) => {}
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => return Err(error.to_string()),
-    }
-    let parent = path
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."));
-    sync_parent_directory(parent).map_err(|error| error.to_string())
-}
-
-#[cfg(unix)]
-fn sync_parent_directory(parent: &Path) -> io::Result<()> {
-    File::open(parent)?.sync_all()
-}
-
-#[cfg(not(unix))]
-fn sync_parent_directory(_parent: &Path) -> io::Result<()> {
-    // MoveFileExW uses WRITE_THROUGH on Windows; opening directories requires
-    // platform-specific sharing flags and does not add durability here.
-    Ok(())
+    durable_remove(path).map_err(|error| error.to_string())
 }
 
 #[cfg(test)]
@@ -281,47 +210,6 @@ fn fail_before_restore_delete_for_tests() -> io::Result<()> {
 #[cfg(not(test))]
 fn fail_before_restore_delete_for_tests() -> io::Result<()> {
     Ok(())
-}
-
-#[cfg(not(windows))]
-fn atomic_replace_file(source: &Path, destination: &Path) -> io::Result<()> {
-    fs::rename(source, destination)
-}
-
-#[cfg(windows)]
-fn atomic_replace_file(source: &Path, destination: &Path) -> io::Result<()> {
-    use std::os::windows::ffi::OsStrExt;
-
-    const MOVEFILE_REPLACE_EXISTING: u32 = 0x1;
-    const MOVEFILE_WRITE_THROUGH: u32 = 0x8;
-
-    #[link(name = "Kernel32")]
-    unsafe extern "system" {
-        fn MoveFileExW(existing: *const u16, replacement: *const u16, flags: u32) -> i32;
-    }
-
-    let source = source
-        .as_os_str()
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect::<Vec<_>>();
-    let destination = destination
-        .as_os_str()
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect::<Vec<_>>();
-    let replaced = unsafe {
-        MoveFileExW(
-            source.as_ptr(),
-            destination.as_ptr(),
-            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
-        )
-    };
-    if replaced == 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
 }
 
 #[cfg(test)]

@@ -1,5 +1,7 @@
+use super::*;
+
 impl WorkspaceApp {
-    pub(super) fn render_sftp_dialog(
+    pub(in crate::workspace) fn render_sftp_dialog(
         &self,
         dialog: SftpDialog,
         has_background: bool,
@@ -77,9 +79,9 @@ impl WorkspaceApp {
         };
         let width = match &dialog {
             SftpDialog::Drives => SFTP_DIALOG_WIDTH_XS,
-            SftpDialog::Rename { .. } | SftpDialog::NewFolder { .. } | SftpDialog::Delete { .. } => {
-                SFTP_DIALOG_WIDTH_SM
-            }
+            SftpDialog::Rename { .. }
+            | SftpDialog::NewFolder { .. }
+            | SftpDialog::Delete { .. } => SFTP_DIALOG_WIDTH_SM,
             SftpDialog::Conflict => SFTP_DIALOG_WIDTH_LG,
             SftpDialog::Diff { .. } => SFTP_DIALOG_WIDTH_5XL,
             SftpDialog::Preview { .. } => SFTP_DIALOG_WIDTH_4XL,
@@ -201,11 +203,13 @@ impl WorkspaceApp {
                                 header.child(
                                     div()
                                         .mt(px(6.0))
-                                        .text_size(px(if matches!(&dialog, SftpDialog::Diff { .. }) {
-                                            SFTP_TEXT_XS
-                                        } else {
-                                            SFTP_TEXT_SM
-                                        }))
+                                        .text_size(px(
+                                            if matches!(&dialog, SftpDialog::Diff { .. }) {
+                                                SFTP_TEXT_XS
+                                            } else {
+                                                SFTP_TEXT_SM
+                                            },
+                                        ))
                                         .text_color(rgb(theme.text_muted))
                                         .when(matches!(&dialog, SftpDialog::Conflict), |desc| {
                                             let remaining = self.sftp_conflict_remaining_count();
@@ -510,9 +514,7 @@ impl WorkspaceApp {
                 .conflict_state
                 .as_ref()
                 .and_then(|state| state.conflicts.get(state.current_index))
-                .and_then(|conflict| {
-                    Some(conflict.source_modified? > conflict.target_modified?)
-                });
+                .and_then(|conflict| Some(conflict.source_modified? > conflict.target_modified?));
             return footer
                 .justify_between()
                 .child(

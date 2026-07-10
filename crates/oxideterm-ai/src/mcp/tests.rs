@@ -138,6 +138,35 @@ mod tests {
         let _ = task.await;
     }
 
+    #[tokio::test]
+    async fn dropping_registry_clone_does_not_stop_shared_processes() {
+        let registry = McpRegistry::new(AiProviderKeyStore::new());
+        let ordinary_clone = registry.clone();
+
+        drop(ordinary_clone);
+        // Give cleanup tasks a deterministic opportunity to run on the test runtime.
+        for _ in 0..3 {
+            tokio::task::yield_now().await;
+        }
+
+        assert_eq!(
+            registry
+                .processes
+                .stop_all_calls
+                .load(std::sync::atomic::Ordering::SeqCst),
+            0
+        );
+
+        registry.shutdown().await;
+        assert_eq!(
+            registry
+                .processes
+                .stop_all_calls
+                .load(std::sync::atomic::Ordering::SeqCst),
+            1
+        );
+    }
+
     #[test]
     fn validate_mcp_command_rejects_paths_and_unknown_binaries() {
         assert!(validate_mcp_command("npx").is_ok());

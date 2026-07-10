@@ -1,5 +1,7 @@
+use super::*;
+
 impl WorkspaceApp {
-    fn render_sftp_preview_content(
+    pub(in crate::workspace::sftp) fn render_sftp_preview_content(
         &self,
         content: &PreviewContent,
         cx: &mut Context<Self>,
@@ -55,14 +57,9 @@ impl WorkspaceApp {
                 offset,
                 chunk_size,
                 has_more,
-            } => self.render_sftp_preview_hex(
-                data,
-                *total_size,
-                *offset,
-                *chunk_size,
-                *has_more,
-                cx,
-            ),
+            } => {
+                self.render_sftp_preview_hex(data, *total_size, *offset, *chunk_size, *has_more, cx)
+            }
             PreviewContent::TooLarge { .. } | PreviewContent::Unsupported { .. } => {
                 self.render_sftp_preview_text(preview_content_text(content))
             }
@@ -100,15 +97,17 @@ impl WorkspaceApp {
                         cx,
                     ))
                     .child("•")
-                    .child(self.render_selectable_display_text(
-                        "sftp-preview-hex-header",
-                        "showing",
-                        self.i18n
-                            .t("sftp.preview.showing_first")
-                            .replace("{{size}}", &format_file_size(showing)),
-                        theme.text_muted,
-                        cx,
-                    ))
+                    .child(
+                        self.render_selectable_display_text(
+                            "sftp-preview-hex-header",
+                            "showing",
+                            self.i18n
+                                .t("sftp.preview.showing_first")
+                                .replace("{{size}}", &format_file_size(showing)),
+                            theme.text_muted,
+                            cx,
+                        ),
+                    )
                     .when(total_size > 0, |header| {
                         header.child("•").child(
                             self.render_selectable_display_text(
@@ -143,21 +142,19 @@ impl WorkspaceApp {
                 } else {
                     self.i18n.t("sftp.preview.load_more")
                 };
-                body.child(
-                    div().mt(px(16.0)).flex().justify_center().child(
-                        self.render_sftp_text_button(
-                            label,
-                            false,
-                            cx.listener(move |this, _event, _window, cx| {
-                                if !loading_more {
-                                    this.load_more_sftp_preview_hex();
-                                }
-                                cx.stop_propagation();
-                                cx.notify();
-                            }),
-                        ),
+                body.child(div().mt(px(16.0)).flex().justify_center().child(
+                    self.render_sftp_text_button(
+                        label,
+                        false,
+                        cx.listener(move |this, _event, _window, cx| {
+                            if !loading_more {
+                                this.load_more_sftp_preview_hex();
+                            }
+                            cx.stop_propagation();
+                            cx.notify();
+                        }),
                     ),
-                )
+                ))
             })
             .into_any_element()
     }

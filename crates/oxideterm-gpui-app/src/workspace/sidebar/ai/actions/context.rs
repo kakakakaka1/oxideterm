@@ -1,9 +1,9 @@
 impl WorkspaceApp {
-    fn ai_help_markdown(&self) -> String {
+    pub(in crate::workspace) fn ai_help_markdown(&self) -> String {
         ai_help_markdown_core(|key| self.i18n.t(key))
     }
 
-    fn resolve_ai_reference_context(
+    pub(in crate::workspace) fn resolve_ai_reference_context(
         &self,
         references: &[AiReferenceMatch],
         cx: &mut Context<Self>,
@@ -18,17 +18,23 @@ impl WorkspaceApp {
         (!blocks.is_empty()).then(|| blocks.join("\n\n"))
     }
 
-    fn resolve_ai_selected_terminal_context(&self, cx: &mut Context<Self>) -> Option<String> {
-        if !self.ai_chat_include_context || !self.ai_active_terminal_context_available() {
+    pub(in crate::workspace) fn resolve_ai_selected_terminal_context(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> Option<String> {
+        if !self.ai.chat.include_context || !self.ai_active_terminal_context_available() {
             return None;
         }
-        if self.ai_chat_include_all_panes && self.ai_active_tab_has_split_panes() {
+        if self.ai.chat.include_all_panes && self.ai_active_tab_has_split_panes() {
             return self.ai_all_panes_terminal_context(cx);
         }
         self.ai_single_pane_terminal_context(cx)
     }
 
-    fn resolve_ai_sidebar_context_block(&self, cx: &mut Context<Self>) -> Option<String> {
+    pub(in crate::workspace) fn resolve_ai_sidebar_context_block(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> Option<String> {
         let mut blocks = Vec::new();
         if self.ai_active_tab_has_split_panes() {
             if let Some(context) = self.ai_all_panes_terminal_context(cx) {
@@ -49,7 +55,10 @@ impl WorkspaceApp {
         (!blocks.is_empty()).then(|| blocks.join("\n\n"))
     }
 
-    fn resolve_ai_sidebar_system_prompt_segment(&self, cx: &mut Context<Self>) -> Option<String> {
+    pub(in crate::workspace) fn resolve_ai_sidebar_system_prompt_segment(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> Option<String> {
         let mut parts = Vec::new();
         parts.push("## Environment".to_string());
         parts.push(format!("- Local OS: {}", ai_local_os_label()));
@@ -141,7 +150,10 @@ impl WorkspaceApp {
         (!parts.is_empty()).then(|| parts.join("\n"))
     }
 
-    fn resolve_ai_runtime_context_chips_prompt(&self, cx: &mut Context<Self>) -> Option<String> {
+    pub(in crate::workspace) fn resolve_ai_runtime_context_chips_prompt(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> Option<String> {
         let mut chips = Vec::new();
         let mut command_records = self.ai_runtime_command_records(cx);
         command_records.sort_by(|left, right| {
@@ -230,7 +242,13 @@ impl WorkspaceApp {
         &self,
         cx: &mut Context<Self>,
     ) -> Vec<AiRuntimeCommandRecord> {
-        let mut records = self.ai_command_records.iter().cloned().collect::<Vec<_>>();
+        let mut records = self
+            .ai
+            .runtime
+            .command_records
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>();
         let mut seen = records
             .iter()
             .map(|record| record.command_id.clone())
@@ -260,7 +278,7 @@ impl WorkspaceApp {
                     exit_code: record.exit_code.map(i64::from),
                     started_at: record.started_at as i64,
                     finished_at: record.finished_at.map(|value| value as i64),
-                    runtime_epoch: self.ai_runtime_epoch.clone(),
+                    runtime_epoch: self.ai.runtime.epoch.clone(),
                     approval_mode: None,
                     risk: "execute".to_string(),
                 });
@@ -269,12 +287,14 @@ impl WorkspaceApp {
         records
     }
 
-    fn ai_runtime_cli_agent_sessions(
+    pub(in crate::workspace) fn ai_runtime_cli_agent_sessions(
         &self,
         records: &[AiRuntimeCommandRecord],
     ) -> Vec<AiCliAgentSession> {
         let mut sessions = self
-            .ai_cli_agent_sessions
+            .ai
+            .runtime
+            .cli_agent_sessions
             .values()
             .cloned()
             .collect::<Vec<_>>();
@@ -319,13 +339,19 @@ impl WorkspaceApp {
         sessions
     }
 
-    fn session_id_for_pane(&self, pane_id: PaneId) -> Option<TerminalSessionId> {
+    pub(in crate::workspace) fn session_id_for_pane(
+        &self,
+        pane_id: PaneId,
+    ) -> Option<TerminalSessionId> {
         self.tabs
             .iter()
             .find_map(|tab| tab.root_pane.as_ref()?.session_id_for_pane(pane_id))
     }
 
-    fn ai_single_pane_terminal_context(&self, cx: &mut Context<Self>) -> Option<String> {
+    pub(in crate::workspace) fn ai_single_pane_terminal_context(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> Option<String> {
         let pane_id = self.active_pane_id()?;
         let mut parts = Vec::new();
         if let Some(selection) = self.ai_terminal_pane_selection(pane_id, cx) {
@@ -351,7 +377,10 @@ impl WorkspaceApp {
         (!parts.is_empty()).then(|| parts.join("\n"))
     }
 
-    fn ai_all_panes_terminal_context(&self, cx: &mut Context<Self>) -> Option<String> {
+    pub(in crate::workspace) fn ai_all_panes_terminal_context(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> Option<String> {
         let tab = self.active_tab()?;
         let root = tab.root_pane.as_ref()?;
         let terminal_type = if tab.kind == TabKind::SshTerminal {
@@ -400,7 +429,7 @@ impl WorkspaceApp {
         (!parts.is_empty()).then(|| parts.join("\n"))
     }
 
-    fn ai_limited_terminal_buffer(
+    pub(in crate::workspace) fn ai_limited_terminal_buffer(
         &self,
         buffer: &str,
         max_lines: usize,
@@ -422,25 +451,27 @@ impl WorkspaceApp {
         (text, line_count)
     }
 
-    fn ai_active_cwd(&self, cx: &mut Context<Self>) -> Option<String> {
+    pub(in crate::workspace) fn ai_active_cwd(&self, cx: &mut Context<Self>) -> Option<String> {
         self.active_pane_id()
             .and_then(|pane_id| self.ai_terminal_pane_text(pane_id, cx))
             .and_then(|text| infer_ai_cwd(&text))
     }
 
-    fn ai_active_terminal_session_id(&self) -> Option<TerminalSessionId> {
+    pub(in crate::workspace) fn ai_active_terminal_session_id(&self) -> Option<TerminalSessionId> {
         let tab = self.active_tab()?;
         let pane_id = tab.active_pane_id?;
         tab.root_pane.as_ref()?.session_id_for_pane(pane_id)
     }
 
-    fn ai_active_ssh_session(&self) -> Option<(TerminalSessionId, NodeId)> {
+    pub(in crate::workspace) fn ai_active_ssh_session(
+        &self,
+    ) -> Option<(TerminalSessionId, NodeId)> {
         let session_id = self.ai_active_terminal_session_id()?;
         let node_id = self.terminal_ssh_nodes.get(&session_id)?.clone();
         Some((session_id, node_id))
     }
 
-    fn ai_active_ide_context(
+    pub(in crate::workspace) fn ai_active_ide_context(
         &self,
         cx: &mut Context<Self>,
     ) -> Option<oxideterm_gpui_ide::IdeAiContextSnapshot> {
@@ -460,7 +491,9 @@ impl WorkspaceApp {
             })
     }
 
-    fn ai_active_sftp_context(&self) -> Option<(NodeId, String, Vec<String>)> {
+    pub(in crate::workspace) fn ai_active_sftp_context(
+        &self,
+    ) -> Option<(NodeId, String, Vec<String>)> {
         if !self.settings_store.settings().ai.context_sources.sftp {
             return None;
         }
@@ -473,7 +506,7 @@ impl WorkspaceApp {
         Some((node_id, remote_path, self.sftp_view.selected_remote_files()))
     }
 
-    fn ai_active_terminal_context_available(&self) -> bool {
+    pub(in crate::workspace) fn ai_active_terminal_context_available(&self) -> bool {
         let Some(tab) = self.active_tab() else {
             return false;
         };
@@ -483,22 +516,22 @@ impl WorkspaceApp {
                 .is_some_and(|pane_id| self.panes.contains_key(&pane_id))
     }
 
-    fn ai_active_tab_has_split_panes(&self) -> bool {
+    pub(in crate::workspace) fn ai_active_tab_has_split_panes(&self) -> bool {
         self.active_tab()
             .filter(|tab| matches!(tab.kind, TabKind::LocalTerminal | TabKind::SshTerminal))
             .and_then(|tab| tab.root_pane.as_ref())
             .is_some_and(|root| root.pane_count() > 1)
     }
 
-    fn ai_has_ide_context(&self, cx: &mut Context<Self>) -> bool {
+    pub(in crate::workspace) fn ai_has_ide_context(&self, cx: &mut Context<Self>) -> bool {
         self.ai_active_ide_context(cx).is_some()
     }
 
-    fn ai_has_sftp_context(&self) -> bool {
+    pub(in crate::workspace) fn ai_has_sftp_context(&self) -> bool {
         self.ai_active_sftp_context().is_some()
     }
 
-    fn resolve_ai_reference_content(
+    pub(in crate::workspace) fn resolve_ai_reference_content(
         &self,
         reference: &AiReferenceMatch,
         cx: &mut Context<Self>,
@@ -525,7 +558,10 @@ impl WorkspaceApp {
         }
     }
 
-    fn ai_pane_reference_id(&self, reference: &AiReferenceMatch) -> Option<PaneId> {
+    pub(in crate::workspace) fn ai_pane_reference_id(
+        &self,
+        reference: &AiReferenceMatch,
+    ) -> Option<PaneId> {
         let index = reference.value.as_deref()?.parse::<usize>().ok()?;
         if index == 0 {
             return None;
@@ -538,14 +574,18 @@ impl WorkspaceApp {
         pane_ids.get(index - 1).copied()
     }
 
-    fn ai_terminal_pane_text(&self, pane_id: PaneId, cx: &mut Context<Self>) -> Option<String> {
+    pub(in crate::workspace) fn ai_terminal_pane_text(
+        &self,
+        pane_id: PaneId,
+        cx: &mut Context<Self>,
+    ) -> Option<String> {
         self.panes
             .get(&pane_id)
             .map(|pane| pane.read(cx).visible_text_snapshot())
             .filter(|text| !text.trim().is_empty())
     }
 
-    fn ai_terminal_pane_selection(
+    pub(in crate::workspace) fn ai_terminal_pane_selection(
         &self,
         pane_id: PaneId,
         cx: &mut Context<Self>,
@@ -557,7 +597,7 @@ impl WorkspaceApp {
     }
 }
 
-fn ai_local_os_label() -> &'static str {
+pub(in crate::workspace) fn ai_local_os_label() -> &'static str {
     if cfg!(target_os = "macos") {
         "macOS"
     } else if cfg!(target_os = "windows") {
@@ -567,7 +607,7 @@ fn ai_local_os_label() -> &'static str {
     }
 }
 
-fn ai_tab_kind_label(kind: &TabKind) -> &'static str {
+pub(in crate::workspace) fn ai_tab_kind_label(kind: &TabKind) -> &'static str {
     match kind {
         TabKind::LocalTerminal => "local_terminal",
         TabKind::SshTerminal => "terminal",
@@ -591,7 +631,9 @@ fn ai_tab_kind_label(kind: &TabKind) -> &'static str {
     }
 }
 
-fn ai_ledger_source_from_terminal_source(source: TerminalCommandMarkDetectionSource) -> String {
+pub(in crate::workspace) fn ai_ledger_source_from_terminal_source(
+    source: TerminalCommandMarkDetectionSource,
+) -> String {
     match source {
         TerminalCommandMarkDetectionSource::Ai => "ai.terminal_input",
         TerminalCommandMarkDetectionSource::Broadcast => "broadcast",
@@ -603,7 +645,7 @@ fn ai_ledger_source_from_terminal_source(source: TerminalCommandMarkDetectionSou
     .to_string()
 }
 
-fn ai_ledger_status_from_terminal_status(
+pub(in crate::workspace) fn ai_ledger_status_from_terminal_status(
     status: oxideterm_gpui_terminal::TerminalCommandFactStatus,
 ) -> String {
     match status {

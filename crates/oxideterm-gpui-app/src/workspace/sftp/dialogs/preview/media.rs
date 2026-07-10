@@ -1,5 +1,7 @@
+use super::*;
+
 impl WorkspaceApp {
-    fn render_sftp_preview_audio(
+    pub(in crate::workspace::sftp) fn render_sftp_preview_audio(
         &self,
         path: &str,
         mime_type: &str,
@@ -70,28 +72,26 @@ impl WorkspaceApp {
                     .bg(rgb(theme.bg_panel))
                     .px_3()
                     .py_2()
-                    .child(
-                        self.workspace_icon_action_button(
-                            play_icon,
-                            14.0,
-                            rgb(theme.text),
-                            IconButtonOptions {
-                                disabled: playback_disabled,
-                                background: Some(rgb(theme.bg)),
-                                border: Some(rgb(theme.border)),
-                                hover_background: Some(rgb(theme.bg_hover)),
-                                // Tauri disables media playback when preview decode fails. The
-                                // shared action wrapper keeps that disabled guard identical to
-                                // FileManager preview controls.
-                                ..IconButtonOptions::opaque_toolbar(32.0, ButtonRadius::Md)
-                            },
-                            |this, _event, _window, cx| {
-                                this.toggle_sftp_preview_audio(cx);
-                                cx.notify();
-                            },
-                            cx,
-                        )
-                    )
+                    .child(self.workspace_icon_action_button(
+                        play_icon,
+                        14.0,
+                        rgb(theme.text),
+                        IconButtonOptions {
+                            disabled: playback_disabled,
+                            background: Some(rgb(theme.bg)),
+                            border: Some(rgb(theme.border)),
+                            hover_background: Some(rgb(theme.bg_hover)),
+                            // Tauri disables media playback when preview decode fails. The
+                            // shared action wrapper keeps that disabled guard identical to
+                            // FileManager preview controls.
+                            ..IconButtonOptions::opaque_toolbar(32.0, ButtonRadius::Md)
+                        },
+                        |this, _event, _window, cx| {
+                            this.toggle_sftp_preview_audio(cx);
+                            cx.notify();
+                        },
+                        cx,
+                    ))
                     .child(
                         div()
                             .flex_1()
@@ -125,62 +125,56 @@ impl WorkspaceApp {
                             )),
                     )
                     .when(can_seek, |row| {
-                        row.child(
-                            self.workspace_toolbar_action_button(
-                                "-15s".to_string(),
-                                None,
-                                ToolbarButtonOptions {
-                                    text_color: Some(rgb(theme.text_muted)),
-                                    hover_background: Some(rgb(theme.bg_hover)),
-                                    hover_text_color: Some(rgb(theme.text)),
-                                    // Seek labels are buttons, not selectable document text.
-                                    ..ToolbarButtonOptions::compact_text(
-                                        ButtonVariant::Ghost,
-                                        ButtonRadius::Sm,
-                                        24.0,
-                                        8.0,
-                                        SFTP_TEXT_XS,
-                                    )
-                                },
-                                cx.listener(move |this, _event, _window, cx| {
-                                    let now = this.sftp_view.preview_audio.snapshot().position;
-                                    let next = now
-                                        .saturating_sub(std::time::Duration::from_secs(15));
-                                    this.seek_sftp_preview_audio(next, cx);
-                                    cx.notify();
-                                }),
-                            ),
-                        )
-                        .child(
-                            self.workspace_toolbar_action_button(
-                                "+15s".to_string(),
-                                None,
-                                ToolbarButtonOptions {
-                                    text_color: Some(rgb(theme.text_muted)),
-                                    hover_background: Some(rgb(theme.bg_hover)),
-                                    hover_text_color: Some(rgb(theme.text)),
-                                    // Seek labels are buttons, not selectable document text.
-                                    ..ToolbarButtonOptions::compact_text(
-                                        ButtonVariant::Ghost,
-                                        ButtonRadius::Sm,
-                                        24.0,
-                                        8.0,
-                                        SFTP_TEXT_XS,
-                                    )
-                                },
-                                cx.listener(move |this, _event, _window, cx| {
-                                    let snapshot = this.sftp_view.preview_audio.snapshot();
-                                    let Some(duration) = snapshot.duration else {
-                                        return;
-                                    };
-                                    let next = (snapshot.position
-                                        + std::time::Duration::from_secs(15))
+                        row.child(self.workspace_toolbar_action_button(
+                            "-15s".to_string(),
+                            None,
+                            ToolbarButtonOptions {
+                                text_color: Some(rgb(theme.text_muted)),
+                                hover_background: Some(rgb(theme.bg_hover)),
+                                hover_text_color: Some(rgb(theme.text)),
+                                // Seek labels are buttons, not selectable document text.
+                                ..ToolbarButtonOptions::compact_text(
+                                    ButtonVariant::Ghost,
+                                    ButtonRadius::Sm,
+                                    24.0,
+                                    8.0,
+                                    SFTP_TEXT_XS,
+                                )
+                            },
+                            cx.listener(move |this, _event, _window, cx| {
+                                let now = this.sftp_view.preview_audio.snapshot().position;
+                                let next = now.saturating_sub(std::time::Duration::from_secs(15));
+                                this.seek_sftp_preview_audio(next, cx);
+                                cx.notify();
+                            }),
+                        ))
+                        .child(self.workspace_toolbar_action_button(
+                            "+15s".to_string(),
+                            None,
+                            ToolbarButtonOptions {
+                                text_color: Some(rgb(theme.text_muted)),
+                                hover_background: Some(rgb(theme.bg_hover)),
+                                hover_text_color: Some(rgb(theme.text)),
+                                // Seek labels are buttons, not selectable document text.
+                                ..ToolbarButtonOptions::compact_text(
+                                    ButtonVariant::Ghost,
+                                    ButtonRadius::Sm,
+                                    24.0,
+                                    8.0,
+                                    SFTP_TEXT_XS,
+                                )
+                            },
+                            cx.listener(move |this, _event, _window, cx| {
+                                let snapshot = this.sftp_view.preview_audio.snapshot();
+                                let Some(duration) = snapshot.duration else {
+                                    return;
+                                };
+                                let next = (snapshot.position + std::time::Duration::from_secs(15))
                                     .min(duration);
-                                    this.seek_sftp_preview_audio(next, cx);
-                                    cx.notify();
-                                }),
-                            ),
-                        )
+                                this.seek_sftp_preview_audio(next, cx);
+                                cx.notify();
+                            }),
+                        ))
                     })
                     .when_some(snapshot.error, |row, error| {
                         row.child(
@@ -212,7 +206,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_sftp_preview_video(
+    pub(in crate::workspace::sftp) fn render_sftp_preview_video(
         &self,
         path: &str,
         mime_type: &str,
@@ -221,15 +215,11 @@ impl WorkspaceApp {
         #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
         {
             let snapshot = self.sftp_view.preview_video_surface.snapshot();
-            let detail = snapshot.error.unwrap_or_else(|| {
-                "Native video playback is initializing.".to_string()
-            });
+            let detail = snapshot
+                .error
+                .unwrap_or_else(|| "Native video playback is initializing.".to_string());
             let fallback = self.render_sftp_native_asset_status_with_external(
-                "Video",
-                path,
-                mime_type,
-                &detail,
-                _cx,
+                "Video", path, mime_type, &detail, _cx,
             );
             sftp_native_video_element(
                 path.to_string(),
@@ -241,17 +231,17 @@ impl WorkspaceApp {
         #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
         {
             let snapshot = self.sftp_view.preview_video_surface.snapshot();
-            let detail = snapshot.error.unwrap_or_else(|| {
-                format!("{} backend is unavailable", snapshot.backend)
-            });
+            let detail = snapshot
+                .error
+                .unwrap_or_else(|| format!("{} backend is unavailable", snapshot.backend));
             self.render_sftp_native_asset_status_with_external(
                 "Video", path, mime_type, &detail, _cx,
             )
-                .into_any_element()
+            .into_any_element()
         }
     }
 
-    fn render_sftp_preview_office(
+    pub(in crate::workspace::sftp) fn render_sftp_preview_office(
         &self,
         path: &str,
         mime_type: &str,
@@ -279,7 +269,7 @@ impl WorkspaceApp {
             .child(self.render_sftp_external_open_button(path.to_string(), cx))
     }
 
-    fn render_sftp_native_asset_status(
+    pub(in crate::workspace::sftp) fn render_sftp_native_asset_status(
         &self,
         title: &str,
         path: &str,
@@ -321,13 +311,17 @@ impl WorkspaceApp {
                 theme.text_muted,
                 cx,
             ))
-            .child(div().max_w(px(680.0)).child(self.render_selectable_text_scoped(
-                "sftp-native-asset-detail",
-                path,
-                detail.to_string(),
-                theme.text_muted,
-                cx,
-            )))
+            .child(
+                div()
+                    .max_w(px(680.0))
+                    .child(self.render_selectable_text_scoped(
+                        "sftp-native-asset-detail",
+                        path,
+                        detail.to_string(),
+                        theme.text_muted,
+                        cx,
+                    )),
+            )
             .child(
                 div()
                     .max_w(px(680.0))
@@ -343,11 +337,7 @@ impl WorkspaceApp {
             )
     }
 
-    fn render_sftp_external_open_button(
-        &self,
-        path: String,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
+    fn render_sftp_external_open_button(&self, path: String, cx: &mut Context<Self>) -> AnyElement {
         let theme = self.tokens.ui;
         self.workspace_toolbar_action_button(
             self.i18n.t("sftp.preview.open_external"),
@@ -379,11 +369,11 @@ impl WorkspaceApp {
                 cx.notify();
             }),
         )
-            .mt_2()
-            .into_any_element()
+        .mt_2()
+        .into_any_element()
     }
 
-    fn render_sftp_preview_image(
+    pub(in crate::workspace::sftp) fn render_sftp_preview_image(
         &self,
         source: impl Into<gpui::ImageSource>,
         fallback_label: String,
@@ -407,5 +397,4 @@ impl WorkspaceApp {
             })
             .into_any_element()
     }
-
 }

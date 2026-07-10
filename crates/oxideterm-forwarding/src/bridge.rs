@@ -164,31 +164,91 @@ async fn bridge_tcp_to_ssh_stream_inner(
     let _connection_guard = track_connection.then(|| stats.start_connection());
     let (tcp_read, tcp_write) = tcp_stream.into_split();
     let (ssh_read, ssh_write) = tokio::io::split(ssh_stream);
+    bridge_split_streams_inner(
+        tcp_read,
+        tcp_write,
+        ssh_read,
+        ssh_write,
+        stats,
+        idle_timeout,
+        shutdown_rx,
+        log_prefix,
+    )
+    .await
+}
 
+async fn bridge_split_streams_inner<LR, LW, SR, SW>(
+    tcp_read: LR,
+    tcp_write: LW,
+    ssh_read: SR,
+    ssh_write: SW,
+    stats: BridgeStatsRecorder,
+    idle_timeout: Duration,
+    shutdown_rx: watch::Receiver<bool>,
+    log_prefix: String,
+) -> Result<(), ForwardingError>
+where
+    LR: AsyncRead + Send + Unpin,
+    LW: AsyncWrite + Send + Unpin,
+    SR: AsyncRead + Send + Unpin,
+    SW: AsyncWrite + Send + Unpin,
+{
+    let (activity_tx, activity_rx) = watch::channel(0_u64);
+
+    // Keep both pumps as child futures so ending the bridge cancels every pending read.
     let local_to_ssh = pipe_direction(
         tcp_read,
         ssh_write,
         stats.clone(),
         Direction::LocalToSsh,
-        shutdown_rx.clone(),
+        activity_tx.clone(),
     );
     let ssh_to_local = pipe_direction(
         ssh_read,
         tcp_write,
         stats,
         Direction::SshToLocal,
-        shutdown_rx,
+        activity_tx,
     );
+    let idle = wait_for_idle(activity_rx, idle_timeout);
+    let shutdown = wait_for_shutdown(shutdown_rx);
 
     tokio::select! {
         result = local_to_ssh => result?,
         result = ssh_to_local => result?,
-        _ = tokio::time::sleep(idle_timeout) => {
-            tracing::debug!("{log_prefix}: closing idle forwarding bridge");
+        idle_elapsed = idle => {
+            if idle_elapsed {
+                tracing::debug!("{log_prefix}: closing idle forwarding bridge");
+            }
         }
+        _ = shutdown => {}
     }
 
     Ok(())
+}
+
+async fn wait_for_shutdown(mut shutdown_rx: watch::Receiver<bool>) {
+    if *shutdown_rx.borrow() {
+        return;
+    }
+
+    loop {
+        match shutdown_rx.changed().await {
+            Ok(()) if *shutdown_rx.borrow() => return,
+            Ok(()) => continue,
+            Err(_) => return,
+        }
+    }
+}
+
+async fn wait_for_idle(mut activity_rx: watch::Receiver<u64>, idle_timeout: Duration) -> bool {
+    loop {
+        match tokio::time::timeout(idle_timeout, activity_rx.changed()).await {
+            Ok(Ok(())) => continue,
+            Ok(Err(_)) => return false,
+            Err(_) => return true,
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -202,55 +262,141 @@ async fn pipe_direction<R, W>(
     mut writer: W,
     stats: BridgeStatsRecorder,
     direction: Direction,
-    mut shutdown_rx: watch::Receiver<bool>,
+    activity_tx: watch::Sender<u64>,
 ) -> io::Result<()>
 where
-    R: AsyncRead + Send + Unpin + 'static,
-    W: AsyncWrite + Unpin,
+    R: AsyncRead + Send + Unpin,
+    W: AsyncWrite + Send + Unpin,
 {
     let (chunk_tx, mut chunk_rx) = mpsc::channel::<Vec<u8>>(FORWARD_BRIDGE_CHANNEL_CAPACITY);
-
-    let read_task = tokio::spawn(async move {
+    let read_activity_tx = activity_tx.clone();
+    let reader_pump = async move {
         let mut buffer = vec![0_u8; FORWARD_BRIDGE_READ_BUFFER_SIZE];
         loop {
-            tokio::select! {
-                changed = shutdown_rx.changed() => {
-                    if changed.is_ok() && *shutdown_rx.borrow() {
-                        break;
-                    }
-                }
-                read = reader.read(&mut buffer) => {
-                    let count = read?;
-                    if count == 0 {
-                        break;
-                    }
-                    if chunk_tx.send(buffer[..count].to_vec()).await.is_err() {
-                        break;
-                    }
-                }
+            let count = reader.read(&mut buffer).await?;
+            if count == 0 {
+                break;
+            }
+            record_activity(&read_activity_tx);
+            if chunk_tx.send(buffer[..count].to_vec()).await.is_err() {
+                break;
             }
         }
         Ok::<_, io::Error>(())
-    });
-
-    while let Some(chunk) = chunk_rx.recv().await {
-        writer.write_all(&chunk).await?;
-        match direction {
-            Direction::LocalToSsh => stats.record_sent(chunk.len()),
-            Direction::SshToLocal => stats.record_received(chunk.len()),
+    };
+    let writer_pump = async move {
+        while let Some(chunk) = chunk_rx.recv().await {
+            writer.write_all(&chunk).await?;
+            record_activity(&activity_tx);
+            match direction {
+                Direction::LocalToSsh => stats.record_sent(chunk.len()),
+                Direction::SshToLocal => stats.record_received(chunk.len()),
+            }
         }
-    }
-    writer.shutdown().await?;
+        writer.shutdown().await
+    };
 
-    read_task
-        .await
-        .map_err(|error| io::Error::other(error.to_string()))??;
+    // Structured concurrency drops either pump immediately if its sibling fails or is cancelled.
+    tokio::try_join!(reader_pump, writer_pump)?;
     Ok(())
+}
+
+fn record_activity(activity_tx: &watch::Sender<u64>) {
+    // Updating the version lets the idle waiter observe coalesced activity safely.
+    activity_tx.send_modify(|version| *version = version.wrapping_add(1));
 }
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        pin::Pin,
+        sync::atomic::{AtomicBool, Ordering},
+        task::{Context, Poll},
+    };
+
+    use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf};
+
     use super::*;
+
+    async fn bridge_test_streams<L, S>(
+        local_stream: L,
+        ssh_stream: S,
+        stats: BridgeStatsRecorder,
+        idle_timeout: Duration,
+        shutdown_rx: watch::Receiver<bool>,
+    ) -> Result<(), ForwardingError>
+    where
+        L: AsyncRead + AsyncWrite + Send + Unpin,
+        S: AsyncRead + AsyncWrite + Send + Unpin,
+    {
+        let (tcp_read, tcp_write) = tokio::io::split(local_stream);
+        let (ssh_read, ssh_write) = tokio::io::split(ssh_stream);
+        bridge_split_streams_inner(
+            tcp_read,
+            tcp_write,
+            ssh_read,
+            ssh_write,
+            stats,
+            idle_timeout,
+            shutdown_rx,
+            "test bridge".to_string(),
+        )
+        .await
+    }
+
+    struct DropTrackedStream<T> {
+        inner: T,
+        dropped: Arc<AtomicBool>,
+    }
+
+    impl<T> DropTrackedStream<T> {
+        fn new(inner: T, dropped: Arc<AtomicBool>) -> Self {
+            Self { inner, dropped }
+        }
+    }
+
+    impl<T> Drop for DropTrackedStream<T> {
+        fn drop(&mut self) {
+            self.dropped.store(true, Ordering::SeqCst);
+        }
+    }
+
+    impl<T> AsyncRead for DropTrackedStream<T>
+    where
+        T: AsyncRead + Unpin,
+    {
+        fn poll_read(
+            mut self: Pin<&mut Self>,
+            context: &mut Context<'_>,
+            buffer: &mut ReadBuf<'_>,
+        ) -> Poll<io::Result<()>> {
+            Pin::new(&mut self.inner).poll_read(context, buffer)
+        }
+    }
+
+    impl<T> AsyncWrite for DropTrackedStream<T>
+    where
+        T: AsyncWrite + Unpin,
+    {
+        fn poll_write(
+            mut self: Pin<&mut Self>,
+            context: &mut Context<'_>,
+            buffer: &[u8],
+        ) -> Poll<io::Result<usize>> {
+            Pin::new(&mut self.inner).poll_write(context, buffer)
+        }
+
+        fn poll_flush(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<io::Result<()>> {
+            Pin::new(&mut self.inner).poll_flush(context)
+        }
+
+        fn poll_shutdown(
+            mut self: Pin<&mut Self>,
+            context: &mut Context<'_>,
+        ) -> Poll<io::Result<()>> {
+            Pin::new(&mut self.inner).poll_shutdown(context)
+        }
+    }
 
     #[tokio::test]
     async fn active_connection_counter_waits_for_zero() {
@@ -274,5 +420,127 @@ mod tests {
 
         assert!(!counter.wait_zero(Duration::from_millis(10)).await);
         assert_eq!(counter.get(), 1);
+    }
+
+    #[tokio::test]
+    async fn sustained_activity_past_idle_timeout_keeps_bridge_open() {
+        let idle_timeout = Duration::from_millis(100);
+        let (local_stream, mut local_peer) = tokio::io::duplex(1024);
+        let (ssh_stream, mut ssh_peer) = tokio::io::duplex(1024);
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let stats = BridgeStatsRecorder::default();
+        let task_stats = stats.clone();
+        let bridge_task = tokio::spawn(async move {
+            bridge_test_streams(
+                local_stream,
+                ssh_stream,
+                task_stats,
+                idle_timeout,
+                shutdown_rx,
+            )
+            .await
+        });
+
+        for byte in 0_u8..8 {
+            local_peer.write_all(&[byte]).await.unwrap();
+            let mut received = [0_u8; 1];
+            tokio::time::timeout(idle_timeout, ssh_peer.read_exact(&mut received))
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(received[0], byte);
+            tokio::time::sleep(Duration::from_millis(30)).await;
+        }
+
+        assert!(!bridge_task.is_finished());
+        assert_eq!(stats.snapshot().bytes_sent, 8);
+        shutdown_tx.send(true).unwrap();
+        tokio::time::timeout(Duration::from_secs(1), bridge_task)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn truly_idle_bridge_closes_after_timeout() {
+        let idle_timeout = Duration::from_millis(80);
+        let (local_stream, _local_peer) = tokio::io::duplex(1024);
+        let (ssh_stream, _ssh_peer) = tokio::io::duplex(1024);
+        let (_shutdown_tx, shutdown_rx) = watch::channel(false);
+        let mut bridge_task = tokio::spawn(async move {
+            bridge_test_streams(
+                local_stream,
+                ssh_stream,
+                BridgeStatsRecorder::default(),
+                idle_timeout,
+                shutdown_rx,
+            )
+            .await
+        });
+
+        assert!(
+            tokio::time::timeout(Duration::from_millis(20), &mut bridge_task)
+                .await
+                .is_err()
+        );
+        tokio::time::timeout(Duration::from_secs(1), bridge_task)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn one_sided_end_drops_all_bridge_io_tasks() {
+        let local_dropped = Arc::new(AtomicBool::new(false));
+        let ssh_dropped = Arc::new(AtomicBool::new(false));
+        let (local_stream, local_peer) = tokio::io::duplex(1024);
+        let (ssh_stream, _ssh_peer) = tokio::io::duplex(1024);
+        let local_stream = DropTrackedStream::new(local_stream, local_dropped.clone());
+        let ssh_stream = DropTrackedStream::new(ssh_stream, ssh_dropped.clone());
+        let (_shutdown_tx, shutdown_rx) = watch::channel(false);
+        let bridge_task = tokio::spawn(async move {
+            bridge_test_streams(
+                local_stream,
+                ssh_stream,
+                BridgeStatsRecorder::default(),
+                Duration::from_secs(5),
+                shutdown_rx,
+            )
+            .await
+        });
+
+        drop(local_peer);
+        tokio::time::timeout(Duration::from_secs(1), bridge_task)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+
+        assert!(local_dropped.load(Ordering::SeqCst));
+        assert!(ssh_dropped.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn dropped_watch_sender_ends_bridge_without_busy_loop() {
+        let (local_stream, _local_peer) = tokio::io::duplex(1024);
+        let (ssh_stream, _ssh_peer) = tokio::io::duplex(1024);
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        drop(shutdown_tx);
+
+        tokio::time::timeout(
+            Duration::from_millis(200),
+            bridge_test_streams(
+                local_stream,
+                ssh_stream,
+                BridgeStatsRecorder::default(),
+                Duration::from_secs(5),
+                shutdown_rx,
+            ),
+        )
+        .await
+        .unwrap()
+        .unwrap();
     }
 }

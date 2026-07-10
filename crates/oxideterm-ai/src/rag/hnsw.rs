@@ -5,9 +5,10 @@ use crate::rag::embedding::VectorHit;
 use crate::rag::error::RagError;
 use crate::rag::types::EmbeddingRecord;
 use instant_distance::{Builder, HnswMap, Point, Search};
+use oxideterm_atomic_file::durable_write;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use std::io::{Read, Write};
+use std::io::Read;
 use std::path::Path;
 use tracing::{debug, info, warn};
 
@@ -186,14 +187,7 @@ impl PersistedHnswIndex {
         let compressed = zstd::encode_all(data.as_slice(), 3)
             .map_err(|e| RagError::HnswIndex(format!("compress: {e}")))?;
 
-        let tmp_path = path.with_extension("bin.tmp");
-        let mut file = std::fs::File::create(&tmp_path)?;
-        file.write_all(&compressed)?;
-        file.sync_all()?;
-        drop(file);
-
-        // Atomic rename
-        std::fs::rename(&tmp_path, path)?;
+        durable_write(path, &compressed)?;
 
         // Set restrictive permissions on Unix
         #[cfg(unix)]

@@ -117,16 +117,8 @@ impl ConnectionStore {
         match &checkpoint.original_file {
             SavedConnectionsStoreFileCheckpoint::Missing => {
                 if self.path.exists() {
-                    fs::remove_file(&self.path).with_context(|| {
+                    durable_remove(&self.path).with_context(|| {
                         format!("failed to remove current store {}", self.path.display())
-                    })?;
-                    let parent = self
-                        .path
-                        .parent()
-                        .filter(|parent| !parent.as_os_str().is_empty())
-                        .unwrap_or_else(|| Path::new("."));
-                    sync_directory(parent).with_context(|| {
-                        format!("failed to sync store directory {}", parent.display())
                     })?;
                 }
             }

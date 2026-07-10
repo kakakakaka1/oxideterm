@@ -1,5 +1,7 @@
+use super::*;
+
 impl WorkspaceApp {
-    fn session_manager_basic_footer_action(
+    pub(super) fn session_manager_basic_footer_action(
         &self,
         label: String,
         variant: ButtonVariant,
@@ -20,7 +22,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn session_manager_dialog_footer_action(
+    pub(super) fn session_manager_dialog_footer_action(
         &self,
         label: String,
         variant: ButtonVariant,
@@ -52,98 +54,92 @@ impl WorkspaceApp {
         )
     }
 
-    fn render_new_group_dialog(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn render_new_group_dialog(&self, cx: &mut Context<Self>) -> AnyElement {
         let theme = self.tokens.ui;
         let can_create_group = !self.session_manager.new_group_name.trim().is_empty();
         modal_backdrop(rgba(
             (0x000000 << 8) | SESSION_MANAGER_LIGHT_DIALOG_BACKDROP_ALPHA,
         ))
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, _event, _window, cx| {
-                    this.session_manager.show_new_group = false;
-                    this.session_manager.focused_input = None;
-                    this.session_manager.focused_basic_dialog_footer_action = None;
-                    cx.stop_propagation();
-                    cx.notify();
-                }),
-            )
-            .child(overlay_content_boundary(
-                div()
-                    .w(px(380.0))
-                    .flex()
-                    .flex_col()
-                    .gap(px(14.0))
-                    .p(px(16.0))
-                    .rounded(px(self.tokens.radii.lg))
-                    .border_1()
-                    .border_color(rgb(theme.border))
-                    .bg(rgb(theme.bg_panel))
-                    .child(
-                        div()
-                            .text_size(px(18.0))
-                            .font_weight(gpui::FontWeight::SEMIBOLD)
-                            .child(self.i18n.t("sessionManager.folder_tree.new_group")),
-                    )
-                    .child(
-                        div()
-                            .text_size(px(self.tokens.metrics.ui_text_sm))
-                            .text_color(rgb(theme.text_muted))
-                            .child(
-                                self.i18n
-                                    .t("sessionManager.folder_tree.new_group_description"),
-                            ),
-                    )
-                    .child(
-                        self.render_session_text_input(
-                            SessionManagerInput::NewGroup,
-                            &self.session_manager.new_group_name,
+        .on_mouse_down(
+            MouseButton::Left,
+            cx.listener(|this, _event, _window, cx| {
+                this.session_manager.show_new_group = false;
+                this.session_manager.focused_input = None;
+                this.session_manager.focused_basic_dialog_footer_action = None;
+                cx.stop_propagation();
+                cx.notify();
+            }),
+        )
+        .child(overlay_content_boundary(
+            div()
+                .w(px(380.0))
+                .flex()
+                .flex_col()
+                .gap(px(14.0))
+                .p(px(16.0))
+                .rounded(px(self.tokens.radii.lg))
+                .border_1()
+                .border_color(rgb(theme.border))
+                .bg(rgb(theme.bg_panel))
+                .child(
+                    div()
+                        .text_size(px(18.0))
+                        .font_weight(gpui::FontWeight::SEMIBOLD)
+                        .child(self.i18n.t("sessionManager.folder_tree.new_group")),
+                )
+                .child(
+                    div()
+                        .text_size(px(self.tokens.metrics.ui_text_sm))
+                        .text_color(rgb(theme.text_muted))
+                        .child(
                             self.i18n
-                                .t("sessionManager.folder_tree.new_group_placeholder"),
-                            cx,
+                                .t("sessionManager.folder_tree.new_group_description"),
                         ),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .justify_end()
-                            .gap(px(8.0))
-                            .child(
-                                self.session_manager_basic_footer_action(
-                                    self.i18n.t("sessionManager.edit_properties.cancel"),
-                                    ButtonVariant::Secondary,
-                                    SessionManagerBasicDialogFooterAction::Cancel,
-                                    false,
-                                    |this, _event, _window, cx| {
-                                        this.session_manager.show_new_group = false;
-                                        this.session_manager.focused_input = None;
-                                        this.session_manager.focused_basic_dialog_footer_action =
-                                            None;
-                                        cx.notify();
-                                    },
-                                    cx,
-                                ),
-                            )
-                            .child(
-                                self.session_manager_basic_footer_action(
-                                    self.i18n.t("sessionManager.edit_properties.save"),
-                                    ButtonVariant::Default,
-                                    SessionManagerBasicDialogFooterAction::Primary,
-                                    !can_create_group,
-                                    |this, _event, _window, cx| {
-                                        this.session_manager.focused_basic_dialog_footer_action =
-                                            None;
-                                        this.create_session_group(cx);
-                                    },
-                                    cx,
-                                ),
-                            ),
+                )
+                .child(
+                    self.render_session_text_input(
+                        SessionManagerInput::NewGroup,
+                        &self.session_manager.new_group_name,
+                        self.i18n
+                            .t("sessionManager.folder_tree.new_group_placeholder"),
+                        cx,
                     ),
-            ))
-            .into_any_element()
+                )
+                .child(
+                    div()
+                        .flex()
+                        .justify_end()
+                        .gap(px(8.0))
+                        .child(self.session_manager_basic_footer_action(
+                            self.i18n.t("sessionManager.edit_properties.cancel"),
+                            ButtonVariant::Secondary,
+                            SessionManagerBasicDialogFooterAction::Cancel,
+                            false,
+                            |this, _event, _window, cx| {
+                                this.session_manager.show_new_group = false;
+                                this.session_manager.focused_input = None;
+                                this.session_manager.focused_basic_dialog_footer_action = None;
+                                cx.notify();
+                            },
+                            cx,
+                        ))
+                        .child(self.session_manager_basic_footer_action(
+                            self.i18n.t("sessionManager.edit_properties.save"),
+                            ButtonVariant::Default,
+                            SessionManagerBasicDialogFooterAction::Primary,
+                            !can_create_group,
+                            |this, _event, _window, cx| {
+                                this.session_manager.focused_basic_dialog_footer_action = None;
+                                this.create_session_group(cx);
+                            },
+                            cx,
+                        )),
+                ),
+        ))
+        .into_any_element()
     }
 
-    fn render_ssh_config_import_dialog(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn render_ssh_config_import_dialog(&self, cx: &mut Context<Self>) -> AnyElement {
         let theme = self.tokens.ui;
         dismissible_dialog_backdrop()
             .on_mouse_down(
@@ -212,42 +208,40 @@ impl WorkspaceApp {
                             .px_4()
                             .border_t_1()
                             .border_color(rgb(theme.border))
-                            .child(
-                                self.session_manager_basic_footer_action(
-                                    self.i18n.t("sessionManager.edit_properties.cancel"),
-                                    ButtonVariant::Secondary,
-                                    SessionManagerBasicDialogFooterAction::Cancel,
-                                    false,
-                                    |this, _event, _window, cx| {
-                                        this.session_manager.show_import = false;
-                                        this.session_manager.selected_import_aliases.clear();
-                                        this.session_manager.focused_basic_dialog_footer_action =
-                                            None;
-                                        cx.notify();
-                                    },
-                                    cx,
-                                ),
-                            )
-                            .child(
-                                self.session_manager_basic_footer_action(
-                                    self.i18n.t("sessionManager.toolbar.import"),
-                                    ButtonVariant::Default,
-                                    SessionManagerBasicDialogFooterAction::Primary,
-                                    false,
-                                    |this, _event, _window, cx| {
-                                        this.session_manager.focused_basic_dialog_footer_action =
-                                            None;
-                                        this.import_selected_ssh_hosts(cx);
-                                    },
-                                    cx,
-                                ),
-                            ),
+                            .child(self.session_manager_basic_footer_action(
+                                self.i18n.t("sessionManager.edit_properties.cancel"),
+                                ButtonVariant::Secondary,
+                                SessionManagerBasicDialogFooterAction::Cancel,
+                                false,
+                                |this, _event, _window, cx| {
+                                    this.session_manager.show_import = false;
+                                    this.session_manager.selected_import_aliases.clear();
+                                    this.session_manager.focused_basic_dialog_footer_action = None;
+                                    cx.notify();
+                                },
+                                cx,
+                            ))
+                            .child(self.session_manager_basic_footer_action(
+                                self.i18n.t("sessionManager.toolbar.import"),
+                                ButtonVariant::Default,
+                                SessionManagerBasicDialogFooterAction::Primary,
+                                false,
+                                |this, _event, _window, cx| {
+                                    this.session_manager.focused_basic_dialog_footer_action = None;
+                                    this.import_selected_ssh_hosts(cx);
+                                },
+                                cx,
+                            )),
                     ),
             ))
             .into_any_element()
     }
 
-    fn render_import_host_row(&self, host: SshConfigHost, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn render_import_host_row(
+        &self,
+        host: SshConfigHost,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let theme = self.tokens.ui;
         let checked = self
             .session_manager
@@ -345,7 +339,11 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_batch_move_popover(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn render_batch_move_popover(
+        &self,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let theme = self.tokens.ui;
         let groups = self.connection_store.groups().to_vec();
         let Some(anchor) = self
@@ -401,7 +399,7 @@ impl WorkspaceApp {
         .into_any_element()
     }
 
-    fn render_batch_move_item(
+    pub(super) fn render_batch_move_item(
         &self,
         group: Option<String>,
         label: String,

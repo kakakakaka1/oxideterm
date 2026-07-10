@@ -1,4 +1,6 @@
-fn oxide_settings_section_label(section: &str, i18n: &oxideterm_i18n::I18n) -> String {
+use super::*;
+
+pub(super) fn oxide_settings_section_label(section: &str, i18n: &oxideterm_i18n::I18n) -> String {
     // Keep .oxide section names on the same translation keys as the Tauri
     // import/export modals so sectioned settings previews do not leak Chinese.
     match section {
@@ -15,7 +17,7 @@ fn oxide_settings_section_label(section: &str, i18n: &oxideterm_i18n::I18n) -> S
     }
 }
 
-fn oxide_export_connection_count(dialog: &OxideExportDialogState) -> usize {
+pub(super) fn oxide_export_connection_count(dialog: &OxideExportDialogState) -> usize {
     let mut ids = dialog.selected_ids.clone();
     if dialog.include_forwards {
         for forward in &dialog.available_forwards {
@@ -29,7 +31,7 @@ fn oxide_export_connection_count(dialog: &OxideExportDialogState) -> usize {
     ids.len()
 }
 
-fn oxide_forward_summary(forward: &PersistedForward) -> String {
+pub(super) fn oxide_forward_summary(forward: &PersistedForward) -> String {
     let direction = match forward.forward_type {
         ForwardType::Local => "L",
         ForwardType::Remote => "R",
@@ -45,7 +47,7 @@ fn oxide_forward_summary(forward: &PersistedForward) -> String {
     )
 }
 
-fn oxide_forward_description_or_summary(forward: &PersistedForward) -> String {
+pub(super) fn oxide_forward_description_or_summary(forward: &PersistedForward) -> String {
     let description = forward.rule.description.trim();
     if description.is_empty() {
         oxide_forward_summary(forward)
@@ -55,13 +57,13 @@ fn oxide_forward_description_or_summary(forward: &PersistedForward) -> String {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum OxidePasswordStrength {
+pub(super) enum OxidePasswordStrength {
     Weak,
     Fair,
     Strong,
 }
 
-fn oxide_password_strength(password: &str) -> OxidePasswordStrength {
+pub(super) fn oxide_password_strength(password: &str) -> OxidePasswordStrength {
     if password.len() < 8 {
         return OxidePasswordStrength::Weak;
     }
@@ -82,7 +84,7 @@ fn oxide_password_strength(password: &str) -> OxidePasswordStrength {
     }
 }
 
-fn oxide_password_strength_label(
+pub(super) fn oxide_password_strength_label(
     strength: OxidePasswordStrength,
     i18n: &oxideterm_i18n::I18n,
 ) -> String {
@@ -93,7 +95,7 @@ fn oxide_password_strength_label(
     }
 }
 
-fn oxide_export_progress_label(
+pub(super) fn oxide_export_progress_label(
     stage: &str,
     embed_keys: bool,
     i18n: &oxideterm_i18n::I18n,
@@ -107,7 +109,7 @@ fn oxide_export_progress_label(
     i18n.t(key)
 }
 
-fn oxide_import_progress_label(
+pub(super) fn oxide_import_progress_label(
     stage: &str,
     total: usize,
     i18n: &oxideterm_i18n::I18n,
@@ -131,7 +133,7 @@ fn oxide_import_progress_label(
     i18n.t(key)
 }
 
-fn oxide_format_bytes(bytes: u64) -> String {
+pub(super) fn oxide_format_bytes(bytes: u64) -> String {
     if bytes < 1024 {
         format!("{bytes} B")
     } else if bytes < 1024 * 1024 {
@@ -141,7 +143,7 @@ fn oxide_format_bytes(bytes: u64) -> String {
     }
 }
 
-fn oxide_password_strength_bar_color(
+pub(super) fn oxide_password_strength_bar_color(
     strength: OxidePasswordStrength,
     index: usize,
     border: u32,
@@ -162,7 +164,10 @@ fn oxide_password_strength_bar_color(
     }
 }
 
-fn oxide_password_strength_text_color(strength: OxidePasswordStrength, muted: u32) -> Rgba {
+pub(super) fn oxide_password_strength_text_color(
+    strength: OxidePasswordStrength,
+    muted: u32,
+) -> Rgba {
     match strength {
         OxidePasswordStrength::Weak => rgb(OXIDE_YELLOW_500),
         OxidePasswordStrength::Fair => rgb(muted),
@@ -170,7 +175,7 @@ fn oxide_password_strength_text_color(strength: OxidePasswordStrength, muted: u3
     }
 }
 
-fn oxide_export_selected_plugin_setting_count(dialog: &OxideExportDialogState) -> usize {
+pub(super) fn oxide_export_selected_plugin_setting_count(dialog: &OxideExportDialogState) -> usize {
     dialog
         .plugin_groups
         .iter()
@@ -179,18 +184,19 @@ fn oxide_export_selected_plugin_setting_count(dialog: &OxideExportDialogState) -
         .sum()
 }
 
-fn oxide_export_has_selected_content(dialog: &OxideExportDialogState) -> bool {
+pub(super) fn oxide_export_has_selected_content(dialog: &OxideExportDialogState) -> bool {
     oxide_export_connection_count(dialog) > 0
         || (dialog.include_app_settings && !dialog.selected_app_settings_sections.is_empty())
         || dialog.include_quick_commands
         || dialog.include_serial_profiles
         || dialog.include_raw_tcp_profiles
         || dialog.include_raw_udp_profiles
-        || (dialog.include_plugin_settings && oxide_export_selected_plugin_setting_count(dialog) > 0)
+        || (dialog.include_plugin_settings
+            && oxide_export_selected_plugin_setting_count(dialog) > 0)
         || dialog.include_portable_secrets
 }
 
-fn oxide_import_has_selected_content(dialog: &OxideImportDialogState) -> bool {
+pub(super) fn oxide_import_has_selected_content(dialog: &OxideImportDialogState) -> bool {
     let Some(preview) = dialog.preview.as_ref() else {
         return false;
     };
@@ -209,7 +215,9 @@ fn oxide_import_has_selected_content(dialog: &OxideImportDialogState) -> bool {
         || (preview.portable_secret_count > 0 && dialog.import_portable_secrets)
 }
 
-fn oxide_import_footer_actions(dialog: &OxideImportDialogState) -> Vec<OxideDialogFooterAction> {
+pub(super) fn oxide_import_footer_actions(
+    dialog: &OxideImportDialogState,
+) -> Vec<OxideDialogFooterAction> {
     // Tauri dialog footers use normal DOM tab order. Model only rendered
     // footer buttons so preview/result stages do not expose hidden actions.
     if dialog.result.is_some() {
@@ -228,15 +236,17 @@ fn oxide_import_footer_actions(dialog: &OxideImportDialogState) -> Vec<OxideDial
     }
 }
 
-const OXIDE_IMPORT_FOOTER_BODY_INPUTS: [SessionManagerInput; 1] =
+pub(super) const OXIDE_IMPORT_FOOTER_BODY_INPUTS: [SessionManagerInput; 1] =
     [SessionManagerInput::OxideImportPassword];
-const OXIDE_EXPORT_FOOTER_BODY_INPUTS: [SessionManagerInput; 3] = [
+pub(super) const OXIDE_EXPORT_FOOTER_BODY_INPUTS: [SessionManagerInput; 3] = [
     SessionManagerInput::OxideExportDescription,
     SessionManagerInput::OxideExportPassword,
     SessionManagerInput::OxideExportConfirmPassword,
 ];
 
-fn oxide_import_footer_body_inputs(dialog: &OxideImportDialogState) -> &'static [SessionManagerInput] {
+pub(super) fn oxide_import_footer_body_inputs(
+    dialog: &OxideImportDialogState,
+) -> &'static [SessionManagerInput] {
     // The decrypt password field is the only text input in the import stage
     // before preview/result. Keep its focus edge explicit so footer Tab order
     // does not leave the IME/input owner active behind a focused footer button.
@@ -247,7 +257,9 @@ fn oxide_import_footer_body_inputs(dialog: &OxideImportDialogState) -> &'static 
     }
 }
 
-fn oxide_export_footer_body_inputs(dialog: &OxideExportDialogState) -> &'static [SessionManagerInput] {
+pub(super) fn oxide_export_footer_body_inputs(
+    dialog: &OxideExportDialogState,
+) -> &'static [SessionManagerInput] {
     // Tauri export modal body tab order reaches description before password
     // and confirm-password. Native tracks that order explicitly because GPUI
     // does not provide DOM tab stops for these custom-rendered inputs.
@@ -258,17 +270,22 @@ fn oxide_export_footer_body_inputs(dialog: &OxideExportDialogState) -> &'static 
     }
 }
 
-fn import_preview_selectable_names(preview: &ImportPreview) -> HashSet<String> {
+pub(super) fn import_preview_selectable_names(preview: &ImportPreview) -> HashSet<String> {
     let mut names = HashSet::new();
     names.extend(preview.unchanged.iter().cloned());
-    names.extend(preview.will_rename.iter().map(|(original, _)| original.clone()));
+    names.extend(
+        preview
+            .will_rename
+            .iter()
+            .map(|(original, _)| original.clone()),
+    );
     names.extend(preview.will_skip.iter().cloned());
     names.extend(preview.will_replace.iter().cloned());
     names.extend(preview.will_merge.iter().cloned());
     names
 }
 
-fn oxide_settings_field_label(field: &str, i18n: &oxideterm_i18n::I18n) -> String {
+pub(super) fn oxide_settings_field_label(field: &str, i18n: &oxideterm_i18n::I18n) -> String {
     // These mappings mirror Tauri's OxideImportModal field formatter.
     match field {
         "language" => i18n.t("settings_view.general.language"),

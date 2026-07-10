@@ -6,6 +6,7 @@ version.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+oxideterm-atomic-file = { path = "../oxideterm-atomic-file" }
 oxideterm-portable-runtime = { path = "../oxideterm-portable-runtime" }
 oxideterm-render-policy = { path = "../oxideterm-render-policy" }
 serde.workspace = true

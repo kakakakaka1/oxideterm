@@ -1,5 +1,7 @@
+use super::*;
+
 impl WorkspaceApp {
-    fn render_sftp_editor_close_confirm_dialog(
+    pub(in crate::workspace::sftp) fn render_sftp_editor_close_confirm_dialog(
         &self,
         name: String,
         cx: &mut Context<Self>,
@@ -53,7 +55,9 @@ impl WorkspaceApp {
                                     .items_center()
                                     .justify_center()
                                     .border_1()
-                                    .border_color(rgba((theme.accent << 8) | SFTP_CONFIRM_ICON_RING_ALPHA))
+                                    .border_color(rgba(
+                                        (theme.accent << 8) | SFTP_CONFIRM_ICON_RING_ALPHA,
+                                    ))
                                     .bg(rgba((theme.accent << 8) | SFTP_CONFIRM_ICON_BG_ALPHA))
                                     .child(Self::render_lucide_icon(
                                         LucideIcon::HelpCircle,
@@ -81,15 +85,15 @@ impl WorkspaceApp {
                                     .flex_1()
                                     .py(px(10.0))
                                     .border_r_1()
-                                    .border_color(rgba((theme.border << 8) | SFTP_DIALOG_DIVIDER_ALPHA))
+                                    .border_color(rgba(
+                                        (theme.border << 8) | SFTP_DIALOG_DIVIDER_ALPHA,
+                                    ))
                                     .text_center()
                                     .text_size(px(SFTP_TEXT_SM))
                                     .font_weight(gpui::FontWeight::MEDIUM)
                                     .text_color(rgb(theme.text_muted))
                                     .hover(move |button| {
-                                        button
-                                            .bg(rgb(theme.bg_hover))
-                                            .text_color(rgb(theme.text))
+                                        button.bg(rgb(theme.bg_hover)).text_color(rgb(theme.text))
                                     })
                                     .cursor_pointer()
                                     .child(self.i18n.t("sftp.dialogs.cancel"))

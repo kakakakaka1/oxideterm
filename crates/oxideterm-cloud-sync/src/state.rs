@@ -3,15 +3,13 @@
 
 use std::{
     collections::BTreeMap,
-    ffi::OsString,
-    fs::{self, OpenOptions},
-    io::{self, Write},
+    fs, io,
     path::{Path, PathBuf},
-    sync::atomic::{AtomicU64, Ordering},
 };
 
 use anyhow::{Context, Result};
 use chrono::Utc;
+use oxideterm_atomic_file::durable_write_with_before_replace;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -21,8 +19,6 @@ use crate::{
 };
 
 const CLOUD_SYNC_STATE_VERSION: u32 = 1;
-const MAX_ATOMIC_TEMP_ATTEMPTS: usize = 128;
-static ATOMIC_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[cfg(test)]
 thread_local! {
@@ -353,51 +349,7 @@ fn decode_cloud_sync_state(contents: &str) -> Result<CloudSyncPersistedState> {
 }
 
 fn atomic_write_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    let parent = path
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."));
-    let file_name = path.file_name().ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "atomic write path has no file name",
-        )
-    })?;
-    let (temp_path, mut temp_file) = (0..MAX_ATOMIC_TEMP_ATTEMPTS)
-        .find_map(|_| {
-            let sequence = ATOMIC_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-            let mut temp_name = OsString::from(".");
-            temp_name.push(file_name);
-            temp_name.push(format!(".{}.{sequence}.tmp", std::process::id()));
-            let temp_path = parent.join(temp_name);
-            match OpenOptions::new()
-                .create_new(true)
-                .write(true)
-                .open(&temp_path)
-            {
-                Ok(file) => Some(Ok((temp_path, file))),
-                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => None,
-                Err(error) => Some(Err(error)),
-            }
-        })
-        .transpose()?
-        .ok_or_else(|| {
-            io::Error::new(io::ErrorKind::AlreadyExists, "atomic temp path exhausted")
-        })?;
-
-    // Runtime state becomes visible only after a complete, durable temp file exists.
-    let write_result = (|| {
-        temp_file.write_all(bytes)?;
-        temp_file.flush()?;
-        temp_file.sync_all()?;
-        drop(temp_file);
-        fail_before_atomic_replace_for_tests()?;
-        atomic_replace_file(&temp_path, path)
-    })();
-    if write_result.is_err() {
-        let _ = fs::remove_file(&temp_path);
-    }
-    write_result
+    durable_write_with_before_replace(path, bytes, fail_before_atomic_replace_for_tests)
 }
 
 #[cfg(test)]
@@ -419,47 +371,6 @@ fn fail_before_atomic_replace_for_tests() -> io::Result<()> {
 #[cfg(test)]
 fn inject_atomic_replace_failure() {
     FAIL_NEXT_ATOMIC_REPLACE.with(|fail| fail.set(true));
-}
-
-#[cfg(not(windows))]
-fn atomic_replace_file(source: &Path, destination: &Path) -> io::Result<()> {
-    fs::rename(source, destination)
-}
-
-#[cfg(windows)]
-fn atomic_replace_file(source: &Path, destination: &Path) -> io::Result<()> {
-    use std::os::windows::ffi::OsStrExt;
-
-    const MOVEFILE_REPLACE_EXISTING: u32 = 0x1;
-    const MOVEFILE_WRITE_THROUGH: u32 = 0x8;
-
-    #[link(name = "Kernel32")]
-    unsafe extern "system" {
-        fn MoveFileExW(existing: *const u16, replacement: *const u16, flags: u32) -> i32;
-    }
-
-    let source = source
-        .as_os_str()
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect::<Vec<_>>();
-    let destination = destination
-        .as_os_str()
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect::<Vec<_>>();
-    let replaced = unsafe {
-        MoveFileExW(
-            source.as_ptr(),
-            destination.as_ptr(),
-            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
-        )
-    };
-    if replaced == 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
 }
 
 pub fn default_cloud_sync_state_path(settings_path: &Path) -> PathBuf {

@@ -6,13 +6,13 @@ use gpui::{
 
 use super::{
     form_state::{
-        NewConnectionField, NewConnectionForm, NewConnectionFormMode, NewConnectionSelect,
-        NewConnectionSubmitAction, NewConnectionTransport, NewConnectionUpstreamProxyAuth,
-        NewConnectionUpstreamProxyPolicy, RDP_DEFAULT_PORT_TEXT, SSH_DEFAULT_PORT_TEXT,
-        SavedConnectionPromptAction, SshAuthFamily, SshAuthTab, SshKeyAuthSource,
-        TELNET_DEFAULT_PORT_TEXT, VNC_DEFAULT_PORT_TEXT, apply_transport_default_port,
-        apply_transport_default_username, auth_family_from_tab, auth_tab_from_key_source,
-        backspace_current_connection_field, clear_connection_selection,
+        NewConnectionField, NewConnectionForm, NewConnectionFormMode, NewConnectionProxyHop,
+        NewConnectionSelect, NewConnectionSubmitAction, NewConnectionTransport,
+        NewConnectionUpstreamProxyAuth, NewConnectionUpstreamProxyPolicy, RDP_DEFAULT_PORT_TEXT,
+        SSH_DEFAULT_PORT_TEXT, SavedConnectionPromptAction, SshAuthFamily, SshAuthTab,
+        SshKeyAuthSource, TELNET_DEFAULT_PORT_TEXT, VNC_DEFAULT_PORT_TEXT,
+        apply_transport_default_port, apply_transport_default_username, auth_family_from_tab,
+        auth_tab_from_key_source, backspace_current_connection_field, clear_connection_selection,
         clear_current_connection_field, connection_field_is_selected, current_connection_field,
         default_auth_tab_for_family, insert_text_into_current_connection_field,
         key_source_from_tab, new_connection_form_mode, next_connection_field,
@@ -46,6 +46,14 @@ use oxideterm_gpui_ui::{
     text_input, text_input_anchor_probe,
 };
 
+// Keep the modal, proxy-chain, and field-control implementations in explicit
+// submodules so their dependencies and visibility remain locally auditable.
+mod field_controls;
+mod form_modal;
+mod proxy_chain_view;
+
+use field_controls::{AuthSelectorContext, serial_port_display_label};
+
 const TAURI_EDIT_MODAL_WIDTH: f32 = 500.0; // Tauri sm:max-w-[500px]
 const TAURI_EDIT_COLOR_FALLBACK: u32 = 0x22d3ee;
 const TAURI_EDIT_COLOR_FALLBACK_TEXT: &str = "#22d3ee";
@@ -75,10 +83,6 @@ enum ConnectionButtonAction {
     Save,
     SaveAndConnect,
 }
-
-include!("form_modal.rs");
-include!("proxy_chain_view.rs");
-include!("field_controls.rs");
 
 impl WorkspaceApp {
     pub(in crate::workspace) fn handle_new_connection_key(

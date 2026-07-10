@@ -156,7 +156,7 @@ pub struct SerialSession {
     term: Arc<FairMutex<Term<LocalEventListener>>>,
     parser: Processor,
     event_rx: Receiver<AlacEvent>,
-    worker_rx: Receiver<SerialWorkerEvent>,
+    worker_rx: crate::backpressure::ByteBoundedReceiver<SerialWorkerEvent>,
     pending_events: Vec<TerminalEvent>,
     resize: TerminalResize,
     lifecycle: TerminalLifecycle,
@@ -167,8 +167,7 @@ pub struct SerialSession {
     graphics_ingress: GraphicsIngress,
     graphics: TerminalGraphicsState,
     graphics_alt_screen_active: bool,
-    output_queue: VecDeque<Vec<u8>>,
-    output_queue_bytes: usize,
+    output_queue: VecDeque<crate::backpressure::ByteBoundedItem<SerialWorkerEvent>>,
     magic_scan: MagicScanWindow,
     encoding: TerminalEncoding,
     output_decoder: TerminalOutputDecoder,
@@ -294,7 +293,9 @@ impl SerialSession {
             cell_height: resize.cell_height,
         };
         let (event_tx, event_rx) = unbounded();
-        let (worker_tx, worker_rx) = unbounded();
+        let (worker_tx, worker_rx) = crate::backpressure::byte_bounded_channel(
+            crate::backpressure::TRANSPORT_OUTPUT_BACKLOG_BYTES,
+        );
         let (command_tx, command_rx) = crossbeam_channel::unbounded();
         let listener = LocalEventListener { tx: event_tx };
 
@@ -332,7 +333,6 @@ impl SerialSession {
             graphics: TerminalGraphicsState::default(),
             graphics_alt_screen_active: false,
             output_queue: VecDeque::new(),
-            output_queue_bytes: 0,
             magic_scan: MagicScanWindow::default(),
             encoding,
             output_decoder: TerminalOutputDecoder::new(encoding),
@@ -368,12 +368,15 @@ impl SerialSession {
         loop {
             if report.drained_bytes >= budget.max_bytes || report.events_drained >= budget.max_events
             {
-                report.budget_exhausted = !self.output_queue.is_empty();
+                report.budget_exhausted =
+                    !self.output_queue.is_empty() || !self.worker_rx.is_empty();
                 break;
             }
 
-            if let Some(bytes) = self.output_queue.pop_front() {
-                self.output_queue_bytes = self.output_queue_bytes.saturating_sub(bytes.len());
+            if let Some(event) = self.output_queue.pop_front() {
+                let SerialWorkerEvent::Output(bytes) = event.into_inner() else {
+                    unreachable!("only output events enter the local drain queue");
+                };
                 report.drained_bytes = report.drained_bytes.saturating_add(bytes.len());
                 report.events_drained += 1;
                 self.feed_transport_output(&bytes);
@@ -381,50 +384,8 @@ impl SerialSession {
                 continue;
             }
 
-            match self.worker_rx.try_recv() {
-                Ok(SerialWorkerEvent::Connected) => {
-                    self.title = Some(self.title_text());
-                    self.pending_events
-                        .push(TerminalEvent::TitleChanged(self.title_text()));
-                    report.events_drained += 1;
-                    report.mark_changed();
-                }
-                Ok(SerialWorkerEvent::Output(bytes)) => {
-                    if report.drained_bytes > 0
-                        && report.drained_bytes.saturating_add(bytes.len()) > budget.max_bytes
-                    {
-                        self.output_queue_bytes =
-                            self.output_queue_bytes.saturating_add(bytes.len());
-                        self.output_queue.push_back(bytes);
-                        report.budget_exhausted = true;
-                        break;
-                    }
-                    report.drained_bytes = report.drained_bytes.saturating_add(bytes.len());
-                    report.events_drained += 1;
-                    self.feed_transport_output(&bytes);
-                    report.mark_changed();
-                }
-                Ok(SerialWorkerEvent::Failed(error)) => {
-                    self.lifecycle = TerminalLifecycle::Exited(None);
-                    self.release_port_reservation();
-                    self.feed_utf8_terminal_output(
-                        format!("\r\nSerial session failed: {}\r\n", error.message).as_bytes(),
-                    );
-                    self.pending_events.push(TerminalEvent::ChildExited(None));
-                    report.events_drained += 1;
-                    report.mark_changed();
-                    break;
-                }
-                Ok(SerialWorkerEvent::Closed) => {
-                    self.release_port_reservation();
-                    if self.lifecycle.is_running() {
-                        self.lifecycle = TerminalLifecycle::Exited(None);
-                        self.pending_events.push(TerminalEvent::ChildExited(None));
-                        report.mark_changed();
-                    }
-                    report.events_drained += 1;
-                    break;
-                }
+            let event = match self.worker_rx.try_recv() {
+                Ok(event) => event,
                 Err(crossbeam_channel::TryRecvError::Empty) => break,
                 Err(crossbeam_channel::TryRecvError::Disconnected) => {
                     self.release_port_reservation();
@@ -435,9 +396,54 @@ impl SerialSession {
                     }
                     break;
                 }
+            };
+            if let SerialWorkerEvent::Output(bytes) = event.value()
+                && report.drained_bytes > 0
+                && report.drained_bytes.saturating_add(bytes.len()) > budget.max_bytes
+            {
+                self.output_queue.push_back(event);
+                report.budget_exhausted = true;
+                break;
+            }
+
+            match event.into_inner() {
+                SerialWorkerEvent::Connected => {
+                    self.title = Some(self.title_text());
+                    self.pending_events
+                        .push(TerminalEvent::TitleChanged(self.title_text()));
+                    report.events_drained += 1;
+                    report.mark_changed();
+                }
+                SerialWorkerEvent::Output(bytes) => {
+                    report.drained_bytes = report.drained_bytes.saturating_add(bytes.len());
+                    report.events_drained += 1;
+                    self.feed_transport_output(&bytes);
+                    report.mark_changed();
+                }
+                SerialWorkerEvent::Failed(error) => {
+                    self.lifecycle = TerminalLifecycle::Exited(None);
+                    self.release_port_reservation();
+                    self.feed_utf8_terminal_output(
+                        format!("\r\nSerial session failed: {}\r\n", error.message).as_bytes(),
+                    );
+                    self.pending_events.push(TerminalEvent::ChildExited(None));
+                    report.events_drained += 1;
+                    report.mark_changed();
+                    break;
+                }
+                SerialWorkerEvent::Closed => {
+                    self.release_port_reservation();
+                    if self.lifecycle.is_running() {
+                        self.lifecycle = TerminalLifecycle::Exited(None);
+                        self.pending_events.push(TerminalEvent::ChildExited(None));
+                        report.mark_changed();
+                    }
+                    report.events_drained += 1;
+                    break;
+                }
             }
         }
-        report.pending_bytes = self.output_queue_bytes;
+        report.pending_bytes = self.worker_rx.pending_bytes();
         report.drain_duration = started.elapsed();
         report
     }
@@ -952,6 +958,9 @@ impl TerminalSessionBackend for SerialSession {
             return;
         }
         self.release_port_reservation();
+        // Closing the output receiver releases a worker blocked by backpressure
+        // before this method joins the dedicated serial thread.
+        self.worker_rx.close();
         let _ = self.command_tx.try_send(SerialCommand::Close);
         if let Some(handle) = self.worker_handle.take() {
             let _ = handle.join();
@@ -963,17 +972,17 @@ impl TerminalSessionBackend for SerialSession {
 fn run_serial_worker(
     config: SerialSessionConfig,
     command_rx: crossbeam_channel::Receiver<SerialCommand>,
-    worker_tx: crossbeam_channel::Sender<SerialWorkerEvent>,
+    worker_tx: crate::backpressure::ByteBoundedSender<SerialWorkerEvent>,
 ) {
     let mut port = match open_serial_port(&config) {
         Ok(port) => port,
         Err(error) => {
-            let _ = worker_tx.send(SerialWorkerEvent::Failed(error));
+            let _ = worker_tx.send_control(SerialWorkerEvent::Failed(error));
             return;
         }
     };
 
-    let _ = worker_tx.send(SerialWorkerEvent::Connected);
+    let _ = worker_tx.send_control(SerialWorkerEvent::Connected);
     run_serial_worker_with_port(&mut *port, &config, command_rx, worker_tx);
 }
 
@@ -1048,7 +1057,7 @@ fn run_serial_worker_with_port<P>(
     port: &mut P,
     config: &SerialSessionConfig,
     command_rx: crossbeam_channel::Receiver<SerialCommand>,
-    worker_tx: crossbeam_channel::Sender<SerialWorkerEvent>,
+    worker_tx: crate::backpressure::ByteBoundedSender<SerialWorkerEvent>,
 ) where
     P: SerialWorkerPort + ?Sized,
 {
@@ -1058,28 +1067,29 @@ fn run_serial_worker_with_port<P>(
             match command {
                 SerialCommand::Data(bytes) => {
                     if let Err(error) = port.write_all(&bytes).and_then(|_| port.flush()) {
-                        let _ = worker_tx.send(SerialWorkerEvent::Failed(map_serial_io_error(
-                            error,
-                            SerialErrorCode::WriteFailed,
-                            &config.port_path,
-                        )));
+                        let _ =
+                            worker_tx.send_control(SerialWorkerEvent::Failed(map_serial_io_error(
+                                error,
+                                SerialErrorCode::WriteFailed,
+                                &config.port_path,
+                            )));
                         return;
                     }
                 }
                 SerialCommand::SetControlLine { line, asserted } => {
                     if let Err(error) = port.set_control_line(line, asserted, &config.port_path) {
-                        let _ = worker_tx.send(SerialWorkerEvent::Failed(error));
+                        let _ = worker_tx.send_control(SerialWorkerEvent::Failed(error));
                         return;
                     }
                 }
                 SerialCommand::SendBreak(duration) => {
                     if let Err(error) = port.send_break(duration, &config.port_path) {
-                        let _ = worker_tx.send(SerialWorkerEvent::Failed(error));
+                        let _ = worker_tx.send_control(SerialWorkerEvent::Failed(error));
                         return;
                     }
                 }
                 SerialCommand::Close => {
-                    let _ = worker_tx.send(SerialWorkerEvent::Closed);
+                    let _ = worker_tx.send_control(SerialWorkerEvent::Closed);
                     return;
                 }
             }
@@ -1089,7 +1099,10 @@ fn run_serial_worker_with_port<P>(
             Ok(0) => {}
             Ok(read_count) => {
                 if worker_tx
-                    .send(SerialWorkerEvent::Output(buffer[..read_count].to_vec()))
+                    .send(
+                        SerialWorkerEvent::Output(buffer[..read_count].to_vec()),
+                        read_count,
+                    )
                     .is_err()
                 {
                     return;
@@ -1101,7 +1114,7 @@ fn run_serial_worker_with_port<P>(
                     std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
                 ) => {}
             Err(error) => {
-                let _ = worker_tx.send(SerialWorkerEvent::Failed(map_serial_io_error(
+                let _ = worker_tx.send_control(SerialWorkerEvent::Failed(map_serial_io_error(
                     error,
                     SerialErrorCode::ReadFailed,
                     &config.port_path,
@@ -1545,7 +1558,9 @@ mod serial_tests {
             cell_height: resize.cell_height,
         };
         let (event_tx, event_rx) = unbounded();
-        let (_worker_tx, worker_rx) = unbounded();
+        let (_worker_tx, worker_rx) = crate::backpressure::byte_bounded_channel(
+            crate::backpressure::TRANSPORT_OUTPUT_BACKLOG_BYTES,
+        );
         let (command_tx, _command_rx) = crossbeam_channel::unbounded();
         let listener = LocalEventListener { tx: event_tx };
         let mut term_config = Config::default();
@@ -1570,7 +1585,6 @@ mod serial_tests {
             graphics: TerminalGraphicsState::default(),
             graphics_alt_screen_active: false,
             output_queue: VecDeque::new(),
-            output_queue_bytes: 0,
             magic_scan: MagicScanWindow::default(),
             encoding: TerminalEncoding::Utf8,
             output_decoder: TerminalOutputDecoder::new(TerminalEncoding::Utf8),
@@ -1629,9 +1643,13 @@ mod serial_tests {
             Some(port_path.to_string()),
             true,
         );
-        let (worker_tx, worker_rx) = unbounded();
+        let (worker_tx, worker_rx) = crate::backpressure::byte_bounded_channel(
+            crate::backpressure::TRANSPORT_OUTPUT_BACKLOG_BYTES,
+        );
         session.worker_rx = worker_rx;
-        worker_tx.send(SerialWorkerEvent::Failed(error)).unwrap();
+        worker_tx
+            .send_control(SerialWorkerEvent::Failed(error))
+            .unwrap();
         session.read_pending();
 
         let second = reserve_serial_port(port_path).unwrap();
@@ -1667,7 +1685,9 @@ mod serial_tests {
         ]));
         let writes = port.writes.clone();
         let (command_tx, command_rx) = crossbeam_channel::unbounded();
-        let (worker_tx, worker_rx) = crossbeam_channel::unbounded();
+        let (worker_tx, worker_rx) = crate::backpressure::byte_bounded_channel(
+            crate::backpressure::TRANSPORT_OUTPUT_BACKLOG_BYTES,
+        );
 
         command_tx
             .send(SerialCommand::Data(b"at\r".to_vec()))
@@ -1676,11 +1696,11 @@ mod serial_tests {
 
         assert_eq!(writes.lock().unwrap().as_slice(), &[b"at\r".to_vec()]);
         assert!(matches!(
-            worker_rx.recv().unwrap(),
+            worker_rx.try_recv().unwrap().into_inner(),
             SerialWorkerEvent::Output(bytes) if bytes == [0x00, b'o', b'k']
         ));
         assert!(matches!(
-            worker_rx.recv().unwrap(),
+            worker_rx.try_recv().unwrap().into_inner(),
             SerialWorkerEvent::Failed(error)
                 if error.code == SerialErrorCode::DeviceDisconnected
         ));
@@ -1693,13 +1713,15 @@ mod serial_tests {
             b"unexpected".to_vec(),
         )]));
         let (command_tx, command_rx) = crossbeam_channel::unbounded();
-        let (worker_tx, worker_rx) = crossbeam_channel::unbounded();
+        let (worker_tx, worker_rx) = crate::backpressure::byte_bounded_channel(
+            crate::backpressure::TRANSPORT_OUTPUT_BACKLOG_BYTES,
+        );
 
         command_tx.send(SerialCommand::Close).unwrap();
         run_serial_worker_with_port(&mut port, &config, command_rx, worker_tx);
 
         assert!(matches!(
-            worker_rx.recv().unwrap(),
+            worker_rx.try_recv().unwrap().into_inner(),
             SerialWorkerEvent::Closed
         ));
         assert!(worker_rx.try_recv().is_err());
@@ -1711,7 +1733,9 @@ mod serial_tests {
         let mut port = FakeSerialPort::new(VecDeque::new());
         let controls = port.controls.clone();
         let (command_tx, command_rx) = crossbeam_channel::unbounded();
-        let (worker_tx, worker_rx) = crossbeam_channel::unbounded();
+        let (worker_tx, worker_rx) = crate::backpressure::byte_bounded_channel(
+            crate::backpressure::TRANSPORT_OUTPUT_BACKLOG_BYTES,
+        );
 
         command_tx
             .send(SerialCommand::SetControlLine {
@@ -1740,7 +1764,7 @@ mod serial_tests {
             ]
         );
         assert!(matches!(
-            worker_rx.recv().unwrap(),
+            worker_rx.try_recv().unwrap().into_inner(),
             SerialWorkerEvent::Closed
         ));
     }

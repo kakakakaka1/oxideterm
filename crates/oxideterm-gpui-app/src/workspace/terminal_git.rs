@@ -719,7 +719,7 @@ impl WorkspaceApp {
 
         let provider_id = config.provider_id.clone();
         let requires_key = ai_provider_chat_requires_key(&config.provider_type);
-        let key_store = self.ai_key_store.clone();
+        let key_store = self.ai.models.key_store.clone();
         let api_key_not_found = self.i18n.t("ai.model_selector.api_key_not_found");
         let failed_to_get_key = self.i18n.t("ai.model_selector.failed_to_get_api_key");
         let context_max_chars = self.settings_store.settings().ai.context_max_chars.max(0) as usize;

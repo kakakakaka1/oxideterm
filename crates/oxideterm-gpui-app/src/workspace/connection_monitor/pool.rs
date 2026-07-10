@@ -1,4 +1,4 @@
-use gpui::StatefulInteractiveElement;
+use super::*;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 enum ConnectionMonitorSection {
@@ -7,7 +7,7 @@ enum ConnectionMonitorSection {
 }
 
 impl WorkspaceApp {
-    pub(super) fn render_connection_monitor_surface(
+    pub(in crate::workspace) fn render_connection_monitor_surface(
         &mut self,
         cx: &mut Context<Self>,
     ) -> AnyElement {
@@ -24,11 +24,15 @@ impl WorkspaceApp {
             .size_full()
             .bg(connection_monitor_surface_bg(theme.bg, has_background))
             .text_color(rgb(theme.text))
-            .child(tauri_virtual_list(state, spec, move |index, _window, cx| {
-                workspace.update(cx, |this, cx| {
-                    this.render_connection_monitor_section_item(index, cx)
-                })
-            }))
+            .child(tauri_virtual_list(
+                state,
+                spec,
+                move |index, _window, cx| {
+                    workspace.update(cx, |this, cx| {
+                        this.render_connection_monitor_section_item(index, cx)
+                    })
+                },
+            ))
             .into_any_element()
     }
 
@@ -60,11 +64,22 @@ impl WorkspaceApp {
         // selection state changes; include those browser-section states so
         // GPUI remeasures the variable-height List rows.
         section.hash(&mut hasher);
-        self.connection_monitor.pool_error.is_some().hash(&mut hasher);
-        self.connection_monitor.pool_stats.is_some().hash(&mut hasher);
-        self.connection_monitor.pool_summaries.len().hash(&mut hasher);
+        self.connection_monitor
+            .pool_error
+            .is_some()
+            .hash(&mut hasher);
+        self.connection_monitor
+            .pool_stats
+            .is_some()
+            .hash(&mut hasher);
+        self.connection_monitor
+            .pool_summaries
+            .len()
+            .hash(&mut hasher);
         if matches!(section, ConnectionMonitorSection::Health) {
-            self.connection_monitor.selected_connection_id.hash(&mut hasher);
+            self.connection_monitor
+                .selected_connection_id
+                .hash(&mut hasher);
             self.connection_monitor
                 .disabled_profiler_connections
                 .len()

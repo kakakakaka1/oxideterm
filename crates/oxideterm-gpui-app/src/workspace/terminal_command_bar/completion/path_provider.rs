@@ -1,5 +1,7 @@
+use super::*;
+
 impl WorkspaceApp {
-    fn terminal_command_context_cwd(
+    pub(super) fn terminal_command_context_cwd(
         &self,
         pane_id: Option<PaneId>,
         tab_kind: Option<&TabKind>,
@@ -24,7 +26,7 @@ impl WorkspaceApp {
         })
     }
 
-    fn terminal_command_path_suggestions(
+    pub(super) fn terminal_command_path_suggestions(
         &self,
         parsed: &TerminalShellParseResult,
         active_arg_type: TerminalFigArgType,
@@ -36,7 +38,8 @@ impl WorkspaceApp {
         {
             return Vec::new();
         }
-        let Some(parts) = normalize_terminal_path_token(&parsed.current_token, context.cwd.as_deref())
+        let Some(parts) =
+            normalize_terminal_path_token(&parsed.current_token, context.cwd.as_deref())
         else {
             return Vec::new();
         };
@@ -104,7 +107,8 @@ impl WorkspaceApp {
         }
         let node_router = self.node_router.clone();
         let runtime = self.forwarding_runtime.clone();
-        let (tx, rx) = std::sync::mpsc::channel();
+        // A single-result handoff must stay bounded so abandoned UI tasks cannot queue data.
+        let (tx, rx) = std::sync::mpsc::sync_channel(1);
         let cache_key_for_task = cache_key.clone();
         runtime.spawn(async move {
             let result = tokio::time::timeout(std::time::Duration::from_millis(800), async {

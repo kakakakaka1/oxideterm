@@ -1,32 +1,38 @@
+use super::*;
+
 #[derive(Clone)]
-struct PathSegment {
-    name: String,
-    full_path: String,
+pub(in crate::workspace::sftp) struct PathSegment {
+    pub(super) name: String,
+    pub(super) full_path: String,
 }
 
-fn sftp_bg(color: u32, has_background: bool) -> Rgba {
+pub(in crate::workspace::sftp) fn sftp_bg(color: u32, has_background: bool) -> Rgba {
     color_for_background(color, has_background, SFTP_BG_ACTIVE_BG_ALPHA)
 }
 
-fn sftp_panel_bg(color: u32, has_background: bool, alpha: u32) -> Rgba {
+pub(in crate::workspace::sftp) fn sftp_panel_bg(
+    color: u32,
+    has_background: bool,
+    alpha: u32,
+) -> Rgba {
     color_with_background_scaled_alpha(color, has_background, alpha, SFTP_BG_ACTIVE_PANEL_ALPHA)
 }
 
-fn sftp_card_surface(surface: gpui::Div, color: u32) -> gpui::Div {
+pub(in crate::workspace::sftp) fn sftp_card_surface(surface: gpui::Div, color: u32) -> gpui::Div {
     // SFTP queue subcards mirror Tauri bg-theme-bg-card; the shadow belongs to
     // that card token even when the caller keeps a custom active-background alpha.
     tauri_glass_surface_shadow(surface, color)
 }
 
-fn sftp_hover_bg(color: u32, has_background: bool) -> Rgba {
+pub(in crate::workspace::sftp) fn sftp_hover_bg(color: u32, has_background: bool) -> Rgba {
     color_for_background(color, has_background, SFTP_BG_ACTIVE_HOVER_ALPHA)
 }
 
-fn sftp_border(color: u32, has_background: bool) -> Rgba {
+pub(in crate::workspace::sftp) fn sftp_border(color: u32, has_background: bool) -> Rgba {
     color_for_background(color, has_background, 0x99)
 }
 
-fn is_sftp_incomplete_store_compat_error(error: &str) -> bool {
+pub(in crate::workspace::sftp) fn is_sftp_incomplete_store_compat_error(error: &str) -> bool {
     let error = error.to_ascii_lowercase();
     error.contains("deserialize")
         || error.contains("invalid type")
@@ -35,16 +41,18 @@ fn is_sftp_incomplete_store_compat_error(error: &str) -> bool {
         || error.contains("not found")
 }
 
-fn home_path() -> String {
+pub(in crate::workspace::sftp) fn home_path() -> String {
     oxideterm_local_files::home_path()
 }
 
-fn list_local_files(path: &str) -> std::io::Result<Vec<SftpFileEntry>> {
+pub(in crate::workspace::sftp) fn list_local_files(
+    path: &str,
+) -> std::io::Result<Vec<SftpFileEntry>> {
     oxideterm_local_files::list_local_files(&oxideterm_local_files::normalize_local_path(path))
         .map(|files| files.into_iter().map(sftp_file_entry_from_local).collect())
 }
 
-fn local_drives() -> Vec<SftpDrive> {
+pub(in crate::workspace::sftp) fn local_drives() -> Vec<SftpDrive> {
     oxideterm_local_files::local_drives()
         .into_iter()
         .map(sftp_drive_from_local)
@@ -82,7 +90,7 @@ fn sftp_drive_from_local(drive: oxideterm_local_files::LocalDrive) -> SftpDrive 
     }
 }
 
-fn sftp_file_entry(
+pub(in crate::workspace::sftp) fn sftp_file_entry(
     name: String,
     path: String,
     file_type: SftpFileType,
@@ -103,7 +111,7 @@ fn sftp_file_entry(
     }
 }
 
-fn sorted_sftp_files(
+pub(in crate::workspace::sftp) fn sorted_sftp_files(
     files: &[SftpFileEntry],
     filter: &str,
     sort_field: SftpSortField,
@@ -135,7 +143,10 @@ fn sorted_sftp_files(
     filtered
 }
 
-fn sftp_path_segments(path: &str, is_remote: bool) -> Vec<PathSegment> {
+pub(in crate::workspace::sftp) fn sftp_path_segments(
+    path: &str,
+    is_remote: bool,
+) -> Vec<PathSegment> {
     let normalized = if is_remote {
         normalize_remote_path(path)
     } else {
@@ -162,7 +173,7 @@ fn sftp_path_segments(path: &str, is_remote: bool) -> Vec<PathSegment> {
     segments
 }
 
-fn normalize_remote_path(path: &str) -> String {
+pub(in crate::workspace::sftp) fn normalize_remote_path(path: &str) -> String {
     let trimmed = path.trim();
     if trimmed.is_empty() || trimmed == "/" {
         return "/".to_string();
@@ -175,7 +186,7 @@ fn normalize_remote_path(path: &str) -> String {
     }
 }
 
-fn parent_path(path: &str, remote: bool) -> String {
+pub(in crate::workspace::sftp) fn parent_path(path: &str, remote: bool) -> String {
     let normalized = if remote {
         normalize_remote_path(path)
     } else {
@@ -197,7 +208,7 @@ fn parent_path(path: &str, remote: bool) -> String {
     }
 }
 
-fn join_sftp_path(base: &str, name: &str) -> String {
+pub(in crate::workspace::sftp) fn join_sftp_path(base: &str, name: &str) -> String {
     let normalized = base.trim_end_matches('/');
     if normalized.is_empty() {
         format!("/{name}")
@@ -208,7 +219,7 @@ fn join_sftp_path(base: &str, name: &str) -> String {
     }
 }
 
-fn remote_directory_prefixes(path: &str) -> Vec<String> {
+pub(in crate::workspace::sftp) fn remote_directory_prefixes(path: &str) -> Vec<String> {
     let mut prefixes = Vec::new();
     let absolute = path.starts_with('/');
     let components: Vec<&str> = path.split('/').filter(|part| !part.is_empty()).collect();
@@ -223,11 +234,13 @@ fn remote_directory_prefixes(path: &str) -> Vec<String> {
     prefixes
 }
 
-fn join_local_path(base: &str, name: &str) -> String {
+pub(in crate::workspace::sftp) fn join_local_path(base: &str, name: &str) -> String {
     oxideterm_local_files::join_local_path(base, name)
 }
 
-fn normalize_external_dropped_path(path: &std::path::Path) -> Option<std::path::PathBuf> {
+pub(in crate::workspace::sftp) fn normalize_external_dropped_path(
+    path: &std::path::Path,
+) -> Option<std::path::PathBuf> {
     let raw = path.to_string_lossy();
     if raw.trim().is_empty() {
         return None;
@@ -239,12 +252,15 @@ fn normalize_external_dropped_path(path: &std::path::Path) -> Option<std::path::
         return Some(std::path::PathBuf::from(format!("{}:\\", &raw[..1])));
     }
     if raw.chars().all(|ch| ch == '/' || ch == '\\') {
-        return raw.chars().next().map(|root| std::path::PathBuf::from(root.to_string()));
+        return raw
+            .chars()
+            .next()
+            .map(|root| std::path::PathBuf::from(root.to_string()));
     }
     Some(std::path::PathBuf::from(raw.trim_end_matches(['/', '\\'])))
 }
 
-fn new_sftp_transfer_id(node_id: &NodeId, name: &str) -> String {
+pub(in crate::workspace::sftp) fn new_sftp_transfer_id(node_id: &NodeId, name: &str) -> String {
     let timestamp_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_millis())
@@ -253,7 +269,10 @@ fn new_sftp_transfer_id(node_id: &NodeId, name: &str) -> String {
     format!("{}-{timestamp_ms}-{safe_name}", node_id.0)
 }
 
-fn unique_sftp_conflict_name(name: &str, existing_files: &[SftpFileEntry]) -> String {
+pub(in crate::workspace::sftp) fn unique_sftp_conflict_name(
+    name: &str,
+    existing_files: &[SftpFileEntry],
+) -> String {
     let existing_names = existing_files
         .iter()
         .map(|file| file.name.as_str())
@@ -274,18 +293,19 @@ fn unique_sftp_conflict_name(name: &str, existing_files: &[SftpFileEntry]) -> St
     }
 }
 
-fn sftp_conflict_resolution_from_settings(
+pub(in crate::workspace::sftp) fn sftp_conflict_resolution_from_settings(
     action: oxideterm_settings::ConflictAction,
 ) -> SftpConflictResolution {
     match action {
-        oxideterm_settings::ConflictAction::Ask
-        | oxideterm_settings::ConflictAction::Overwrite => SftpConflictResolution::Overwrite,
+        oxideterm_settings::ConflictAction::Ask | oxideterm_settings::ConflictAction::Overwrite => {
+            SftpConflictResolution::Overwrite
+        }
         oxideterm_settings::ConflictAction::Skip => SftpConflictResolution::Skip,
         oxideterm_settings::ConflictAction::Rename => SftpConflictResolution::Rename,
     }
 }
 
-fn sftp_transfer_conflicts(
+pub(in crate::workspace::sftp) fn sftp_transfer_conflicts(
     pending_transfers: &[SftpPendingTransfer],
     target_files: &[SftpFileEntry],
 ) -> Vec<SftpConflictInfo> {
@@ -308,13 +328,14 @@ fn sftp_transfer_conflicts(
         .collect()
 }
 
-fn sftp_source_not_newer_than_target(
+pub(in crate::workspace::sftp) fn sftp_source_not_newer_than_target(
     transfer: &SftpPendingTransfer,
     target_files: &[SftpFileEntry],
 ) -> bool {
-    let Some(target) = target_files.iter().find(|file| {
-        file.name == transfer.name && file.file_type != SftpFileType::Directory
-    }) else {
+    let Some(target) = target_files
+        .iter()
+        .find(|file| file.name == transfer.name && file.file_type != SftpFileType::Directory)
+    else {
         return false;
     };
     match (transfer.source.modified, target.modified) {
@@ -323,7 +344,9 @@ fn sftp_source_not_newer_than_target(
     }
 }
 
-fn sftp_transfer_state_from_remote(state: RemoteTransferState) -> SftpTransferState {
+pub(in crate::workspace::sftp) fn sftp_transfer_state_from_remote(
+    state: RemoteTransferState,
+) -> SftpTransferState {
     match state {
         RemoteTransferState::Pending => SftpTransferState::Pending,
         RemoteTransferState::InProgress => SftpTransferState::Active,
@@ -334,7 +357,9 @@ fn sftp_transfer_state_from_remote(state: RemoteTransferState) -> SftpTransferSt
     }
 }
 
-fn sftp_transfer_state_from_background(state: BackgroundTransferState) -> SftpTransferState {
+pub(in crate::workspace::sftp) fn sftp_transfer_state_from_background(
+    state: BackgroundTransferState,
+) -> SftpTransferState {
     match state {
         BackgroundTransferState::Pending => SftpTransferState::Pending,
         BackgroundTransferState::Active => SftpTransferState::Active,
@@ -345,7 +370,7 @@ fn sftp_transfer_state_from_background(state: BackgroundTransferState) -> SftpTr
     }
 }
 
-fn preview_content_text(content: &PreviewContent) -> String {
+pub(in crate::workspace::sftp) fn preview_content_text(content: &PreviewContent) -> String {
     match content {
         PreviewContent::Text {
             data,
@@ -399,7 +424,10 @@ fn preview_content_text(content: &PreviewContent) -> String {
     }
 }
 
-fn sftp_preview_is_markdown(language: Option<&str>, mime_type: Option<&str>) -> bool {
+pub(in crate::workspace::sftp) fn sftp_preview_is_markdown(
+    language: Option<&str>,
+    mime_type: Option<&str>,
+) -> bool {
     language.is_some_and(|language| {
         matches!(
             language.to_ascii_lowercase().as_str(),
@@ -413,7 +441,10 @@ fn sftp_preview_is_markdown(language: Option<&str>, mime_type: Option<&str>) -> 
     })
 }
 
-fn sftp_editor_language(language: Option<&str>, name: &str) -> String {
+pub(in crate::workspace::sftp) fn sftp_editor_language(
+    language: Option<&str>,
+    name: &str,
+) -> String {
     let raw = language
         .filter(|language| !language.trim().is_empty())
         .map(str::to_string)
@@ -439,7 +470,7 @@ fn sftp_editor_language(language: Option<&str>, name: &str) -> String {
     .to_string()
 }
 
-fn sftp_editor_language_id(
+pub(in crate::workspace::sftp) fn sftp_editor_language_id(
     language: Option<&str>,
     path: Option<&str>,
     name: &str,
@@ -493,7 +524,7 @@ fn sftp_editor_language_name_id(language: &str) -> Option<LanguageId> {
     }
 }
 
-async fn load_remote_sftp_listing(
+pub(in crate::workspace::sftp) async fn load_remote_sftp_listing(
     router: NodeRouter,
     node_id: &NodeId,
     path: &str,
@@ -537,7 +568,7 @@ async fn load_remote_sftp_listing(
     }
 }
 
-async fn load_remote_sftp_preview(
+pub(in crate::workspace::sftp) async fn load_remote_sftp_preview(
     router: NodeRouter,
     node_id: &NodeId,
     path: &str,
@@ -570,7 +601,7 @@ async fn load_remote_sftp_preview_once(
     sftp.preview(path).await
 }
 
-async fn load_remote_sftp_preview_hex(
+pub(in crate::workspace::sftp) async fn load_remote_sftp_preview_hex(
     router: NodeRouter,
     node_id: &NodeId,
     path: &str,
@@ -605,7 +636,7 @@ async fn load_remote_sftp_preview_hex_once(
     sftp.preview_with_offset(path, offset).await
 }
 
-async fn save_remote_sftp_preview(
+pub(in crate::workspace::sftp) async fn save_remote_sftp_preview(
     router: NodeRouter,
     node_id: &NodeId,
     path: &str,
@@ -637,7 +668,7 @@ async fn save_remote_sftp_preview(
     })
 }
 
-fn sftp_preview_editor_is_network_error(error: &str) -> bool {
+pub(in crate::workspace::sftp) fn sftp_preview_editor_is_network_error(error: &str) -> bool {
     let normalized = error.to_ascii_lowercase();
     [
         "network",
@@ -702,7 +733,7 @@ fn remote_listing_from_file_infos(cwd: String, entries: Vec<RemoteFileInfo>) -> 
     RemoteSftpListing { cwd, files }
 }
 
-fn format_file_size(bytes: u64) -> String {
+pub(in crate::workspace::sftp) fn format_file_size(bytes: u64) -> String {
     if bytes == 0 {
         return "0 B".to_string();
     }
@@ -720,14 +751,14 @@ fn format_file_size(bytes: u64) -> String {
     }
 }
 
-fn format_transfer_speed(bytes_per_second: u64) -> String {
+pub(in crate::workspace::sftp) fn format_transfer_speed(bytes_per_second: u64) -> String {
     if bytes_per_second == 0 {
         return "-".to_string();
     }
     format!("{}/s", format_file_size(bytes_per_second))
 }
 
-fn format_modified(modified: Option<i64>) -> String {
+pub(in crate::workspace::sftp) fn format_modified(modified: Option<i64>) -> String {
     let Some(modified) = modified.filter(|modified| *modified > 0) else {
         return "-".to_string();
     };
@@ -743,7 +774,7 @@ fn format_modified(modified: Option<i64>) -> String {
         .to_string()
 }
 
-fn format_conflict_modified(modified: Option<i64>) -> String {
+pub(in crate::workspace::sftp) fn format_conflict_modified(modified: Option<i64>) -> String {
     let Some(modified) = modified else {
         return "Unknown".to_string();
     };
@@ -756,7 +787,7 @@ fn format_conflict_modified(modified: Option<i64>) -> String {
         .to_string()
 }
 
-fn compute_sftp_diff(left: &str, right: &str) -> Vec<SftpDiffLine> {
+pub(in crate::workspace::sftp) fn compute_sftp_diff(left: &str, right: &str) -> Vec<SftpDiffLine> {
     let left_lines = left.split('\n').collect::<Vec<_>>();
     let right_lines = right.split('\n').collect::<Vec<_>>();
     let m = left_lines.len();
@@ -809,7 +840,7 @@ fn compute_sftp_diff(left: &str, right: &str) -> Vec<SftpDiffLine> {
     diff
 }
 
-fn sftp_diff_stats(lines: &[SftpDiffLine]) -> SftpDiffStats {
+pub(in crate::workspace::sftp) fn sftp_diff_stats(lines: &[SftpDiffLine]) -> SftpDiffStats {
     let mut stats = SftpDiffStats::default();
     for line in lines {
         match line.kind {
@@ -822,21 +853,23 @@ fn sftp_diff_stats(lines: &[SftpDiffLine]) -> SftpDiffStats {
 }
 
 #[derive(Clone, Debug)]
-struct SftpPreviewVisualLine {
-    line_number: Option<usize>,
-    content: String,
+pub(in crate::workspace::sftp) struct SftpPreviewVisualLine {
+    pub(super) line_number: Option<usize>,
+    pub(super) content: String,
 }
 
 #[derive(Clone, Debug)]
-struct SftpDiffVisualLine {
-    kind: SftpDiffLineKind,
-    left_line_num: String,
-    right_line_num: String,
-    left_content: String,
-    right_content: String,
+pub(in crate::workspace::sftp) struct SftpDiffVisualLine {
+    pub(super) kind: SftpDiffLineKind,
+    pub(super) left_line_num: String,
+    pub(super) right_line_num: String,
+    pub(super) left_content: String,
+    pub(super) right_content: String,
 }
 
-fn sftp_preview_visual_lines(source: &str) -> Vec<SftpPreviewVisualLine> {
+pub(in crate::workspace::sftp) fn sftp_preview_visual_lines(
+    source: &str,
+) -> Vec<SftpPreviewVisualLine> {
     source
         .split('\n')
         .enumerate()
@@ -852,7 +885,9 @@ fn sftp_preview_visual_lines(source: &str) -> Vec<SftpPreviewVisualLine> {
         .collect()
 }
 
-fn sftp_diff_visual_lines(lines: &[SftpDiffLine]) -> Vec<SftpDiffVisualLine> {
+pub(in crate::workspace::sftp) fn sftp_diff_visual_lines(
+    lines: &[SftpDiffLine],
+) -> Vec<SftpDiffVisualLine> {
     let mut visual_lines = Vec::new();
     for line in lines {
         let removed = line.kind == SftpDiffLineKind::Removed;
@@ -925,7 +960,7 @@ fn wrap_sftp_virtual_text_line(line: &str, max_columns: usize) -> Vec<String> {
     chunks
 }
 
-fn sftp_file_name(path: &str) -> String {
+pub(in crate::workspace::sftp) fn sftp_file_name(path: &str) -> String {
     path.rsplit(['/', '\\'])
         .next()
         .filter(|name| !name.is_empty())
@@ -933,7 +968,11 @@ fn sftp_file_name(path: &str) -> String {
         .to_string()
 }
 
-fn sftp_breadcrumb_max_scroll(segments: &[PathSegment], viewport_width: f32, icon_size: f32) -> f32 {
+pub(in crate::workspace::sftp) fn sftp_breadcrumb_max_scroll(
+    segments: &[PathSegment],
+    viewport_width: f32,
+    icon_size: f32,
+) -> f32 {
     let content_width = sftp_breadcrumb_content_width(segments, icon_size);
     (content_width - viewport_width.max(0.0)).max(0.0)
 }
@@ -951,7 +990,7 @@ fn sftp_breadcrumb_content_width(segments: &[PathSegment], icon_size: f32) -> f3
         .sum()
 }
 
-fn sftp_path_bar_viewport_width(window: &Window) -> f32 {
+pub(in crate::workspace::sftp) fn sftp_path_bar_viewport_width(window: &Window) -> f32 {
     let viewport = f32::from(window.viewport_size().width);
     let pane_width = ((viewport - SFTP_ROOT_PADDING * 2.0 - SFTP_GAP) / 2.0).max(0.0);
     // Header title, toolbar icon buttons, gaps, path-bar padding and borders.
@@ -961,14 +1000,14 @@ fn sftp_path_bar_viewport_width(window: &Window) -> f32 {
     (pane_width - 260.0).max(80.0)
 }
 
-fn format_sftp_media_time(duration: std::time::Duration) -> String {
+pub(in crate::workspace::sftp) fn format_sftp_media_time(duration: std::time::Duration) -> String {
     let total = duration.as_secs();
     let minutes = total / 60;
     let seconds = total % 60;
     format!("{minutes}:{seconds:02}")
 }
 
-fn diff_cell(
+pub(in crate::workspace::sftp) fn diff_cell(
     number: &str,
     content: &str,
     highlighted: bool,

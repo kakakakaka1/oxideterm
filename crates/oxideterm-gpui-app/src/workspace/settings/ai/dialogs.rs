@@ -1,3 +1,5 @@
+use super::*;
+
 impl WorkspaceApp {
     pub(in crate::workspace) fn handle_ai_settings_confirm_key(
         &mut self,
@@ -33,7 +35,8 @@ impl WorkspaceApp {
                     true
                 }
                 Some(ConfirmKeyboardAction::Confirm) => {
-                    if let Some((index, provider_id)) = self.settings_page.take_ai_provider_key_remove()
+                    if let Some((index, provider_id)) =
+                        self.settings_page.take_ai_provider_key_remove()
                     {
                         self.remove_ai_provider_api_key(index, &provider_id, cx);
                     }
@@ -50,7 +53,8 @@ impl WorkspaceApp {
                     true
                 }
                 Some(ConfirmKeyboardAction::Confirm) => {
-                    if let Some((provider_id, _name)) = self.settings_page.take_ai_provider_remove() {
+                    if let Some((provider_id, _name)) = self.settings_page.take_ai_provider_remove()
+                    {
                         self.remove_ai_provider(&provider_id, cx);
                     }
                     true
@@ -122,9 +126,11 @@ impl WorkspaceApp {
                                     .flex()
                                     .flex_col()
                                     .gap(px(8.0))
-                                    .child(self.ai_confirm_bullet(
-                                        "settings_view.ai_confirm.point_local",
-                                    ))
+                                    .child(
+                                        self.ai_confirm_bullet(
+                                            "settings_view.ai_confirm.point_local",
+                                        ),
+                                    )
                                     .child(self.ai_confirm_bullet(
                                         "settings_view.ai_confirm.point_no_server",
                                     ))
@@ -135,44 +141,40 @@ impl WorkspaceApp {
                     )
                     .child(
                         dialog_footer(&self.tokens)
-                            .child(
-                                self.standard_footer_action_button(
-                                    self.i18n.t("settings_view.ai_confirm.cancel"),
-                                    ButtonVariant::Ghost,
-                                    ConfirmDialogAction::Cancel,
-                                    false,
-                                    |this, _event, _window, cx| {
-                                        this.settings_page.set_ai_enable_confirm_open(false);
-                                        cx.notify();
-                                    },
-                                    cx,
-                                ),
-                            )
-                            .child(
-                                self.standard_footer_action_button(
-                                    self.i18n.t("settings_view.ai_confirm.enable"),
-                                    ButtonVariant::Default,
-                                    ConfirmDialogAction::Confirm,
-                                    false,
-                                    |this, _event, _window, cx| {
-                                        this.edit_settings(
-                                            |settings| {
-                                                settings.ai.enabled = true;
-                                                settings.ai.enabled_confirmed = true;
-                                            },
-                                            cx,
-                                        );
-                                        this.settings_page.set_ai_enable_confirm_open(false);
-                                    },
-                                    cx,
-                                ),
-                            ),
+                            .child(self.standard_footer_action_button(
+                                self.i18n.t("settings_view.ai_confirm.cancel"),
+                                ButtonVariant::Ghost,
+                                ConfirmDialogAction::Cancel,
+                                false,
+                                |this, _event, _window, cx| {
+                                    this.settings_page.set_ai_enable_confirm_open(false);
+                                    cx.notify();
+                                },
+                                cx,
+                            ))
+                            .child(self.standard_footer_action_button(
+                                self.i18n.t("settings_view.ai_confirm.enable"),
+                                ButtonVariant::Default,
+                                ConfirmDialogAction::Confirm,
+                                false,
+                                |this, _event, _window, cx| {
+                                    this.edit_settings(
+                                        |settings| {
+                                            settings.ai.enabled = true;
+                                            settings.ai.enabled_confirmed = true;
+                                        },
+                                        cx,
+                                    );
+                                    this.settings_page.set_ai_enable_confirm_open(false);
+                                },
+                                cx,
+                            )),
                     ),
             )
             .into_any_element()
     }
 
-    fn ai_confirm_bullet(&self, label_key: &str) -> AnyElement {
+    pub(in crate::workspace) fn ai_confirm_bullet(&self, label_key: &str) -> AnyElement {
         div()
             .flex()
             .items_start()
@@ -260,39 +262,31 @@ impl WorkspaceApp {
                             .flex()
                             .border_t_1()
                             .border_color(rgba((self.tokens.ui.border << 8) | 0x66))
-                            .child(
-                                self.split_confirm_footer_action_button(
-                                    self.i18n.t("common.actions.cancel"),
-                                    ConfirmDialogAction::Cancel,
-                                    false,
-                                    true,
-                                    |this, _event, _window, cx| {
-                                        this.settings_page.clear_ai_provider_key_remove();
-                                        cx.notify();
-                                    },
-                                    cx,
-                                ),
-                            )
-                            .child(
-                                self.split_confirm_footer_action_button(
-                                    self.i18n.t("settings_view.ai.remove"),
-                                    ConfirmDialogAction::Confirm,
-                                    true,
-                                    false,
-                                    |this, _event, _window, cx| {
-                                        if let Some((index, provider_id)) =
-                                            this.settings_page.take_ai_provider_key_remove()
-                                        {
-                                                this.remove_ai_provider_api_key(
-                                                    index,
-                                                    &provider_id,
-                                                cx,
-                                            );
-                                        }
-                                    },
-                                    cx,
-                                ),
-                            ),
+                            .child(self.split_confirm_footer_action_button(
+                                self.i18n.t("common.actions.cancel"),
+                                ConfirmDialogAction::Cancel,
+                                false,
+                                true,
+                                |this, _event, _window, cx| {
+                                    this.settings_page.clear_ai_provider_key_remove();
+                                    cx.notify();
+                                },
+                                cx,
+                            ))
+                            .child(self.split_confirm_footer_action_button(
+                                self.i18n.t("settings_view.ai.remove"),
+                                ConfirmDialogAction::Confirm,
+                                true,
+                                false,
+                                |this, _event, _window, cx| {
+                                    if let Some((index, provider_id)) =
+                                        this.settings_page.take_ai_provider_key_remove()
+                                    {
+                                        this.remove_ai_provider_api_key(index, &provider_id, cx);
+                                    }
+                                },
+                                cx,
+                            )),
                     ),
             )
             .into_any_element()
@@ -303,7 +297,8 @@ impl WorkspaceApp {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let provider_name = self
-            .settings_page.ai_provider_remove_confirm
+            .settings_page
+            .ai_provider_remove_confirm
             .as_ref()
             .map(|(_, name)| name.as_str())
             .unwrap_or_default();
@@ -373,41 +368,41 @@ impl WorkspaceApp {
                             .flex()
                             .border_t_1()
                             .border_color(rgba((self.tokens.ui.border << 8) | 0x66))
-                            .child(
-                                self.split_confirm_footer_action_button(
-                                    self.i18n.t("common.actions.cancel"),
-                                    ConfirmDialogAction::Cancel,
-                                    false,
-                                    true,
-                                    |this, _event, _window, cx| {
-                                        this.settings_page.clear_ai_provider_remove();
-                                        cx.notify();
-                                    },
-                                    cx,
-                                ),
-                            )
-                            .child(
-                                self.split_confirm_footer_action_button(
-                                    self.i18n.t("settings_view.ai.remove"),
-                                    ConfirmDialogAction::Confirm,
-                                    true,
-                                    false,
-                                    |this, _event, _window, cx| {
-                                        if let Some((provider_id, _name)) =
-                                            this.settings_page.take_ai_provider_remove()
-                                        {
-                                            this.remove_ai_provider(&provider_id, cx);
-                                        }
-                                    },
-                                    cx,
-                                ),
-                            ),
+                            .child(self.split_confirm_footer_action_button(
+                                self.i18n.t("common.actions.cancel"),
+                                ConfirmDialogAction::Cancel,
+                                false,
+                                true,
+                                |this, _event, _window, cx| {
+                                    this.settings_page.clear_ai_provider_remove();
+                                    cx.notify();
+                                },
+                                cx,
+                            ))
+                            .child(self.split_confirm_footer_action_button(
+                                self.i18n.t("settings_view.ai.remove"),
+                                ConfirmDialogAction::Confirm,
+                                true,
+                                false,
+                                |this, _event, _window, cx| {
+                                    if let Some((provider_id, _name)) =
+                                        this.settings_page.take_ai_provider_remove()
+                                    {
+                                        this.remove_ai_provider(&provider_id, cx);
+                                    }
+                                },
+                                cx,
+                            )),
                     ),
             )
             .into_any_element()
     }
 
-    fn remove_ai_provider(&mut self, provider_id: &str, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn remove_ai_provider(
+        &mut self,
+        provider_id: &str,
+        cx: &mut Context<Self>,
+    ) {
         let Some(index) = self
             .settings_store
             .settings()
@@ -420,8 +415,11 @@ impl WorkspaceApp {
             return;
         };
         let provider_id = provider_id.to_string();
-        self.ai_provider_key_status.remove(&provider_id);
-        self.ai_provider_key_status_pending.remove(&provider_id);
+        self.ai.models.provider_key_status.remove(&provider_id);
+        self.ai
+            .models
+            .provider_key_status_pending
+            .remove(&provider_id);
         self.settings_page
             .remove_ai_provider_page_state(&provider_id);
         self.edit_settings(
@@ -440,7 +438,7 @@ impl WorkspaceApp {
             cx,
         );
 
-        let key_store = self.ai_key_store.clone();
+        let key_store = self.ai.models.key_store.clone();
         let runtime = self.forwarding_runtime.clone();
         cx.spawn(async move |weak, cx| {
             let provider_id_for_delete = provider_id.clone();
@@ -461,5 +459,4 @@ impl WorkspaceApp {
         })
         .detach();
     }
-
 }

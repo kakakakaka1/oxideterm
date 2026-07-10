@@ -1,8 +1,23 @@
-include!("pages/constants.rs");
-include!("pages/local_reconnect.rs");
-include!("pages/knowledge_render.rs");
-include!("pages/knowledge_actions.rs");
-include!("pages/knowledge_dialogs.rs");
-include!("pages/keybindings.rs");
-include!("pages/help.rs");
-include!("pages/helpers.rs");
+use super::*;
+
+mod constants;
+mod help;
+mod helpers;
+mod keybindings;
+mod knowledge_actions;
+mod knowledge_dialogs;
+mod knowledge_render;
+mod local_reconnect;
+
+use constants::{
+    KNOWLEDGE_ACTION_BUTTON_HEIGHT, KNOWLEDGE_DIALOG_WIDTH,
+    KNOWLEDGE_DOCUMENT_ACTION_GROUP_MIN_WIDTH, KNOWLEDGE_DOCUMENT_HEADER_INFO_MIN_WIDTH,
+    KNOWLEDGE_EMBEDDING_CONFIG_BUTTON_HEIGHT, KNOWLEDGE_EMBEDDING_ICON_BOX,
+    KNOWLEDGE_ICON_BUTTON_HOVER_ALPHA, KNOWLEDGE_ICON_BUTTON_SIZE, KNOWLEDGE_INLINE_ICON_SIZE,
+    KNOWLEDGE_ROW_ICON_SIZE, KNOWLEDGE_SECTION_BG_ALPHA, KNOWLEDGE_SECTION_BORDER_ALPHA,
+    KNOWLEDGE_SECTION_DIVIDER_ALPHA, KNOWLEDGE_STATUS_BG_ALPHA, KNOWLEDGE_STATUS_BORDER_ALPHA,
+    SETTINGS_RECONNECT_FIELD_WIDTH, SETTINGS_RECONNECT_HINT_LINE_HEIGHT,
+    SETTINGS_RECONNECT_MAX_WIDTH,
+};
+use helpers::{open_external_url, open_path_external};
+pub(in crate::workspace) use keybindings::settings_keybinding_scope_matches;

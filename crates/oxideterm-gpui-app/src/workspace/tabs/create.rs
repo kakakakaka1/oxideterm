@@ -1,3 +1,5 @@
+use super::*;
+
 fn attach_saved_owner_to_reused_ssh_node(
     node: &mut WorkspaceSshNode,
     saved_connection_id: &str,
@@ -13,7 +15,7 @@ fn attach_saved_owner_to_reused_ssh_node(
 }
 
 impl WorkspaceApp {
-    pub(super) fn create_local_terminal_tab(
+    pub(in crate::workspace) fn create_local_terminal_tab(
         &mut self,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -52,7 +54,7 @@ impl WorkspaceApp {
         Ok(())
     }
 
-    pub(super) fn create_telnet_terminal_tab(
+    pub(in crate::workspace) fn create_telnet_terminal_tab(
         &mut self,
         config: TelnetSessionConfig,
         window: &mut Window,
@@ -65,13 +67,8 @@ impl WorkspaceApp {
         let title = format!("Telnet {}", config.endpoint_label());
         let pane_config = config.clone();
         let pane = cx.new(|cx| {
-            TerminalPane::new_telnet_with_preferences(
-                pane_config,
-                preferences,
-                window,
-                cx,
-            )
-            .expect("failed to initialize Telnet terminal pane")
+            TerminalPane::new_telnet_with_preferences(pane_config, preferences, window, cx)
+                .expect("failed to initialize Telnet terminal pane")
         });
 
         // Telnet is a local transport in the plugin API: it owns no SSH node,
@@ -95,7 +92,7 @@ impl WorkspaceApp {
         Ok(session_id)
     }
 
-    pub(super) fn create_raw_tcp_terminal_tab(
+    pub(in crate::workspace) fn create_raw_tcp_terminal_tab(
         &mut self,
         config: RawTcpSessionConfig,
         window: &mut Window,
@@ -108,13 +105,8 @@ impl WorkspaceApp {
         let title = format!("TCP {}", config.endpoint_label());
         let pane_config = config.clone();
         let pane = cx.new(|cx| {
-            TerminalPane::new_raw_tcp_with_preferences(
-                pane_config,
-                preferences,
-                window,
-                cx,
-            )
-            .expect("failed to initialize Raw TCP terminal pane")
+            TerminalPane::new_raw_tcp_with_preferences(pane_config, preferences, window, cx)
+                .expect("failed to initialize Raw TCP terminal pane")
         });
 
         // Raw TCP is a local socket transport. It owns no SSH node and must not
@@ -139,7 +131,7 @@ impl WorkspaceApp {
         Ok(session_id)
     }
 
-    pub(super) fn create_raw_udp_terminal_tab(
+    pub(in crate::workspace) fn create_raw_udp_terminal_tab(
         &mut self,
         config: RawUdpSessionConfig,
         window: &mut Window,
@@ -152,13 +144,8 @@ impl WorkspaceApp {
         let title = format!("UDP {}", config.remote_endpoint_label());
         let pane_config = config.clone();
         let pane = cx.new(|cx| {
-            TerminalPane::new_raw_udp_with_preferences(
-                pane_config,
-                preferences,
-                window,
-                cx,
-            )
-            .expect("failed to initialize Raw UDP terminal pane")
+            TerminalPane::new_raw_udp_with_preferences(pane_config, preferences, window, cx)
+                .expect("failed to initialize Raw UDP terminal pane")
         });
 
         // Raw UDP is a local datagram transport. It owns no SSH node and must
@@ -183,7 +170,7 @@ impl WorkspaceApp {
         Ok(session_id)
     }
 
-    pub(super) fn create_serial_terminal_tab(
+    pub(in crate::workspace) fn create_serial_terminal_tab(
         &mut self,
         config: SerialSessionConfig,
         window: &mut Window,
@@ -222,7 +209,7 @@ impl WorkspaceApp {
         Ok(session_id)
     }
 
-    pub(super) fn open_or_create_saved_ssh_terminal_tab(
+    pub(in crate::workspace) fn open_or_create_saved_ssh_terminal_tab(
         &mut self,
         saved_connection_id: String,
         config: SshConfig,
@@ -375,9 +362,10 @@ impl WorkspaceApp {
             .ssh_nodes
             .get_mut(node_id)
             .is_some_and(|node| attach_saved_owner_to_reused_ssh_node(node, saved_connection_id));
-        let owned_by_saved_connection = self.ssh_nodes.get(node_id).is_some_and(|node| {
-            node.saved_connection_id.as_deref() == Some(saved_connection_id)
-        });
+        let owned_by_saved_connection = self
+            .ssh_nodes
+            .get(node_id)
+            .is_some_and(|node| node.saved_connection_id.as_deref() == Some(saved_connection_id));
         if !attached && !owned_by_saved_connection {
             return;
         }
@@ -385,12 +373,12 @@ impl WorkspaceApp {
         let saved_connection_id = saved_connection_id.trim().to_string();
         self.saved_ssh_nodes
             .insert(saved_connection_id.clone(), node_id.clone());
-        let runtime_origin_needs_owner = self
-            .node_runtime_store
-            .snapshot(node_id)
-            .is_some_and(|snapshot| {
-                snapshot.origin.saved_connection_id() != Some(saved_connection_id.as_str())
-            });
+        let runtime_origin_needs_owner =
+            self.node_runtime_store
+                .snapshot(node_id)
+                .is_some_and(|snapshot| {
+                    snapshot.origin.saved_connection_id() != Some(saved_connection_id.as_str())
+                });
         if (attached || runtime_origin_needs_owner)
             && let Some(snapshot) = self.node_runtime_store.snapshot(node_id)
         {
@@ -437,7 +425,7 @@ impl WorkspaceApp {
         Some(config)
     }
 
-    pub(super) fn try_reuse_active_saved_connection_terminal(
+    pub(in crate::workspace) fn try_reuse_active_saved_connection_terminal(
         &mut self,
         saved_connection_id: &str,
         connection: &oxideterm_connections::SavedConnection,
@@ -546,7 +534,7 @@ impl WorkspaceApp {
         node_id
     }
 
-    pub(super) fn create_ssh_terminal_tab_for_node(
+    pub(in crate::workspace) fn create_ssh_terminal_tab_for_node(
         &mut self,
         post_connect_command: Option<String>,
         config: SshConfig,
@@ -694,7 +682,7 @@ impl WorkspaceApp {
         self.create_ssh_terminal_tab_for_node(None, config, title, None, None, window, cx)
     }
 
-    pub(super) fn expand_saved_connection_tree(
+    pub(in crate::workspace) fn expand_saved_connection_tree(
         &mut self,
         saved_connection_id: &str,
         mut config: SshConfig,
@@ -713,7 +701,7 @@ impl WorkspaceApp {
         Ok(expansion)
     }
 
-    pub(super) fn expand_saved_connection_tree_under_parent(
+    pub(in crate::workspace) fn expand_saved_connection_tree_under_parent(
         &mut self,
         parent_node_id: NodeId,
         saved_connection_id: &str,
@@ -778,7 +766,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn create_ssh_terminal_pane_for_existing_node(
+    pub(super) fn create_ssh_terminal_pane_for_existing_node(
         &mut self,
         node_id: &NodeId,
         window: &mut Window,
@@ -860,7 +848,7 @@ impl WorkspaceApp {
         Ok((pane_id, session_id))
     }
 
-    pub(super) fn queue_ssh_terminal_tab_for_node(
+    pub(in crate::workspace) fn queue_ssh_terminal_tab_for_node(
         &mut self,
         node_id: NodeId,
         config: SshConfig,
@@ -1010,7 +998,7 @@ impl WorkspaceApp {
         Ok(())
     }
 
-    pub(super) fn mark_pending_ssh_terminal_open_cleanup(
+    pub(in crate::workspace) fn mark_pending_ssh_terminal_open_cleanup(
         &mut self,
         node_id: &NodeId,
         cleanup_node_id: NodeId,
@@ -1026,7 +1014,7 @@ impl WorkspaceApp {
         }
     }
 
-    pub(super) fn pending_ssh_terminal_open_cleanup_for_node(
+    pub(in crate::workspace) fn pending_ssh_terminal_open_cleanup_for_node(
         &self,
         node_id: &NodeId,
     ) -> Option<NodeId> {
@@ -1036,7 +1024,7 @@ impl WorkspaceApp {
             .and_then(|pending| pending.cleanup_node_id.clone())
     }
 
-    pub(super) fn drain_ready_pending_ssh_terminal_opens(
+    pub(in crate::workspace) fn drain_ready_pending_ssh_terminal_opens(
         &mut self,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -1078,14 +1066,17 @@ impl WorkspaceApp {
         opened
     }
 
-    pub(super) fn remove_pending_ssh_terminal_opens_for_node(&mut self, node_id: &NodeId) -> bool {
+    pub(in crate::workspace) fn remove_pending_ssh_terminal_opens_for_node(
+        &mut self,
+        node_id: &NodeId,
+    ) -> bool {
         let before = self.pending_ssh_terminal_opens.len();
         self.pending_ssh_terminal_opens
             .retain(|pending| pending.node_id != *node_id);
         self.pending_ssh_terminal_opens.len() != before
     }
 
-    fn node_is_ready_for_terminal(&self, node_id: &NodeId) -> bool {
+    pub(super) fn node_is_ready_for_terminal(&self, node_id: &NodeId) -> bool {
         self.ssh_nodes
             .get(node_id)
             .is_some_and(|node| node.readiness == NodeReadiness::Ready)
@@ -1136,7 +1127,11 @@ impl WorkspaceApp {
         self.persist_session_tree_snapshot();
     }
 
-    pub(super) fn open_settings_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn open_settings_tab(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let tab_id = if let Some(tab) = self.tabs.iter().find(|tab| tab.kind == TabKind::Settings) {
             tab.id
         } else {
@@ -1195,10 +1190,7 @@ mod create_tests {
             readiness: NodeReadiness::Ready,
         };
 
-        assert!(attach_saved_owner_to_reused_ssh_node(
-            &mut node,
-            "home-100"
-        ));
+        assert!(attach_saved_owner_to_reused_ssh_node(&mut node, "home-100"));
         assert_eq!(node.saved_connection_id.as_deref(), Some("home-100"));
     }
 

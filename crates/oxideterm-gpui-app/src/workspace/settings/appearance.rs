@@ -1,15 +1,17 @@
-const THEME_EDITOR_MODAL_WIDTH: f32 = 672.0; // Tauri ThemeEditorModal max-w-2xl.
-const THEME_EDITOR_MODAL_MAX_HEIGHT: f32 = 760.0; // Tauri max-h-[85vh] on the default native window.
-const THEME_EDITOR_HEADER_PADDING_X: f32 = 16.0; // DialogHeader px-4.
-const THEME_EDITOR_HEADER_PADDING_Y: f32 = 12.0; // DialogHeader py-3.
-const THEME_EDITOR_BODY_PADDING_X: f32 = 16.0; // Body px-4.
-const THEME_EDITOR_BODY_PADDING_Y: f32 = 12.0; // Body py-3.
-const THEME_EDITOR_BODY_GAP: f32 = 16.0; // Tauri space-y-4.
-const THEME_EDITOR_INPUT_HEIGHT: f32 = 32.0; // Tauri Input h-8.
-const THEME_EDITOR_DUPLICATE_WIDTH: f32 = 180.0; // Tauri duplicate select w-[180px].
+use super::*;
+
+pub(in crate::workspace) const THEME_EDITOR_MODAL_WIDTH: f32 = 672.0; // Tauri ThemeEditorModal max-w-2xl.
+pub(in crate::workspace) const THEME_EDITOR_MODAL_MAX_HEIGHT: f32 = 760.0; // Tauri max-h-[85vh] on the default native window.
+pub(in crate::workspace) const THEME_EDITOR_HEADER_PADDING_X: f32 = 16.0; // DialogHeader px-4.
+pub(in crate::workspace) const THEME_EDITOR_HEADER_PADDING_Y: f32 = 12.0; // DialogHeader py-3.
+pub(in crate::workspace) const THEME_EDITOR_BODY_PADDING_X: f32 = 16.0; // Body px-4.
+pub(in crate::workspace) const THEME_EDITOR_BODY_PADDING_Y: f32 = 12.0; // Body py-3.
+pub(in crate::workspace) const THEME_EDITOR_BODY_GAP: f32 = 16.0; // Tauri space-y-4.
+pub(in crate::workspace) const THEME_EDITOR_INPUT_HEIGHT: f32 = 32.0; // Tauri Input h-8.
+pub(in crate::workspace) const THEME_EDITOR_DUPLICATE_WIDTH: f32 = 180.0; // Tauri duplicate select w-[180px].
 
 impl WorkspaceApp {
-    fn settings_appearance_section(
+    pub(in crate::workspace) fn settings_appearance_section(
         &self,
         section_index: usize,
         cx: &mut Context<Self>,
@@ -24,7 +26,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn appearance_theme_card(
+    pub(in crate::workspace) fn appearance_theme_card(
         &self,
         settings: &PersistedSettings,
         cx: &mut Context<Self>,
@@ -46,18 +48,16 @@ impl WorkspaceApp {
                         }),
                     ))
                     .when(is_custom_theme_id(&settings.terminal.theme), |actions| {
-                        actions.child(
-                            self.appearance_action_button(
-                                LucideIcon::Pencil,
-                                self.i18n.t("settings_view.custom_theme.edit"),
-                                cx.listener(|this, _event, _window, cx| {
-                                    let theme_id =
-                                        this.settings_store.settings().terminal.theme.clone();
-                                    this.open_theme_editor(Some(theme_id), cx);
-                                    cx.stop_propagation();
-                                }),
-                            ),
-                        )
+                        actions.child(self.appearance_action_button(
+                            LucideIcon::Pencil,
+                            self.i18n.t("settings_view.custom_theme.edit"),
+                            cx.listener(|this, _event, _window, cx| {
+                                let theme_id =
+                                    this.settings_store.settings().terminal.theme.clone();
+                                this.open_theme_editor(Some(theme_id), cx);
+                                cx.stop_propagation();
+                            }),
+                        ))
                     })
                     .child(self.appearance_action_button(
                         LucideIcon::Plus,
@@ -85,7 +85,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn appearance_layout_card(
+    pub(in crate::workspace) fn appearance_layout_card(
         &self,
         settings: &PersistedSettings,
         cx: &mut Context<Self>,
@@ -155,7 +155,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn appearance_app_icon_card(
+    pub(in crate::workspace) fn appearance_app_icon_card(
         &self,
         settings: &PersistedSettings,
         cx: &mut Context<Self>,
@@ -167,7 +167,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn appearance_app_icon_row(
+    pub(in crate::workspace) fn appearance_app_icon_row(
         &self,
         selected: AppIconVariant,
         cx: &mut Context<Self>,
@@ -197,14 +197,17 @@ impl WorkspaceApp {
                         div()
                             .text_size(px(self.tokens.metrics.ui_text_xs))
                             .text_color(rgb(self.tokens.ui.text_muted))
-                            .child(self.i18n.t("settings_view.appearance.app_icon_variant_hint")),
+                            .child(
+                                self.i18n
+                                    .t("settings_view.appearance.app_icon_variant_hint"),
+                            ),
                     ),
             )
             .child(self.appearance_app_icon_picker(selected, cx))
             .into_any_element()
     }
 
-    fn appearance_app_icon_picker(
+    pub(in crate::workspace) fn appearance_app_icon_picker(
         &self,
         selected: AppIconVariant,
         cx: &mut Context<Self>,
@@ -220,13 +223,14 @@ impl WorkspaceApp {
             .flex_wrap();
 
         for variant in crate::app_icon::APP_ICON_VARIANTS {
-            picker = picker.child(self.appearance_app_icon_option(*variant, *variant == selected, cx));
+            picker =
+                picker.child(self.appearance_app_icon_option(*variant, *variant == selected, cx));
         }
 
         picker.into_any_element()
     }
 
-    fn appearance_app_icon_option(
+    pub(in crate::workspace) fn appearance_app_icon_option(
         &self,
         variant: AppIconVariant,
         selected: bool,
@@ -286,13 +290,14 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn appearance_background_card(
+    pub(in crate::workspace) fn appearance_background_card(
         &self,
         settings: &PersistedSettings,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let background_blur = self
-            .settings_page.background_blur_preview
+            .settings_page
+            .background_blur_preview
             .unwrap_or(settings.terminal.background_blur);
         let has_background_image = settings.terminal.background_image.is_some();
         let mut rows = Vec::new();
@@ -360,7 +365,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn appearance_card(
+    pub(in crate::workspace) fn appearance_card(
         &self,
         title: String,
         actions: Option<AnyElement>,
@@ -372,7 +377,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn appearance_card_with_icon(
+    pub(in crate::workspace) fn appearance_card_with_icon(
         &self,
         icon: LucideIcon,
         title: String,
@@ -393,7 +398,11 @@ impl WorkspaceApp {
         )
     }
 
-    fn appearance_card_shell(&self, header: AnyElement, rows: Vec<AnyElement>) -> AnyElement {
+    pub(in crate::workspace) fn appearance_card_shell(
+        &self,
+        header: AnyElement,
+        rows: Vec<AnyElement>,
+    ) -> AnyElement {
         settings_appearance_card_shell(
             &self.tokens,
             self.settings_background_active(),
@@ -402,7 +411,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn appearance_action_button(
+    pub(in crate::workspace) fn appearance_action_button(
         &self,
         icon: LucideIcon,
         label: String,
@@ -438,11 +447,19 @@ impl WorkspaceApp {
         )
     }
 
-    fn appearance_row(&self, label_key: &str, hint_key: &str, control: AnyElement) -> AnyElement {
+    pub(in crate::workspace) fn appearance_row(
+        &self,
+        label_key: &str,
+        hint_key: &str,
+        control: AnyElement,
+    ) -> AnyElement {
         settings_appearance_row(&self.tokens, &self.i18n, label_key, hint_key, control)
     }
 
-    fn appearance_vibrancy_status(&self, settings: &PersistedSettings) -> AnyElement {
+    pub(in crate::workspace) fn appearance_vibrancy_status(
+        &self,
+        settings: &PersistedSettings,
+    ) -> AnyElement {
         let mode = effective_vibrancy_mode(settings, &self.render_policy);
         let mode_label = frosted_glass_label(frosted_glass_mode_from_native(mode), &self.i18n);
         let effective_text = format!(
@@ -531,7 +548,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn appearance_checkbox_row(
+    pub(in crate::workspace) fn appearance_checkbox_row(
         &self,
         label_key: &str,
         hint_key: &str,
@@ -553,7 +570,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn appearance_select_control(
+    pub(in crate::workspace) fn appearance_select_control(
         &self,
         select_id: SettingsSelect,
         value: String,
@@ -568,7 +585,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn appearance_text_input_control(
+    pub(in crate::workspace) fn appearance_text_input_control(
         &self,
         input: SettingsInput,
         value: String,
@@ -612,11 +629,11 @@ impl WorkspaceApp {
                     cx.stop_propagation();
                 }),
             )
-            .on_mouse_move(
-                cx.listener(|this, event: &gpui::MouseMoveEvent, window, cx| {
+            .on_mouse_move(cx.listener(
+                |this, event: &gpui::MouseMoveEvent, window, cx| {
                     this.update_ime_selection_drag_from_mouse_move(event, window, cx);
-                }),
-            ),
+                },
+            )),
             move |anchor, _window, cx| {
                 let _ = workspace.update(cx, |this, cx| {
                     this.update_text_input_anchor(anchor, cx);
@@ -626,7 +643,7 @@ impl WorkspaceApp {
         .into_any_element()
     }
 
-    fn appearance_radius_control(
+    pub(in crate::workspace) fn appearance_radius_control(
         &self,
         settings: &PersistedSettings,
         cx: &mut Context<Self>,
@@ -641,11 +658,11 @@ impl WorkspaceApp {
                 APPEARANCE_BORDER_RADIUS_MAX,
                 settings.appearance.border_radius as f32,
                 cx,
-            )
+            ),
         )
     }
 
-    fn appearance_slider_value_control(
+    pub(in crate::workspace) fn appearance_slider_value_control(
         &self,
         slider: SettingsSlider,
         anchor_id: SelectAnchorId,
@@ -672,7 +689,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn appearance_slider_control(
+    pub(in crate::workspace) fn appearance_slider_control(
         &self,
         slider_id: SettingsSlider,
         anchor_id: SelectAnchorId,
@@ -731,11 +748,17 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn appearance_theme_preview(&self, settings: &PersistedSettings) -> AnyElement {
+    pub(in crate::workspace) fn appearance_theme_preview(
+        &self,
+        settings: &PersistedSettings,
+    ) -> AnyElement {
         settings_appearance_theme_preview(&self.tokens, settings)
     }
 
-    fn render_theme_editor_modal(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+    pub(in crate::workspace) fn render_theme_editor_modal(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
         let editor = self.settings_page.theme_editor.as_ref()?;
         let terminal = editor_terminal_theme(&editor.terminal_colors);
         let ui = editor_ui_colors(&editor.ui_colors);
@@ -864,29 +887,27 @@ impl WorkspaceApp {
                                     }),
                                 ),
                             )
-                            .child(
-                                self.workspace_toolbar_action_button(
-                                    self.i18n.t("settings_view.custom_theme.save"),
-                                    Some(Self::render_lucide_icon(
-                                        LucideIcon::Save,
-                                        12.0,
-                                        rgb(self.tokens.ui.accent_text),
-                                    )),
-                                    ToolbarButtonOptions {
-                                        button: ButtonOptions {
-                                            variant: ButtonVariant::Default,
-                                            size: ButtonSize::Sm,
-                                            radius: ButtonRadius::Md,
-                                            disabled: save_disabled,
-                                        },
-                                        ..ToolbarButtonOptions::default()
+                            .child(self.workspace_toolbar_action_button(
+                                self.i18n.t("settings_view.custom_theme.save"),
+                                Some(Self::render_lucide_icon(
+                                    LucideIcon::Save,
+                                    12.0,
+                                    rgb(self.tokens.ui.accent_text),
+                                )),
+                                ToolbarButtonOptions {
+                                    button: ButtonOptions {
+                                        variant: ButtonVariant::Default,
+                                        size: ButtonSize::Sm,
+                                        radius: ButtonRadius::Md,
+                                        disabled: save_disabled,
                                     },
-                                    cx.listener(|this, _event, _window, cx| {
-                                        this.save_theme_editor(cx);
-                                        cx.stop_propagation();
-                                    }),
-                                ),
-                            ),
+                                    ..ToolbarButtonOptions::default()
+                                },
+                                cx.listener(|this, _event, _window, cx| {
+                                    this.save_theme_editor(cx);
+                                    cx.stop_propagation();
+                                }),
+                            )),
                     ),
             );
 
@@ -906,7 +927,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn theme_editor_name_duplicate_row(
+    pub(in crate::workspace) fn theme_editor_name_duplicate_row(
         &self,
         editor: &ThemeEditorState,
         cx: &mut Context<Self>,
@@ -929,7 +950,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn theme_editor_duplicate_row(
+    pub(in crate::workspace) fn theme_editor_duplicate_row(
         &self,
         editor: &ThemeEditorState,
         cx: &mut Context<Self>,
@@ -944,7 +965,7 @@ impl WorkspaceApp {
             self.theme_editor_duplicate_select(value, cx),
         )
     }
-    fn theme_editor_duplicate_select(
+    pub(in crate::workspace) fn theme_editor_duplicate_select(
         &self,
         value: String,
         cx: &mut Context<Self>,
@@ -960,7 +981,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn theme_editor_preview(
+    pub(in crate::workspace) fn theme_editor_preview(
         &self,
         editor: &ThemeEditorState,
         terminal: TerminalTheme,
@@ -975,7 +996,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn theme_editor_section_tabs(
+    pub(in crate::workspace) fn theme_editor_section_tabs(
         &self,
         editor: &ThemeEditorState,
         cx: &mut Context<Self>,
@@ -1000,7 +1021,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn theme_editor_section_tab(
+    pub(in crate::workspace) fn theme_editor_section_tab(
         &self,
         section: ThemeEditorSection,
         label_key: &str,
@@ -1026,16 +1047,11 @@ impl WorkspaceApp {
             .cursor_pointer()
             .hover(|tab| tab.text_color(rgb(self.tokens.ui.text)))
             .child(div().child(self.i18n.t(label_key)))
-            .child(
-                div()
-                    .h(px(2.0))
-                    .w_full()
-                    .bg(if active {
-                        rgb(self.tokens.ui.accent)
-                    } else {
-                        rgba(0x00000000)
-                    }),
-            )
+            .child(div().h(px(2.0)).w_full().bg(if active {
+                rgb(self.tokens.ui.accent)
+            } else {
+                rgba(0x00000000)
+            }))
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |this, _event, _window, cx| {
@@ -1050,7 +1066,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn theme_editor_color_grid(
+    pub(in crate::workspace) fn theme_editor_color_grid(
         &self,
         editor: &ThemeEditorState,
         cx: &mut Context<Self>,
@@ -1070,7 +1086,10 @@ impl WorkspaceApp {
         self.theme_editor_color_grid_for_fields(fields, colors, section, cx)
     }
 
-    fn theme_editor_ui_color_sections(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn theme_editor_ui_color_sections(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let Some(editor) = self.settings_page.theme_editor.as_ref() else {
             return div().into_any_element();
         };
@@ -1158,7 +1177,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn theme_editor_ui_section(
+    pub(in crate::workspace) fn theme_editor_ui_section(
         &self,
         title_key: &str,
         indexes: &[usize],
@@ -1185,7 +1204,7 @@ impl WorkspaceApp {
         settings_theme_editor_color_section(&self.tokens, self.i18n.t(title_key), cells)
     }
 
-    fn theme_editor_color_grid_for_fields(
+    pub(in crate::workspace) fn theme_editor_color_grid_for_fields(
         &self,
         fields: &[ThemeColorField],
         colors: &[String],
@@ -1207,7 +1226,7 @@ impl WorkspaceApp {
         settings_theme_editor_color_grid(cells)
     }
 
-    fn theme_editor_color_cell(
+    pub(in crate::workspace) fn theme_editor_color_cell(
         &self,
         field: &ThemeColorField,
         color: String,
@@ -1216,9 +1235,10 @@ impl WorkspaceApp {
     ) -> AnyElement {
         let parsed = parse_color_hex(&color).unwrap_or(0);
         let focused = self.focused_settings_input == Some(input);
-        let label = self
-            .i18n
-            .t(&format!("settings_view.custom_theme.colors.{}", field.label_key));
+        let label = self.i18n.t(&format!(
+            "settings_view.custom_theme.colors.{}",
+            field.label_key
+        ));
         let swatch = settings_theme_editor_color_swatch(&self.tokens, parsed)
             .on_mouse_down(
                 MouseButton::Left,
@@ -1262,11 +1282,11 @@ impl WorkspaceApp {
         settings_theme_editor_color_cell(&self.tokens, label, swatch, value_control)
     }
 
-    fn theme_editor_label(&self, key: &str) -> AnyElement {
+    pub(in crate::workspace) fn theme_editor_label(&self, key: &str) -> AnyElement {
         settings_theme_editor_label(&self.tokens, self.i18n.t(key))
     }
 
-    fn theme_editor_text_input(
+    pub(in crate::workspace) fn theme_editor_text_input(
         &self,
         input: SettingsInput,
         value: String,
@@ -1317,19 +1337,15 @@ impl WorkspaceApp {
                 this.update_ime_selection_drag_from_mouse_move(event, window, cx);
             }),
         );
-        text_input_anchor_probe(
-            target.anchor_id(),
-            control,
-            move |anchor, _window, cx| {
-                let _ = workspace.update(cx, |this, cx| {
-                    this.update_text_input_anchor(anchor, cx);
-                });
-            },
-        )
+        text_input_anchor_probe(target.anchor_id(), control, move |anchor, _window, cx| {
+            let _ = workspace.update(cx, |this, cx| {
+                this.update_text_input_anchor(anchor, cx);
+            });
+        })
         .into_any_element()
     }
 
-    fn theme_editor_footer_button(
+    pub(in crate::workspace) fn theme_editor_footer_button(
         &self,
         icon: LucideIcon,
         label: String,
@@ -1359,25 +1375,30 @@ impl WorkspaceApp {
         )
     }
 
-    fn open_theme_editor(&mut self, edit_theme_id: Option<String>, cx: &mut Context<Self>) {
-        self.settings_page.open_theme_editor(theme_editor_from_settings(
-            self.settings_store.settings(),
-            edit_theme_id,
-            self.i18n.t("settings_view.custom_theme.new_theme_name"),
-        ));
+    pub(in crate::workspace) fn open_theme_editor(
+        &mut self,
+        edit_theme_id: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        self.settings_page
+            .open_theme_editor(theme_editor_from_settings(
+                self.settings_store.settings(),
+                edit_theme_id,
+                self.i18n.t("settings_view.custom_theme.new_theme_name"),
+            ));
         self.close_settings_select();
         self.focused_settings_input = None;
         cx.notify();
     }
 
-    fn close_theme_editor(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn close_theme_editor(&mut self, cx: &mut Context<Self>) {
         self.settings_page.close_theme_editor();
         self.close_settings_select();
         self.focused_settings_input = None;
         cx.notify();
     }
 
-    fn save_theme_editor(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn save_theme_editor(&mut self, cx: &mut Context<Self>) {
         let Some(editor) = self.settings_page.theme_editor.clone() else {
             return;
         };
@@ -1402,9 +1423,10 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn delete_theme_editor_theme(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn delete_theme_editor_theme(&mut self, cx: &mut Context<Self>) {
         let Some(theme_id) = self
-            .settings_page.theme_editor
+            .settings_page
+            .theme_editor
             .as_ref()
             .and_then(|editor| editor.edit_theme_id.clone())
         else {
@@ -1421,7 +1443,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn import_theme_from_file(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn import_theme_from_file(&mut self, cx: &mut Context<Self>) {
         let receiver = cx.prompt_for_paths(PathPromptOptions {
             files: true,
             directories: false,
@@ -1445,7 +1467,9 @@ impl WorkspaceApp {
                     let selected_theme_id = theme_id.clone();
                     this.edit_settings(
                         move |settings| {
-                            settings.custom_themes.insert(theme_id.clone(), value.clone());
+                            settings
+                                .custom_themes
+                                .insert(theme_id.clone(), value.clone());
                             settings.terminal.theme = selected_theme_id.clone();
                         },
                         cx,
@@ -1470,7 +1494,11 @@ impl WorkspaceApp {
         .detach();
     }
 
-    fn send_settings_notice(&self, title: String, variant: TerminalNoticeVariant) {
+    pub(in crate::workspace) fn send_settings_notice(
+        &self,
+        title: String,
+        variant: TerminalNoticeVariant,
+    ) {
         let _ = self.terminal_notice_tx.send(TerminalNotice {
             title,
             description: None,
@@ -1480,7 +1508,7 @@ impl WorkspaceApp {
         });
     }
 
-    fn appearance_background_image_slot(
+    pub(in crate::workspace) fn appearance_background_image_slot(
         &self,
         settings: &PersistedSettings,
         cx: &mut Context<Self>,
@@ -1501,16 +1529,14 @@ impl WorkspaceApp {
             .flex_row()
             .items_center()
             .gap(px(8.0))
-            .child(
-                self.appearance_action_button(
-                    pick_icon,
-                    pick_label,
-                    cx.listener(|this, _event, _window, cx| {
-                        this.pick_background_image(cx);
-                        cx.stop_propagation();
-                    }),
-                ),
-            )
+            .child(self.appearance_action_button(
+                pick_icon,
+                pick_label,
+                cx.listener(|this, _event, _window, cx| {
+                    this.pick_background_image(cx);
+                    cx.stop_propagation();
+                }),
+            ))
             .when(has_background_image, |actions| {
                 actions.child(
                     settings_background_clear_all_button(
@@ -1544,7 +1570,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn background_image_slot_content(
+    pub(in crate::workspace) fn background_image_slot_content(
         &self,
         settings: &PersistedSettings,
         cx: &mut Context<Self>,
@@ -1559,7 +1585,7 @@ impl WorkspaceApp {
         settings_background_thumbnails_layout(self.background_thumbnail(current, true, cx))
     }
 
-    fn pick_background_image(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn pick_background_image(&mut self, cx: &mut Context<Self>) {
         let receiver = cx.prompt_for_paths(PathPromptOptions {
             files: true,
             directories: false,
@@ -1591,7 +1617,7 @@ impl WorkspaceApp {
         .detach();
     }
 
-    fn background_thumbnail(
+    pub(in crate::workspace) fn background_thumbnail(
         &self,
         image_path: &str,
         active: bool,
@@ -1605,35 +1631,27 @@ impl WorkspaceApp {
             active,
             self.i18n.t("settings_view.terminal.bg_active"),
             move || {
-                WorkspaceApp::render_lucide_icon(
-                    LucideIcon::Image,
-                    20.0,
-                    rgb(fallback_icon_color),
-                )
+                WorkspaceApp::render_lucide_icon(LucideIcon::Image, 20.0, rgb(fallback_icon_color))
             },
         );
         thumbnail
             .child(
                 settings_background_thumbnail_remove_button(
                     &self.tokens,
-                    Self::render_lucide_icon(
-                        LucideIcon::X,
-                        12.0,
-                        rgb(self.tokens.ui.text),
-                    ),
+                    Self::render_lucide_icon(LucideIcon::X, 12.0, rgb(self.tokens.ui.text)),
                 )
                 .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(|this, _event, _window, cx| {
-                            this.edit_settings(
-                                |settings| {
-                                    settings.terminal.background_image = None;
-                                },
-                                cx,
-                            );
-                            cx.stop_propagation();
-                        }),
-                    ),
+                    MouseButton::Left,
+                    cx.listener(|this, _event, _window, cx| {
+                        this.edit_settings(
+                            |settings| {
+                                settings.terminal.background_image = None;
+                            },
+                            cx,
+                        );
+                        cx.stop_propagation();
+                    }),
+                ),
             )
             .on_mouse_down(
                 MouseButton::Left,
@@ -1650,7 +1668,7 @@ impl WorkspaceApp {
             )
             .into_any_element()
     }
-    fn appearance_background_tabs(
+    pub(in crate::workspace) fn appearance_background_tabs(
         &self,
         settings: &PersistedSettings,
         cx: &mut Context<Self>,
@@ -1670,13 +1688,13 @@ impl WorkspaceApp {
                     settings_background_tab_lucide(*icon),
                     enabled,
                 )
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(move |this, _event, _window, cx| {
-                            this.toggle_background_tab(&key, cx);
-                        }),
-                    )
-                    .into_any_element(),
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(move |this, _event, _window, cx| {
+                        this.toggle_background_tab(&key, cx);
+                    }),
+                )
+                .into_any_element(),
             );
         }
 
@@ -1688,7 +1706,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn background_tab_pill(
+    pub(in crate::workspace) fn background_tab_pill(
         &self,
         _key: &str,
         label_key: &str,
@@ -1712,7 +1730,11 @@ impl WorkspaceApp {
         )
     }
 
-    fn toggle_background_tab(&mut self, key: &str, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn toggle_background_tab(
+        &mut self,
+        key: &str,
+        cx: &mut Context<Self>,
+    ) {
         self.edit_settings(
             |settings| {
                 if let Some(index) = settings

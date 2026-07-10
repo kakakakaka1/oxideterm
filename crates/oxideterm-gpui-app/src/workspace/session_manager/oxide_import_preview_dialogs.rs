@@ -1,4 +1,6 @@
-fn oxide_import_forward_detail_signature(detail: &ForwardDetail) -> u64 {
+use super::*;
+
+pub(super) fn oxide_import_forward_detail_signature(detail: &ForwardDetail) -> u64 {
     let mut hasher = DefaultHasher::new();
     // Forward detail rows are read-only preview records; all fields are visible
     // in the row text or source identity.
@@ -8,7 +10,7 @@ fn oxide_import_forward_detail_signature(detail: &ForwardDetail) -> u64 {
     hasher.finish()
 }
 
-fn oxide_import_name_group_signature(name: &str, label: &str) -> u64 {
+pub(super) fn oxide_import_name_group_signature(name: &str, label: &str) -> u64 {
     let mut hasher = DefaultHasher::new();
     // Name-group rows are short read-only labels plus a checkbox state owned by
     // the dialog; identity is the source name and the visible conflict label.
@@ -18,7 +20,7 @@ fn oxide_import_name_group_signature(name: &str, label: &str) -> u64 {
 }
 
 impl WorkspaceApp {
-    fn render_oxide_import_preview(
+    pub(super) fn render_oxide_import_preview(
         &self,
         preview: ImportPreview,
         cx: &mut Context<Self>,
@@ -68,7 +70,11 @@ impl WorkspaceApp {
                         .text_size(px(self.tokens.metrics.ui_text_xs))
                         .text_color(rgb(theme.accent))
                         .cursor_pointer()
-                        .child(if all_selected { "取消全选" } else { "全选" })
+                        .child(if all_selected {
+                            "取消全选"
+                        } else {
+                            "全选"
+                        })
                         .on_mouse_down(
                             MouseButton::Left,
                             cx.listener(move |this, _event, _window, cx| {
@@ -151,86 +157,98 @@ impl WorkspaceApp {
         self.render_oxide_padded_card(16.0, None, children, cx)
     }
 
-    fn render_oxide_import_connection_groups(
+    pub(super) fn render_oxide_import_connection_groups(
         &self,
         preview: &ImportPreview,
         cx: &mut Context<Self>,
     ) -> Vec<AnyElement> {
         let mut groups = Vec::new();
         if !preview.unchanged.is_empty() {
-            groups.push(self.render_oxide_import_name_group(
-                "unchanged",
-                format!("✓ {} 个连接将原样导入:", preview.unchanged.len()),
-                OXIDE_GREEN_500,
-                None,
-                preview
-                    .unchanged
-                    .iter()
-                    .map(|name| (name.clone(), name.clone()))
-                    .collect(),
-                cx,
-            ));
+            groups.push(
+                self.render_oxide_import_name_group(
+                    "unchanged",
+                    format!("✓ {} 个连接将原样导入:", preview.unchanged.len()),
+                    OXIDE_GREEN_500,
+                    None,
+                    preview
+                        .unchanged
+                        .iter()
+                        .map(|name| (name.clone(), name.clone()))
+                        .collect(),
+                    cx,
+                ),
+            );
         }
         if !preview.will_rename.is_empty() {
-            groups.push(self.render_oxide_import_name_group(
-                "rename",
-                format!("{} 个连接因名称冲突将被重命名:", preview.will_rename.len()),
-                OXIDE_YELLOW_500,
-                Some(LucideIcon::AlertTriangle),
-                preview
-                    .will_rename
-                    .iter()
-                    .map(|(original, renamed)| (original.clone(), format!("\"{original}\" → \"{renamed}\"")))
-                    .collect(),
-                cx,
-            ));
+            groups.push(
+                self.render_oxide_import_name_group(
+                    "rename",
+                    format!("{} 个连接因名称冲突将被重命名:", preview.will_rename.len()),
+                    OXIDE_YELLOW_500,
+                    Some(LucideIcon::AlertTriangle),
+                    preview
+                        .will_rename
+                        .iter()
+                        .map(|(original, renamed)| {
+                            (original.clone(), format!("\"{original}\" → \"{renamed}\""))
+                        })
+                        .collect(),
+                    cx,
+                ),
+            );
         }
         if !preview.will_merge.is_empty() {
-            groups.push(self.render_oxide_import_name_group(
-                "merge",
-                format!("{} 个连接将合并到现有连接:", preview.will_merge.len()),
-                OXIDE_BLUE_500,
-                Some(LucideIcon::CheckCircle),
-                preview
-                    .will_merge
-                    .iter()
-                    .map(|name| (name.clone(), name.clone()))
-                    .collect(),
-                cx,
-            ));
+            groups.push(
+                self.render_oxide_import_name_group(
+                    "merge",
+                    format!("{} 个连接将合并到现有连接:", preview.will_merge.len()),
+                    OXIDE_BLUE_500,
+                    Some(LucideIcon::CheckCircle),
+                    preview
+                        .will_merge
+                        .iter()
+                        .map(|name| (name.clone(), name.clone()))
+                        .collect(),
+                    cx,
+                ),
+            );
         }
         if !preview.will_replace.is_empty() {
-            groups.push(self.render_oxide_import_name_group(
-                "replace",
-                format!("{} 个连接将替换现有连接:", preview.will_replace.len()),
-                OXIDE_ORANGE_500,
-                Some(LucideIcon::AlertTriangle),
-                preview
-                    .will_replace
-                    .iter()
-                    .map(|name| (name.clone(), name.clone()))
-                    .collect(),
-                cx,
-            ));
+            groups.push(
+                self.render_oxide_import_name_group(
+                    "replace",
+                    format!("{} 个连接将替换现有连接:", preview.will_replace.len()),
+                    OXIDE_ORANGE_500,
+                    Some(LucideIcon::AlertTriangle),
+                    preview
+                        .will_replace
+                        .iter()
+                        .map(|name| (name.clone(), name.clone()))
+                        .collect(),
+                    cx,
+                ),
+            );
         }
         if !preview.will_skip.is_empty() {
-            groups.push(self.render_oxide_import_name_group(
-                "skip",
-                format!("{} 个连接将因冲突被跳过:", preview.will_skip.len()),
-                OXIDE_SLATE_400,
-                Some(LucideIcon::AlertTriangle),
-                preview
-                    .will_skip
-                    .iter()
-                    .map(|name| (name.clone(), name.clone()))
-                    .collect(),
-                cx,
-            ));
+            groups.push(
+                self.render_oxide_import_name_group(
+                    "skip",
+                    format!("{} 个连接将因冲突被跳过:", preview.will_skip.len()),
+                    OXIDE_SLATE_400,
+                    Some(LucideIcon::AlertTriangle),
+                    preview
+                        .will_skip
+                        .iter()
+                        .map(|name| (name.clone(), name.clone()))
+                        .collect(),
+                    cx,
+                ),
+            );
         }
         groups
     }
 
-    fn render_oxide_import_name_group(
+    pub(super) fn render_oxide_import_name_group(
         &self,
         group_key: &'static str,
         title: String,
@@ -299,7 +317,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn sync_oxide_import_name_group_list_state(
+    pub(super) fn sync_oxide_import_name_group_list_state(
         &self,
         group_key: &'static str,
         items: &[(String, String)],
@@ -338,14 +356,14 @@ impl WorkspaceApp {
         state
     }
 
-    fn oxide_import_name_group_list_spec(&self) -> TauriVirtualListSpec {
+    pub(super) fn oxide_import_name_group_list_spec(&self) -> TauriVirtualListSpec {
         TauriVirtualListSpec::new(
             px(OXIDE_IMPORT_NAME_GROUP_LIST_ESTIMATED_HEIGHT),
             OXIDE_IMPORT_NAME_GROUP_LIST_OVERSCAN,
         )
     }
 
-    fn render_oxide_import_name_group_list_item(
+    pub(super) fn render_oxide_import_name_group_list_item(
         &self,
         name: String,
         label: String,
@@ -362,7 +380,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_oxide_import_check_line(
+    pub(super) fn render_oxide_import_check_line(
         &self,
         name: String,
         label: String,
@@ -416,7 +434,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_oxide_import_app_settings(
+    pub(super) fn render_oxide_import_app_settings(
         &self,
         preview: &ImportPreview,
         cx: &mut Context<Self>,
@@ -475,14 +493,15 @@ impl WorkspaceApp {
                         )),
                 );
             for section in &preview.app_settings_sections {
-                sections = sections.child(self.render_oxide_import_app_settings_section(section, cx));
+                sections =
+                    sections.child(self.render_oxide_import_app_settings_section(section, cx));
             }
             children.push(sections.into_any_element());
         }
         self.render_oxide_import_preview_subcard(children)
     }
 
-    fn render_oxide_import_managed_keys(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn render_oxide_import_managed_keys(&self, cx: &mut Context<Self>) -> AnyElement {
         let Some(dialog) = self.session_manager.oxide_import_dialog.as_ref() else {
             return div().into_any_element();
         };
@@ -518,29 +537,31 @@ impl WorkspaceApp {
             ),
             div()
                 .opacity(if restore_managed_keys { 1.0 } else { 0.45 })
-                .child(self.render_oxide_option_row(
-                    self.i18n
-                        .t("modals.import.restore_managed_key_passphrases"),
-                    self.i18n
-                        .t("modals.import.restore_managed_key_passphrases_description"),
-                    restore_passphrases,
-                    cx.listener(|this, _event, _window, cx| {
-                        if let Some(dialog) = this.session_manager.oxide_import_dialog.as_mut() {
-                            if dialog.restore_managed_keys {
-                                dialog.restore_managed_key_passphrases =
-                                    !dialog.restore_managed_key_passphrases;
+                .child(
+                    self.render_oxide_option_row(
+                        self.i18n.t("modals.import.restore_managed_key_passphrases"),
+                        self.i18n
+                            .t("modals.import.restore_managed_key_passphrases_description"),
+                        restore_passphrases,
+                        cx.listener(|this, _event, _window, cx| {
+                            if let Some(dialog) = this.session_manager.oxide_import_dialog.as_mut()
+                            {
+                                if dialog.restore_managed_keys {
+                                    dialog.restore_managed_key_passphrases =
+                                        !dialog.restore_managed_key_passphrases;
+                                }
                             }
-                        }
-                        cx.notify();
-                        cx.stop_propagation();
-                    }),
-                    cx,
-                ))
+                            cx.notify();
+                            cx.stop_propagation();
+                        }),
+                        cx,
+                    ),
+                )
                 .into_any_element(),
         ])
     }
 
-    fn render_oxide_import_app_settings_section(
+    pub(super) fn render_oxide_import_app_settings_section(
         &self,
         section: &oxideterm_connections::oxide_file::AppSettingsSectionPreview,
         cx: &mut Context<Self>,
@@ -706,9 +727,13 @@ impl WorkspaceApp {
                                     if let Some(dialog) =
                                         this.session_manager.oxide_import_dialog.as_mut()
                                     {
-                                        if dialog.expanded_app_settings_sections.contains(&toggle_id)
+                                        if dialog
+                                            .expanded_app_settings_sections
+                                            .contains(&toggle_id)
                                         {
-                                            dialog.expanded_app_settings_sections.remove(&toggle_id);
+                                            dialog
+                                                .expanded_app_settings_sections
+                                                .remove(&toggle_id);
                                         } else {
                                             dialog
                                                 .expanded_app_settings_sections
@@ -736,8 +761,11 @@ impl WorkspaceApp {
                         );
                         for key in &section.field_keys {
                             if let Some(value) = section.field_values.get(key) {
-                                let line =
-                                    format!("{}: {}", oxide_settings_field_label(key, &self.i18n), value);
+                                let line = format!(
+                                    "{}: {}",
+                                    oxide_settings_field_label(key, &self.i18n),
+                                    value
+                                );
                                 values = values.child(
                                     div()
                                         .rounded(px(self.tokens.radii.sm))
@@ -763,7 +791,7 @@ impl WorkspaceApp {
         card.into_any_element()
     }
 
-    fn render_oxide_import_quick_commands(
+    pub(super) fn render_oxide_import_quick_commands(
         &self,
         preview: &ImportPreview,
         cx: &mut Context<Self>,
@@ -777,13 +805,13 @@ impl WorkspaceApp {
             format!("快捷命令（{} 条命令）", preview.quick_commands_count),
             format!(
                 "导入 {} 个快捷命令组。已有冲突会按当前冲突策略处理；替换只替换冲突项。",
-                    preview.quick_command_categories_count
-                ),
-                checked,
-                cx.listener(|this, _event, _window, cx| {
-                    if let Some(dialog) = this.session_manager.oxide_import_dialog.as_mut() {
-                        dialog.import_quick_commands = !dialog.import_quick_commands;
-                    }
+                preview.quick_command_categories_count
+            ),
+            checked,
+            cx.listener(|this, _event, _window, cx| {
+                if let Some(dialog) = this.session_manager.oxide_import_dialog.as_mut() {
+                    dialog.import_quick_commands = !dialog.import_quick_commands;
+                }
                 cx.notify();
                 cx.stop_propagation();
             }),
@@ -791,7 +819,7 @@ impl WorkspaceApp {
         )])
     }
 
-    fn render_oxide_import_serial_profiles(
+    pub(super) fn render_oxide_import_serial_profiles(
         &self,
         preview: &ImportPreview,
         cx: &mut Context<Self>,
@@ -801,24 +829,26 @@ impl WorkspaceApp {
             .oxide_import_dialog
             .as_ref()
             .is_some_and(|dialog| dialog.import_serial_profiles);
-        self.render_oxide_import_preview_subcard(vec![self.render_oxide_option_row(
-            self.i18n
-                .t("modals.import.section_serial_profiles")
-                .replace("{{count}}", &preview.serial_profiles_count.to_string()),
-            self.i18n.t("modals.import.toggle_serial_profiles"),
-            checked,
-            cx.listener(|this, _event, _window, cx| {
-                if let Some(dialog) = this.session_manager.oxide_import_dialog.as_mut() {
-                    dialog.import_serial_profiles = !dialog.import_serial_profiles;
-                }
-                cx.notify();
-                cx.stop_propagation();
-            }),
-            cx,
-        )])
+        self.render_oxide_import_preview_subcard(vec![
+            self.render_oxide_option_row(
+                self.i18n
+                    .t("modals.import.section_serial_profiles")
+                    .replace("{{count}}", &preview.serial_profiles_count.to_string()),
+                self.i18n.t("modals.import.toggle_serial_profiles"),
+                checked,
+                cx.listener(|this, _event, _window, cx| {
+                    if let Some(dialog) = this.session_manager.oxide_import_dialog.as_mut() {
+                        dialog.import_serial_profiles = !dialog.import_serial_profiles;
+                    }
+                    cx.notify();
+                    cx.stop_propagation();
+                }),
+                cx,
+            ),
+        ])
     }
 
-    fn render_oxide_import_raw_tcp_profiles(
+    pub(super) fn render_oxide_import_raw_tcp_profiles(
         &self,
         preview: &ImportPreview,
         cx: &mut Context<Self>,
@@ -828,24 +858,26 @@ impl WorkspaceApp {
             .oxide_import_dialog
             .as_ref()
             .is_some_and(|dialog| dialog.import_raw_tcp_profiles);
-        self.render_oxide_import_preview_subcard(vec![self.render_oxide_option_row(
-            self.i18n
-                .t("modals.import.section_raw_tcp_profiles")
-                .replace("{{count}}", &preview.raw_tcp_profiles_count.to_string()),
-            self.i18n.t("modals.import.toggle_raw_tcp_profiles"),
-            checked,
-            cx.listener(|this, _event, _window, cx| {
-                if let Some(dialog) = this.session_manager.oxide_import_dialog.as_mut() {
-                    dialog.import_raw_tcp_profiles = !dialog.import_raw_tcp_profiles;
-                }
-                cx.notify();
-                cx.stop_propagation();
-            }),
-            cx,
-        )])
+        self.render_oxide_import_preview_subcard(vec![
+            self.render_oxide_option_row(
+                self.i18n
+                    .t("modals.import.section_raw_tcp_profiles")
+                    .replace("{{count}}", &preview.raw_tcp_profiles_count.to_string()),
+                self.i18n.t("modals.import.toggle_raw_tcp_profiles"),
+                checked,
+                cx.listener(|this, _event, _window, cx| {
+                    if let Some(dialog) = this.session_manager.oxide_import_dialog.as_mut() {
+                        dialog.import_raw_tcp_profiles = !dialog.import_raw_tcp_profiles;
+                    }
+                    cx.notify();
+                    cx.stop_propagation();
+                }),
+                cx,
+            ),
+        ])
     }
 
-    fn render_oxide_import_raw_udp_profiles(
+    pub(super) fn render_oxide_import_raw_udp_profiles(
         &self,
         preview: &ImportPreview,
         cx: &mut Context<Self>,
@@ -855,24 +887,26 @@ impl WorkspaceApp {
             .oxide_import_dialog
             .as_ref()
             .is_some_and(|dialog| dialog.import_raw_udp_profiles);
-        self.render_oxide_import_preview_subcard(vec![self.render_oxide_option_row(
-            self.i18n
-                .t("modals.import.section_raw_udp_profiles")
-                .replace("{{count}}", &preview.raw_udp_profiles_count.to_string()),
-            self.i18n.t("modals.import.toggle_raw_udp_profiles"),
-            checked,
-            cx.listener(|this, _event, _window, cx| {
-                if let Some(dialog) = this.session_manager.oxide_import_dialog.as_mut() {
-                    dialog.import_raw_udp_profiles = !dialog.import_raw_udp_profiles;
-                }
-                cx.notify();
-                cx.stop_propagation();
-            }),
-            cx,
-        )])
+        self.render_oxide_import_preview_subcard(vec![
+            self.render_oxide_option_row(
+                self.i18n
+                    .t("modals.import.section_raw_udp_profiles")
+                    .replace("{{count}}", &preview.raw_udp_profiles_count.to_string()),
+                self.i18n.t("modals.import.toggle_raw_udp_profiles"),
+                checked,
+                cx.listener(|this, _event, _window, cx| {
+                    if let Some(dialog) = this.session_manager.oxide_import_dialog.as_mut() {
+                        dialog.import_raw_udp_profiles = !dialog.import_raw_udp_profiles;
+                    }
+                    cx.notify();
+                    cx.stop_propagation();
+                }),
+                cx,
+            ),
+        ])
     }
 
-    fn render_oxide_import_plugins(
+    pub(super) fn render_oxide_import_plugins(
         &self,
         preview: &ImportPreview,
         cx: &mut Context<Self>,
@@ -883,7 +917,10 @@ impl WorkspaceApp {
             .as_ref()
             .is_some_and(|dialog| dialog.import_plugin_settings);
         let mut children = vec![self.render_oxide_option_row(
-            format!("插件偏好设置（{} 个插件）", preview.plugin_settings_by_plugin.len()),
+            format!(
+                "插件偏好设置（{} 个插件）",
+                preview.plugin_settings_by_plugin.len()
+            ),
             "导入插件偏好设置".to_string(),
             import_plugin_settings,
             cx.listener(|this, _event, _window, cx| {
@@ -909,7 +946,8 @@ impl WorkspaceApp {
                     .oxide_import_dialog
                     .as_ref()
                     .is_some_and(|dialog| dialog.selected_plugin_ids.contains(&plugin_id));
-                list = list.child(self.render_oxide_import_plugin_row(plugin_id, count, checked, cx));
+                list =
+                    list.child(self.render_oxide_import_plugin_row(plugin_id, count, checked, cx));
             }
             children.push(list.into_any_element());
         } else {
@@ -920,7 +958,10 @@ impl WorkspaceApp {
                     .child(self.render_selectable_text_scoped(
                         "oxide-import-plugin-settings-summary",
                         (),
-                        format!("此文件还会恢复 {} 项插件偏好设置。", preview.plugin_settings_count),
+                        format!(
+                            "此文件还会恢复 {} 项插件偏好设置。",
+                            preview.plugin_settings_count
+                        ),
                         self.tokens.ui.text_muted,
                         cx,
                     ))
@@ -930,7 +971,7 @@ impl WorkspaceApp {
         self.render_oxide_import_preview_subcard(children)
     }
 
-    fn render_oxide_import_plugin_row(
+    pub(super) fn render_oxide_import_plugin_row(
         &self,
         plugin_id: String,
         count: usize,
@@ -999,7 +1040,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_oxide_import_portable_secrets(
+    pub(super) fn render_oxide_import_portable_secrets(
         &self,
         preview: &ImportPreview,
         cx: &mut Context<Self>,
@@ -1009,32 +1050,33 @@ impl WorkspaceApp {
             .oxide_import_dialog
             .as_ref()
             .is_some_and(|dialog| dialog.import_portable_secrets);
-        self.render_oxide_import_preview_subcard(
-            vec![
-                self.render_oxide_option_row(
-                    format!("便携秘密项（{} 项）", preview.portable_secret_count),
-                    "导入便携秘密项".to_string(),
-                    checked,
-                    cx.listener(|this, _event, _window, cx| {
-                        if let Some(dialog) = this.session_manager.oxide_import_dialog.as_mut() {
-                            dialog.import_portable_secrets = !dialog.import_portable_secrets;
-                        }
-                        cx.notify();
-                        cx.stop_propagation();
-                    }),
-                    cx,
+        self.render_oxide_import_preview_subcard(vec![
+            self.render_oxide_option_row(
+                format!("便携秘密项（{} 项）", preview.portable_secret_count),
+                "导入便携秘密项".to_string(),
+                checked,
+                cx.listener(|this, _event, _window, cx| {
+                    if let Some(dialog) = this.session_manager.oxide_import_dialog.as_mut() {
+                        dialog.import_portable_secrets = !dialog.import_portable_secrets;
+                    }
+                    cx.notify();
+                    cx.stop_propagation();
+                }),
+                cx,
+            ),
+            self.render_oxide_tone_notice(
+                OXIDE_BLUE_500,
+                format!(
+                    "此文件还包含 {} 项便携秘密项，例如 AI 提供商密钥。",
+                    preview.portable_secret_count
                 ),
-                self.render_oxide_tone_notice(
-                    OXIDE_BLUE_500,
-                    format!("此文件还包含 {} 项便携秘密项，例如 AI 提供商密钥。", preview.portable_secret_count),
-                    Vec::new(),
-                    cx,
-                ),
-            ],
-        )
+                Vec::new(),
+                cx,
+            ),
+        ])
     }
 
-    fn render_oxide_import_forwards(
+    pub(super) fn render_oxide_import_forwards(
         &self,
         preview: &ImportPreview,
         cx: &mut Context<Self>,
@@ -1082,30 +1124,28 @@ impl WorkspaceApp {
         self.render_oxide_import_preview_subcard(children)
     }
 
-    fn sync_oxide_import_forward_detail_list_state(&self, details: &[ForwardDetail]) {
+    pub(super) fn sync_oxide_import_forward_detail_list_state(&self, details: &[ForwardDetail]) {
         let signatures = details
             .iter()
             .map(oxide_import_forward_detail_signature)
             .collect::<Vec<_>>();
         sync_tauri_variable_list_state_by_signatures(
             &self.oxide_import_forward_detail_list_state,
-            &mut self
-                .oxide_import_forward_detail_list_cache
-                .borrow_mut(),
+            &mut self.oxide_import_forward_detail_list_cache.borrow_mut(),
             "oxide-import-forward-details",
             &signatures,
             self.oxide_import_forward_detail_list_spec(),
         );
     }
 
-    fn oxide_import_forward_detail_list_spec(&self) -> TauriVirtualListSpec {
+    pub(super) fn oxide_import_forward_detail_list_spec(&self) -> TauriVirtualListSpec {
         TauriVirtualListSpec::new(
             px(OXIDE_IMPORT_FORWARD_DETAIL_LIST_ESTIMATED_HEIGHT),
             OXIDE_IMPORT_FORWARD_DETAIL_LIST_OVERSCAN,
         )
     }
 
-    fn render_oxide_import_forward_detail_item(
+    pub(super) fn render_oxide_import_forward_detail_item(
         &self,
         index: usize,
         cx: &mut Context<Self>,
@@ -1140,7 +1180,10 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_oxide_import_preview_subcard(&self, children: Vec<AnyElement>) -> AnyElement {
+    pub(super) fn render_oxide_import_preview_subcard(
+        &self,
+        children: Vec<AnyElement>,
+    ) -> AnyElement {
         div()
             .rounded(px(self.tokens.radii.md))
             .border_1()
@@ -1153,6 +1196,4 @@ impl WorkspaceApp {
             .children(children)
             .into_any_element()
     }
-
-
 }

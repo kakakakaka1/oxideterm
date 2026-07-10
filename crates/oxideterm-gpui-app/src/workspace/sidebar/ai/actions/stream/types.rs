@@ -1,28 +1,28 @@
 #[derive(Clone)]
-pub(super) struct AiCompactionPlan {
-    pub(super) compact_messages: Vec<AiChatMessage>,
-    pub(super) keep_messages: Vec<AiChatMessage>,
+pub(in crate::workspace) struct AiCompactionPlan {
+    pub(in crate::workspace) compact_messages: Vec<AiChatMessage>,
+    pub(in crate::workspace) keep_messages: Vec<AiChatMessage>,
 }
 
-pub(super) struct AiStreamDelivery {
-    pub(super) generation: u64,
-    pub(super) conversation_id: String,
-    pub(super) assistant_id: String,
-    pub(super) event: AiStreamDeliveryEvent,
+pub(in crate::workspace) struct AiStreamDelivery {
+    pub(in crate::workspace) generation: u64,
+    pub(in crate::workspace) conversation_id: String,
+    pub(in crate::workspace) assistant_id: String,
+    pub(in crate::workspace) event: AiStreamDeliveryEvent,
 }
 
-pub(super) struct AiCompactionDelivery {
-    pub(super) kind: AiCompactionDeliveryKind,
-    pub(super) conversation_id: String,
-    pub(super) base_ids: Vec<String>,
-    pub(super) plan: Option<AiCompactionPlan>,
-    pub(super) summary: String,
-    pub(super) stream_error: Option<String>,
-    pub(super) resume_after: Option<AiPendingChatStream>,
-    pub(super) silent: bool,
+pub(in crate::workspace) struct AiCompactionDelivery {
+    pub(in crate::workspace) kind: AiCompactionDeliveryKind,
+    pub(in crate::workspace) conversation_id: String,
+    pub(in crate::workspace) base_ids: Vec<String>,
+    pub(in crate::workspace) plan: Option<AiCompactionPlan>,
+    pub(in crate::workspace) summary: String,
+    pub(in crate::workspace) stream_error: Option<String>,
+    pub(in crate::workspace) resume_after: Option<AiPendingChatStream>,
+    pub(in crate::workspace) silent: bool,
 }
 
-pub(super) enum AiCompactionDeliveryKind {
+pub(in crate::workspace) enum AiCompactionDeliveryKind {
     Compact,
     Summary,
 }

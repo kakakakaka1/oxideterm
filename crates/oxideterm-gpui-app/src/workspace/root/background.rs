@@ -1,5 +1,7 @@
+use super::super::*;
+
 impl WorkspaceApp {
-    fn wrap_content_background(
+    pub(in crate::workspace) fn wrap_content_background(
         &mut self,
         content: AnyElement,
         background_key: Option<&str>,
@@ -32,12 +34,11 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn schedule_background_cache_poll(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn schedule_background_cache_poll(&mut self, cx: &mut Context<Self>) {
         if self.settings_page.background_cache_poll_scheduled {
             return;
         }
-        self.settings_page
-            .set_background_cache_poll_scheduled(true);
+        self.settings_page.set_background_cache_poll_scheduled(true);
         cx.spawn(async move |weak, cx| {
             Timer::after(Duration::from_millis(16)).await;
             let _ = weak.update(cx, |this, cx| {
@@ -55,7 +56,7 @@ impl WorkspaceApp {
         .detach();
     }
 
-    fn drop_workspace_background_retired_images(
+    pub(in crate::workspace) fn drop_workspace_background_retired_images(
         &mut self,
         mut window: Option<&mut Window>,
         cx: &mut Context<Self>,
@@ -72,7 +73,7 @@ impl WorkspaceApp {
     }
 }
 
-fn workspace_background_image_layer(
+pub(in crate::workspace) fn workspace_background_image_layer(
     background: TerminalBackgroundPreferences,
     blurred_image: Option<Arc<RenderImage>>,
 ) -> AnyElement {
@@ -102,7 +103,9 @@ fn workspace_background_image_layer(
         .into_any_element()
 }
 
-fn workspace_background_object_fit(fit: TerminalBackgroundFit) -> ObjectFit {
+pub(in crate::workspace) fn workspace_background_object_fit(
+    fit: TerminalBackgroundFit,
+) -> ObjectFit {
     match fit {
         TerminalBackgroundFit::Cover => ObjectFit::Cover,
         TerminalBackgroundFit::Contain => ObjectFit::Contain,
@@ -111,7 +114,7 @@ fn workspace_background_object_fit(fit: TerminalBackgroundFit) -> ObjectFit {
     }
 }
 
-fn default_connections_path() -> PathBuf {
+pub(in crate::workspace) fn default_connections_path() -> PathBuf {
     default_settings_path()
         .parent()
         .map(PathBuf::from)
@@ -119,7 +122,7 @@ fn default_connections_path() -> PathBuf {
         .join("connections.json")
 }
 
-fn default_saved_forwards_path() -> PathBuf {
+pub(in crate::workspace) fn default_saved_forwards_path() -> PathBuf {
     default_settings_path()
         .parent()
         .map(PathBuf::from)
@@ -127,7 +130,7 @@ fn default_saved_forwards_path() -> PathBuf {
         .join("forwards.json")
 }
 
-fn default_session_tree_path() -> PathBuf {
+pub(in crate::workspace) fn default_session_tree_path() -> PathBuf {
     default_settings_path()
         .parent()
         .map(PathBuf::from)
@@ -135,7 +138,7 @@ fn default_session_tree_path() -> PathBuf {
         .join("session_tree.json")
 }
 
-fn default_ai_conversations_path() -> PathBuf {
+pub(in crate::workspace) fn default_ai_conversations_path() -> PathBuf {
     default_settings_path()
         .parent()
         .map(PathBuf::from)

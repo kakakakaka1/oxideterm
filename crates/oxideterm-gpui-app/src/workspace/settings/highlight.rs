@@ -1,7 +1,9 @@
+use super::*;
+
 impl WorkspaceApp {
     const HIGHLIGHT_PREVIEW_WRAP_CHARS: usize = 32;
 
-    fn highlight_rules_card(
+    pub(in crate::workspace) fn highlight_rules_card(
         &self,
         settings: &PersistedSettings,
         cx: &mut Context<Self>,
@@ -13,124 +15,123 @@ impl WorkspaceApp {
             .replace("{{count}}", &MAX_HIGHLIGHT_RULES.to_string());
         let add_disabled = rules.len() >= MAX_HIGHLIGHT_RULES;
 
-        let mut body = div()
-            .w_full()
-            .min_w(px(0.0))
-            .rounded(px(self.tokens.radii.lg))
-            .border_1()
-            .border_color(rgb(self.tokens.ui.border))
-            .bg(self.settings_panel_background(self.tokens.ui.bg_card))
-            .shadow(oxideterm_gpui_ui::tauri_card_shadow(
-                self.tokens.ui.bg_card,
-            ))
-            .p(px(self.tokens.metrics.settings_card_padding))
-            .flex()
-            .flex_col()
-            .gap(px(self.tokens.metrics.settings_card_gap))
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .flex_wrap()
-                    .items_start()
-                    .justify_between()
-                    .gap(px(16.0))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w(px(0.0))
-                            .flex()
-                            .flex_col()
-                            .gap(px(4.0))
-                            .child(
-                                div()
-                                    .text_size(px(self.tokens.metrics.ui_text_sm))
-                                    .font_weight(gpui::FontWeight::MEDIUM)
-                                    .text_color(rgb(self.tokens.ui.text))
-                                    .child(
-                                        self.i18n
-                                            .t("settings_view.terminal.highlight_rules.title")
-                                            .to_uppercase(),
-                                    ),
-                            )
-                            .child(
-                                div()
-                                    .text_size(px(self.tokens.metrics.ui_text_xs))
-                                    .text_color(rgb(self.tokens.ui.text_muted))
-                                    .child(
-                                        self.i18n.t(
-                                            "settings_view.terminal.highlight_rules.description",
+        let mut body =
+            div()
+                .w_full()
+                .min_w(px(0.0))
+                .rounded(px(self.tokens.radii.lg))
+                .border_1()
+                .border_color(rgb(self.tokens.ui.border))
+                .bg(self.settings_panel_background(self.tokens.ui.bg_card))
+                .shadow(oxideterm_gpui_ui::tauri_card_shadow(self.tokens.ui.bg_card))
+                .p(px(self.tokens.metrics.settings_card_padding))
+                .flex()
+                .flex_col()
+                .gap(px(self.tokens.metrics.settings_card_gap))
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .flex_wrap()
+                        .items_start()
+                        .justify_between()
+                        .gap(px(16.0))
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w(px(0.0))
+                                .flex()
+                                .flex_col()
+                                .gap(px(4.0))
+                                .child(
+                                    div()
+                                        .text_size(px(self.tokens.metrics.ui_text_sm))
+                                        .font_weight(gpui::FontWeight::MEDIUM)
+                                        .text_color(rgb(self.tokens.ui.text))
+                                        .child(
+                                            self.i18n
+                                                .t("settings_view.terminal.highlight_rules.title")
+                                                .to_uppercase(),
                                         ),
-                                    ),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .flex_row()
-                            .flex_wrap()
-                            .gap(px(8.0))
-                            .child(self.settings_select_control(
-                                SettingsSelect::HighlightPreset,
-                                self.i18n
-                                    .t("settings_view.terminal.highlight_rules.add_preset"),
-                                add_disabled,
-                                Some(168.0),
-                                cx,
-                            ))
-                            .child(
-                                // Tauri uses the shared shadcn Button for this action. Route it
-                                // through the workspace wrapper so max-rule disabled state cannot
-                                // dispatch while preserving the existing Button chrome.
-                                self.workspace_toolbar_action_button(
-                                    self.i18n
-                                        .t("settings_view.terminal.highlight_rules.add_rule"),
-                                    Some(Self::render_lucide_icon(
-                                        LucideIcon::Plus,
-                                        14.0,
-                                        rgb(self.tokens.ui.accent_text),
-                                    )),
-                                    ToolbarButtonOptions {
-                                        button: ButtonOptions {
-                                            variant: ButtonVariant::Default,
-                                            size: ButtonSize::Sm,
-                                            radius: ButtonRadius::Md,
-                                            disabled: add_disabled,
-                                        },
-                                        ..ToolbarButtonOptions::default()
-                                    },
-                                    cx.listener(move |this, _event, _window, cx| {
-                                        if this
-                                            .settings_store
-                                            .settings()
-                                            .terminal
-                                            .highlight_rules
-                                            .len()
-                                            < MAX_HIGHLIGHT_RULES
-                                        {
-                                            this.add_highlight_rule(cx);
-                                        }
-                                        cx.stop_propagation();
-                                    }),
+                                )
+                                .child(
+                                    div()
+                                        .text_size(px(self.tokens.metrics.ui_text_xs))
+                                        .text_color(rgb(self.tokens.ui.text_muted))
+                                        .child(self.i18n.t(
+                                            "settings_view.terminal.highlight_rules.description",
+                                        )),
                                 ),
-                            ),
-                    ),
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .justify_between()
-                    .gap(px(12.0))
-                    .text_size(px(self.tokens.metrics.ui_text_xs))
-                    .text_color(rgb(self.tokens.ui.text_muted))
-                    .child(limit_text)
-                    .child(
-                        self.i18n
-                            .t("settings_view.terminal.highlight_rules.priority_hint"),
-                    ),
-            )
-            .child(self.card_separator());
+                        )
+                        .child(
+                            div()
+                                .flex()
+                                .flex_row()
+                                .flex_wrap()
+                                .gap(px(8.0))
+                                .child(
+                                    self.settings_select_control(
+                                        SettingsSelect::HighlightPreset,
+                                        self.i18n
+                                            .t("settings_view.terminal.highlight_rules.add_preset"),
+                                        add_disabled,
+                                        Some(168.0),
+                                        cx,
+                                    ),
+                                )
+                                .child(
+                                    // Tauri uses the shared shadcn Button for this action. Route it
+                                    // through the workspace wrapper so max-rule disabled state cannot
+                                    // dispatch while preserving the existing Button chrome.
+                                    self.workspace_toolbar_action_button(
+                                        self.i18n
+                                            .t("settings_view.terminal.highlight_rules.add_rule"),
+                                        Some(Self::render_lucide_icon(
+                                            LucideIcon::Plus,
+                                            14.0,
+                                            rgb(self.tokens.ui.accent_text),
+                                        )),
+                                        ToolbarButtonOptions {
+                                            button: ButtonOptions {
+                                                variant: ButtonVariant::Default,
+                                                size: ButtonSize::Sm,
+                                                radius: ButtonRadius::Md,
+                                                disabled: add_disabled,
+                                            },
+                                            ..ToolbarButtonOptions::default()
+                                        },
+                                        cx.listener(move |this, _event, _window, cx| {
+                                            if this
+                                                .settings_store
+                                                .settings()
+                                                .terminal
+                                                .highlight_rules
+                                                .len()
+                                                < MAX_HIGHLIGHT_RULES
+                                            {
+                                                this.add_highlight_rule(cx);
+                                            }
+                                            cx.stop_propagation();
+                                        }),
+                                    ),
+                                ),
+                        ),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .justify_between()
+                        .gap(px(12.0))
+                        .text_size(px(self.tokens.metrics.ui_text_xs))
+                        .text_color(rgb(self.tokens.ui.text_muted))
+                        .child(limit_text)
+                        .child(
+                            self.i18n
+                                .t("settings_view.terminal.highlight_rules.priority_hint"),
+                        ),
+                )
+                .child(self.card_separator());
 
         if rules.is_empty() {
             body = body.child(
@@ -158,7 +159,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn highlight_rule_row(
+    pub(in crate::workspace) fn highlight_rule_row(
         &self,
         index: usize,
         rule: &HighlightRule,
@@ -383,22 +384,26 @@ impl WorkspaceApp {
                     } else {
                         rgb(self.tokens.ui.text_muted)
                     })
-                    .child(validation_error.map(|reason| {
-                        self.i18n.t(&format!(
-                            "settings_view.terminal.highlight_rules.validation.{reason}"
-                        ))
-                    }).unwrap_or_else(|| {
-                        self.i18n.t(if rule.is_regex {
-                            "settings_view.terminal.highlight_rules.mode_hint.regex"
-                        } else {
-                            "settings_view.terminal.highlight_rules.mode_hint.literal"
-                        })
-                    })),
+                    .child(
+                        validation_error
+                            .map(|reason| {
+                                self.i18n.t(&format!(
+                                    "settings_view.terminal.highlight_rules.validation.{reason}"
+                                ))
+                            })
+                            .unwrap_or_else(|| {
+                                self.i18n.t(if rule.is_regex {
+                                    "settings_view.terminal.highlight_rules.mode_hint.regex"
+                                } else {
+                                    "settings_view.terminal.highlight_rules.mode_hint.literal"
+                                })
+                            }),
+                    ),
             )
             .into_any_element()
     }
 
-    fn highlight_small_button(
+    pub(in crate::workspace) fn highlight_small_button(
         &self,
         label: String,
         enabled: bool,
@@ -427,7 +432,7 @@ impl WorkspaceApp {
         .into_any_element()
     }
 
-    fn highlight_input_block(
+    pub(in crate::workspace) fn highlight_input_block(
         &self,
         label: String,
         input: SettingsInput,
@@ -450,7 +455,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn highlight_render_mode_control(
+    pub(in crate::workspace) fn highlight_render_mode_control(
         &self,
         index: usize,
         value: String,
@@ -474,7 +479,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn highlight_checkbox(
+    pub(in crate::workspace) fn highlight_checkbox(
         &self,
         label: String,
         checked: bool,
@@ -499,7 +504,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn highlight_preview(&self, rules: &[HighlightRule]) -> AnyElement {
+    pub(in crate::workspace) fn highlight_preview(&self, rules: &[HighlightRule]) -> AnyElement {
         let lines = [
             self.i18n
                 .t("settings_view.terminal.highlight_rules.preview_line_error"),
@@ -568,9 +573,7 @@ impl WorkspaceApp {
             .flex()
             .flex_col()
             .gap(px(4.0))
-            .font_family(settings_mono_font_family(
-                self.settings_store.settings(),
-            ))
+            .font_family(settings_mono_font_family(self.settings_store.settings()))
             .text_size(px(self.tokens.metrics.ui_text_xs))
             .line_height(px(24.0))
             .text_color(rgb(0xe2e8f0));
@@ -581,7 +584,11 @@ impl WorkspaceApp {
         preview.into_any_element()
     }
 
-    fn highlight_preview_line(&self, line: &str, rules: &[HighlightRule]) -> AnyElement {
+    pub(in crate::workspace) fn highlight_preview_line(
+        &self,
+        line: &str,
+        rules: &[HighlightRule],
+    ) -> AnyElement {
         let matches = accepted_highlight_preview_matches(line, rules);
         let mut row = div()
             .w_full()
@@ -597,7 +604,11 @@ impl WorkspaceApp {
             }
             for chunk in Self::highlight_preview_wrapping_chunks(&line[matched.start..matched.end])
             {
-                row = row.child(highlight_preview_segment(&self.tokens, &chunk, matched.rule));
+                row = row.child(highlight_preview_segment(
+                    &self.tokens,
+                    &chunk,
+                    matched.rule,
+                ));
             }
             cursor = matched.end;
         }
@@ -607,14 +618,18 @@ impl WorkspaceApp {
         row.into_any_element()
     }
 
-    fn highlight_preview_plain_chunks(&self, mut row: Div, text: &str) -> Div {
+    pub(in crate::workspace) fn highlight_preview_plain_chunks(
+        &self,
+        mut row: Div,
+        text: &str,
+    ) -> Div {
         for chunk in Self::highlight_preview_wrapping_chunks(text) {
             row = row.child(chunk);
         }
         row
     }
 
-    fn highlight_preview_wrapping_chunks(text: &str) -> Vec<String> {
+    pub(in crate::workspace) fn highlight_preview_wrapping_chunks(text: &str) -> Vec<String> {
         let mut chunks = Vec::new();
         let mut current = String::new();
         let mut current_chars = 0usize;

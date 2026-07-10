@@ -1,12 +1,18 @@
-const HELP_WEBSITE_URL: &str = "https://oxideterm.app";
-const HELP_DOCUMENTATION_URL: &str = "https://oxideterm.app/docs";
-const HELP_GITHUB_URL: &str = "https://github.com/AnalyseDeCircuit/oxideterm";
-const HELP_ISSUES_URL: &str = "https://github.com/AnalyseDeCircuit/oxideterm/issues";
-// Keep the in-app legal link aligned with the repository-level multilingual notice.
-const HELP_LEGAL_URL: &str = "https://github.com/AnalyseDeCircuit/oxideterm/blob/main/LEGAL.md";
-const HELP_LEGAL_MARKDOWN: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../LEGAL.md"));
+use super::*;
 
-const HELP_TECH_BADGES: [(&str, u32); 6] = [
+pub(in crate::workspace) const HELP_WEBSITE_URL: &str = "https://oxideterm.app";
+pub(in crate::workspace) const HELP_DOCUMENTATION_URL: &str = "https://oxideterm.app/docs";
+pub(in crate::workspace) const HELP_GITHUB_URL: &str =
+    "https://github.com/AnalyseDeCircuit/oxideterm";
+pub(in crate::workspace) const HELP_ISSUES_URL: &str =
+    "https://github.com/AnalyseDeCircuit/oxideterm/issues";
+// Keep the in-app legal link aligned with the repository-level multilingual notice.
+pub(in crate::workspace) const HELP_LEGAL_URL: &str =
+    "https://github.com/AnalyseDeCircuit/oxideterm/blob/main/LEGAL.md";
+pub(in crate::workspace) const HELP_LEGAL_MARKDOWN: &str =
+    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../LEGAL.md"));
+
+pub(in crate::workspace) const HELP_TECH_BADGES: [(&str, u32); 6] = [
     ("Rust", 0xf97316),
     ("GPUI", 0x38bdf8),
     ("Tokio", 0x3b82f6),
@@ -15,22 +21,26 @@ const HELP_TECH_BADGES: [(&str, u32); 6] = [
     ("Portable Runtime", 0xa855f7),
 ];
 
-const HELP_UPDATE_CHANNEL_SELECT_WIDTH: f32 = 140.0;
-const HELP_UPDATE_PROXY_MODE_SELECT_WIDTH: f32 = 148.0;
-const HELP_UPDATE_PROXY_PROTOCOL_SELECT_WIDTH: f32 = 120.0;
-const HELP_UPDATE_PROXY_PORT_INPUT_WIDTH: f32 = 104.0;
-const HELP_UPDATE_PROXY_TEXT_INPUT_WIDTH: f32 = 260.0;
-const HELP_PREVIEW_NOTICE_ALPHA: f32 = 0.10;
-const HELP_PREVIEW_NOTICE_BORDER_ALPHA: f32 = 0.30;
-const HELP_UPDATE_FOOTER_BORDER_ALPHA: f32 = 0.50;
-const HELP_PORTABLE_NOTICE_BG_ALPHA: f32 = 0.70;
-const HELP_PORTABLE_NOTICE_BORDER_ALPHA: f32 = 0.60;
-const HELP_RELEASE_NOTES_VIEWPORT_HEIGHT: f32 = 280.0;
-const HELP_LEGAL_NOTICE_WIDTH: f32 = 760.0;
-const HELP_LEGAL_NOTICE_HEIGHT: f32 = 720.0;
+pub(in crate::workspace) const HELP_UPDATE_CHANNEL_SELECT_WIDTH: f32 = 140.0;
+pub(in crate::workspace) const HELP_UPDATE_PROXY_MODE_SELECT_WIDTH: f32 = 148.0;
+pub(in crate::workspace) const HELP_UPDATE_PROXY_PROTOCOL_SELECT_WIDTH: f32 = 120.0;
+pub(in crate::workspace) const HELP_UPDATE_PROXY_PORT_INPUT_WIDTH: f32 = 104.0;
+pub(in crate::workspace) const HELP_UPDATE_PROXY_TEXT_INPUT_WIDTH: f32 = 260.0;
+pub(in crate::workspace) const HELP_PREVIEW_NOTICE_ALPHA: f32 = 0.10;
+pub(in crate::workspace) const HELP_PREVIEW_NOTICE_BORDER_ALPHA: f32 = 0.30;
+pub(in crate::workspace) const HELP_UPDATE_FOOTER_BORDER_ALPHA: f32 = 0.50;
+pub(in crate::workspace) const HELP_PORTABLE_NOTICE_BG_ALPHA: f32 = 0.70;
+pub(in crate::workspace) const HELP_PORTABLE_NOTICE_BORDER_ALPHA: f32 = 0.60;
+pub(in crate::workspace) const HELP_RELEASE_NOTES_VIEWPORT_HEIGHT: f32 = 280.0;
+pub(in crate::workspace) const HELP_LEGAL_NOTICE_WIDTH: f32 = 760.0;
+pub(in crate::workspace) const HELP_LEGAL_NOTICE_HEIGHT: f32 = 720.0;
 
 impl WorkspaceApp {
-    fn settings_help_section(&mut self, section_index: usize, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn settings_help_section(
+        &mut self,
+        section_index: usize,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         match section_index {
             0 => self.help_version_card(cx),
             1 => self.help_diagnostics_card(cx),
@@ -42,7 +52,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn help_version_card(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn help_version_card(&self, cx: &mut Context<Self>) -> AnyElement {
         let is_portable = self.resolved_help_portable_mode();
         let channel_label = update_channel_label(
             self.settings_store.settings().general.update_channel,
@@ -92,7 +102,11 @@ impl WorkspaceApp {
                     .text_size(px(self.tokens.metrics.ui_text_sm))
                     .font_weight(gpui::FontWeight::MEDIUM)
                     .text_color(rgb(self.tokens.ui.text))
-                    .child(self.i18n.t("settings_view.help.version_info").to_uppercase()),
+                    .child(
+                        self.i18n
+                            .t("settings_view.help.version_info")
+                            .to_uppercase(),
+                    ),
             )
             .child(version_rows)
             .child(self.help_update_footer(is_portable, cx));
@@ -101,7 +115,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn help_diagnostics_card(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn help_diagnostics_card(&self, cx: &mut Context<Self>) -> AnyElement {
         // MemoryDiagnosticsPanel and the keyboard-shortcut reference are Tauri-only Help blocks.
         // GPUI keeps diagnostics lightweight: file logging is always available, while verbose
         // debug output is opt-in so normal sessions do not generate oversized logs.
@@ -126,7 +140,7 @@ impl WorkspaceApp {
         ])
     }
 
-    fn help_tech_stack_card(&self) -> AnyElement {
+    pub(in crate::workspace) fn help_tech_stack_card(&self) -> AnyElement {
         let mut badges = div().flex().flex_row().flex_wrap().gap(px(8.0));
         for (label, color) in HELP_TECH_BADGES {
             badges = badges.child(
@@ -148,7 +162,7 @@ impl WorkspaceApp {
         ])
     }
 
-    fn help_resources_card(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn help_resources_card(&self, cx: &mut Context<Self>) -> AnyElement {
         self.plain_settings_card(vec![
             self.card_title("settings_view.help.resources"),
             self.help_resource_link(
@@ -184,7 +198,7 @@ impl WorkspaceApp {
         ])
     }
 
-    fn help_safety_card(&self) -> AnyElement {
+    pub(in crate::workspace) fn help_safety_card(&self) -> AnyElement {
         // Keep product guardrails visible without turning them into a blocking legal agreement.
         let safety_items = [
             "settings_view.help.safety_authorized",
@@ -205,7 +219,7 @@ impl WorkspaceApp {
         ])
     }
 
-    fn help_safety_row(&self, key: &str) -> AnyElement {
+    pub(in crate::workspace) fn help_safety_row(&self, key: &str) -> AnyElement {
         div()
             .flex()
             .items_start()
@@ -228,7 +242,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn help_legal_card(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn help_legal_card(&self, cx: &mut Context<Self>) -> AnyElement {
         let copyright = self.i18n_with(
             "settings_view.help.copyright",
             &[
@@ -261,7 +275,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn help_portable_or_channel_row(
+    pub(in crate::workspace) fn help_portable_or_channel_row(
         &self,
         is_portable: bool,
         channel_label: String,
@@ -293,7 +307,10 @@ impl WorkspaceApp {
         )
     }
 
-    fn help_update_proxy_rows(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn help_update_proxy_rows(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let proxy = &self.settings_store.settings().general.update_proxy;
         let mut rows = div()
             .flex()
@@ -356,7 +373,10 @@ impl WorkspaceApp {
         rows.into_any_element()
     }
 
-    fn help_update_proxy_mode_row(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn help_update_proxy_mode_row(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let proxy = &self.settings_store.settings().general.update_proxy;
         div()
             .w_full()
@@ -422,7 +442,11 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn help_update_footer(&self, is_portable: bool, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn help_update_footer(
+        &self,
+        is_portable: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         div()
             .mt(px(16.0))
             .pt(px(16.0))
@@ -441,7 +465,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn help_portable_update_notice(&self) -> AnyElement {
+    pub(in crate::workspace) fn help_portable_update_notice(&self) -> AnyElement {
         div()
             .rounded(px(self.tokens.radii.md))
             .border_1()
@@ -477,7 +501,10 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn help_update_status_area(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn help_update_status_area(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let button_icon = if matches!(self.native_update_state, NativeUpdateUiState::Checking) {
             LucideIcon::LoaderCircle
         } else {
@@ -491,26 +518,22 @@ impl WorkspaceApp {
                 | NativeUpdateUiState::Installing(_)
         );
 
-        let mut area = div()
-            .flex()
-            .flex_col()
-            .gap(px(12.0))
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(12.0))
-                    .child(self.help_outline_button_with_disabled(
-                        self.i18n.t("settings_view.help.check_update"),
-                        button_icon,
-                        disabled,
-                        |this, _event, _window, cx| {
-                            this.check_native_update(cx);
-                        },
-                        cx,
-                    ))
-                    .children(self.help_update_status_inline()),
-            );
+        let mut area = div().flex().flex_col().gap(px(12.0)).child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(12.0))
+                .child(self.help_outline_button_with_disabled(
+                    self.i18n.t("settings_view.help.check_update"),
+                    button_icon,
+                    disabled,
+                    |this, _event, _window, cx| {
+                        this.check_native_update(cx);
+                    },
+                    cx,
+                ))
+                .children(self.help_update_status_inline()),
+        );
 
         if let Some(detail) = self.help_update_detail(cx) {
             area = area.child(detail);
@@ -519,7 +542,7 @@ impl WorkspaceApp {
         area.into_any_element()
     }
 
-    fn help_update_status_inline(&self) -> Option<AnyElement> {
+    pub(in crate::workspace) fn help_update_status_inline(&self) -> Option<AnyElement> {
         let (label, icon, color) = match &self.native_update_state {
             NativeUpdateUiState::Checking => (
                 self.i18n.t("settings_view.help.checking"),
@@ -560,7 +583,11 @@ impl WorkspaceApp {
                         "settings_view.help.replacement_scheduled"
                     }
                 };
-                (self.i18n.t(label_key), Some(LucideIcon::CheckCircle), self.tokens.ui.success)
+                (
+                    self.i18n.t(label_key),
+                    Some(LucideIcon::CheckCircle),
+                    self.tokens.ui.success,
+                )
             }
             NativeUpdateUiState::Error(error) => (
                 if error.is_empty() {
@@ -588,7 +615,10 @@ impl WorkspaceApp {
         Some(row.child(label).into_any_element())
     }
 
-    fn help_update_detail(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+    pub(in crate::workspace) fn help_update_detail(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
         match &self.native_update_state {
             NativeUpdateUiState::Available(package) => Some(
                 div()
@@ -611,16 +641,14 @@ impl WorkspaceApp {
                             ),
                     )
                     .child(self.help_release_notes(package.body.as_deref(), cx))
-                    .child(
-                        div().flex().justify_end().child(self.help_outline_button(
-                            self.i18n.t("settings_view.help.download_update"),
-                            LucideIcon::Download,
-                            |this, _event, _window, cx| {
-                                this.download_native_update(cx);
-                            },
-                            cx,
-                        )),
-                    )
+                    .child(div().flex().justify_end().child(self.help_outline_button(
+                        self.i18n.t("settings_view.help.download_update"),
+                        LucideIcon::Download,
+                        |this, _event, _window, cx| {
+                            this.download_native_update(cx);
+                        },
+                        cx,
+                    )))
                     .into_any_element(),
             ),
             NativeUpdateUiState::Downloading(status) | NativeUpdateUiState::Verifying(status) => {
@@ -644,7 +672,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn help_gpui_preview_notice(&self) -> AnyElement {
+    pub(in crate::workspace) fn help_gpui_preview_notice(&self) -> AnyElement {
         // Tauri renders `border-amber-500/30 bg-amber-500/10 p-3`; keep the
         // channel warning visually coupled to that source state.
         div()
@@ -683,14 +711,14 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn resolved_help_portable_mode(&self) -> bool {
+    pub(in crate::workspace) fn resolved_help_portable_mode(&self) -> bool {
         self.portable_status_snapshot
             .as_ref()
             .map(|status| status.is_portable)
             .unwrap_or_else(|| oxideterm_portable_runtime::is_portable_mode().unwrap_or(false))
     }
 
-    fn help_key_value_row(
+    pub(in crate::workspace) fn help_key_value_row(
         &self,
         label_key: &str,
         value: String,
@@ -709,7 +737,8 @@ impl WorkspaceApp {
                 cx,
             ));
         if mono {
-            value_el = value_el.font_family(settings_mono_font_family(self.settings_store.settings()));
+            value_el =
+                value_el.font_family(settings_mono_font_family(self.settings_store.settings()));
         }
 
         div()
@@ -727,7 +756,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn help_action_row(
+    pub(in crate::workspace) fn help_action_row(
         &self,
         label_key: &str,
         hint_key: &str,
@@ -744,7 +773,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn help_outline_button(
+    pub(in crate::workspace) fn help_outline_button(
         &self,
         label: String,
         icon: LucideIcon,
@@ -772,7 +801,7 @@ impl WorkspaceApp {
         .into_any_element()
     }
 
-    fn help_outline_button_with_disabled(
+    pub(in crate::workspace) fn help_outline_button_with_disabled(
         &self,
         label: String,
         icon: LucideIcon,
@@ -803,7 +832,7 @@ impl WorkspaceApp {
         .into_any_element()
     }
 
-    fn help_pill_badge(&self, label: String, color: u32) -> AnyElement {
+    pub(in crate::workspace) fn help_pill_badge(&self, label: String, color: u32) -> AnyElement {
         div()
             .rounded_full()
             .border_1()
@@ -818,7 +847,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn help_release_notes(
+    pub(in crate::workspace) fn help_release_notes(
         &self,
         release_body: Option<&str>,
         cx: &mut Context<Self>,
@@ -843,7 +872,9 @@ impl WorkspaceApp {
             .border_color(rgba(
                 (self.tokens.ui.border << 8) | alpha_byte(HELP_UPDATE_FOOTER_BORDER_ALPHA),
             ))
-            .bg(rgba((self.tokens.ui.bg << 8) | alpha_byte(HELP_UPDATE_FOOTER_BORDER_ALPHA)))
+            .bg(rgba(
+                (self.tokens.ui.bg << 8) | alpha_byte(HELP_UPDATE_FOOTER_BORDER_ALPHA),
+            ))
             .p(px(12.0))
             .text_color(rgb(self.tokens.ui.text))
             .child(
@@ -863,7 +894,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn help_transfer_progress(
+    pub(in crate::workspace) fn help_transfer_progress(
         &self,
         status: Option<&oxideterm_update::ResumableUpdateStatus>,
         cx: &mut Context<Self>,
@@ -894,7 +925,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn help_resource_link(
+    pub(in crate::workspace) fn help_resource_link(
         &self,
         label_key: &str,
         url: &'static str,
@@ -953,7 +984,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn close_help_legal_notice(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn close_help_legal_notice(&mut self, cx: &mut Context<Self>) {
         self.settings_page.legal_notice_open = false;
         cx.notify();
     }
@@ -1026,28 +1057,34 @@ impl WorkspaceApp {
                                 &code_actions,
                             )),
                     )
-                    .child(dialog_footer(&self.tokens).child(self.standard_footer_action_button(
-                        self.i18n.t("settings_view.help.legal_notice_close"),
-                        ButtonVariant::Secondary,
-                        ConfirmDialogAction::Cancel,
-                        false,
-                        |this, _event, _window, cx| {
-                            this.close_help_legal_notice(cx);
-                        },
-                        cx,
-                    ))),
+                    .child(
+                        dialog_footer(&self.tokens).child(self.standard_footer_action_button(
+                            self.i18n.t("settings_view.help.legal_notice_close"),
+                            ButtonVariant::Secondary,
+                            ConfirmDialogAction::Cancel,
+                            false,
+                            |this, _event, _window, cx| {
+                                this.close_help_legal_notice(cx);
+                            },
+                            cx,
+                        )),
+                    ),
             ))
             .into_any_element()
     }
 
-    fn open_help_url(&mut self, url: &'static str, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn open_help_url(
+        &mut self,
+        url: &'static str,
+        cx: &mut Context<Self>,
+    ) {
         if let Err(error) = open_external_url(url) {
             self.push_ai_settings_toast(error.to_string(), TerminalNoticeVariant::Error);
             cx.notify();
         }
     }
 
-    fn open_help_log_directory(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn open_help_log_directory(&mut self, cx: &mut Context<Self>) {
         let log_dir = self.help_log_directory();
         let opened = std::fs::create_dir_all(&log_dir)
             .and_then(|()| open_path_external(&log_dir))
@@ -1058,7 +1095,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn help_log_directory(&self) -> std::path::PathBuf {
+    pub(in crate::workspace) fn help_log_directory(&self) -> std::path::PathBuf {
         // Tauri stores logs under the app data directory. Native settings use
         // the same data root, so derive logs beside settings.json.
         self.settings_store
@@ -1068,7 +1105,7 @@ impl WorkspaceApp {
             .unwrap_or_else(|| std::path::PathBuf::from("logs"))
     }
 
-    fn language_label(&self, language: Language) -> String {
+    pub(in crate::workspace) fn language_label(&self, language: Language) -> String {
         match language {
             Language::De => "Deutsch",
             Language::En => "English",
@@ -1086,7 +1123,9 @@ impl WorkspaceApp {
     }
 }
 
-fn native_update_progress_hint(status: &oxideterm_update::ResumableUpdateStatus) -> String {
+pub(in crate::workspace) fn native_update_progress_hint(
+    status: &oxideterm_update::ResumableUpdateStatus,
+) -> String {
     let downloaded = native_update_format_bytes(status.downloaded_bytes);
     match status.total_bytes {
         Some(total) if total > 0 => {
@@ -1103,7 +1142,7 @@ fn native_update_progress_hint(status: &oxideterm_update::ResumableUpdateStatus)
     }
 }
 
-fn native_update_format_bytes(bytes: u64) -> String {
+pub(in crate::workspace) fn native_update_format_bytes(bytes: u64) -> String {
     if bytes < 1024 {
         return format!("{bytes} B");
     }

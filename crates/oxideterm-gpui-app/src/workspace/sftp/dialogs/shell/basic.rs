@@ -1,5 +1,7 @@
+use super::*;
+
 impl WorkspaceApp {
-    fn render_sftp_drives_dialog_body(
+    pub(in crate::workspace::sftp) fn render_sftp_drives_dialog_body(
         &self,
         _has_background: bool,
         cx: &mut Context<Self>,
@@ -70,7 +72,10 @@ impl WorkspaceApp {
                                                         .px(px(4.0))
                                                         .py(px(2.0))
                                                         .text_size(px(SFTP_TEXT_10))
-                                                        .bg(rgba((SFTP_YELLOW << 8) | SFTP_READONLY_BADGE_BG_ALPHA))
+                                                        .bg(rgba(
+                                                            (SFTP_YELLOW << 8)
+                                                                | SFTP_READONLY_BADGE_BG_ALPHA,
+                                                        ))
                                                         .text_color(rgb(SFTP_YELLOW))
                                                         .child(
                                                             self.i18n.t("sftp.dialogs.readOnly"),
@@ -113,7 +118,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_sftp_delete_dialog_body(
+    pub(in crate::workspace::sftp) fn render_sftp_delete_dialog_body(
         &self,
         files: Vec<String>,
         _has_background: bool,
@@ -139,7 +144,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_sftp_dialog_input(
+    pub(in crate::workspace::sftp) fn render_sftp_dialog_input(
         &self,
         placeholder_key: &'static str,
         cx: &mut Context<Self>,

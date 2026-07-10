@@ -1,5 +1,8 @@
 impl WorkspaceApp {
-    pub(super) fn render_ai_sidebar_content(&mut self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn render_ai_sidebar_content(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         self.ensure_ai_chat_initialized();
         let enabled = self.settings_store.settings().ai.enabled;
         let panel = if !enabled {
@@ -33,10 +36,9 @@ impl WorkspaceApp {
                 )
                 .child(self.render_ai_context_warning_banners(cx))
                 .child(self.render_ai_sidebar_model_bar(cx))
-                .child(self.render_ai_sidebar_input(
-                    self.ai_chat_initialization_error.is_none(),
-                    cx,
-                ))
+                .child(
+                    self.render_ai_sidebar_input(self.ai.chat.initialization_error.is_none(), cx),
+                )
                 .into_any_element()
         };
 
@@ -66,19 +68,26 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_ai_sidebar_chat_body(&mut self, cx: &mut Context<Self>) -> AnyElement {
-        if let Some(error) = self.ai_chat_initialization_error.clone() {
+    pub(in crate::workspace) fn render_ai_sidebar_chat_body(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        if let Some(error) = self.ai.chat.initialization_error.clone() {
             return self.render_ai_sidebar_initialization_error(error, cx);
         }
-        let Some((conversation_id, items, signatures)) = self.ai_chat.active_conversation().and_then(
-            |conversation| {
+        let Some((conversation_id, items, signatures)) = self
+            .ai
+            .chat
+            .conversation_state
+            .active_conversation()
+            .and_then(|conversation| {
                 if conversation.messages.is_empty() {
                     return None;
                 }
                 let mut items = Vec::new();
-                if let Some(count) = self.ai_context_trim_notice_count {
+                if let Some(count) = self.ai.chat.context_trim_notice_count {
                     items.push(AiChatListItem::TrimNotice {
-                        sequence: self.ai_context_trim_notice_sequence,
+                        sequence: self.ai.chat.context_trim_notice_sequence,
                         count,
                     });
                 }
@@ -90,8 +99,8 @@ impl WorkspaceApp {
                 items.push(AiChatListItem::BottomSpacer);
                 let signatures = self.ai_chat_list_signatures(conversation, &items);
                 Some((conversation.id.clone(), items, signatures))
-            },
-        ) else {
+            })
+        else {
             return self.render_ai_sidebar_empty_chat(cx);
         };
 
@@ -99,7 +108,7 @@ impl WorkspaceApp {
         self.sync_ai_chat_list_state(&conversation_id, &signatures, virtual_spec);
 
         let entity = cx.entity();
-        let state = self.ai_chat_list_state.clone();
+        let state = self.ai.chat.message_list_state.clone();
         let viewport = self.ai_chat_list_viewport_snapshot();
         tauri_virtual_list(state, virtual_spec, move |index, _window, cx| {
             let Some(item) = items.get(index).cloned() else {
@@ -115,7 +124,7 @@ impl WorkspaceApp {
         .into_any_element()
     }
 
-    fn render_ai_chat_list_item(
+    pub(in crate::workspace) fn render_ai_chat_list_item(
         &self,
         item: AiChatListItem,
         viewport: Option<AiMessageViewport>,
@@ -124,31 +133,32 @@ impl WorkspaceApp {
         match item {
             AiChatListItem::TrimNotice { count, .. } => self.render_ai_trim_notice(count, cx),
             AiChatListItem::Message { id } => {
-                let Some(conversation) = self.ai_chat.active_conversation() else {
-                    return div().into_any_element();
-                };
-                let Some(message) = conversation.messages.iter().find(|message| message.id == id)
+                let Some(conversation) = self.ai.chat.conversation_state.active_conversation()
                 else {
                     return div().into_any_element();
                 };
-                self.render_ai_message(
-                    conversation,
-                    message,
-                    viewport,
-                    cx,
-                )
+                let Some(message) = conversation
+                    .messages
+                    .iter()
+                    .find(|message| message.id == id)
+                else {
+                    return div().into_any_element();
+                };
+                self.render_ai_message(conversation, message, viewport, cx)
             }
             AiChatListItem::BottomSpacer => div().h(px(16.0)).into_any_element(),
         }
     }
 
-    fn ai_chat_list_viewport_snapshot(&self) -> Option<AiChatListViewportSnapshot> {
-        let bounds = self.ai_chat_list_state.viewport_bounds();
+    pub(in crate::workspace) fn ai_chat_list_viewport_snapshot(
+        &self,
+    ) -> Option<AiChatListViewportSnapshot> {
+        let bounds = self.ai.chat.message_list_state.viewport_bounds();
         let height = f32::from(bounds.size.height);
         if height <= 0.0 {
             return None;
         }
-        let scroll_top = self.ai_chat_list_state.logical_scroll_top();
+        let scroll_top = self.ai.chat.message_list_state.logical_scroll_top();
         Some(AiChatListViewportSnapshot {
             item_ix: scroll_top.item_ix,
             offset_in_item: f32::from(scroll_top.offset_in_item),
@@ -156,7 +166,7 @@ impl WorkspaceApp {
         })
     }
 
-    fn ai_message_viewport_for_list_item(
+    pub(in crate::workspace) fn ai_message_viewport_for_list_item(
         index: usize,
         viewport: Option<AiChatListViewportSnapshot>,
     ) -> Option<AiMessageViewport> {
@@ -174,7 +184,7 @@ impl WorkspaceApp {
         })
     }
 
-    fn ai_chat_list_signatures(
+    pub(in crate::workspace) fn ai_chat_list_signatures(
         &self,
         conversation: &AiConversation,
         items: &[AiChatListItem],
@@ -185,7 +195,7 @@ impl WorkspaceApp {
             .collect()
     }
 
-    fn ai_chat_list_item_signature(
+    pub(in crate::workspace) fn ai_chat_list_item_signature(
         &self,
         conversation: &AiConversation,
         item: &AiChatListItem,
@@ -200,7 +210,10 @@ impl WorkspaceApp {
             AiChatListItem::Message { id } => {
                 std::hash::Hash::hash(&"message", &mut hasher);
                 std::hash::Hash::hash(id, &mut hasher);
-                if let Some(message) = conversation.messages.iter().find(|message| &message.id == id)
+                if let Some(message) = conversation
+                    .messages
+                    .iter()
+                    .find(|message| &message.id == id)
                 {
                     let role = match message.role {
                         AiChatRole::User => 0u8,
@@ -223,7 +236,7 @@ impl WorkspaceApp {
                         std::hash::Hash::hash(&branches.active_index, &mut hasher);
                     }
                     std::hash::Hash::hash(
-                        &self.ai_thinking_expansion_state.get(&message.id),
+                        &self.ai.chat.thinking_expansion_state.get(&message.id),
                         &mut hasher,
                     );
                     if let Some(turn) = message.turn.as_ref() {
@@ -245,15 +258,15 @@ impl WorkspaceApp {
         std::hash::Hasher::finish(&hasher)
     }
 
-    fn sync_ai_chat_list_state(
+    pub(in crate::workspace) fn sync_ai_chat_list_state(
         &mut self,
         conversation_id: &str,
         signatures: &[u64],
         spec: TauriVirtualListSpec,
     ) {
-        let mut cache = self.ai_chat_list_cache.borrow_mut();
+        let mut cache = self.ai.chat.message_list_cache.borrow_mut();
         sync_tauri_virtual_list_state_by_signatures(
-            &mut self.ai_chat_list_state,
+            &mut self.ai.chat.message_list_state,
             &mut cache,
             conversation_id,
             signatures,
@@ -262,9 +275,17 @@ impl WorkspaceApp {
         );
     }
 
-    fn render_ai_compaction_notice(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let active_id = self.ai_chat.active_conversation_id.as_deref()?;
-        let notice = self.ai_compaction_notice.as_ref()?;
+    pub(in crate::workspace) fn render_ai_compaction_notice(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        let active_id = self
+            .ai
+            .chat
+            .conversation_state
+            .active_conversation_id
+            .as_deref()?;
+        let notice = self.ai.chat.compaction_notice.as_ref()?;
         if notice.conversation_id != active_id {
             return None;
         }
@@ -272,12 +293,10 @@ impl WorkspaceApp {
         let label = if running {
             self.i18n.t("ai.context.compaction_running")
         } else {
-            self.i18n
-                .t("ai.context.compaction_done")
-                .replace(
-                    "{{count}}",
-                    &notice.compacted_count.unwrap_or_default().to_string(),
-                )
+            self.i18n.t("ai.context.compaction_done").replace(
+                "{{count}}",
+                &notice.compacted_count.unwrap_or_default().to_string(),
+            )
         };
         Some(
             div()
@@ -322,7 +341,11 @@ impl WorkspaceApp {
         )
     }
 
-    fn render_ai_trim_notice(&self, count: usize, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn render_ai_trim_notice(
+        &self,
+        count: usize,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         const AI_TRIM_NOTICE_COLOR: u32 = 0xf59e0b;
         div()
             .flex()
@@ -343,21 +366,23 @@ impl WorkspaceApp {
                     .flex_1()
                     .text_size(px(10.0))
                     .text_color(rgb(0xfbbf24))
-                    .child(self.render_display_text_with_role(
-                        SelectableTextRole::PlainDocument,
-                        "ai-trim-notice",
-                        count,
-                        self.i18n
-                            .t("ai.context.messages_trimmed")
-                            .replace("{{count}}", &count.to_string()),
-                        0xfbbf24,
-                        cx,
-                    )),
+                    .child(
+                        self.render_display_text_with_role(
+                            SelectableTextRole::PlainDocument,
+                            "ai-trim-notice",
+                            count,
+                            self.i18n
+                                .t("ai.context.messages_trimmed")
+                                .replace("{{count}}", &count.to_string()),
+                            0xfbbf24,
+                            cx,
+                        ),
+                    ),
             )
             .into_any_element()
     }
 
-    fn render_ai_sidebar_initialization_error(
+    pub(in crate::workspace) fn render_ai_sidebar_initialization_error(
         &self,
         error: AiChatInitializationError,
         cx: &mut Context<Self>,
@@ -461,7 +486,10 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_ai_sidebar_empty_chat(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn render_ai_sidebar_empty_chat(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         div()
             .w_full()
             .min_w_0()
@@ -523,7 +551,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_ai_quick_prompt(
+    pub(in crate::workspace) fn render_ai_quick_prompt(
         &self,
         icon: LucideIcon,
         label: String,
@@ -547,29 +575,27 @@ impl WorkspaceApp {
                     .bg(rgba((self.tokens.ui.border << 8) | 0x1a))
                     .text_color(rgb(self.tokens.ui.text))
             })
-            .child(Self::render_lucide_icon(icon, 14.0, rgb(self.tokens.ui.text_muted)))
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .truncate()
-                    .child(
-                        // Quick prompts are clickable commands; label text must not steal the row click.
-                        self.render_display_text_with_role(
-                            SelectableTextRole::NonSelectable,
-                            "ai-quick-prompt",
-                            label.clone(),
-                            label,
-                            self.tokens.ui.text_muted,
-                            cx,
-                        ),
-                    ),
-            )
+            .child(Self::render_lucide_icon(
+                icon,
+                14.0,
+                rgb(self.tokens.ui.text_muted),
+            ))
+            .child(div().flex_1().min_w_0().truncate().child(
+                // Quick prompts are clickable commands; label text must not steal the row click.
+                self.render_display_text_with_role(
+                    SelectableTextRole::NonSelectable,
+                    "ai-quick-prompt",
+                    label.clone(),
+                    label,
+                    self.tokens.ui.text_muted,
+                    cx,
+                ),
+            ))
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |this, _event, window, cx| {
-                    this.ai_chat_draft = prompt.clone();
-                    this.ai_chat_input_focused = true;
+                    this.ai.chat.draft = prompt.clone();
+                    this.ai.chat.input_focused = true;
                     this.ime_marked_text = None;
                     window.focus(&this.focus_handle);
                     cx.stop_propagation();
@@ -579,17 +605,22 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_ai_context_warning_banners(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn render_ai_context_warning_banners(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let mut banners = div().flex_none().flex().flex_col();
-        if let Some(percentage) = self.ai_model_switch_warning_percentage {
-            banners = banners.child(self.render_ai_context_warning_banner(
-                self.i18n
-                    .t("ai.context.model_switched_warning")
-                    .replace("{{percentage}}", &percentage.to_string()),
-                true,
-                true,
-                cx,
-            ));
+        if let Some(percentage) = self.ai.chat.model_switch_warning_percentage {
+            banners = banners.child(
+                self.render_ai_context_warning_banner(
+                    self.i18n
+                        .t("ai.context.model_switched_warning")
+                        .replace("{{percentage}}", &percentage.to_string()),
+                    true,
+                    true,
+                    cx,
+                ),
+            );
         }
         if self.ai_context_danger_warning_active() {
             banners = banners.child(self.render_ai_context_warning_banner(
@@ -602,7 +633,7 @@ impl WorkspaceApp {
         banners.into_any_element()
     }
 
-    fn render_ai_context_warning_banner(
+    pub(in crate::workspace) fn render_ai_context_warning_banner(
         &self,
         label: String,
         dismissible: bool,
@@ -649,7 +680,7 @@ impl WorkspaceApp {
                     .child(self.render_ai_context_warning_button(
                         self.i18n.t("ai.context.compact_button"),
                         LucideIcon::Archive,
-                        self.ai_chat_loading,
+                        self.ai.chat.loading,
                         AiContextWarningAction::Compact(model_switch),
                         cx,
                     ))
@@ -657,7 +688,7 @@ impl WorkspaceApp {
                         actions.child(self.render_ai_context_warning_button(
                             self.i18n.t("ai.context.summarize"),
                             LucideIcon::Archive,
-                            self.ai_chat_loading,
+                            self.ai.chat.loading,
                             AiContextWarningAction::Summarize,
                             cx,
                         ))
@@ -682,7 +713,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_ai_context_warning_button(
+    pub(in crate::workspace) fn render_ai_context_warning_button(
         &self,
         label: impl Into<String>,
         icon: LucideIcon,
@@ -719,21 +750,21 @@ impl WorkspaceApp {
                 match action {
                     AiContextWarningAction::Compact(model_switch) => {
                         if model_switch {
-                            this.ai_model_switch_warning_percentage = None;
+                            this.ai.chat.model_switch_warning_percentage = None;
                         }
                         this.start_ai_compact_conversation(cx);
                     }
                     AiContextWarningAction::NewChat(model_switch) => {
                         if model_switch {
-                            this.ai_model_switch_warning_percentage = None;
+                            this.ai.chat.model_switch_warning_percentage = None;
                         }
                         this.create_ai_sidebar_conversation(None, cx);
                     }
                     AiContextWarningAction::Dismiss => {
-                        this.ai_model_switch_warning_percentage = None;
+                        this.ai.chat.model_switch_warning_percentage = None;
                     }
                     AiContextWarningAction::Summarize => {
-                        this.ai_summarize_confirm_open = true;
+                        this.ai.chat.summarize_confirm_open = true;
                         this.reset_standard_confirm_focus();
                     }
                 }
@@ -744,8 +775,8 @@ impl WorkspaceApp {
         .into_any_element()
     }
 
-    fn ai_context_danger_warning_active(&self) -> bool {
-        let Some(conversation) = self.ai_chat.active_conversation() else {
+    pub(in crate::workspace) fn ai_context_danger_warning_active(&self) -> bool {
+        let Some(conversation) = self.ai.chat.conversation_state.active_conversation() else {
             return false;
         };
         if conversation.messages.len() < 4 {
@@ -755,7 +786,7 @@ impl WorkspaceApp {
         ai_context_percentage(total_tokens, max_tokens) > AI_CONTEXT_DANGER_PERCENT
     }
 
-    fn ai_context_message_usage_counts(&self) -> (usize, usize) {
+    pub(in crate::workspace) fn ai_context_message_usage_counts(&self) -> (usize, usize) {
         let breakdown = self.ai_context_token_breakdown();
         (breakdown.messages, breakdown.max_tokens)
     }
@@ -802,13 +833,13 @@ impl WorkspaceApp {
             },
             self.standard_confirm_focus(),
             cx.listener(|this, _event, _window, cx| {
-                this.ai_summarize_confirm_open = false;
+                this.ai.chat.summarize_confirm_open = false;
                 this.clear_standard_confirm_focus();
                 cx.stop_propagation();
                 cx.notify();
             }),
             cx.listener(|this, _event, _window, cx| {
-                this.ai_summarize_confirm_open = false;
+                this.ai.chat.summarize_confirm_open = false;
                 this.clear_standard_confirm_focus();
                 this.start_ai_summarize_conversation(cx);
                 cx.stop_propagation();
@@ -858,7 +889,7 @@ impl WorkspaceApp {
             },
             self.standard_confirm_focus(),
             cx.listener(|this, _event, _window, cx| {
-                this.ai_clear_all_confirm_open = false;
+                this.ai.chat.clear_all_confirm_open = false;
                 this.clear_standard_confirm_focus();
                 cx.stop_propagation();
                 cx.notify();
@@ -914,14 +945,14 @@ impl WorkspaceApp {
             },
             self.standard_confirm_focus(),
             cx.listener(|this, _event, _window, cx| {
-                this.ai_delete_message_confirm = None;
+                this.ai.chat.delete_message_confirm = None;
                 this.clear_standard_confirm_focus();
                 cx.stop_propagation();
                 cx.notify();
             }),
             cx.listener(|this, _event, _window, cx| {
                 this.clear_standard_confirm_focus();
-                if let Some(message_id) = this.ai_delete_message_confirm.take() {
+                if let Some(message_id) = this.ai.chat.delete_message_confirm.take() {
                     this.delete_ai_message(&message_id, cx);
                 } else {
                     cx.notify();
@@ -933,7 +964,7 @@ impl WorkspaceApp {
 }
 
 #[derive(Clone, Copy)]
-enum AiContextWarningAction {
+pub(in crate::workspace) enum AiContextWarningAction {
     Compact(bool),
     NewChat(bool),
     Dismiss,

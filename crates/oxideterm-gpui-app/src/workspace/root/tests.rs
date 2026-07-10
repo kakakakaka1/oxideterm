@@ -4,7 +4,7 @@ mod tests {
     use oxideterm_gpui_settings_view::background_tab_options;
     use oxideterm_workspace::TabKind;
 
-    use super::*;
+    use super::super::super::*;
 
     #[test]
     fn background_tab_options_cover_native_tab_background_keys() {
@@ -54,7 +54,10 @@ mod tests {
 
     #[test]
     fn localized_dengxian_name_uses_gpui_family_name() {
-        assert_eq!(settings_ui_font_family("\"等线\", sans-serif").as_ref(), "DengXian");
+        assert_eq!(
+            settings_ui_font_family("\"等线\", sans-serif").as_ref(),
+            "DengXian"
+        );
     }
 
     #[test]
@@ -71,10 +74,8 @@ mod tests {
 
     #[test]
     fn failed_session_tree_replace_preserves_previous_snapshot() {
-        let tempdir = std::env::temp_dir().join(format!(
-            "oxideterm-session-tree-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let tempdir =
+            std::env::temp_dir().join(format!("oxideterm-session-tree-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&tempdir).unwrap();
         let path = tempdir.join("session_tree.json");
         let previous = PersistedNodeTreeSnapshot {
@@ -97,5 +98,4 @@ mod tests {
         assert_eq!(fs::read(path).unwrap(), previous_bytes);
         let _ = fs::remove_dir_all(tempdir);
     }
-
 }

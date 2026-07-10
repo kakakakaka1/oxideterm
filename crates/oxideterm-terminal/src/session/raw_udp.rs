@@ -58,7 +58,7 @@ pub struct RawUdpSession {
     term: Arc<FairMutex<Term<LocalEventListener>>>,
     parser: Processor,
     event_rx: Receiver<AlacEvent>,
-    worker_rx: Receiver<RawUdpWorkerEvent>,
+    worker_rx: crate::backpressure::ByteBoundedReceiver<RawUdpWorkerEvent>,
     pending_events: Vec<TerminalEvent>,
     resize: TerminalResize,
     lifecycle: TerminalLifecycle,
@@ -68,8 +68,7 @@ pub struct RawUdpSession {
     graphics_ingress: GraphicsIngress,
     graphics: TerminalGraphicsState,
     graphics_alt_screen_active: bool,
-    output_queue: VecDeque<RawUdpDatagram>,
-    output_queue_bytes: usize,
+    output_queue: VecDeque<crate::backpressure::ByteBoundedItem<RawUdpWorkerEvent>>,
     magic_scan: MagicScanWindow,
     encoding: TerminalEncoding,
     output_decoder: TerminalOutputDecoder,
@@ -205,7 +204,9 @@ impl RawUdpSession {
             cell_height: resize.cell_height,
         };
         let (event_tx, event_rx) = unbounded();
-        let (worker_tx, worker_rx) = unbounded();
+        let (worker_tx, worker_rx) = crate::backpressure::byte_bounded_channel(
+            crate::backpressure::TRANSPORT_OUTPUT_BACKLOG_BYTES,
+        );
         let (command_tx, command_rx) = tokio::sync::mpsc::channel(256);
         let listener = LocalEventListener { tx: event_tx };
 
@@ -216,7 +217,7 @@ impl RawUdpSession {
 
         let runtime = Runtime::new().ok();
         if let Err(error) = config.validate() {
-            let _ = worker_tx.send(RawUdpWorkerEvent::Failed(RawUdpWorkerFailure {
+            let _ = worker_tx.send_control(RawUdpWorkerEvent::Failed(RawUdpWorkerFailure {
                 status: RawUdpFailureStatus::Error,
                 message: error.to_string(),
             }));
@@ -224,7 +225,7 @@ impl RawUdpSession {
             let worker_config = config.clone();
             runtime.spawn(run_raw_udp_worker(worker_config, command_rx, worker_tx));
         } else {
-            let _ = worker_tx.send(RawUdpWorkerEvent::Failed(RawUdpWorkerFailure {
+            let _ = worker_tx.send_control(RawUdpWorkerEvent::Failed(RawUdpWorkerFailure {
                 status: RawUdpFailureStatus::Error,
                 message: "failed to initialize Raw UDP runtime".to_string(),
             }));
@@ -246,7 +247,6 @@ impl RawUdpSession {
             graphics: TerminalGraphicsState::default(),
             graphics_alt_screen_active: false,
             output_queue: VecDeque::new(),
-            output_queue_bytes: 0,
             magic_scan: MagicScanWindow::default(),
             encoding,
             output_decoder: TerminalOutputDecoder::new(encoding),
@@ -270,12 +270,15 @@ impl RawUdpSession {
             if report.drained_bytes >= budget.max_bytes
                 || report.events_drained >= budget.max_events
             {
-                report.budget_exhausted = !self.output_queue.is_empty();
+                report.budget_exhausted =
+                    !self.output_queue.is_empty() || !self.worker_rx.is_empty();
                 break;
             }
 
-            if let Some(datagram) = self.output_queue.pop_front() {
-                self.output_queue_bytes = self.output_queue_bytes.saturating_sub(datagram.bytes.len());
+            if let Some(event) = self.output_queue.pop_front() {
+                let RawUdpWorkerEvent::Datagram(datagram) = event.into_inner() else {
+                    unreachable!("only datagrams enter the local drain queue");
+                };
                 report.drained_bytes = report.drained_bytes.saturating_add(datagram.bytes.len());
                 report.events_drained += 1;
                 self.feed_transport_datagram(&datagram);
@@ -283,8 +286,29 @@ impl RawUdpSession {
                 continue;
             }
 
-            match self.worker_rx.try_recv() {
-                Ok(RawUdpWorkerEvent::Bound { local_addr }) => {
+            let event = match self.worker_rx.try_recv() {
+                Ok(event) => event,
+                Err(crossbeam_channel::TryRecvError::Empty) => break,
+                Err(crossbeam_channel::TryRecvError::Disconnected) => {
+                    if self.lifecycle.is_running() {
+                        self.lifecycle = TerminalLifecycle::Exited(None);
+                        self.pending_events.push(TerminalEvent::ChildExited(None));
+                        report.mark_changed();
+                    }
+                    break;
+                }
+            };
+            if let RawUdpWorkerEvent::Datagram(datagram) = event.value()
+                && report.drained_bytes > 0
+                && report.drained_bytes.saturating_add(datagram.bytes.len()) > budget.max_bytes
+            {
+                self.output_queue.push_back(event);
+                report.budget_exhausted = true;
+                break;
+            }
+
+            match event.into_inner() {
+                RawUdpWorkerEvent::Bound { local_addr } => {
                     self.title = Some(self.title_text());
                     self.pending_events
                         .push(TerminalEvent::TitleChanged(self.title_text()));
@@ -298,22 +322,13 @@ impl RawUdpSession {
                     report.events_drained += 1;
                     report.mark_changed();
                 }
-                Ok(RawUdpWorkerEvent::Datagram(datagram)) => {
-                    if report.drained_bytes > 0
-                        && report.drained_bytes.saturating_add(datagram.bytes.len()) > budget.max_bytes
-                    {
-                        self.output_queue_bytes =
-                            self.output_queue_bytes.saturating_add(datagram.bytes.len());
-                        self.output_queue.push_back(datagram);
-                        report.budget_exhausted = true;
-                        break;
-                    }
+                RawUdpWorkerEvent::Datagram(datagram) => {
                     report.drained_bytes = report.drained_bytes.saturating_add(datagram.bytes.len());
                     report.events_drained += 1;
                     self.feed_transport_datagram(&datagram);
                     report.mark_changed();
                 }
-                Ok(RawUdpWorkerEvent::Failed(failure)) => {
+                RawUdpWorkerEvent::Failed(failure) => {
                     self.lifecycle = TerminalLifecycle::Exited(None);
                     self.feed_utf8_terminal_output(
                         format!(
@@ -328,7 +343,7 @@ impl RawUdpSession {
                     report.mark_changed();
                     break;
                 }
-                Ok(RawUdpWorkerEvent::Closed) => {
+                RawUdpWorkerEvent::Closed => {
                     if self.lifecycle.is_running() {
                         self.lifecycle = TerminalLifecycle::Exited(None);
                         self.feed_utf8_terminal_output(
@@ -340,18 +355,9 @@ impl RawUdpSession {
                     report.events_drained += 1;
                     break;
                 }
-                Err(crossbeam_channel::TryRecvError::Empty) => break,
-                Err(crossbeam_channel::TryRecvError::Disconnected) => {
-                    if self.lifecycle.is_running() {
-                        self.lifecycle = TerminalLifecycle::Exited(None);
-                        self.pending_events.push(TerminalEvent::ChildExited(None));
-                        report.mark_changed();
-                    }
-                    break;
-                }
             }
         }
-        report.pending_bytes = self.output_queue_bytes;
+        report.pending_bytes = self.worker_rx.pending_bytes();
         report.drain_duration = started.elapsed();
         report
     }
@@ -765,18 +771,18 @@ impl TerminalSessionBackend for RawUdpSession {
 async fn run_raw_udp_worker(
     config: RawUdpSessionConfig,
     mut command_rx: tokio::sync::mpsc::Receiver<RawUdpCommand>,
-    worker_tx: crossbeam_channel::Sender<RawUdpWorkerEvent>,
+    worker_tx: crate::backpressure::ByteBoundedSender<RawUdpWorkerEvent>,
 ) {
     let socket = match connect_raw_udp_socket(&config).await {
         Ok(socket) => socket,
         Err(error) => {
-            let _ = worker_tx.send(RawUdpWorkerEvent::Failed(error));
+            let _ = worker_tx.send_control(RawUdpWorkerEvent::Failed(error));
             return;
         }
     };
 
     if let Ok(local_addr) = socket.local_addr() {
-        let _ = worker_tx.send(RawUdpWorkerEvent::Bound { local_addr });
+        let _ = worker_tx.send_control(RawUdpWorkerEvent::Bound { local_addr });
     }
     let mut buffer = vec![0_u8; RAW_UDP_READ_BUFFER_SIZE];
     loop {
@@ -784,19 +790,21 @@ async fn run_raw_udp_worker(
             read_result = socket.recv_from(&mut buffer) => {
                 match read_result {
                     Ok((read_count, source)) => {
-                        if worker_tx
-                            .send(RawUdpWorkerEvent::Datagram(RawUdpDatagram {
+                        let event = RawUdpWorkerEvent::Datagram(RawUdpDatagram {
                                 source,
                                 received_at_unix_ms: raw_udp_timestamp_ms(),
                                 bytes: buffer[..read_count].to_vec(),
-                            }))
+                            });
+                        if worker_tx
+                            .send_async(event, read_count)
+                            .await
                             .is_err()
                         {
                             break;
                         }
                     }
                     Err(error) => {
-                        let _ = worker_tx.send(RawUdpWorkerEvent::Failed(RawUdpWorkerFailure {
+                        let _ = worker_tx.send_control(RawUdpWorkerEvent::Failed(RawUdpWorkerFailure {
                             status: RawUdpFailureStatus::Error,
                             message: raw_udp_io_error_message(
                                 "receive from",
@@ -812,7 +820,7 @@ async fn run_raw_udp_worker(
                 match command {
                     Some(RawUdpCommand::Datagram(bytes)) => {
                         if let Err(error) = socket.send(&bytes).await {
-                            let _ = worker_tx.send(RawUdpWorkerEvent::Failed(RawUdpWorkerFailure {
+                            let _ = worker_tx.send_control(RawUdpWorkerEvent::Failed(RawUdpWorkerFailure {
                                 status: RawUdpFailureStatus::Error,
                                 message: raw_udp_io_error_message(
                                     "send to",
@@ -824,7 +832,7 @@ async fn run_raw_udp_worker(
                         }
                     }
                     Some(RawUdpCommand::Close) | None => {
-                        let _ = worker_tx.send(RawUdpWorkerEvent::Closed);
+                        let _ = worker_tx.send_control(RawUdpWorkerEvent::Closed);
                         break;
                     }
                 }

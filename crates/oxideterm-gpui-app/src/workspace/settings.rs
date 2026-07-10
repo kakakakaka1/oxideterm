@@ -134,25 +134,35 @@ pub(in crate::workspace) fn settings_store_modified_time(
 const APPEARANCE_BORDER_RADIUS_MIN: f32 = 0.0; // Tauri AppearanceTab Slider min={0}.
 const APPEARANCE_BORDER_RADIUS_MAX: f32 = 16.0; // Tauri AppearanceTab Slider max={16} and settings normalization.
 
-include!("settings/surface.rs");
-include!("settings/cli_companion.rs");
-include!("settings/cards.rs");
-include!("settings/controls.rs");
-include!("settings/terminal_display.rs");
-include!("settings/highlight.rs");
-include!("settings/terminal_controls.rs");
-include!("settings/local_terminal.rs");
-include!("settings/portable_runtime.rs");
-include!("settings/update.rs");
-include!("settings/general_terminal_pages.rs");
-include!("settings/appearance.rs");
-include!("settings/connections_page.rs");
-include!("settings/privilege_credentials_page.rs");
-include!("settings/network_page.rs");
-include!("settings/sftp_page.rs");
-include!("settings/ide_page.rs");
-include!("settings/ai_page.rs");
-include!("settings/pages.rs");
+mod ai_page;
+mod appearance;
+mod cards;
+mod cli_companion;
+mod connections_page;
+mod controls;
+mod general_terminal_pages;
+mod highlight;
+mod ide_page;
+mod local_terminal;
+mod network_page;
+mod pages;
+mod portable_runtime;
+mod privilege_credentials_page;
+mod sftp_page;
+mod surface;
+mod terminal_controls;
+mod terminal_display;
+mod update;
+
+use ai_page::{AI_CONTEXT_MAX_CHAR_OPTIONS, AI_CONTEXT_VISIBLE_LINE_OPTIONS, AI_PROVIDER_SELECT_W};
+use cli_companion::{CLI_COMPANION_COMMAND_NAME, cli_install_path};
+use connections_page::{
+    connection_idle_timeout_options, connection_import_duplicate_strategy_label,
+    connection_import_source_label, connection_import_source_options,
+};
+use network_page::{NetworkProxyAuthMode, network_proxy_auth_label, network_proxy_protocol_label};
+use pages::settings_keybinding_scope_matches;
+pub(in crate::workspace) use update::{NativeUpdateDelivery, NativeUpdateUiState};
 
 fn settings_tab_lucide(icon: SettingsTabIcon) -> LucideIcon {
     match icon {

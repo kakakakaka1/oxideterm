@@ -1,5 +1,7 @@
+use super::*;
+
 impl WorkspaceApp {
-    fn ai_general_settings_card(
+    pub(in crate::workspace) fn ai_general_settings_card(
         &self,
         settings: &PersistedSettings,
         cx: &mut Context<Self>,
@@ -27,7 +29,11 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn ai_disabled_settings_card(&self, body: AnyElement, enabled: bool) -> AnyElement {
+    pub(in crate::workspace) fn ai_disabled_settings_card(
+        &self,
+        body: AnyElement,
+        enabled: bool,
+    ) -> AnyElement {
         let mut body = div()
             .w_full()
             .min_w(px(0.0))
@@ -58,7 +64,11 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn ai_enabled_row(&self, enabled: bool, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn ai_enabled_row(
+        &self,
+        enabled: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         div()
             .mb(px(24.0))
             .flex()
@@ -108,7 +118,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn ai_privacy_notice(&self) -> AnyElement {
+    pub(in crate::workspace) fn ai_privacy_notice(&self) -> AnyElement {
         div()
             .mb(px(24.0))
             .p(px(12.0))
@@ -132,14 +142,14 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn ai_separator(&self) -> AnyElement {
+    pub(in crate::workspace) fn ai_separator(&self) -> AnyElement {
         div()
             .my(px(24.0))
             .child(self.card_separator())
             .into_any_element()
     }
 
-    fn ai_section_title(&self, key: &str) -> AnyElement {
+    pub(in crate::workspace) fn ai_section_title(&self, key: &str) -> AnyElement {
         div()
             .mb(px(16.0))
             .text_size(px(self.tokens.metrics.ui_text_sm))
@@ -149,13 +159,11 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn i18n_count(&self, key: &str, count: usize) -> String {
+    pub(in crate::workspace) fn i18n_count(&self, key: &str, count: usize) -> String {
         self.i18n.t(key).replace("{{count}}", &count.to_string())
     }
 
-    fn ai_i18n_error(&self, key: &str, error: &str) -> String {
+    pub(in crate::workspace) fn ai_i18n_error(&self, key: &str, error: &str) -> String {
         self.i18n.t(key).replace("{{error}}", error)
     }
-
-
 }

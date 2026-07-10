@@ -1,3 +1,5 @@
+use super::super::*;
+
 impl Focusable for WorkspaceApp {
     fn focus_handle(&self, _: &App) -> FocusHandle {
         self.focus_handle.clone()
@@ -35,7 +37,7 @@ impl Render for WorkspaceApp {
         self.poll_ai_compaction_results(cx);
         self.poll_ai_model_selector_probe_results(cx);
         self.poll_ai_model_refresh_results(cx);
-        if self.ai_sidebar_visible() || self.ai_inline_panel.open {
+        if self.ai_sidebar_visible() || self.ai.chat.inline_panel.open {
             self.ensure_ai_model_selector_mount_statuses(cx);
         }
         self.observe_active_tab_for_history();
@@ -54,27 +56,25 @@ impl Render for WorkspaceApp {
             self.applied_vibrancy_mode = vibrancy_mode;
         }
         if self.needs_active_pane_focus
-            && self
-                .active_tab()
-                .is_some_and(|tab| {
-                    !matches!(
-                        tab.kind,
-                        TabKind::Settings
-                            | TabKind::SessionManager
-                            | TabKind::FileManager
-                            | TabKind::Launcher
-                            | TabKind::Graphics
-                            | TabKind::Runtime
-                            | TabKind::ConnectionPool
-                            | TabKind::ConnectionMonitor
-                            | TabKind::Topology
-                            | TabKind::NotificationCenter
-                            | TabKind::PluginManager
-                            | TabKind::Plugin { .. }
-                            | TabKind::CloudSync
-                            | TabKind::RemoteDesktop
-                    )
-                })
+            && self.active_tab().is_some_and(|tab| {
+                !matches!(
+                    tab.kind,
+                    TabKind::Settings
+                        | TabKind::SessionManager
+                        | TabKind::FileManager
+                        | TabKind::Launcher
+                        | TabKind::Graphics
+                        | TabKind::Runtime
+                        | TabKind::ConnectionPool
+                        | TabKind::ConnectionMonitor
+                        | TabKind::Topology
+                        | TabKind::NotificationCenter
+                        | TabKind::PluginManager
+                        | TabKind::Plugin { .. }
+                        | TabKind::CloudSync
+                        | TabKind::RemoteDesktop
+                )
+            })
             && !self.search.visible
             && self.new_connection_form.is_none()
             && let Some(pane) = self.active_pane()
@@ -88,9 +88,7 @@ impl Render for WorkspaceApp {
 
         let content = if let Some(tab) = self.active_tab() {
             match (&tab.kind, &tab.root_pane) {
-                (TabKind::Settings, _) => {
-                    self.render_settings_surface(cx)
-                }
+                (TabKind::Settings, _) => self.render_settings_surface(cx),
                 (TabKind::FileManager, _) => self.render_file_manager_surface(window, cx),
                 (TabKind::Launcher, _) => self.render_launcher_surface(window, cx),
                 (TabKind::Graphics, _) => self.render_graphics_surface(window, cx),
@@ -149,9 +147,10 @@ impl Render for WorkspaceApp {
             .font_family(settings_ui_font_family(
                 &self.settings_store.settings().appearance.ui_font_family,
             ))
-            .when(self.sidebar_resizing || self.ai_sidebar_resizing, |root| {
-                root.cursor(CursorStyle::ResizeColumn)
-            })
+            .when(
+                self.sidebar_resizing || self.ai.chat.sidebar_resizing,
+                |root| root.cursor(CursorStyle::ResizeColumn),
+            )
             .track_focus(&self.focus_handle)
             .key_context("Workspace")
             .on_mouse_down(
@@ -411,9 +410,9 @@ impl Render for WorkspaceApp {
                     window.prevent_default();
                     cx.stop_propagation();
                 } else if this.ai_sidebar_visible()
-                    && (this.ai_chat_input_focused
-                        || this.ai_chat_footer_focus.is_some()
-                        || this.ai_model_selector_search_focused)
+                    && (this.ai.chat.input_focused
+                        || this.ai.chat.footer_focus.is_some()
+                        || this.ai.models.selector_search_focused)
                 {
                     let _ = this.handle_ai_sidebar_key(event, cx);
                     window.prevent_default();
@@ -490,7 +489,8 @@ impl Render for WorkspaceApp {
                 }
             }))
             .capture_any_mouse_up(cx.listener(|this, event: &MouseUpEvent, window, cx| {
-                if event.button == MouseButton::Left && this.browser_pointer_capture_owner().is_some()
+                if event.button == MouseButton::Left
+                    && this.browser_pointer_capture_owner().is_some()
                 {
                     this.finish_workspace_pointer_captures(event, window, cx);
                 }
@@ -627,9 +627,11 @@ impl Render for WorkspaceApp {
             .on_action(cx.listener(|this, _: &PaletteReconnectAll, _window, cx| {
                 this.reconnect_all_link_down_nodes_from_palette(cx);
             }))
-            .on_action(cx.listener(|this, _: &PaletteCancelReconnect, _window, cx| {
-                this.cancel_all_reconnects_from_palette(cx);
-            }))
+            .on_action(
+                cx.listener(|this, _: &PaletteCancelReconnect, _window, cx| {
+                    this.cancel_all_reconnects_from_palette(cx);
+                }),
+            )
             .on_action(cx.listener(|this, _: &PaletteHealthCheck, _window, cx| {
                 this.run_connection_health_check_from_palette(cx);
             }))
@@ -706,14 +708,18 @@ impl Render for WorkspaceApp {
             .on_action(cx.listener(|this, _: &GoToTab9, window, cx| {
                 this.go_to_tab(8, window, cx);
             }))
-            .when(titlebar_visible, |root| root.child(self.render_title_bar(window, cx)))
+            .when(titlebar_visible, |root| {
+                root.child(self.render_title_bar(window, cx))
+            })
             .child(
                 div()
                     .flex_1()
                     .flex()
                     .flex_row()
                     .overflow_hidden()
-                    .when(!zen_mode, |layout| layout.child(self.render_activity_bar(cx)))
+                    .when(!zen_mode, |layout| {
+                        layout.child(self.render_activity_bar(cx))
+                    })
                     .when(!zen_mode && !self.sidebar_collapsed, |layout| {
                         layout.child(self.render_sidebar_region(cx))
                     })
@@ -724,7 +730,9 @@ impl Render for WorkspaceApp {
                             .flex_col()
                             .min_w(px(self.tokens.metrics.min_main_width))
                             .overflow_hidden()
-                            .when(!zen_mode, |main| main.child(self.render_tab_bar(window, cx)))
+                            .when(!zen_mode, |main| {
+                                main.child(self.render_tab_bar(window, cx))
+                            })
                             .child(
                                 div()
                                     .flex_1()
@@ -741,7 +749,9 @@ impl Render for WorkspaceApp {
                                     )
                                     .when(
                                         self.search.visible && self.active_pane().is_some(),
-                                        |main_content| main_content.child(self.render_search_bar(cx)),
+                                        |main_content| {
+                                            main_content.child(self.render_search_bar(cx))
+                                        },
                                     ),
                             ),
                     )
@@ -782,22 +792,24 @@ impl Render for WorkspaceApp {
             .when(self.settings_page.show_ai_enable_confirm, |root| {
                 root.child(self.render_ai_enable_confirm_dialog(cx))
             })
-            .when(self.settings_page.ai_provider_key_remove_confirm.is_some(), |root| {
-                root.child(self.render_ai_provider_key_remove_confirm_dialog(cx))
-            })
-            .when(self.settings_page.ai_provider_remove_confirm.is_some(), |root| {
-                root.child(self.render_ai_provider_remove_confirm_dialog(cx))
-            })
-            .when(self.ai_safety_confirm_open, |root| {
+            .when(
+                self.settings_page.ai_provider_key_remove_confirm.is_some(),
+                |root| root.child(self.render_ai_provider_key_remove_confirm_dialog(cx)),
+            )
+            .when(
+                self.settings_page.ai_provider_remove_confirm.is_some(),
+                |root| root.child(self.render_ai_provider_remove_confirm_dialog(cx)),
+            )
+            .when(self.ai.chat.safety_confirm_open, |root| {
                 root.child(self.render_ai_safety_confirm_dialog(cx))
             })
-            .when(self.ai_summarize_confirm_open, |root| {
+            .when(self.ai.chat.summarize_confirm_open, |root| {
                 root.child(self.render_ai_summarize_confirm_dialog(cx))
             })
-            .when(self.ai_clear_all_confirm_open, |root| {
+            .when(self.ai.chat.clear_all_confirm_open, |root| {
                 root.child(self.render_ai_clear_all_confirm_dialog(cx))
             })
-            .when(self.ai_delete_message_confirm.is_some(), |root| {
+            .when(self.ai.chat.delete_message_confirm.is_some(), |root| {
                 root.child(self.render_ai_delete_message_confirm_dialog(cx))
             })
             .when(self.settings_page.settings_reset_confirm_open, |root| {
@@ -807,7 +819,7 @@ impl Render for WorkspaceApp {
                 self.render_settings_data_directory_confirm_dialog(cx),
                 |root, dialog| root.child(dialog),
             )
-            .when(self.cloud_sync_confirm.is_some(), |root| {
+            .when(self.cloud_sync.view.confirm.is_some(), |root| {
                 root.child(self.render_cloud_sync_confirm_dialog(cx))
             })
             .when(self.node_disconnect_confirm.is_some(), |root| {
@@ -816,18 +828,21 @@ impl Render for WorkspaceApp {
             .when(self.main_window_tabs.close_confirm.is_some(), |root| {
                 root.child(self.render_tab_close_confirm_dialog(cx))
             })
-            .when_some(self.render_host_process_confirm_dialog(cx), |root, dialog| {
-                root.child(dialog)
-            })
-            .when_some(self.render_host_docker_confirm_dialog(cx), |root, dialog| {
-                root.child(dialog)
-            })
+            .when_some(
+                self.render_host_process_confirm_dialog(cx),
+                |root, dialog| root.child(dialog),
+            )
+            .when_some(
+                self.render_host_docker_confirm_dialog(cx),
+                |root, dialog| root.child(dialog),
+            )
             .when_some(self.render_host_docker_logs_dialog(cx), |root, dialog| {
                 root.child(dialog)
             })
-            .when_some(self.render_host_service_confirm_dialog(cx), |root, dialog| {
-                root.child(dialog)
-            })
+            .when_some(
+                self.render_host_service_confirm_dialog(cx),
+                |root, dialog| root.child(dialog),
+            )
             .when_some(self.render_host_service_logs_dialog(cx), |root, dialog| {
                 root.child(dialog)
             })
@@ -837,18 +852,21 @@ impl Render for WorkspaceApp {
             .when_some(self.render_host_tmux_input_dialog(cx), |root, dialog| {
                 root.child(dialog)
             })
-            .when_some(self.render_host_schedule_confirm_dialog(cx), |root, dialog| {
-                root.child(dialog)
-            })
+            .when_some(
+                self.render_host_schedule_confirm_dialog(cx),
+                |root, dialog| root.child(dialog),
+            )
             .when_some(self.render_host_schedule_logs_dialog(cx), |root, dialog| {
                 root.child(dialog)
             })
-            .when_some(self.render_native_plugin_confirm_dialog(cx), |root, dialog| {
-                root.child(dialog)
-            })
-            .when_some(self.render_ai_sidebar_floating_overlay(window, cx), |root, overlay| {
-                root.child(overlay)
-            })
+            .when_some(
+                self.render_native_plugin_confirm_dialog(cx),
+                |root, dialog| root.child(dialog),
+            )
+            .when_some(
+                self.render_ai_sidebar_floating_overlay(window, cx),
+                |root, overlay| root.child(overlay),
+            )
             .when(
                 self.active_tab()
                     .is_some_and(|tab| matches!(tab.kind, TabKind::Sftp)),
@@ -881,30 +899,27 @@ impl Render for WorkspaceApp {
                     }
                 },
             )
-            .when(
-                self.terminal_broadcast_menu_open,
-                |root| {
-                    let placement = if self.settings_store.settings().terminal.command_bar.enabled {
-                        actions::TerminalBroadcastMenuPlacement::Bottom(62.0)
-                    } else {
-                        actions::TerminalBroadcastMenuPlacement::Top(
-                            effective_titlebar_height + self.tokens.metrics.tabbar_height + 6.0,
-                        )
-                    };
-                    root.child(
-                        self.workspace_context_menu_backdrop(
-                            self.render_terminal_broadcast_menu(placement, cx),
-                            cx,
-                        ),
+            .when(self.terminal_broadcast_menu_open, |root| {
+                let placement = if self.settings_store.settings().terminal.command_bar.enabled {
+                    actions::TerminalBroadcastMenuPlacement::Bottom(62.0)
+                } else {
+                    actions::TerminalBroadcastMenuPlacement::Top(
+                        effective_titlebar_height + self.tokens.metrics.tabbar_height + 6.0,
                     )
-                },
+                };
+                root.child(self.workspace_context_menu_backdrop(
+                    self.render_terminal_broadcast_menu(placement, cx),
+                    cx,
+                ))
+            })
+            .when_some(
+                self.render_detached_tab_return_drop_hint(window),
+                |root, hint| root.child(hint),
             )
-            .when_some(self.render_detached_tab_return_drop_hint(window), |root, hint| {
-                root.child(hint)
-            })
-            .when_some(self.render_tab_detach_drag_preview(window), |root, preview| {
-                root.child(preview)
-            })
+            .when_some(
+                self.render_tab_detach_drag_preview(window),
+                |root, preview| root.child(preview),
+            )
             .when_some(self.render_tab_context_menu(window, cx), |root, menu| {
                 root.child(menu)
             })
@@ -943,7 +958,10 @@ impl Render for WorkspaceApp {
 }
 
 impl WorkspaceApp {
-    fn render_workspace_resize_capture_overlay(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn render_workspace_resize_capture_overlay(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         div()
             .id("workspace-resize-capture-overlay")
             .absolute()
@@ -972,7 +990,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn finish_workspace_pointer_captures(
+    pub(in crate::workspace) fn finish_workspace_pointer_captures(
         &mut self,
         event: &MouseUpEvent,
         window: &mut Window,
@@ -1001,7 +1019,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn render_mermaid_zoom_modal(
+    pub(in crate::workspace) fn render_mermaid_zoom_modal(
         &self,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -1049,25 +1067,20 @@ impl WorkspaceApp {
                                 .id("mermaid-zoom-modal-body-scroll")
                                 .flex_1()
                                 .min_h(px(0.0))
-                                .selectable_overflow_y_scroll(
-                                    &self.selectable_text_scroll_handle(
-                                        "mermaid-zoom-modal-body-scroll",
-                                    ),
-                                )
+                                .selectable_overflow_y_scroll(&self.selectable_text_scroll_handle(
+                                    "mermaid-zoom-modal-body-scroll",
+                                ))
                                 .child(
-                                    div()
-                                        .w_full()
-                                        .overflow_x_scrollbar()
-                                        .child(
-                                            div()
-                                                .w(px(state.width.max(1.0)))
-                                                .h(px(state.height.max(1.0)))
-                                                .child(
-                                                    gpui::img(state.image.clone())
-                                                        .w(px(state.width.max(1.0)))
-                                                        .h(px(state.height.max(1.0))),
-                                                ),
-                                        ),
+                                    div().w_full().overflow_x_scrollbar().child(
+                                        div()
+                                            .w(px(state.width.max(1.0)))
+                                            .h(px(state.height.max(1.0)))
+                                            .child(
+                                                gpui::img(state.image.clone())
+                                                    .w(px(state.width.max(1.0)))
+                                                    .h(px(state.height.max(1.0))),
+                                            ),
+                                    ),
                                 ),
                         ),
                 ),
@@ -1076,7 +1089,7 @@ impl WorkspaceApp {
         .into_any_element()
     }
 
-    fn render_zen_mode_hint(&self) -> AnyElement {
+    pub(in crate::workspace) fn render_zen_mode_hint(&self) -> AnyElement {
         let key = if cfg!(target_os = "macos") {
             "zen_mode.hint"
         } else {
@@ -1109,7 +1122,7 @@ impl WorkspaceApp {
 }
 
 impl WorkspaceApp {
-    pub(super) fn queue_workspace_tooltip(
+    pub(in crate::workspace) fn queue_workspace_tooltip(
         &mut self,
         id: impl Into<String>,
         label: impl Into<String>,
@@ -1175,7 +1188,7 @@ impl WorkspaceApp {
         .detach();
     }
 
-    pub(super) fn clear_workspace_tooltip_state(&mut self, id: &str) -> bool {
+    pub(in crate::workspace) fn clear_workspace_tooltip_state(&mut self, id: &str) -> bool {
         let mut changed = false;
         if self
             .workspace_tooltip_pending
@@ -1197,14 +1210,21 @@ impl WorkspaceApp {
         changed
     }
 
-    pub(super) fn clear_workspace_tooltip(&mut self, id: &str, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn clear_workspace_tooltip(
+        &mut self,
+        id: &str,
+        cx: &mut Context<Self>,
+    ) {
         let changed = self.clear_workspace_tooltip_state(id);
         if changed {
             cx.notify();
         }
     }
 
-    fn render_workspace_tooltip(&self, tooltip: WorkspaceTooltip) -> AnyElement {
+    pub(in crate::workspace) fn render_workspace_tooltip(
+        &self,
+        tooltip: WorkspaceTooltip,
+    ) -> AnyElement {
         deferred(
             anchored()
                 .anchor(Corner::TopLeft)
@@ -1216,24 +1236,23 @@ impl WorkspaceApp {
         .into_any_element()
     }
 
-    fn next_workspace_toast_id(&mut self) -> u64 {
+    pub(in crate::workspace) fn next_workspace_toast_id(&mut self) -> u64 {
         let id = self.workspace_toast_next_id;
         self.workspace_toast_next_id = self.workspace_toast_next_id.wrapping_add(1).max(1);
         id
     }
 
-    fn dismiss_workspace_toast(&mut self, toast_id: u64) -> bool {
+    pub(in crate::workspace) fn dismiss_workspace_toast(&mut self, toast_id: u64) -> bool {
         let previous_len = self.workspace_toasts.len();
         self.workspace_toasts.retain(|toast| toast.id != toast_id);
         previous_len != self.workspace_toasts.len()
     }
 
-    fn poll_terminal_notices(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn poll_terminal_notices(&mut self, cx: &mut Context<Self>) {
         const WORKSPACE_TOAST_TTL: Duration = Duration::from_secs(4);
 
         let now = Instant::now();
-        self.workspace_toasts
-            .retain(|toast| toast.expires_at > now);
+        self.workspace_toasts.retain(|toast| toast.expires_at > now);
         self.plugin_progress_toasts
             .retain(|_, toast| toast.expires_at > now);
         self.connection_trace_toasts
@@ -1268,7 +1287,10 @@ impl WorkspaceApp {
         }
     }
 
-    fn render_workspace_toasts(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+    pub(in crate::workspace) fn render_workspace_toasts(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
         if self.workspace_toasts.is_empty()
             && self.plugin_progress_toasts.is_empty()
             && !self
@@ -1363,11 +1385,13 @@ impl WorkspaceApp {
                     ),
                 }
             });
-        let toasts = standard_toasts.chain(plugin_progress_toasts).chain(trace_toasts);
+        let toasts = standard_toasts
+            .chain(plugin_progress_toasts)
+            .chain(trace_toasts);
         Some(toaster(&self.tokens, toasts).into_any_element())
     }
 
-    fn poll_connection_trace_events(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn poll_connection_trace_events(&mut self, cx: &mut Context<Self>) {
         const DISPLAY_DELAY: Duration = Duration::from_millis(1200);
         const UPDATE_COALESCE: Duration = Duration::from_millis(300);
         const SUCCESS_DISMISS: Duration = Duration::from_millis(1800);
@@ -1477,7 +1501,11 @@ impl WorkspaceApp {
         }
     }
 
-    fn show_connection_trace(&mut self, attempt_id: &str, generation: u64) {
+    pub(in crate::workspace) fn show_connection_trace(
+        &mut self,
+        attempt_id: &str,
+        generation: u64,
+    ) {
         let Some(trace) = self.connection_trace_toasts.get_mut(attempt_id) else {
             return;
         };
@@ -1491,7 +1519,11 @@ impl WorkspaceApp {
         trace.displayed = Some(trace.latest.clone());
     }
 
-    fn flush_connection_trace(&mut self, attempt_id: &str, generation: u64) {
+    pub(in crate::workspace) fn flush_connection_trace(
+        &mut self,
+        attempt_id: &str,
+        generation: u64,
+    ) {
         let Some(trace) = self.connection_trace_toasts.get_mut(attempt_id) else {
             return;
         };
@@ -1504,7 +1536,10 @@ impl WorkspaceApp {
         trace.displayed = Some(trace.latest.clone());
     }
 
-    fn connection_trace_title(&self, event: &ConnectionTraceEvent) -> String {
+    pub(in crate::workspace) fn connection_trace_title(
+        &self,
+        event: &ConnectionTraceEvent,
+    ) -> String {
         let label = event
             .label
             .clone()
@@ -1550,22 +1585,28 @@ impl WorkspaceApp {
         }
     }
 
-    fn connection_trace_description(&self, event: &ConnectionTraceEvent) -> Option<String> {
+    pub(in crate::workspace) fn connection_trace_description(
+        &self,
+        event: &ConnectionTraceEvent,
+    ) -> Option<String> {
         if event.status != ConnectionTraceStatus::Failed {
             return None;
         }
-        event
-            .detail
-            .as_deref()
-            .and_then(|detail| self.ssh_algorithm_diagnostic_parts(detail).map(|(summary, _)| summary))
+        event.detail.as_deref().and_then(|detail| {
+            self.ssh_algorithm_diagnostic_parts(detail)
+                .map(|(summary, _)| summary)
+        })
     }
 
-    fn connection_trace_status_text(&self, event: &ConnectionTraceEvent) -> String {
+    pub(in crate::workspace) fn connection_trace_status_text(
+        &self,
+        event: &ConnectionTraceEvent,
+    ) -> String {
         if event.status == ConnectionTraceStatus::Ready {
-            return self
-                .i18n
-                .t("connections.trace.connected")
-                .replace("{{elapsed}}", &format_connection_trace_elapsed(event.elapsed_ms));
+            return self.i18n.t("connections.trace.connected").replace(
+                "{{elapsed}}",
+                &format_connection_trace_elapsed(event.elapsed_ms),
+            );
         }
         if event.status == ConnectionTraceStatus::Failed {
             if let Some(detail) = event.detail.as_deref()
@@ -1581,7 +1622,9 @@ impl WorkspaceApp {
     }
 }
 
-fn toast_variant_from_terminal(variant: TerminalNoticeVariant) -> ToastVariant {
+pub(in crate::workspace) fn toast_variant_from_terminal(
+    variant: TerminalNoticeVariant,
+) -> ToastVariant {
     match variant {
         TerminalNoticeVariant::Default => ToastVariant::Default,
         TerminalNoticeVariant::Success => ToastVariant::Success,
@@ -1590,7 +1633,9 @@ fn toast_variant_from_terminal(variant: TerminalNoticeVariant) -> ToastVariant {
     }
 }
 
-fn connection_trace_stage_key(stage: ConnectionTraceStage) -> &'static str {
+pub(in crate::workspace) fn connection_trace_stage_key(
+    stage: ConnectionTraceStage,
+) -> &'static str {
     match stage {
         ConnectionTraceStage::Queued => "connections.trace.stage.queued",
         ConnectionTraceStage::Preparing => "connections.trace.stage.preparing",
@@ -1604,7 +1649,7 @@ fn connection_trace_stage_key(stage: ConnectionTraceStage) -> &'static str {
     }
 }
 
-fn format_connection_trace_elapsed(ms: u64) -> String {
+pub(in crate::workspace) fn format_connection_trace_elapsed(ms: u64) -> String {
     if ms < 10_000 {
         format!("{:.1}s", ms as f64 / 1000.0)
     } else {

@@ -1,3 +1,5 @@
+use super::*;
+
 impl WorkspaceApp {
     fn spawn_remote_sftp_mutation<F>(&self, operation: F, toast: Option<SftpMutationToast>)
     where
@@ -35,7 +37,7 @@ impl WorkspaceApp {
         });
     }
 
-    fn push_sftp_toast(
+    pub(in crate::workspace::sftp) fn push_sftp_toast(
         &self,
         title: String,
         description: Option<String>,
@@ -50,7 +52,7 @@ impl WorkspaceApp {
         });
     }
 
-    fn close_sftp_dialog(&mut self) {
+    pub(in crate::workspace::sftp) fn close_sftp_dialog(&mut self) {
         self.stop_sftp_preview_media();
         self.sftp_view.preview_generation = self.sftp_view.preview_generation.wrapping_add(1);
         self.sftp_view.dialog = None;
@@ -69,7 +71,7 @@ impl WorkspaceApp {
         self.ime_marked_text = None;
     }
 
-    fn reset_sftp_preview_editor(&mut self) {
+    pub(in crate::workspace::sftp) fn reset_sftp_preview_editor(&mut self) {
         self.sftp_view.preview_editor = None;
         self.sftp_view.preview_editor_observer = None;
         self.sftp_view.preview_editor_initial_content.clear();
@@ -85,7 +87,7 @@ impl WorkspaceApp {
         self.sftp_view.preview_editor_last_atomic_write = None;
     }
 
-    fn stop_sftp_preview_media(&mut self) {
+    pub(in crate::workspace::sftp) fn stop_sftp_preview_media(&mut self) {
         let _ = self
             .sftp_view
             .preview_audio
@@ -94,7 +96,7 @@ impl WorkspaceApp {
         self.sftp_view.preview_video_surface.detach();
     }
 
-    fn toggle_sftp_preview_audio(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace::sftp) fn toggle_sftp_preview_audio(&mut self, cx: &mut Context<Self>) {
         let _ = self
             .sftp_view
             .preview_audio
@@ -102,7 +104,11 @@ impl WorkspaceApp {
         self.schedule_sftp_preview_audio_tick(cx);
     }
 
-    fn seek_sftp_preview_audio(&mut self, position: std::time::Duration, cx: &mut Context<Self>) {
+    pub(in crate::workspace::sftp) fn seek_sftp_preview_audio(
+        &mut self,
+        position: std::time::Duration,
+        cx: &mut Context<Self>,
+    ) {
         let _ = self
             .sftp_view
             .preview_audio
@@ -141,7 +147,7 @@ impl WorkspaceApp {
         .detach();
     }
 
-    fn accept_sftp_dialog(&mut self) {
+    pub(in crate::workspace::sftp) fn accept_sftp_dialog(&mut self) {
         let Some(dialog) = self.sftp_view.dialog.clone() else {
             return;
         };
@@ -265,7 +271,9 @@ impl WorkspaceApp {
                         let mut result = Ok(());
                         for name in files {
                             let path = join_local_path(&self.sftp_view.local_path, &name);
-                            result = if std::fs::metadata(&path).is_ok_and(|metadata| metadata.is_dir()) {
+                            result = if std::fs::metadata(&path)
+                                .is_ok_and(|metadata| metadata.is_dir())
+                            {
                                 std::fs::remove_dir_all(path)
                             } else {
                                 std::fs::remove_file(path)
@@ -333,10 +341,11 @@ impl WorkspaceApp {
                                     // Tauri nodeSftpDeleteRecursive returns the
                                     // recursive item count; keep the success
                                     // toast tied to the same backend count.
-                                    deleted = deleted
-                                        .saturating_add(sftp.delete_recursive(&path).await.map_err(
-                                            |error| error.to_string(),
-                                        )?);
+                                    deleted = deleted.saturating_add(
+                                        sftp.delete_recursive(&path)
+                                            .await
+                                            .map_err(|error| error.to_string())?,
+                                    );
                                 }
                                 Ok(deleted)
                             }
@@ -383,7 +392,7 @@ impl WorkspaceApp {
     }
 }
 
-fn sftp_i18n_count(template: String, count: usize) -> String {
+pub(in crate::workspace::sftp) fn sftp_i18n_count(template: String, count: usize) -> String {
     template.replace("{{count}}", &count.to_string())
 }
 

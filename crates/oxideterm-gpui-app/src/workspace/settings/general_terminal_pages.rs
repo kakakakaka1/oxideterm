@@ -1,14 +1,20 @@
+use super::*;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum TerminalCommandSpecsAction {
+pub(in crate::workspace) enum TerminalCommandSpecsAction {
     Format,
     Example,
     Save,
 }
 
-const SETTINGS_TERMINAL_CUSTOM_FONT_INPUT_WIDTH: f32 = 300.0; // Tauri TerminalTab custom font input w-[300px].
+pub(in crate::workspace) const SETTINGS_TERMINAL_CUSTOM_FONT_INPUT_WIDTH: f32 = 300.0; // Tauri TerminalTab custom font input w-[300px].
 
 impl WorkspaceApp {
-    fn settings_general_section(&self, section_index: usize, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn settings_general_section(
+        &self,
+        section_index: usize,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let settings = self.settings_store.settings();
         match section_index {
             0 => self.settings_card(
@@ -83,33 +89,33 @@ impl WorkspaceApp {
                 let cli_path = cli_status
                     .and_then(|status| status.install_path.clone())
                     .unwrap_or_else(|| cli_install_path().display().to_string());
-                let (badge_label, badge_color) =
-                    if self.settings_page.cli_companion_error.is_some() {
-                        (
-                            self.i18n.t("settings_view.general.cli_status_error"),
-                            self.tokens.ui.error,
-                        )
-                    } else if cli_loading {
-                        (
-                            self.i18n.t("settings_view.general.cli_checking"),
-                            self.tokens.ui.warning,
-                        )
-                    } else if cli_installed && cli_needs_reinstall {
-                        (
-                            self.i18n.t("settings_view.general.cli_reinstall_required"),
-                            self.tokens.ui.warning,
-                        )
-                    } else if cli_installed {
-                        (
-                            self.i18n.t("settings_view.general.cli_installed"),
-                            self.tokens.ui.success,
-                        )
-                    } else {
-                        (
-                            self.i18n.t("settings_view.general.cli_not_installed"),
-                            self.tokens.ui.text_muted,
-                        )
-                    };
+                let (badge_label, badge_color) = if self.settings_page.cli_companion_error.is_some()
+                {
+                    (
+                        self.i18n.t("settings_view.general.cli_status_error"),
+                        self.tokens.ui.error,
+                    )
+                } else if cli_loading {
+                    (
+                        self.i18n.t("settings_view.general.cli_checking"),
+                        self.tokens.ui.warning,
+                    )
+                } else if cli_installed && cli_needs_reinstall {
+                    (
+                        self.i18n.t("settings_view.general.cli_reinstall_required"),
+                        self.tokens.ui.warning,
+                    )
+                } else if cli_installed {
+                    (
+                        self.i18n.t("settings_view.general.cli_installed"),
+                        self.tokens.ui.success,
+                    )
+                } else {
+                    (
+                        self.i18n.t("settings_view.general.cli_not_installed"),
+                        self.tokens.ui.text_muted,
+                    )
+                };
                 let reinstall_hint = cli_status
                     .filter(|status| status.installed && status.needs_reinstall)
                     .map(|status| {
@@ -205,32 +211,38 @@ impl WorkspaceApp {
                                         )
                                     },
                                 )
-                                .when(!cli_loading && cli_status.is_some() && !cli_bundled, |column| {
-                                    column.child(
-                                        div()
-                                            .text_size(px(self.tokens.metrics.ui_text_xs))
-                                            .text_color(rgb(self.tokens.ui.text_muted))
-                                            .child(
-                                                self.i18n
-                                                    .t("settings_view.general.cli_not_bundled"),
-                                            ),
-                                    )
-                                }),
+                                .when(
+                                    !cli_loading && cli_status.is_some() && !cli_bundled,
+                                    |column| {
+                                        column.child(
+                                            div()
+                                                .text_size(px(self.tokens.metrics.ui_text_xs))
+                                                .text_color(rgb(self.tokens.ui.text_muted))
+                                                .child(
+                                                    self.i18n
+                                                        .t("settings_view.general.cli_not_bundled"),
+                                                ),
+                                        )
+                                    },
+                                ),
                         )
-                        .when(cli_bundled && (!cli_installed || cli_needs_reinstall), |row| {
-                            row.child(self.cli_companion_action_button(
-                                if cli_needs_reinstall {
-                                    self.i18n.t("settings_view.general.cli_reinstall")
-                                } else {
-                                    self.i18n.t("settings_view.general.cli_install")
-                                },
-                                LucideIcon::Download,
-                                ButtonVariant::Outline,
-                                cli_loading,
-                                |this, _event, _window, cx| this.install_cli_companion(cx),
-                                cx,
-                            ))
-                        })
+                        .when(
+                            cli_bundled && (!cli_installed || cli_needs_reinstall),
+                            |row| {
+                                row.child(self.cli_companion_action_button(
+                                    if cli_needs_reinstall {
+                                        self.i18n.t("settings_view.general.cli_reinstall")
+                                    } else {
+                                        self.i18n.t("settings_view.general.cli_install")
+                                    },
+                                    LucideIcon::Download,
+                                    ButtonVariant::Outline,
+                                    cli_loading,
+                                    |this, _event, _window, cx| this.install_cli_companion(cx),
+                                    cx,
+                                ))
+                            },
+                        )
                         .when(cli_installed, |row| {
                             row.child(self.cli_companion_action_button(
                                 self.i18n.t("settings_view.general.cli_uninstall"),
@@ -241,16 +253,21 @@ impl WorkspaceApp {
                                 cx,
                             ))
                         })
-                        .when(!cli_loading && self.settings_page.cli_companion_error.is_some(), |row| {
-                            row.child(self.cli_companion_action_button(
-                                self.i18n.t("settings_view.help.retry"),
-                                LucideIcon::RefreshCw,
-                                ButtonVariant::Ghost,
-                                false,
-                                |this, _event, _window, cx| this.refresh_cli_companion_status(cx),
-                                cx,
-                            ))
-                        })
+                        .when(
+                            !cli_loading && self.settings_page.cli_companion_error.is_some(),
+                            |row| {
+                                row.child(self.cli_companion_action_button(
+                                    self.i18n.t("settings_view.help.retry"),
+                                    LucideIcon::RefreshCw,
+                                    ButtonVariant::Ghost,
+                                    false,
+                                    |this, _event, _window, cx| {
+                                        this.refresh_cli_companion_status(cx)
+                                    },
+                                    cx,
+                                ))
+                            },
+                        )
                         .into_any_element(),
                 ])
             }
@@ -272,7 +289,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn general_checkbox_row(
+    pub(in crate::workspace) fn general_checkbox_row(
         &self,
         label_key: &str,
         hint_key: &str,
@@ -308,21 +325,21 @@ impl WorkspaceApp {
                             .child(self.i18n.t(hint_key)),
                     ),
             )
-            .child(
-                div().flex_none().child(
-                    checkbox(&self.tokens, String::new(), checked).on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(move |this, _event, _window, cx| {
-                            this.edit_settings(|settings| setter(settings, !checked), cx);
-                            cx.stop_propagation();
-                        }),
-                    ),
+            .child(div().flex_none().child(
+                checkbox(&self.tokens, String::new(), checked).on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(move |this, _event, _window, cx| {
+                        this.edit_settings(|settings| setter(settings, !checked), cx);
+                        cx.stop_propagation();
+                    }),
                 ),
-            )
+            ))
             .into_any_element()
     }
 
-    fn settings_data_directory_info(&self) -> oxideterm_settings::DataDirectoryInfo {
+    pub(in crate::workspace) fn settings_data_directory_info(
+        &self,
+    ) -> oxideterm_settings::DataDirectoryInfo {
         oxideterm_settings::data_directory_info().unwrap_or_else(|_| {
             let path = self
                 .settings_store
@@ -340,7 +357,10 @@ impl WorkspaceApp {
         })
     }
 
-    fn settings_data_directory_change_button(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn settings_data_directory_change_button(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         self.workspace_toolbar_action_button(
             self.i18n.t("settings_view.general.change"),
             None,
@@ -361,7 +381,10 @@ impl WorkspaceApp {
         .into_any_element()
     }
 
-    fn settings_data_directory_reset_button(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn settings_data_directory_reset_button(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         self.workspace_toolbar_action_button(
             self.i18n.t("settings_view.general.reset_to_default"),
             None,
@@ -384,7 +407,7 @@ impl WorkspaceApp {
         .into_any_element()
     }
 
-    fn pick_settings_data_directory(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn pick_settings_data_directory(&mut self, cx: &mut Context<Self>) {
         let receiver = cx.prompt_for_paths(PathPromptOptions {
             files: false,
             directories: true,
@@ -428,7 +451,11 @@ impl WorkspaceApp {
         .detach();
     }
 
-    fn apply_settings_data_directory(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn apply_settings_data_directory(
+        &mut self,
+        path: PathBuf,
+        cx: &mut Context<Self>,
+    ) {
         match oxideterm_settings::set_data_directory(&path) {
             Ok(()) => {
                 self.push_ai_settings_toast(
@@ -443,7 +470,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn reset_settings_data_directory(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn reset_settings_data_directory(&mut self, cx: &mut Context<Self>) {
         match oxideterm_settings::reset_data_directory() {
             Ok(()) => {
                 self.push_ai_settings_toast(
@@ -458,13 +485,16 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    pub(super) fn cancel_settings_data_directory_confirm(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn cancel_settings_data_directory_confirm(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) {
         self.settings_data_directory_confirm = None;
         self.clear_standard_confirm_focus();
         cx.notify();
     }
 
-    pub(super) fn confirm_settings_data_directory(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn confirm_settings_data_directory(&mut self, cx: &mut Context<Self>) {
         let Some(confirm) = self.settings_data_directory_confirm.take() else {
             return;
         };
@@ -479,7 +509,7 @@ impl WorkspaceApp {
         }
     }
 
-    pub(super) fn render_settings_data_directory_confirm_dialog(
+    pub(in crate::workspace) fn render_settings_data_directory_confirm_dialog(
         &self,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
@@ -522,7 +552,7 @@ impl WorkspaceApp {
         ))
     }
 
-    fn settings_terminal_section(
+    pub(in crate::workspace) fn settings_terminal_section(
         &self,
         section_index: usize,
         cx: &mut Context<Self>,
@@ -821,7 +851,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn focus_handoff_commands_row(
+    pub(in crate::workspace) fn focus_handoff_commands_row(
         &self,
         settings: &PersistedSettings,
         cx: &mut Context<Self>,
@@ -907,11 +937,12 @@ impl WorkspaceApp {
             );
         }
 
-        let control = text_input_anchor_probe(target.anchor_id(), textarea, move |anchor, _window, cx| {
-            let _ = workspace.update(cx, |this, cx| {
-                this.update_text_input_anchor(anchor, cx);
+        let control =
+            text_input_anchor_probe(target.anchor_id(), textarea, move |anchor, _window, cx| {
+                let _ = workspace.update(cx, |this, cx| {
+                    this.update_text_input_anchor(anchor, cx);
+                });
             });
-        });
 
         div()
             .flex()
@@ -927,7 +958,10 @@ impl WorkspaceApp {
                             .text_size(px(self.tokens.metrics.ui_text_sm))
                             .font_weight(gpui::FontWeight::MEDIUM)
                             .text_color(rgb(theme.text))
-                            .child(self.i18n.t("settings_view.terminal.command_bar_focus_handoff")),
+                            .child(
+                                self.i18n
+                                    .t("settings_view.terminal.command_bar_focus_handoff"),
+                            ),
                     )
                     .child(
                         div()
@@ -943,7 +977,10 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn terminal_command_specs_editor_row(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn terminal_command_specs_editor_row(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let input = SettingsInput::TerminalCommandSpecsJson;
         let focused = self.focused_settings_input == Some(input);
         let value = if focused {
@@ -997,8 +1034,13 @@ impl WorkspaceApp {
                 }),
             );
 
-        textarea =
-            self.render_settings_multiline_textarea_lines(textarea, target, &value, false, line_height);
+        textarea = self.render_settings_multiline_textarea_lines(
+            textarea,
+            target,
+            &value,
+            false,
+            line_height,
+        );
         if let Some(marked) = self.marked_text_for_target(target) {
             textarea = textarea.child(
                 div()
@@ -1007,11 +1049,12 @@ impl WorkspaceApp {
                     .child(marked.to_string()),
             );
         }
-        let control = text_input_anchor_probe(target.anchor_id(), textarea, move |anchor, _window, cx| {
-            let _ = workspace.update(cx, |this, cx| {
-                this.update_text_input_anchor(anchor, cx);
+        let control =
+            text_input_anchor_probe(target.anchor_id(), textarea, move |anchor, _window, cx| {
+                let _ = workspace.update(cx, |this, cx| {
+                    this.update_text_input_anchor(anchor, cx);
+                });
             });
-        });
 
         div()
             .flex()
@@ -1086,7 +1129,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_settings_multiline_textarea_lines(
+    pub(in crate::workspace) fn render_settings_multiline_textarea_lines(
         &self,
         mut textarea: Div,
         target: WorkspaceImeTarget,
@@ -1125,7 +1168,7 @@ impl WorkspaceApp {
         textarea
     }
 
-    fn terminal_command_specs_button(
+    pub(in crate::workspace) fn terminal_command_specs_button(
         &self,
         label_key: &'static str,
         action: TerminalCommandSpecsAction,
@@ -1158,20 +1201,20 @@ impl WorkspaceApp {
         .into_any_element()
     }
 
-    fn load_terminal_command_specs_editor_value(&self) -> String {
+    pub(in crate::workspace) fn load_terminal_command_specs_editor_value(&self) -> String {
         let path = super::terminal_command_bar::completion::terminal_command_specs_path(
             self.settings_store.path(),
         );
         std::fs::read_to_string(path).unwrap_or_default()
     }
 
-    fn terminal_command_specs_editor_initial_value(&self) -> String {
+    pub(in crate::workspace) fn terminal_command_specs_editor_initial_value(&self) -> String {
         super::terminal_command_bar::completion::terminal_command_specs_editor_initial_json(
             &self.load_terminal_command_specs_editor_value(),
         )
     }
 
-    fn terminal_command_specs_summary(&self) -> String {
+    pub(in crate::workspace) fn terminal_command_specs_summary(&self) -> String {
         let built_in_count =
             super::terminal_command_bar::completion::built_in_terminal_fig_specs().len();
         let custom_count = super::terminal_command_bar::completion::user_terminal_fig_specs_count(
@@ -1183,7 +1226,7 @@ impl WorkspaceApp {
             .replace("{custom}", &custom_count.to_string())
     }
 
-    fn current_terminal_command_specs_editor_value(&self) -> String {
+    pub(in crate::workspace) fn current_terminal_command_specs_editor_value(&self) -> String {
         if self.focused_settings_input == Some(SettingsInput::TerminalCommandSpecsJson) {
             self.settings_input_draft.clone()
         } else {
@@ -1191,7 +1234,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn handle_terminal_command_specs_action(
+    pub(in crate::workspace) fn handle_terminal_command_specs_action(
         &mut self,
         action: TerminalCommandSpecsAction,
         window: &mut Window,
@@ -1207,7 +1250,9 @@ impl WorkspaceApp {
             }
             TerminalCommandSpecsAction::Format => {
                 let value = self.current_terminal_command_specs_editor_value();
-                match super::terminal_command_bar::completion::normalize_terminal_command_specs_json(&value) {
+                match super::terminal_command_bar::completion::normalize_terminal_command_specs_json(
+                    &value,
+                ) {
                     Ok(pretty) => {
                         self.focus_settings_input(input, pretty, cx);
                         window.focus(&self.focus_handle);
@@ -1215,8 +1260,7 @@ impl WorkspaceApp {
                     Err(error) => self.push_ai_settings_toast(
                         format!(
                             "{} {}",
-                            self.i18n
-                                .t("settings_view.terminal.command_specs_invalid"),
+                            self.i18n.t("settings_view.terminal.command_specs_invalid"),
                             error
                         ),
                         TerminalNoticeVariant::Error,
@@ -1225,7 +1269,9 @@ impl WorkspaceApp {
             }
             TerminalCommandSpecsAction::Save => {
                 let value = self.current_terminal_command_specs_editor_value();
-                match super::terminal_command_bar::completion::normalize_terminal_command_specs_json(&value) {
+                match super::terminal_command_bar::completion::normalize_terminal_command_specs_json(
+                    &value,
+                ) {
                     Ok(pretty) => {
                         let path =
                             super::terminal_command_bar::completion::terminal_command_specs_path(
@@ -1256,8 +1302,7 @@ impl WorkspaceApp {
                     Err(error) => self.push_ai_settings_toast(
                         format!(
                             "{} {}",
-                            self.i18n
-                                .t("settings_view.terminal.command_specs_invalid"),
+                            self.i18n.t("settings_view.terminal.command_specs_invalid"),
                             error
                         ),
                         TerminalNoticeVariant::Error,
@@ -1267,7 +1312,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn in_band_transfer_number_row(
+    pub(in crate::workspace) fn in_band_transfer_number_row(
         &self,
         label_key: &str,
         hint_key: &str,
@@ -1284,7 +1329,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn in_band_transfer_runtime_note(&self) -> AnyElement {
+    pub(in crate::workspace) fn in_band_transfer_runtime_note(&self) -> AnyElement {
         const TAURI_RUNTIME_NOTE_BORDER_ALPHA: f32 = 0.30;
         const TAURI_RUNTIME_NOTE_BACKGROUND_ALPHA: f32 = 0.10;
 
@@ -1313,7 +1358,7 @@ impl WorkspaceApp {
     }
 }
 
-fn close_to_background_label_keys() -> (&'static str, &'static str) {
+pub(in crate::workspace) fn close_to_background_label_keys() -> (&'static str, &'static str) {
     if cfg!(target_os = "macos") {
         (
             "settings_view.general.keep_in_menu_bar_on_close",

@@ -1,7 +1,9 @@
+use super::*;
+
 #[cfg(windows)]
 const SFTP_EXTERNAL_BRIDGE_CREATE_NO_WINDOW: u32 = 0x08000000;
 
-fn open_path_in_external_app(path: &str) -> Result<(), String> {
+pub(in crate::workspace::sftp) fn open_path_in_external_app(path: &str) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     let mut command = {
         let mut command = std::process::Command::new("open");
@@ -44,7 +46,7 @@ fn configure_sftp_external_bridge(command: &mut std::process::Command) {
 }
 
 impl WorkspaceApp {
-    fn browse_sftp_local_folder(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace::sftp) fn browse_sftp_local_folder(&mut self, cx: &mut Context<Self>) {
         // Tauri SFTP uses @tauri-apps/plugin-dialog `open({ directory: true,
         // multiple: false, defaultPath: localPath })` for this toolbar button.
         // GPUI's platform prompt does not expose defaultPath, but it does open

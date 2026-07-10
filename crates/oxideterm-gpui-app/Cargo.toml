@@ -45,7 +45,6 @@ oxideterm-launcher = { path = "../oxideterm-launcher" }
 oxideterm-local-files = { path = "../oxideterm-local-files" }
 oxideterm-notification-center = { path = "../oxideterm-notification-center" }
 oxideterm-plugin-host-api = { path = "../oxideterm-plugin-host-api" }
-oxideterm-plugin-manifest = { path = "../oxideterm-plugin-manifest" }
 oxideterm-plugin-protocol = { path = "../oxideterm-plugin-protocol" }
 oxideterm-plugin-registry = { path = "../oxideterm-plugin-registry" }
 oxideterm-portable-runtime = { path = "../oxideterm-portable-runtime" }

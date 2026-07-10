@@ -1,4 +1,7 @@
-include!("preview/editor.rs");
-include!("preview/content.rs");
-include!("preview/markdown_font.rs");
-include!("preview/media.rs");
+use super::*;
+
+// Keep preview renderers separated by content responsibility.
+mod content;
+mod editor;
+mod markdown_font;
+mod media;

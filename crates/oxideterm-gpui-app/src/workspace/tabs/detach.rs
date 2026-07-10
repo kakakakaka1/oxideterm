@@ -1,3 +1,6 @@
+use super::navigation::TAB_DRAG_THRESHOLD_PX;
+use super::*;
+
 use oxideterm_gpui_ui::context_menu::{
     ContextMenuItemKind, context_menu_content, context_menu_event_boundary, context_menu_item,
     context_menu_separator,
@@ -9,7 +12,7 @@ const TAB_CONTEXT_MENU_HEIGHT: f32 = 136.0;
 const TAB_CONTEXT_MENU_MARGIN: f32 = 8.0;
 
 impl WorkspaceApp {
-    pub(super) fn update_main_window_tabbar_drop_bounds(
+    pub(in crate::workspace) fn update_main_window_tabbar_drop_bounds(
         &mut self,
         window: &Window,
         titlebar_visible: bool,
@@ -32,7 +35,7 @@ impl WorkspaceApp {
             self.sidebar_width
         };
         let right_offset = if self.context_sidebar_visible() {
-            self.ai_sidebar_width
+            self.ai.chat.sidebar_width
         } else {
             0.0
         };
@@ -46,7 +49,7 @@ impl WorkspaceApp {
         ));
     }
 
-    pub(super) fn open_tab_context_menu(
+    pub(in crate::workspace) fn open_tab_context_menu(
         &mut self,
         tab_id: TabId,
         event: &MouseDownEvent,
@@ -60,11 +63,11 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    pub(super) fn close_tab_context_menu(&mut self) -> bool {
+    pub(in crate::workspace) fn close_tab_context_menu(&mut self) -> bool {
         self.main_window_tabs.context_menu.take().is_some()
     }
 
-    pub(super) fn detach_tab_to_window(
+    pub(in crate::workspace) fn detach_tab_to_window(
         &mut self,
         tab_id: TabId,
         window: &mut Window,
@@ -101,7 +104,11 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    pub(super) fn return_detached_tab_to_main(&mut self, tab_id: TabId, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn return_detached_tab_to_main(
+        &mut self,
+        tab_id: TabId,
+        cx: &mut Context<Self>,
+    ) {
         if self.detached_tabs.remove(&tab_id) {
             self.main_window_tabs.active_tab_id = Some(tab_id);
             self.detached_tab_return_drag = None;
@@ -110,10 +117,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn detached_window_screen_point(
-        window: &Window,
-        window_point: Point<Pixels>,
-    ) -> Point<Pixels> {
+    fn detached_window_screen_point(window: &Window, window_point: Point<Pixels>) -> Point<Pixels> {
         let window_bounds = window.bounds();
         gpui::point(
             window_bounds.origin.x + window_point.x,
@@ -121,7 +125,7 @@ impl WorkspaceApp {
         )
     }
 
-    pub(super) fn start_detached_tab_return_drag(
+    pub(in crate::workspace) fn start_detached_tab_return_drag(
         &mut self,
         tab_id: TabId,
         event: &MouseDownEvent,
@@ -140,7 +144,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    pub(super) fn update_detached_tab_return_drag(
+    pub(in crate::workspace) fn update_detached_tab_return_drag(
         &mut self,
         tab_id: TabId,
         event: &MouseMoveEvent,
@@ -169,7 +173,7 @@ impl WorkspaceApp {
         }
     }
 
-    pub(super) fn finish_detached_tab_return_drag(
+    pub(in crate::workspace) fn finish_detached_tab_return_drag(
         &mut self,
         tab_id: TabId,
         event: &MouseUpEvent,
@@ -199,15 +203,11 @@ impl WorkspaceApp {
 
     fn detached_tab_return_drag_screen_point(&self) -> Option<Point<Pixels>> {
         let drag = self.detached_tab_return_drag?;
-        drag.active.then(|| {
-            gpui::point(
-                px(drag.current_screen_x),
-                px(drag.current_screen_y),
-            )
-        })
+        drag.active
+            .then(|| gpui::point(px(drag.current_screen_x), px(drag.current_screen_y)))
     }
 
-    pub(super) fn render_detached_tab_return_drop_hint(
+    pub(in crate::workspace) fn render_detached_tab_return_drop_hint(
         &self,
         window: &Window,
     ) -> Option<AnyElement> {
@@ -289,7 +289,10 @@ impl WorkspaceApp {
         Some(hint.into_any_element())
     }
 
-    pub(super) fn render_tab_detach_drag_preview(&self, window: &Window) -> Option<AnyElement> {
+    pub(in crate::workspace) fn render_tab_detach_drag_preview(
+        &self,
+        window: &Window,
+    ) -> Option<AnyElement> {
         let drag = self.main_window_tabs.drag.as_ref()?;
         if !drag.active || drag.mode != TabDragMode::Detach {
             return None;
@@ -398,10 +401,11 @@ impl WorkspaceApp {
         let local_x = drag.current_screen_x - f32::from(window_bounds.origin.x);
         let local_y = drag.current_screen_y - f32::from(window_bounds.origin.y);
         let preview_width = (self.tokens.metrics.tab_max_width + 96.0).clamp(220.0, 360.0);
-        let left = (local_x - preview_width * 0.5)
-            .clamp(8.0, (f32::from(viewport.width) - preview_width - 8.0).max(8.0));
-        let top = (local_y + 14.0)
-            .clamp(8.0, (f32::from(viewport.height) - 64.0).max(8.0));
+        let left = (local_x - preview_width * 0.5).clamp(
+            8.0,
+            (f32::from(viewport.width) - preview_width - 8.0).max(8.0),
+        );
+        let top = (local_y + 14.0).clamp(8.0, (f32::from(viewport.height) - 64.0).max(8.0));
 
         // Return drags originate in the detached window, so this preview is
         // rendered there while the main window separately renders the drop zone.
@@ -466,7 +470,7 @@ impl WorkspaceApp {
         Some(preview.into_any_element())
     }
 
-    pub(super) fn render_tab_context_menu(
+    pub(in crate::workspace) fn render_tab_context_menu(
         &self,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -550,7 +554,7 @@ impl WorkspaceApp {
         )
     }
 
-    pub(super) fn render_detached_tab_window(
+    pub(in crate::workspace) fn render_detached_tab_window(
         &mut self,
         tab_id: TabId,
         window: &mut Window,
@@ -562,7 +566,8 @@ impl WorkspaceApp {
         let title = self.tab_display_title(&tab);
         window.set_window_title(&SharedString::from(title.clone()));
 
-        let content = self.render_detached_tab_content(tab_id, &tab.kind, tab.root_pane.as_ref(), window, cx);
+        let content =
+            self.render_detached_tab_content(tab_id, &tab.kind, tab.root_pane.as_ref(), window, cx);
         let content =
             self.wrap_content_background(content, Some(tab_background_key(&tab.kind)), window, cx);
 
@@ -655,9 +660,11 @@ impl WorkspaceApp {
                             cx.stop_propagation();
                         }),
                     )
-                    .on_mouse_move(cx.listener(move |this, event: &MouseMoveEvent, window, cx| {
-                        this.update_detached_tab_return_drag(tab_id, event, window, cx);
-                    }))
+                    .on_mouse_move(
+                        cx.listener(move |this, event: &MouseMoveEvent, window, cx| {
+                            this.update_detached_tab_return_drag(tab_id, event, window, cx);
+                        }),
+                    )
                     .on_mouse_up(
                         MouseButton::Left,
                         cx.listener(move |this, event: &MouseUpEvent, window, cx| {
@@ -680,7 +687,11 @@ impl WorkspaceApp {
                     .cursor_pointer()
                     .text_color(rgb(theme.text_muted))
                     .hover(move |button| button.bg(rgb(theme.bg_hover)))
-                    .child(Self::render_lucide_icon(LucideIcon::PanelLeft, 15.0, rgb(theme.text_muted)))
+                    .child(Self::render_lucide_icon(
+                        LucideIcon::PanelLeft,
+                        15.0,
+                        rgb(theme.text_muted),
+                    ))
                     .child(self.i18n.t("tabbar.return_to_main_window"))
                     .on_mouse_down(
                         MouseButton::Left,
@@ -691,9 +702,10 @@ impl WorkspaceApp {
                         }),
                     ),
             )
-            .when(cfg!(any(target_os = "windows", target_os = "linux")), |bar| {
-                bar.child(self.render_detached_client_titlebar_controls(window, cx))
-            })
+            .when(
+                cfg!(any(target_os = "windows", target_os = "linux")),
+                |bar| bar.child(self.render_detached_client_titlebar_controls(window, cx)),
+            )
             .into_any_element()
     }
 
@@ -707,7 +719,11 @@ impl WorkspaceApp {
             .h_full()
             .flex()
             .child(self.detached_client_titlebar_button("−", gpui::WindowControlArea::Min, cx))
-            .child(self.detached_client_titlebar_button(maximize_glyph, gpui::WindowControlArea::Max, cx))
+            .child(self.detached_client_titlebar_button(
+                maximize_glyph,
+                gpui::WindowControlArea::Max,
+                cx,
+            ))
             .child(self.detached_client_titlebar_button("×", gpui::WindowControlArea::Close, cx))
             .into_any_element()
     }

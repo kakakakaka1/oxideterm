@@ -1,5 +1,5 @@
 impl WorkspaceApp {
-    fn render_ai_model_selector_models(
+    pub(in crate::workspace) fn render_ai_model_selector_models(
         &self,
         provider: AiProviderView,
         visible_models: Vec<String>,
@@ -57,19 +57,25 @@ impl WorkspaceApp {
             let active = if Self::ai_acp_agent_id_from_provider_id(&provider.id).is_some() {
                 self.ai_active_model_selector_provider_id().as_deref() == Some(provider.id.as_str())
             } else {
-                self.settings_store.settings().ai.active_provider_id.as_deref()
+                self.settings_store
+                    .settings()
+                    .ai
+                    .active_provider_id
+                    .as_deref()
                     == Some(provider.id.as_str())
                     && self.settings_store.settings().ai.active_model.as_deref()
                         == Some(model.as_str())
             };
             let model_for_click = model.clone();
             let provider_id = provider.id.clone();
-            let highlighted =
-                self.ai_model_selector_highlighted_model
-                    .as_ref()
-                    .is_some_and(|(id, highlighted_model)| {
-                        id == &provider.id && highlighted_model == &model
-                    });
+            let highlighted = self
+                .ai
+                .models
+                .selector_highlighted_model
+                .as_ref()
+                .is_some_and(|(id, highlighted_model)| {
+                    id == &provider.id && highlighted_model == &model
+                });
             panel = panel.child(
                 ai_model_selector_model_row(
                     &self.tokens,
@@ -89,10 +95,10 @@ impl WorkspaceApp {
                     let model_for_hover = model_for_click.clone();
                     cx.listener(move |this, _event: &MouseMoveEvent, _window, cx| {
                         let next = Some((provider_id.clone(), model_for_hover.clone()));
-                        if this.ai_model_selector_highlighted_model != next {
+                        if this.ai.models.selector_highlighted_model != next {
                             // Pointer hover and keyboard navigation share the
                             // same active-item state, matching Radix menu focus.
-                            this.ai_model_selector_highlighted_model = next;
+                            this.ai.models.selector_highlighted_model = next;
                             cx.notify();
                         }
                     })
@@ -105,7 +111,7 @@ impl WorkspaceApp {
                             model_for_click.clone(),
                             cx,
                         );
-                        this.ai_model_selector_highlighted_model = None;
+                        this.ai.models.selector_highlighted_model = None;
                         cx.stop_propagation();
                     }),
                 ),
@@ -113,5 +119,4 @@ impl WorkspaceApp {
         }
         panel.into_any_element()
     }
-
 }

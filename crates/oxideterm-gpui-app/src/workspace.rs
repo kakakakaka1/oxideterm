@@ -1,5 +1,6 @@
 mod actions;
 mod ai_lazy;
+mod ai_state;
 mod browser_behavior;
 mod cloud_sync;
 mod command_palette;
@@ -26,6 +27,15 @@ mod plugin_settings_store;
 mod plugin_ui;
 mod quick_commands;
 mod remote_desktop;
+mod root {
+    pub(super) mod background;
+    pub(super) mod helpers;
+    pub(super) mod init;
+    pub(super) mod render;
+    pub(super) mod state;
+    #[cfg(test)]
+    pub(super) mod tests;
+}
 mod selectable_text;
 mod session_icons;
 mod session_manager;
@@ -176,8 +186,7 @@ use oxideterm_settings::{
     SettingsStore, TerminalEncoding as SettingsTerminalEncoding, default_settings_path,
 };
 use oxideterm_settings_model::{
-    AiMcpServerDraft, AiModelRefreshDelivery, AiProviderKeyStatusDelivery, CloudSyncFormDraft,
-    SettingsPageModel,
+    AiMcpServerDraft, AiModelRefreshDelivery, AiProviderKeyStatusDelivery, SettingsPageModel,
 };
 use oxideterm_sftp::{
     BackgroundTransferDirection, BackgroundTransferKind, BackgroundTransferSnapshot,
@@ -228,6 +237,8 @@ use self::new_connection::{
 use self::onboarding::OnboardingState;
 use self::pane_tree::SplitDrag;
 use self::quick_commands::QuickCommandsState;
+use self::root::state::{PendingSshTerminalOpen, ReconnectWorkerResult, WorkspaceSshNode};
+use self::root::{background::*, helpers::*};
 use self::session_manager::{AutoRouteModalState, SessionManagerState};
 use self::sidebar::AiInlinePanelState;
 use self::sidebar::{ActiveSessionSidebarViewMode, SidebarSection};
@@ -255,6 +266,11 @@ use oxideterm_gpui_markdown::{
 };
 
 const MERMAID_MODAL_RASTER_SCALE: f32 = 3.0;
+
+pub(crate) fn locale_from_settings(language: Language) -> Locale {
+    root_locale_from_settings(language)
+}
+
 use oxideterm_gpui_settings_view::{
     ActiveSurface, SettingsInput, SettingsSelect, SettingsSlider, SettingsTab,
 };
@@ -298,9 +314,6 @@ const AI_MCP_SERVER_LIST_OVERSCAN: usize = 4;
 const CLOUD_SYNC_SECTION_LIST_INITIAL_ITEM_COUNT: usize = 7;
 const CLOUD_SYNC_SECTION_LIST_ESTIMATED_HEIGHT: f32 = 240.0;
 const CLOUD_SYNC_SECTION_LIST_OVERSCAN: usize = 1;
-const PLUGIN_MANAGER_SECTION_LIST_ITEM_COUNT: usize = 4;
-const PLUGIN_MANAGER_SECTION_LIST_ESTIMATED_HEIGHT: f32 = 220.0;
-const PLUGIN_MANAGER_SECTION_LIST_OVERSCAN: usize = 1;
 const FORWARDS_SECTION_LIST_INITIAL_ITEM_COUNT: usize = 5;
 const FORWARDS_SECTION_LIST_ESTIMATED_HEIGHT: f32 = 180.0;
 const FORWARDS_SECTION_LIST_OVERSCAN: usize = 2;
@@ -697,30 +710,14 @@ pub(crate) struct WorkspaceApp {
     quick_command_list_cache: RefCell<VirtualListSignatureCache>,
     detached_local_terminal_list_state: ListState,
     detached_local_terminal_list_cache: RefCell<VirtualListSignatureCache>,
-    plugin_manager_section_list_state: ListState,
-    plugin_manager_active_tab: plugin_manager::NativePluginManagerTab,
-    plugin_manager_install_url_draft: String,
-    plugin_manager_install_checksum_draft: String,
-    plugin_manager_registry_url_draft: String,
-    plugin_manager_available_updates: Vec<plugin_host::NativePluginRegistryEntry>,
-    plugin_manager_operation_status: plugin_manager::NativePluginManagerOperationStatus,
-    plugin_manager_pending_overwrite: Option<plugin_manager::NativePluginPendingOverwrite>,
-    plugin_manager_delivery_rx:
-        Option<std::sync::mpsc::Receiver<plugin_manager::NativePluginManagerDelivery>>,
-    plugin_manager_delivery_polling: bool,
-    plugin_manager_expanded_plugin_ids: HashSet<String>,
-    active_native_plugin_sidebar_panel: Option<plugin_ui::NativePluginSidebarPanelSelection>,
+    native_plugin_manager: plugin_manager::NativePluginManagerState,
     split_drag: Option<SplitDrag>,
     sidebar_resizing: bool,
     sidebar_collapsed: bool,
     sidebar_width: f32,
-    ai_sidebar_resizing: bool,
-    ai_sidebar_width: f32,
+    ai: ai_state::AiWorkspaceState,
     active_context_sidebar_panel: ContextSidebarPanel,
     active_context_sidebar_tool: ContextSidebarTool,
-    ai_overlay_window_size: Option<(f32, f32)>,
-    ai_overlay_window_bounds_subscription: Option<Subscription>,
-    knowledge_window_activation_subscription: Option<Subscription>,
     needs_active_pane_focus: bool,
     active_sidebar_section: SidebarSection,
     active_surface: ActiveSurface,
@@ -733,108 +730,7 @@ pub(crate) struct WorkspaceApp {
     settings_section_list_state: ListState,
     settings_section_list_cache: RefCell<VirtualListSignatureCache>,
     settings_data_directory_confirm: Option<DataDirectoryConfirm>,
-    ai_context_model_list_states: RefCell<HashMap<String, ListState>>,
-    ai_context_model_list_caches: RefCell<HashMap<String, VirtualListSignatureCache>>,
-    ai_reasoning_model_list_states: RefCell<HashMap<String, ListState>>,
-    ai_reasoning_model_list_caches: RefCell<HashMap<String, VirtualListSignatureCache>>,
-    ai_provider_model_chip_list_states: RefCell<HashMap<String, ListState>>,
-    ai_provider_model_chip_list_caches: RefCell<HashMap<String, VirtualListSignatureCache>>,
-    ai_provider_card_list_state: ListState,
-    ai_provider_card_list_cache: RefCell<VirtualListSignatureCache>,
-    ai_mcp_server_list_state: ListState,
-    ai_mcp_server_list_cache: RefCell<VirtualListSignatureCache>,
-    ai_model_selector_open: bool,
-    ai_model_selector_scope: Option<AiModelSelectorScope>,
-    ai_model_selector_focus_origin: Option<browser_behavior::BrowserFocusOrigin>,
-    ai_model_selector_search_focused: bool,
-    ai_model_selector_search_query: String,
-    ai_model_selector_expanded_providers: HashSet<String>,
-    ai_model_selector_highlighted_model: Option<(String, String)>,
-    ai_model_selector_provider_online: HashMap<String, bool>,
-    ai_model_selector_probe_generations: HashMap<String, u64>,
-    ai_model_selector_status_signature: u64,
-    ai_chat: oxideterm_ai::AiChatState,
-    ai_chat_list_state: ListState,
-    ai_chat_list_cache: RefCell<VirtualListSignatureCache>,
-    ai_markdown_cache: RefCell<AiMarkdownDocumentCache>,
-    ai_context_token_cache: RefCell<AiContextTokenBreakdownCache>,
-    ai_chat_store: Option<oxideterm_ai::AiChatPersistenceStore>,
-    ai_chat_initialized: bool,
-    ai_chat_initialization_error: Option<AiChatInitializationError>,
-    ai_inline_panel: AiInlinePanelState,
-    ai_runtime_epoch: String,
-    ai_command_record_sequence: u64,
-    ai_command_records: VecDeque<AiRuntimeCommandRecord>,
-    ai_tool_execution_records: VecDeque<AiToolExecutionRecord>,
-    ai_tool_result_facts: VecDeque<AiToolResultFact>,
-    ai_cli_agent_sessions: HashMap<String, AiCliAgentSession>,
-    ai_conversation_list_open: bool,
-    ai_chat_menu_open: bool,
-    ai_safety_menu_open: bool,
-    ai_safety_confirm_open: bool,
-    ai_summarize_confirm_open: bool,
-    ai_clear_all_confirm_open: bool,
-    ai_delete_message_confirm: Option<String>,
     standard_confirm_focused_action: Option<ConfirmDialogAction>,
-    ai_safety_bypass_conversations: HashSet<String>,
-    ai_chat_draft: String,
-    ai_chat_input_focused: bool,
-    ai_chat_footer_focus: Option<AiChatFooterAction>,
-    ai_editing_message_id: Option<String>,
-    ai_editing_message_draft: String,
-    ai_editing_message_focused: bool,
-    ai_thinking_expansion_state: HashMap<String, bool>,
-    ai_tool_call_expansion_state: HashSet<String>,
-    ai_chat_autocomplete_index: usize,
-    ai_chat_autocomplete_suppressed: bool,
-    ai_context_popover_open: bool,
-    ai_model_switch_warning_percentage: Option<usize>,
-    ai_context_trim_notice_count: Option<usize>,
-    ai_context_trim_notice_sequence: u64,
-    ai_chat_include_context: bool,
-    ai_chat_include_all_panes: bool,
-    ai_chat_loading: bool,
-    ai_chat_stream_generation: u64,
-    ai_chat_stream_task: Option<tokio::task::JoinHandle<()>>,
-    ai_chat_stream_rx: Option<std::sync::mpsc::Receiver<AiStreamDelivery>>,
-    ai_chat_stream_polling: bool,
-    ai_pending_tool_approvals: HashMap<String, tokio::sync::oneshot::Sender<bool>>,
-    ai_agent_fs: NodeAgentIdeFileSystem,
-    ai_mcp_registry: oxideterm_ai::McpRegistry,
-    ai_acp_runtime_registry: oxideterm_ai::AcpRuntimeRegistry,
-    ai_acp_agent_probe_pending: HashSet<String>,
-    ai_acp_agent_probe_tx: Option<std::sync::mpsc::Sender<AcpAgentProbeDelivery>>,
-    ai_acp_agent_probe_rx: Option<std::sync::mpsc::Receiver<AcpAgentProbeDelivery>>,
-    ai_acp_agent_probe_polling: bool,
-    ai_rag_store: LazyAiRagStore,
-    ai_mcp_add_dialog: Option<AiMcpServerDraft>,
-    knowledge_reindex_cancel: Option<Arc<AtomicBool>>,
-    knowledge_reindex_rx: Option<std::sync::mpsc::Receiver<KnowledgeReindexDelivery>>,
-    knowledge_reindex_polling: bool,
-    ai_compaction_rx: Option<std::sync::mpsc::Receiver<AiCompactionDelivery>>,
-    ai_compaction_polling: bool,
-    ai_compacting_conversations: HashSet<String>,
-    ai_compaction_notice: Option<AiCompactionNotice>,
-    ai_pending_chat_after_compaction: Option<AiPendingChatStream>,
-    next_ai_chat_sequence: u64,
-    ai_key_store: oxideterm_ai::AiProviderKeyStore,
-    ai_provider_key_status: HashMap<String, bool>,
-    ai_provider_key_status_pending: HashSet<String>,
-    ai_provider_key_status_tx: Option<std::sync::mpsc::Sender<AiProviderKeyStatusDelivery>>,
-    ai_provider_key_status_rx: Option<std::sync::mpsc::Receiver<AiProviderKeyStatusDelivery>>,
-    ai_provider_key_status_polling: bool,
-    ai_model_refresh_generations: HashMap<String, u64>,
-    ai_model_refreshing: HashSet<String>,
-    ai_model_refresh_tx: Option<std::sync::mpsc::Sender<AiModelRefreshDelivery>>,
-    ai_model_refresh_rx: Option<std::sync::mpsc::Receiver<AiModelRefreshDelivery>>,
-    ai_model_refresh_polling: bool,
-    ai_model_refresh_pending: usize,
-    next_ai_model_refresh_generation: u64,
-    next_ai_model_selector_probe_generation: u64,
-    ai_model_selector_probe_rx: Option<std::sync::mpsc::Receiver<AiModelSelectorProbeDelivery>>,
-    ai_model_selector_probe_tx: Option<std::sync::mpsc::Sender<AiModelSelectorProbeDelivery>>,
-    ai_model_selector_probe_polling: bool,
-    ai_model_selector_probe_pending: usize,
     select_anchors: HashMap<SelectAnchorId, OverlayAnchor>,
     text_input_anchors: HashMap<TextInputAnchorId, TextInputAnchor>,
     selectable_text_values: HashMap<u64, String>,
@@ -966,39 +862,8 @@ pub(crate) struct WorkspaceApp {
     active_connection_runtime_section: ConnectionRuntimeSection,
     connection_monitor_section_list_state: ListState,
     connection_monitor_section_list_cache: RefCell<VirtualListSignatureCache>,
-    cloud_sync_store: oxideterm_cloud_sync::state::CloudSyncStateStore,
-    cloud_sync_service: oxideterm_cloud_sync::operation::CloudSyncOperationService,
-    cloud_sync_form: CloudSyncFormDraft,
-    cloud_sync_section_list_state: ListState,
-    cloud_sync_section_list_cache: RefCell<VirtualListSignatureCache>,
-    cloud_sync_local_snapshot_cache: RefCell<Option<cloud_sync::CloudSyncLocalSnapshotCache>>,
-    cloud_sync_upload_diff_cache: RefCell<Option<cloud_sync::CloudSyncUploadDiffCache>>,
-    cloud_sync_rollback_backup_list_state: ListState,
-    cloud_sync_rollback_backup_list_cache: RefCell<VirtualListSignatureCache>,
-    cloud_sync_history_list_state: ListState,
-    cloud_sync_history_list_cache: RefCell<VirtualListSignatureCache>,
-    cloud_sync_open_select: Option<cloud_sync::CloudSyncSelect>,
-    cloud_sync_focused_select: Option<cloud_sync::CloudSyncSelect>,
-    cloud_sync_select_focus_origin: Option<browser_behavior::BrowserFocusOrigin>,
-    cloud_sync_select_highlighted: Option<(cloud_sync::CloudSyncSelect, usize)>,
-    cloud_sync_confirm: Option<cloud_sync::CloudSyncConfirm>,
-    cloud_sync_confirm_focused_action: Option<ConfirmDialogAction>,
-    cloud_sync_pending_preview: Option<cloud_sync::CloudSyncPendingPreview>,
-    cloud_sync_upload_preview: Option<cloud_sync::CloudSyncPendingPreview>,
-    cloud_sync_preview_selection: Option<cloud_sync::CloudSyncPreviewSelection>,
-    cloud_sync_upload_selection: Option<cloud_sync::CloudSyncUploadSelection>,
-    cloud_sync_progress: Option<oxideterm_cloud_sync::progress::CloudSyncProgress>,
-    cloud_sync_rx: Option<std::sync::mpsc::Receiver<cloud_sync::CloudSyncDelivery>>,
-    cloud_sync_polling: bool,
-    cloud_sync_active_action: Option<&'static str>,
-    cloud_sync_auto_upload_generation: u64,
-    cloud_sync_dirty_refresh_scheduled: bool,
-    cloud_sync_dirty_refresh_generation: u64,
-    cloud_sync_upload_after_current: Option<bool>,
-    cloud_sync_pull_preview_after_current: bool,
-    cloud_sync_active_tab: oxideterm_gpui_cloud_sync::CloudSyncTab,
-    sftp_worker_tx: std::sync::mpsc::Sender<sftp::SftpWorkerResult>,
-    sftp_worker_rx: std::sync::mpsc::Receiver<sftp::SftpWorkerResult>,
+    cloud_sync: cloud_sync::CloudSyncWorkspaceState,
+    sftp_worker_tx: tokio::sync::mpsc::UnboundedSender<sftp::SftpWorkerResult>,
     forwarding_worker_tx: std::sync::mpsc::Sender<forwards::ForwardingWorkerResult>,
     forwarding_worker_rx: std::sync::mpsc::Receiver<forwards::ForwardingWorkerResult>,
     forwarding_event_rx: std::sync::mpsc::Receiver<ForwardEvent>,
@@ -1014,41 +879,7 @@ pub(crate) struct WorkspaceApp {
     connection_store: ConnectionStore,
     settings_store_last_modified: Option<SystemTime>,
     connection_store_last_modified: Option<SystemTime>,
-    plugin_registry: plugin_host::NativePluginRegistry,
-    plugin_runtime_host: Arc<tokio::sync::Mutex<plugin_runtime::NativePluginRuntimeHost>>,
-    native_plugin_confirm_tx: std::sync::mpsc::Sender<plugin_lifecycle::NativePluginConfirmRequest>,
-    native_plugin_confirm_rx:
-        std::sync::mpsc::Receiver<plugin_lifecycle::NativePluginConfirmRequest>,
-    native_plugin_confirm: Option<plugin_lifecycle::NativePluginConfirmDialog>,
-    native_plugin_confirm_polling: bool,
-    native_plugin_terminal_tx:
-        std::sync::mpsc::Sender<plugin_lifecycle::NativePluginTerminalRequest>,
-    native_plugin_terminal_rx:
-        std::sync::mpsc::Receiver<plugin_lifecycle::NativePluginTerminalRequest>,
-    native_plugin_terminal_ui_requests: VecDeque<plugin_lifecycle::NativePluginTerminalRequest>,
-    native_plugin_terminal_polling: bool,
-    native_plugin_sync_tx: std::sync::mpsc::Sender<plugin_lifecycle::NativePluginSyncRequest>,
-    native_plugin_sync_rx: std::sync::mpsc::Receiver<plugin_lifecycle::NativePluginSyncRequest>,
-    native_plugin_sync_polling: bool,
-    native_plugin_runtime_services_started: bool,
-    native_plugin_layout_snapshot: serde_json::Value,
-    native_plugin_layout_polling: bool,
-    native_plugin_session_tree_snapshot: serde_json::Value,
-    native_plugin_session_polling: bool,
-    native_plugin_saved_forwards_snapshot: serde_json::Value,
-    native_plugin_saved_forwards_polling: bool,
-    native_plugin_transfer_snapshot: serde_json::Value,
-    native_plugin_transfer_polling: bool,
-    native_plugin_transfer_progress_last_emitted: Option<Instant>,
-    native_plugin_profiler_snapshot: serde_json::Value,
-    native_plugin_profiler_polling: bool,
-    native_plugin_profiler_last_emitted: Option<Instant>,
-    native_plugin_ide_snapshot: serde_json::Value,
-    native_plugin_ide_polling: bool,
-    native_plugin_ai_snapshot: serde_json::Value,
-    native_plugin_ai_polling: bool,
-    native_plugin_event_log_last_id: u64,
-    native_plugin_event_log_polling: bool,
+    native_plugin_runtime: plugin_lifecycle::NativePluginRuntimeState,
     session_manager: SessionManagerState,
     remote_desktop_sessions: HashMap<TabId, remote_desktop::RemoteDesktopSession>,
     remote_desktop_worker_tx: std::sync::mpsc::Sender<remote_desktop::RemoteDesktopWorkerDelivery>,
@@ -1408,13 +1239,3 @@ static SESSION_TREE_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 thread_local! {
     static FAIL_NEXT_SESSION_TREE_REPLACE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
-
-// Root workspace pieces are included from here to preserve private access
-// across the Tauri-port surface while shrinking the previous 1k-line module.
-include!("workspace/root/state.rs");
-include!("workspace/root/init.rs");
-include!("workspace/root/helpers.rs");
-include!("workspace/root/render.rs");
-include!("workspace/root/background.rs");
-#[cfg(test)]
-include!("workspace/root/tests.rs");

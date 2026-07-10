@@ -3,30 +3,22 @@
 
 use std::{
     collections::{HashMap, HashSet},
-    ffi::OsString,
-    fs::{self, OpenOptions},
-    io::{self, Write},
+    fs, io,
     path::{Path, PathBuf},
-    sync::{
-        Mutex,
-        atomic::{AtomicU64, Ordering},
-    },
+    sync::Mutex,
 };
 
 #[cfg(test)]
 use std::cell::Cell;
 
 use chrono::{DateTime, Duration, Utc};
+use oxideterm_atomic_file::{durable_remove, durable_write_with_before_replace};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::{ForwardRule, ForwardStatus, ForwardType};
 
 pub const FORWARD_TOMBSTONE_RETENTION_DAYS: i64 = 30;
-const MAX_ATOMIC_TEMP_ATTEMPTS: usize = 32;
-
-static ATOMIC_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
-
 #[cfg(test)]
 thread_local! {
     static FAIL_NEXT_ATOMIC_REPLACE: Cell<bool> = const { Cell::new(false) };
@@ -591,83 +583,14 @@ impl SavedForwardStore {
             }
             SavedForwardFileState::Missing => {
                 fail_before_atomic_replace_for_tests()?;
-                match fs::remove_file(&self.path) {
-                    Ok(()) => {
-                        let parent = parent_directory(&self.path);
-                        sync_parent_directory(parent)?;
-                        Ok(())
-                    }
-                    Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
-                    Err(error) => Err(error.into()),
-                }
+                durable_remove(&self.path).map_err(Into::into)
             }
         }
     }
 }
 
 fn atomic_write_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    let parent = parent_directory(path);
-    fs::create_dir_all(parent)?;
-    let file_name = path.file_name().ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "saved forward path has no file name",
-        )
-    })?;
-    let (temp_path, mut temp_file) = (0..MAX_ATOMIC_TEMP_ATTEMPTS)
-        .find_map(|_| {
-            let sequence = ATOMIC_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-            let mut temp_name = OsString::from(".");
-            temp_name.push(file_name);
-            temp_name.push(format!(".{}.{sequence}.tmp", std::process::id()));
-            let temp_path = parent.join(temp_name);
-            match OpenOptions::new()
-                .create_new(true)
-                .write(true)
-                .open(&temp_path)
-            {
-                Ok(file) => Some(Ok((temp_path, file))),
-                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => None,
-                Err(error) => Some(Err(error)),
-            }
-        })
-        .transpose()?
-        .ok_or_else(|| {
-            io::Error::new(io::ErrorKind::AlreadyExists, "atomic temp path exhausted")
-        })?;
-
-    // The destination remains untouched until the complete temp file is durable.
-    let write_result = (|| {
-        temp_file.write_all(bytes)?;
-        temp_file.flush()?;
-        temp_file.sync_all()?;
-        drop(temp_file);
-        fail_before_atomic_replace_for_tests()?;
-        atomic_replace_file(&temp_path, path)?;
-        sync_parent_directory(parent)
-    })();
-    if write_result.is_err() {
-        let _ = fs::remove_file(&temp_path);
-    }
-    write_result
-}
-
-fn parent_directory(path: &Path) -> &Path {
-    path.parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."))
-}
-
-#[cfg(not(windows))]
-fn sync_parent_directory(parent: &Path) -> io::Result<()> {
-    // Unix requires the directory entry itself to be synced after rename or unlink.
-    fs::File::open(parent)?.sync_all()
-}
-
-#[cfg(windows)]
-fn sync_parent_directory(_parent: &Path) -> io::Result<()> {
-    // MoveFileExW uses WRITE_THROUGH below, which flushes the replacement operation.
-    Ok(())
+    durable_write_with_before_replace(path, bytes, fail_before_atomic_replace_for_tests)
 }
 
 #[cfg(test)]
@@ -689,47 +612,6 @@ fn fail_before_atomic_replace_for_tests() -> io::Result<()> {
 #[cfg(test)]
 fn inject_atomic_replace_failure() {
     FAIL_NEXT_ATOMIC_REPLACE.with(|fail| fail.set(true));
-}
-
-#[cfg(not(windows))]
-fn atomic_replace_file(source: &Path, destination: &Path) -> io::Result<()> {
-    fs::rename(source, destination)
-}
-
-#[cfg(windows)]
-fn atomic_replace_file(source: &Path, destination: &Path) -> io::Result<()> {
-    use std::os::windows::ffi::OsStrExt;
-
-    const MOVEFILE_REPLACE_EXISTING: u32 = 0x1;
-    const MOVEFILE_WRITE_THROUGH: u32 = 0x8;
-
-    #[link(name = "Kernel32")]
-    unsafe extern "system" {
-        fn MoveFileExW(existing: *const u16, replacement: *const u16, flags: u32) -> i32;
-    }
-
-    let source = source
-        .as_os_str()
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect::<Vec<_>>();
-    let destination = destination
-        .as_os_str()
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect::<Vec<_>>();
-    let replaced = unsafe {
-        MoveFileExW(
-            source.as_ptr(),
-            destination.as_ptr(),
-            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
-        )
-    };
-    if replaced == 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
 }
 
 impl From<PersistedForward> for PersistedForwardDto {

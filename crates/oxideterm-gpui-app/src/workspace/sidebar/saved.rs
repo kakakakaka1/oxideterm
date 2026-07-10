@@ -1,5 +1,10 @@
+use super::*;
+
 impl WorkspaceApp {
-    fn render_saved_connections_sidebar_content(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn render_saved_connections_sidebar_content(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let theme = self.tokens.ui;
         let query = self
             .session_manager
@@ -65,7 +70,7 @@ impl WorkspaceApp {
                                 rendered
                             },
                         ))
-                    })
+                    }),
             )
             .when(self.connection_store.connections().is_empty(), |content| {
                 content.child(
@@ -99,7 +104,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_saved_connection_sidebar_row(
+    pub(in crate::workspace) fn render_saved_connection_sidebar_row(
         &self,
         conn: oxideterm_connections::ConnectionInfo,
         cx: &mut Context<Self>,

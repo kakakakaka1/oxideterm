@@ -1,17 +1,24 @@
+use super::*;
+
 impl WorkspaceApp {
-    fn sftp_conflict_description(&self) -> String {
+    pub(in crate::workspace::sftp) fn sftp_conflict_description(&self) -> String {
         self.i18n.t("sftp.conflict.description")
     }
 
-    fn sftp_conflict_remaining_count(&self) -> usize {
+    pub(in crate::workspace::sftp) fn sftp_conflict_remaining_count(&self) -> usize {
         self.sftp_view
             .conflict_state
             .as_ref()
-            .map(|state| state.conflicts.len().saturating_sub(state.current_index + 1))
+            .map(|state| {
+                state
+                    .conflicts
+                    .len()
+                    .saturating_sub(state.current_index + 1)
+            })
             .unwrap_or(0)
     }
 
-    fn render_sftp_conflict_body(
+    pub(in crate::workspace::sftp) fn render_sftp_conflict_body(
         &self,
         has_background: bool,
         cx: &mut Context<Self>,
@@ -128,10 +135,9 @@ impl WorkspaceApp {
                                 .text_color(rgb(theme.text_muted))
                                 .cursor_pointer()
                                 .child(
-                                    self.i18n.t("sftp.conflict.apply_all").replace(
-                                        "{{count}}",
-                                        &state.conflicts.len().to_string(),
-                                    ),
+                                    self.i18n
+                                        .t("sftp.conflict.apply_all")
+                                        .replace("{{count}}", &state.conflicts.len().to_string()),
                                 )
                                 .on_mouse_down(
                                     MouseButton::Left,

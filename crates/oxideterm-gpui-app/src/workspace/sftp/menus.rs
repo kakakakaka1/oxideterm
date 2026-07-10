@@ -1,5 +1,7 @@
+use super::*;
+
 impl WorkspaceApp {
-    fn render_sftp_context_menu(
+    pub(in crate::workspace::sftp) fn render_sftp_context_menu(
         &self,
         menu: SftpContextMenu,
         window: &Window,
@@ -31,149 +33,151 @@ impl WorkspaceApp {
             self.i18n.t("sftp.context.download")
         };
 
-        let popup = context_menu_event_boundary(div()
-            .w(px(SFTP_CONTEXT_MENU_WIDTH))
-            .p(px(SFTP_CONTEXT_MENU_PADDING))
-            .rounded(px(self.tokens.radii.sm))
-            .border_1()
-            .border_color(sftp_border(theme.border, has_background))
-            .bg(sftp_panel_bg(theme.bg_elevated, has_background, 0xf2))
-            .shadow_lg())
-            .when(selected_count > 0, |menu_el| {
-                menu_el.child(self.render_sftp_context_menu_guarded_item(
-                    if menu.pane == SftpPane::Local {
-                        LucideIcon::Upload
-                    } else {
-                        LucideIcon::Download
-                    },
-                    transfer_label,
-                    false,
-                    false,
-                    transfer_loading,
-                    has_background,
-                    move |this, _event, _window, _cx| {
-                        this.queue_sftp_transfers(menu.pane, direction);
-                    },
-                    cx,
-                ))
-            })
-            .when_some(menu.file.clone(), |menu_el, file| {
-                if menu.pane != SftpPane::Remote || file.file_type == SftpFileType::Directory {
-                    menu_el
+        let popup = context_menu_event_boundary(
+            div()
+                .w(px(SFTP_CONTEXT_MENU_WIDTH))
+                .p(px(SFTP_CONTEXT_MENU_PADDING))
+                .rounded(px(self.tokens.radii.sm))
+                .border_1()
+                .border_color(sftp_border(theme.border, has_background))
+                .bg(sftp_panel_bg(theme.bg_elevated, has_background, 0xf2))
+                .shadow_lg(),
+        )
+        .when(selected_count > 0, |menu_el| {
+            menu_el.child(self.render_sftp_context_menu_guarded_item(
+                if menu.pane == SftpPane::Local {
+                    LucideIcon::Upload
                 } else {
-                    let can_extract = selected_count == 1
-                        && sftp_extract_archive_kind(&file.name).is_some();
-                    menu_el
-                        .child(self.render_sftp_context_menu_guarded_item(
-                            LucideIcon::Eye,
-                            self.i18n.t("sftp.context.preview"),
+                    LucideIcon::Download
+                },
+                transfer_label,
+                false,
+                false,
+                transfer_loading,
+                has_background,
+                move |this, _event, _window, _cx| {
+                    this.queue_sftp_transfers(menu.pane, direction);
+                },
+                cx,
+            ))
+        })
+        .when_some(menu.file.clone(), |menu_el, file| {
+            if menu.pane != SftpPane::Remote || file.file_type == SftpFileType::Directory {
+                menu_el
+            } else {
+                let can_extract =
+                    selected_count == 1 && sftp_extract_archive_kind(&file.name).is_some();
+                menu_el
+                    .child(self.render_sftp_context_menu_guarded_item(
+                        LucideIcon::Eye,
+                        self.i18n.t("sftp.context.preview"),
+                        false,
+                        false,
+                        pane_loading,
+                        has_background,
+                        {
+                            let file = file.clone();
+                            move |this, _event, _window, _cx| {
+                                this.open_or_preview_sftp_file(menu.pane, &file);
+                            }
+                        },
+                        cx,
+                    ))
+                    .when(can_extract, |menu_el| {
+                        menu_el.child(self.render_sftp_context_menu_guarded_item(
+                            LucideIcon::FolderArchive,
+                            self.i18n.t("sftp.context.extract"),
                             false,
                             false,
                             pane_loading,
                             has_background,
                             {
                                 let file = file.clone();
-                                move |this, _event, _window, _cx| {
-                                    this.open_or_preview_sftp_file(menu.pane, &file);
+                                move |this, _event, _window, cx| {
+                                    this.extract_remote_sftp_archive(file.clone());
+                                    cx.notify();
                                 }
                             },
                             cx,
                         ))
-                        .when(can_extract, |menu_el| {
-                            menu_el.child(self.render_sftp_context_menu_guarded_item(
-                                LucideIcon::FolderArchive,
-                                self.i18n.t("sftp.context.extract"),
-                                false,
-                                false,
-                                pane_loading,
-                                has_background,
-                                {
-                                    let file = file.clone();
-                                    move |this, _event, _window, cx| {
-                                        this.extract_remote_sftp_archive(file.clone());
-                                        cx.notify();
-                                    }
-                                },
-                                cx,
-                            ))
-                        })
-                }
-            })
-            .when(menu.file.is_some() && selected_count == 1, |menu_el| {
-                menu_el.child(self.render_sftp_context_menu_guarded_item(
-                    LucideIcon::Pencil,
-                    self.i18n.t("sftp.context.rename"),
-                    false,
-                    false,
-                    pane_loading,
-                    has_background,
-                    {
-                        let file = menu.file.clone();
-                        move |this, _event, _window, _cx| {
-                            if let Some(file) = file.as_ref() {
-                                this.open_sftp_rename_dialog(menu.pane, file.name.clone());
-                            }
-                        }
-                    },
-                    cx,
-                ))
-            })
-            .when_some(menu.file.clone(), |menu_el, file| {
-                menu_el.child(self.render_sftp_context_menu_guarded_item(
-                    LucideIcon::Copy,
-                    self.i18n.t("sftp.context.copy_path"),
-                    false,
-                    false,
-                    pane_loading,
-                    has_background,
-                    move |this, _event, _window, cx| {
-                        let base = match menu.pane {
-                            SftpPane::Local => &this.sftp_view.local_path,
-                            SftpPane::Remote => &this.sftp_view.remote_path,
-                        };
-                        cx.write_to_clipboard(ClipboardItem::new_string(join_sftp_path(
-                            base, &file.name,
-                        )));
-                    },
-                    cx,
-                ))
-            })
-            .when(selected_count > 0, |menu_el| {
-                menu_el.child(self.render_sftp_context_menu_guarded_item(
-                    LucideIcon::Trash2,
-                    self.i18n.t("sftp.context.delete"),
-                    true,
-                    false,
-                    pane_loading,
-                    has_background,
-                    move |this, _event, _window, _cx| {
-                        let files = this.sftp_selected_names(menu.pane);
-                        this.sftp_view.dialog = Some(SftpDialog::Delete {
-                            pane: menu.pane,
-                            files,
-                        });
-                    },
-                    cx,
-                ))
-            })
-            .child(
-                div()
-                    .h(px(1.0))
-                    .my(px(SFTP_CONTEXT_MENU_PADDING))
-                    .bg(sftp_border(theme.border, has_background)),
-            )
-            .child(self.render_sftp_context_menu_guarded_item(
-                LucideIcon::FolderOpen,
-                self.i18n.t("sftp.context.new_folder"),
+                    })
+            }
+        })
+        .when(menu.file.is_some() && selected_count == 1, |menu_el| {
+            menu_el.child(self.render_sftp_context_menu_guarded_item(
+                LucideIcon::Pencil,
+                self.i18n.t("sftp.context.rename"),
                 false,
                 false,
                 pane_loading,
                 has_background,
-                move |this, _event, _window, _cx| {
-                    this.open_sftp_new_folder_dialog(menu.pane);
+                {
+                    let file = menu.file.clone();
+                    move |this, _event, _window, _cx| {
+                        if let Some(file) = file.as_ref() {
+                            this.open_sftp_rename_dialog(menu.pane, file.name.clone());
+                        }
+                    }
                 },
                 cx,
-            ));
+            ))
+        })
+        .when_some(menu.file.clone(), |menu_el, file| {
+            menu_el.child(self.render_sftp_context_menu_guarded_item(
+                LucideIcon::Copy,
+                self.i18n.t("sftp.context.copy_path"),
+                false,
+                false,
+                pane_loading,
+                has_background,
+                move |this, _event, _window, cx| {
+                    let base = match menu.pane {
+                        SftpPane::Local => &this.sftp_view.local_path,
+                        SftpPane::Remote => &this.sftp_view.remote_path,
+                    };
+                    cx.write_to_clipboard(ClipboardItem::new_string(join_sftp_path(
+                        base, &file.name,
+                    )));
+                },
+                cx,
+            ))
+        })
+        .when(selected_count > 0, |menu_el| {
+            menu_el.child(self.render_sftp_context_menu_guarded_item(
+                LucideIcon::Trash2,
+                self.i18n.t("sftp.context.delete"),
+                true,
+                false,
+                pane_loading,
+                has_background,
+                move |this, _event, _window, _cx| {
+                    let files = this.sftp_selected_names(menu.pane);
+                    this.sftp_view.dialog = Some(SftpDialog::Delete {
+                        pane: menu.pane,
+                        files,
+                    });
+                },
+                cx,
+            ))
+        })
+        .child(
+            div()
+                .h(px(1.0))
+                .my(px(SFTP_CONTEXT_MENU_PADDING))
+                .bg(sftp_border(theme.border, has_background)),
+        )
+        .child(self.render_sftp_context_menu_guarded_item(
+            LucideIcon::FolderOpen,
+            self.i18n.t("sftp.context.new_folder"),
+            false,
+            false,
+            pane_loading,
+            has_background,
+            move |this, _event, _window, _cx| {
+                this.open_sftp_new_folder_dialog(menu.pane);
+            },
+            cx,
+        ));
 
         self.workspace_context_menu_backdrop(
             deferred(

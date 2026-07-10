@@ -1,102 +1,11 @@
-use std::{
-    collections::HashMap,
-    collections::hash_map::DefaultHasher,
-    hash::{Hash, Hasher},
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 
 use alacritty_terminal::vte::ansi::CursorShape as AlacCursorShape;
 pub use oxideterm_terminal_graphics::{
     GraphicsOptions, TerminalImageAnimationState, TerminalImageData, TerminalImageFrame,
     TerminalImageId, TerminalImageProtocol,
 };
-
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct TerminalCell {
-    pub ch: char,
-    pub zerowidth: String,
-    pub wide: bool,
-    pub fg: TerminalColor,
-    pub bg: TerminalColor,
-    pub attrs: TerminalAttrs,
-    pub hyperlink: Option<String>,
-    pub cursor: bool,
-}
-
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
-pub struct TerminalColor {
-    pub r: u8,
-    pub g: u8,
-    pub b: u8,
-}
-
-impl TerminalColor {
-    pub const fn rgb(r: u8, g: u8, b: u8) -> Self {
-        Self { r, g, b }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq)]
-pub struct TerminalAttrs {
-    pub bold: bool,
-    pub dim: bool,
-    pub italic: bool,
-    pub underline: bool,
-    pub strikeout: bool,
-    pub inverse: bool,
-}
-
-#[derive(Clone, Debug)]
-pub struct TerminalRow {
-    pub absolute_line: i64,
-    pub cells: Arc<Vec<TerminalCell>>,
-    pub wrapped: bool,
-    pub active_input: bool,
-    pub signature: u64,
-}
-
-impl TerminalRow {
-    pub fn text(&self) -> String {
-        let mut text = String::new();
-        for cell in self.cells.iter() {
-            text.push(cell.ch);
-            text.push_str(&cell.zerowidth);
-        }
-        text
-    }
-
-    pub fn cells_mut(&mut self) -> &mut Vec<TerminalCell> {
-        // Snapshot rows can share unchanged cell buffers across frames. Any
-        // writer must go through copy-on-write so older snapshots remain stable.
-        Arc::make_mut(&mut self.cells)
-    }
-
-    pub fn refresh_signature(&mut self) {
-        self.signature = self.compute_signature();
-    }
-
-    pub fn compute_signature(&self) -> u64 {
-        let mut hasher = DefaultHasher::new();
-        self.wrapped.hash(&mut hasher);
-        self.active_input.hash(&mut hasher);
-        self.cells.hash(&mut hasher);
-        hasher.finish()
-    }
-
-    pub fn reuse_cells_from_if_equal(&mut self, previous: &Self) -> bool {
-        if self.signature != previous.signature
-            || self.absolute_line != previous.absolute_line
-            || self.wrapped != previous.wrapped
-            || self.active_input != previous.active_input
-            || self.cells.as_ref() != previous.cells.as_ref()
-        {
-            return false;
-        }
-
-        self.cells = previous.cells.clone();
-        true
-    }
-}
+pub use oxideterm_terminal_model::{TerminalAttrs, TerminalCell, TerminalColor, TerminalRow};
 
 #[derive(Clone, Debug)]
 pub struct TerminalSnapshot {

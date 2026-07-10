@@ -1,27 +1,29 @@
-const AI_MCP_PANEL_BORDER_ALPHA: u32 = 0x66; // Tauri border-theme-border/40.
-const AI_MCP_PANEL_BG_ALPHA: u32 = 0x4d; // Tauri bg-theme-bg-panel/30.
-const AI_MCP_CODE_BG_ALPHA: u32 = 0x99; // Tauri bg-theme-bg-panel/60.
-const AI_MCP_TOOL_BORDER_ALPHA: u32 = 0x33; // Tauri border-theme-border/20.
-const AI_MCP_DIALOG_WIDTH: f32 = 672.0; // Tauri DialogContent sm:max-w-2xl.
-const AI_MCP_DIALOG_CONTENT_PX: f32 = 16.0; // Tauri px-4.
-const AI_MCP_DIALOG_CONTENT_PY: f32 = 8.0; // Tauri py-2.
-const AI_MCP_FORM_GAP: f32 = 16.0; // Tauri space-y-4.
-const AI_MCP_FIELD_GAP: f32 = 8.0; // Tauri space-y-2 / gap-2.
-const AI_MCP_CARD_ACTION_H: f32 = 28.0; // Tauri MCP card actions h-7.
-const AI_MCP_CARD_ACTION_PX: f32 = 8.0; // Tauri px-2.
-const AI_MCP_CARD_ICON_BUTTON: f32 = 28.0; // Tauri h-7 w-7 p-0.
-const AI_MCP_ACTION_ICON: f32 = 14.0; // Tauri w-3.5 h-3.5.
-const AI_MCP_STATUS_ICON: f32 = 12.0; // Tauri status icons w-3 h-3.
-const AI_MCP_ARGS_TEXTAREA_MIN_H: f32 = 84.0; // Tauri textarea-sized MCP args field.
+use super::*;
+
+pub(in crate::workspace) const AI_MCP_PANEL_BORDER_ALPHA: u32 = 0x66; // Tauri border-theme-border/40.
+pub(in crate::workspace) const AI_MCP_PANEL_BG_ALPHA: u32 = 0x4d; // Tauri bg-theme-bg-panel/30.
+pub(in crate::workspace) const AI_MCP_CODE_BG_ALPHA: u32 = 0x99; // Tauri bg-theme-bg-panel/60.
+pub(in crate::workspace) const AI_MCP_TOOL_BORDER_ALPHA: u32 = 0x33; // Tauri border-theme-border/20.
+pub(in crate::workspace) const AI_MCP_DIALOG_WIDTH: f32 = 672.0; // Tauri DialogContent sm:max-w-2xl.
+pub(in crate::workspace) const AI_MCP_DIALOG_CONTENT_PX: f32 = 16.0; // Tauri px-4.
+pub(in crate::workspace) const AI_MCP_DIALOG_CONTENT_PY: f32 = 8.0; // Tauri py-2.
+pub(in crate::workspace) const AI_MCP_FORM_GAP: f32 = 16.0; // Tauri space-y-4.
+pub(in crate::workspace) const AI_MCP_FIELD_GAP: f32 = 8.0; // Tauri space-y-2 / gap-2.
+pub(in crate::workspace) const AI_MCP_CARD_ACTION_H: f32 = 28.0; // Tauri MCP card actions h-7.
+pub(in crate::workspace) const AI_MCP_CARD_ACTION_PX: f32 = 8.0; // Tauri px-2.
+pub(in crate::workspace) const AI_MCP_CARD_ICON_BUTTON: f32 = 28.0; // Tauri h-7 w-7 p-0.
+pub(in crate::workspace) const AI_MCP_ACTION_ICON: f32 = 14.0; // Tauri w-3.5 h-3.5.
+pub(in crate::workspace) const AI_MCP_STATUS_ICON: f32 = 12.0; // Tauri status icons w-3 h-3.
+pub(in crate::workspace) const AI_MCP_ARGS_TEXTAREA_MIN_H: f32 = 84.0; // Tauri textarea-sized MCP args field.
 
 impl WorkspaceApp {
-    fn ai_mcp_servers_section(
+    pub(in crate::workspace) fn ai_mcp_servers_section(
         &self,
         settings: &PersistedSettings,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let configs = ai_mcp_configs(settings);
-        let snapshots = self.ai_mcp_registry.snapshots();
+        let snapshots = self.ai.runtime.mcp_registry.snapshots();
         let configured_server_ids: HashSet<_> =
             configs.iter().map(|config| config.id.as_str()).collect();
         // Only live configured MCP rows should drive the retry/status ticker.
@@ -43,7 +45,9 @@ impl WorkspaceApp {
             div().flex().flex_col().gap(px(12.0)).child(
                 div()
                     .border_1()
-                    .border_color(rgba((self.tokens.ui.border << 8) | AI_MCP_PANEL_BORDER_ALPHA))
+                    .border_color(rgba(
+                        (self.tokens.ui.border << 8) | AI_MCP_PANEL_BORDER_ALPHA,
+                    ))
                     .rounded(px(self.tokens.radii.lg))
                     .py(px(32.0))
                     .text_align(gpui::TextAlign::Center)
@@ -53,14 +57,14 @@ impl WorkspaceApp {
             )
         } else {
             self.sync_ai_mcp_server_list_state(&configs, &snapshots);
-            let state = self.ai_mcp_server_list_state.clone();
+            let state = self.ai.models.mcp_server_list_state.clone();
             let spec = self.ai_mcp_server_list_spec();
             let workspace = cx.entity();
             let configs_for_rows = configs.clone();
             let snapshots_for_rows = snapshots.clone();
             div()
                 .h(px(
-                    configs.len() as f32 * AI_MCP_SERVER_LIST_ESTIMATED_HEIGHT,
+                    configs.len() as f32 * AI_MCP_SERVER_LIST_ESTIMATED_HEIGHT
                 ))
                 .child(tauri_virtual_list(
                     state,
@@ -117,7 +121,7 @@ impl WorkspaceApp {
                                 ..ToolbarButtonOptions::default()
                             },
                             cx.listener(|this, _event, _window, cx| {
-                                this.ai_mcp_add_dialog = Some(AiMcpServerDraft::default());
+                                this.ai.models.mcp_add_dialog = Some(AiMcpServerDraft::default());
                                 this.focused_settings_input = None;
                                 this.close_settings_select();
                                 this.clear_standard_confirm_focus();
@@ -132,7 +136,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn sync_ai_mcp_server_list_state(
+    pub(in crate::workspace) fn sync_ai_mcp_server_list_state(
         &self,
         configs: &[oxideterm_ai::McpServerConfig],
         snapshots: &[oxideterm_ai::McpServerStateSnapshot],
@@ -149,28 +153,30 @@ impl WorkspaceApp {
             })
             .collect::<Vec<_>>();
         sync_tauri_variable_list_state_by_signatures(
-            &self.ai_mcp_server_list_state,
-            &mut self.ai_mcp_server_list_cache.borrow_mut(),
+            &self.ai.models.mcp_server_list_state,
+            &mut self.ai.models.mcp_server_list_cache.borrow_mut(),
             "ai-mcp-servers",
             &signatures,
             self.ai_mcp_server_list_spec(),
         );
     }
 
-    fn ai_mcp_server_list_spec(&self) -> TauriVirtualListSpec {
+    pub(in crate::workspace) fn ai_mcp_server_list_spec(&self) -> TauriVirtualListSpec {
         TauriVirtualListSpec::new(
             px(AI_MCP_SERVER_LIST_ESTIMATED_HEIGHT),
             AI_MCP_SERVER_LIST_OVERSCAN,
         )
     }
 
-    fn ai_mcp_server_card(
+    pub(in crate::workspace) fn ai_mcp_server_card(
         &self,
         config: oxideterm_ai::McpServerConfig,
         snapshot: Option<&oxideterm_ai::McpServerStateSnapshot>,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let status = snapshot.map(|snapshot| snapshot.status).unwrap_or("disconnected");
+        let status = snapshot
+            .map(|snapshot| snapshot.status)
+            .unwrap_or("disconnected");
         let tools = snapshot
             .map(|snapshot| snapshot.tools.as_slice())
             .unwrap_or_default();
@@ -197,7 +203,9 @@ impl WorkspaceApp {
         let mut card = div()
             .rounded(px(self.tokens.radii.lg))
             .border_1()
-            .border_color(rgba((self.tokens.ui.border << 8) | AI_MCP_PANEL_BORDER_ALPHA))
+            .border_color(rgba(
+                (self.tokens.ui.border << 8) | AI_MCP_PANEL_BORDER_ALPHA,
+            ))
             .bg(rgba((self.tokens.ui.bg_panel << 8) | AI_MCP_PANEL_BG_ALPHA))
             .p(px(16.0))
             .flex()
@@ -226,8 +234,7 @@ impl WorkspaceApp {
                             .when(
                                 snapshot.is_some_and(|snapshot| {
                                     snapshot.resolved_transport.as_deref() == Some("legacy-sse")
-                                        && config.transport
-                                            != oxideterm_ai::McpTransport::LegacySse
+                                        && config.transport != oxideterm_ai::McpTransport::LegacySse
                                 }),
                                 |row| {
                                     row.child(
@@ -238,7 +245,10 @@ impl WorkspaceApp {
                                             .bg(rgba((self.tokens.ui.warning << 8) | 0x1a))
                                             .text_size(px(10.0))
                                             .text_color(rgb(self.tokens.ui.warning))
-                                            .child(self.i18n.t("settings_view.mcp.fallback_legacy_sse")),
+                                            .child(
+                                                self.i18n
+                                                    .t("settings_view.mcp.fallback_legacy_sse"),
+                                            ),
                                     )
                                 },
                             ),
@@ -254,7 +264,7 @@ impl WorkspaceApp {
                                     rgb(self.tokens.ui.text_muted),
                                     false,
                                     move |this, _event, _window, cx| {
-                                        let registry = this.ai_mcp_registry.clone();
+                                        let registry = this.ai.runtime.mcp_registry.clone();
                                         let server_id = refresh_id.clone();
                                         cx.spawn(async move |weak, cx| {
                                             let _ = registry.refresh_tools(&server_id).await;
@@ -272,7 +282,7 @@ impl WorkspaceApp {
                                 rgb(self.tokens.ui.error),
                                 false,
                                 move |this, _event, _window, cx| {
-                                    let registry = this.ai_mcp_registry.clone();
+                                    let registry = this.ai.runtime.mcp_registry.clone();
                                     let runtime = this.forwarding_runtime.clone();
                                     let server_id = remove_id.clone();
                                     cx.spawn(async move |weak, cx| {
@@ -281,7 +291,8 @@ impl WorkspaceApp {
                                         let server_id_for_delete = server_id.clone();
                                         let _ = runtime
                                             .spawn_blocking(move || {
-                                                delete_registry.delete_auth_token(&server_id_for_delete)
+                                                delete_registry
+                                                    .delete_auth_token(&server_id_for_delete)
                                             })
                                             .await;
                                         let _ = weak.update(cx, |this, cx| {
@@ -338,7 +349,9 @@ impl WorkspaceApp {
                     .mt(px(4.0))
                     .pt(px(8.0))
                     .border_t_1()
-                    .border_color(rgba((self.tokens.ui.border << 8) | AI_MCP_TOOL_BORDER_ALPHA))
+                    .border_color(rgba(
+                        (self.tokens.ui.border << 8) | AI_MCP_TOOL_BORDER_ALPHA,
+                    ))
                     .flex()
                     .flex_col()
                     .gap(px(6.0))
@@ -366,7 +379,7 @@ impl WorkspaceApp {
         card.into_any_element()
     }
 
-    fn ai_mcp_card_icon_button(
+    pub(in crate::workspace) fn ai_mcp_card_icon_button(
         &self,
         icon: LucideIcon,
         icon_color: Rgba,
@@ -392,7 +405,7 @@ impl WorkspaceApp {
         .into_any_element()
     }
 
-    fn ai_mcp_toggle_button(
+    pub(in crate::workspace) fn ai_mcp_toggle_button(
         &self,
         status: &str,
         config: oxideterm_ai::McpServerConfig,
@@ -438,7 +451,7 @@ impl WorkspaceApp {
             )),
             options,
             cx.listener(move |this, _event, _window, cx| {
-                let registry = this.ai_mcp_registry.clone();
+                let registry = this.ai.runtime.mcp_registry.clone();
                 let config = config.clone();
                 cx.spawn(async move |weak, cx| {
                     if connected {
@@ -455,10 +468,13 @@ impl WorkspaceApp {
         .into_any_element()
     }
 
-    fn ai_mcp_status_badge(&self, status: &str) -> AnyElement {
+    pub(in crate::workspace) fn ai_mcp_status_badge(&self, status: &str) -> AnyElement {
         let (label_key, color) = match status {
             "connected" => ("settings_view.mcp.status_connected", self.tokens.ui.success),
-            "connecting" => ("settings_view.mcp.status_connecting", self.tokens.ui.warning),
+            "connecting" => (
+                "settings_view.mcp.status_connecting",
+                self.tokens.ui.warning,
+            ),
             "error" => ("settings_view.mcp.status_error", self.tokens.ui.error),
             _ => (
                 "settings_view.mcp.status_disconnected",
@@ -494,7 +510,10 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn ai_mcp_transport_badge(&self, transport: oxideterm_ai::McpTransport) -> AnyElement {
+    pub(in crate::workspace) fn ai_mcp_transport_badge(
+        &self,
+        transport: oxideterm_ai::McpTransport,
+    ) -> AnyElement {
         div()
             .px(px(6.0))
             .py(px(2.0))
@@ -506,7 +525,11 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn ai_mcp_code_line(&self, value: String, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn ai_mcp_code_line(
+        &self,
+        value: String,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         div()
             .text_size(px(self.tokens.metrics.ui_text_xs))
             .text_color(rgb(self.tokens.ui.text_muted))
@@ -527,8 +550,11 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_ai_mcp_add_server_dialog(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let draft = self.ai_mcp_add_dialog.as_ref()?;
+    pub(in crate::workspace) fn render_ai_mcp_add_server_dialog(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        let draft = self.ai.models.mcp_add_dialog.as_ref()?;
         let can_add = ai_mcp_draft_valid(draft, self.settings_store.settings());
         let transport_label = ai_mcp_transport_label(draft.transport);
         let auth_mode_label = match draft.auth_header_mode {
@@ -606,31 +632,27 @@ impl WorkspaceApp {
                         )
                         .child(
                             dialog_footer(&self.tokens)
-                                .child(
-                                    self.standard_footer_action_button(
-                                        self.i18n.t("settings_view.mcp.cancel"),
-                                        ButtonVariant::Outline,
-                                        ConfirmDialogAction::Cancel,
-                                        false,
-                                        |this, _event, _window, cx| {
-                                            this.close_ai_mcp_add_dialog();
-                                            cx.notify();
-                                        },
-                                        cx,
-                                    ),
-                                )
-                                .child(
-                                    self.standard_footer_action_button(
-                                        self.i18n.t("settings_view.mcp.add"),
-                                        ButtonVariant::Default,
-                                        ConfirmDialogAction::Confirm,
-                                        !can_add,
-                                        |this, _event, _window, cx| {
-                                            this.add_ai_mcp_server_from_draft(cx);
-                                        },
-                                        cx,
-                                    ),
-                                ),
+                                .child(self.standard_footer_action_button(
+                                    self.i18n.t("settings_view.mcp.cancel"),
+                                    ButtonVariant::Outline,
+                                    ConfirmDialogAction::Cancel,
+                                    false,
+                                    |this, _event, _window, cx| {
+                                        this.close_ai_mcp_add_dialog();
+                                        cx.notify();
+                                    },
+                                    cx,
+                                ))
+                                .child(self.standard_footer_action_button(
+                                    self.i18n.t("settings_view.mcp.add"),
+                                    ButtonVariant::Default,
+                                    ConfirmDialogAction::Confirm,
+                                    !can_add,
+                                    |this, _event, _window, cx| {
+                                        this.add_ai_mcp_server_from_draft(cx);
+                                    },
+                                    cx,
+                                )),
                         ),
                 )
                 .into_any_element(),
@@ -642,7 +664,7 @@ impl WorkspaceApp {
         event: &KeyDownEvent,
         cx: &mut Context<Self>,
     ) -> bool {
-        let Some(draft) = self.ai_mcp_add_dialog.as_ref() else {
+        let Some(draft) = self.ai.models.mcp_add_dialog.as_ref() else {
             return false;
         };
         let can_add = ai_mcp_draft_valid(draft, self.settings_store.settings());
@@ -678,7 +700,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn ai_mcp_transport_fields(
+    pub(in crate::workspace) fn ai_mcp_transport_fields(
         &self,
         draft: &AiMcpServerDraft,
         auth_mode_label: String,
@@ -734,7 +756,7 @@ impl WorkspaceApp {
         ]
     }
 
-    fn ai_mcp_text_input_control(
+    pub(in crate::workspace) fn ai_mcp_text_input_control(
         &self,
         input: SettingsInput,
         value: String,
@@ -779,11 +801,11 @@ impl WorkspaceApp {
                     cx.stop_propagation();
                 }),
             )
-            .on_mouse_move(
-                cx.listener(|this, event: &gpui::MouseMoveEvent, window, cx| {
+            .on_mouse_move(cx.listener(
+                |this, event: &gpui::MouseMoveEvent, window, cx| {
                     this.update_ime_selection_drag_from_mouse_move(event, window, cx);
-                }),
-            ),
+                },
+            )),
             move |anchor, _window, cx| {
                 let _ = workspace.update(cx, |this, cx| {
                     this.update_text_input_anchor(anchor, cx);
@@ -793,7 +815,7 @@ impl WorkspaceApp {
         .into_any_element()
     }
 
-    fn ai_mcp_labeled_input(
+    pub(in crate::workspace) fn ai_mcp_labeled_input(
         &self,
         label_key: &str,
         input: SettingsInput,
@@ -826,7 +848,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn ai_mcp_labeled_select(
+    pub(in crate::workspace) fn ai_mcp_labeled_select(
         &self,
         label_key: &str,
         select_id: SettingsSelect,
@@ -853,12 +875,18 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn ai_mcp_key_value_editor(&self, env: bool, cx: &mut Context<Self>) -> AnyElement {
-        let draft = self.ai_mcp_add_dialog.as_ref();
+    pub(in crate::workspace) fn ai_mcp_key_value_editor(
+        &self,
+        env: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let draft = self.ai.models.mcp_add_dialog.as_ref();
         let entries = if env {
             draft.map(|draft| draft.env.as_slice()).unwrap_or_default()
         } else {
-            draft.map(|draft| draft.headers.as_slice()).unwrap_or_default()
+            draft
+                .map(|draft| draft.headers.as_slice())
+                .unwrap_or_default()
         };
         let title = if env {
             self.i18n.t("settings_view.mcp.env_vars")
@@ -886,37 +914,43 @@ impl WorkspaceApp {
                 div()
                     .flex()
                     .gap(px(AI_MCP_FIELD_GAP))
-                    .child(div().flex_1().min_w(px(0.0)).child(
-                        self.ai_mcp_text_input_control(
-                            key_input,
-                            self.current_settings_input_value(key_input),
-                            if env {
-                                self.i18n.t("settings_view.mcp.env_key_placeholder")
-                            } else {
-                                self.i18n.t("settings_view.mcp.header_key_placeholder")
-                            },
-                            false,
-                            cx,
-                        ),
-                    ))
-                    .child(div().flex_1().min_w(px(0.0)).child(
-                        self.ai_mcp_text_input_control(
-                            value_input,
-                            self.current_settings_input_value(value_input),
-                            if env {
-                                self.i18n.t("settings_view.mcp.env_value_placeholder")
-                            } else {
-                                self.i18n.t("settings_view.mcp.header_value_placeholder")
-                            },
-                            false,
-                            cx,
-                        ),
-                    ))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w(px(0.0))
+                            .child(self.ai_mcp_text_input_control(
+                                key_input,
+                                self.current_settings_input_value(key_input),
+                                if env {
+                                    self.i18n.t("settings_view.mcp.env_key_placeholder")
+                                } else {
+                                    self.i18n.t("settings_view.mcp.header_key_placeholder")
+                                },
+                                false,
+                                cx,
+                            )),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w(px(0.0))
+                            .child(self.ai_mcp_text_input_control(
+                                value_input,
+                                self.current_settings_input_value(value_input),
+                                if env {
+                                    self.i18n.t("settings_view.mcp.env_value_placeholder")
+                                } else {
+                                    self.i18n.t("settings_view.mcp.header_value_placeholder")
+                                },
+                                false,
+                                cx,
+                            )),
+                    )
                     .child(self.ai_icon_button(
                         LucideIcon::Trash2,
                         false,
                         move |this, _event, _window, cx| {
-                            if let Some(draft) = this.ai_mcp_add_dialog.as_mut() {
+                            if let Some(draft) = this.ai.models.mcp_add_dialog.as_mut() {
                                 if env {
                                     if index < draft.env.len() {
                                         draft.env.remove(index);
@@ -932,39 +966,39 @@ impl WorkspaceApp {
                     )),
             );
         }
-        rows = rows.child(
-            self.workspace_toolbar_action_button(
-                add_label,
-                Some(Self::render_lucide_icon(
-                    LucideIcon::Plus,
-                    14.0,
-                    rgb(self.tokens.ui.text),
-                )),
-                ToolbarButtonOptions {
-                    button: ButtonOptions {
-                        variant: ButtonVariant::Outline,
-                        size: ButtonSize::Sm,
-                        radius: ButtonRadius::Md,
-                        disabled: false,
-                    },
-                    icon_gap: Some(6.0),
-                    ..ToolbarButtonOptions::default()
+        rows = rows.child(self.workspace_toolbar_action_button(
+            add_label,
+            Some(Self::render_lucide_icon(
+                LucideIcon::Plus,
+                14.0,
+                rgb(self.tokens.ui.text),
+            )),
+            ToolbarButtonOptions {
+                button: ButtonOptions {
+                    variant: ButtonVariant::Outline,
+                    size: ButtonSize::Sm,
+                    radius: ButtonRadius::Md,
+                    disabled: false,
                 },
-                cx.listener(move |this, _event, _window, cx| {
-                    if let Some(draft) = this.ai_mcp_add_dialog.as_mut() {
-                        if env {
-                            draft.env.push((format!("KEY_{}", draft.env.len() + 1), String::new()));
-                        } else {
-                            draft
-                                .headers
-                                .push((format!("HEADER_{}", draft.headers.len() + 1), String::new()));
-                        }
+                icon_gap: Some(6.0),
+                ..ToolbarButtonOptions::default()
+            },
+            cx.listener(move |this, _event, _window, cx| {
+                if let Some(draft) = this.ai.models.mcp_add_dialog.as_mut() {
+                    if env {
+                        draft
+                            .env
+                            .push((format!("KEY_{}", draft.env.len() + 1), String::new()));
+                    } else {
+                        draft
+                            .headers
+                            .push((format!("HEADER_{}", draft.headers.len() + 1), String::new()));
                     }
-                    cx.stop_propagation();
-                    cx.notify();
-                }),
-            ),
-        );
+                }
+                cx.stop_propagation();
+                cx.notify();
+            }),
+        ));
         div()
             .flex()
             .flex_col()
@@ -987,9 +1021,14 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn ai_mcp_auth_token_input(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn ai_mcp_auth_token_input(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let secret = !self
-            .ai_mcp_add_dialog
+            .ai
+            .models
+            .mcp_add_dialog
             .as_ref()
             .is_some_and(|draft| draft.show_auth_token);
         let input = SettingsInput::AiMcpAuthToken;
@@ -1007,20 +1046,27 @@ impl WorkspaceApp {
                 div()
                     .flex()
                     .gap(px(AI_MCP_FIELD_GAP))
-                    .child(div().flex_1().min_w(px(0.0)).child(
-                        self.ai_mcp_text_input_control(
-                            input,
-                            self.current_settings_input_value(input),
-                            self.i18n.t("settings_view.mcp.auth_token_placeholder"),
-                            secret,
-                            cx,
-                        ),
-                    ))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w(px(0.0))
+                            .child(self.ai_mcp_text_input_control(
+                                input,
+                                self.current_settings_input_value(input),
+                                self.i18n.t("settings_view.mcp.auth_token_placeholder"),
+                                secret,
+                                cx,
+                            )),
+                    )
                     .child(self.ai_icon_button(
-                        if secret { LucideIcon::Eye } else { LucideIcon::EyeOff },
+                        if secret {
+                            LucideIcon::Eye
+                        } else {
+                            LucideIcon::EyeOff
+                        },
                         false,
                         |this, _event, _window, cx| {
-                            if let Some(draft) = this.ai_mcp_add_dialog.as_mut() {
+                            if let Some(draft) = this.ai.models.mcp_add_dialog.as_mut() {
                                 draft.show_auth_token = !draft.show_auth_token;
                             }
                             cx.stop_propagation();
@@ -1032,9 +1078,11 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn ai_mcp_retry_row(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn ai_mcp_retry_row(&self, cx: &mut Context<Self>) -> AnyElement {
         let checked = self
-            .ai_mcp_add_dialog
+            .ai
+            .models
+            .mcp_add_dialog
             .as_ref()
             .is_some_and(|draft| draft.retry_on_disconnect);
         div()
@@ -1053,7 +1101,7 @@ impl WorkspaceApp {
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(move |this, _event, _window, cx| {
-                            if let Some(draft) = this.ai_mcp_add_dialog.as_mut() {
+                            if let Some(draft) = this.ai.models.mcp_add_dialog.as_mut() {
                                 draft.retry_on_disconnect = !checked;
                             }
                             cx.stop_propagation();
@@ -1065,12 +1113,12 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn add_ai_mcp_server_from_draft(&mut self, cx: &mut Context<Self>) {
-        let Some(mut draft) = self.ai_mcp_add_dialog.take() else {
+    pub(in crate::workspace) fn add_ai_mcp_server_from_draft(&mut self, cx: &mut Context<Self>) {
+        let Some(mut draft) = self.ai.models.mcp_add_dialog.take() else {
             return;
         };
         if !ai_mcp_draft_valid(&draft, self.settings_store.settings()) {
-            self.ai_mcp_add_dialog = Some(draft);
+            self.ai.models.mcp_add_dialog = Some(draft);
             cx.notify();
             return;
         }
@@ -1126,7 +1174,7 @@ impl WorkspaceApp {
         let should_store_auth_token = !draft.auth_token.is_empty()
             && draft.auth_header_mode != oxideterm_ai::McpAuthHeaderMode::None;
         if should_store_auth_token {
-            let registry = self.ai_mcp_registry.clone();
+            let registry = self.ai.runtime.mcp_registry.clone();
             let runtime = self.forwarding_runtime.clone();
             let mut restore_draft = draft.clone();
             // Move the UI token draft into a zeroizing owner before it crosses
@@ -1140,25 +1188,23 @@ impl WorkspaceApp {
                     .await
                     .map_err(|error| error.to_string())
                     .and_then(|result| result.map_err(|error| error.to_string()));
-                let _ = weak.update(cx, |this, cx| {
-                    match result {
-                        Ok(()) => {
-                            zeroize::Zeroize::zeroize(&mut restore_draft.auth_token);
-                            this.focused_settings_input = None;
-                            this.settings_input_draft.clear();
-                            this.close_settings_select();
-                            this.edit_settings(
-                                move |settings| {
-                                    settings.ai.mcp_servers.push(config.clone());
-                                },
-                                cx,
-                            );
-                        }
-                        Err(error) => {
-                            this.push_ai_settings_toast(error, TerminalNoticeVariant::Error);
-                            this.ai_mcp_add_dialog = Some(restore_draft);
-                            cx.notify();
-                        }
+                let _ = weak.update(cx, |this, cx| match result {
+                    Ok(()) => {
+                        zeroize::Zeroize::zeroize(&mut restore_draft.auth_token);
+                        this.focused_settings_input = None;
+                        this.settings_input_draft.clear();
+                        this.close_settings_select();
+                        this.edit_settings(
+                            move |settings| {
+                                settings.ai.mcp_servers.push(config.clone());
+                            },
+                            cx,
+                        );
+                    }
+                    Err(error) => {
+                        this.push_ai_settings_toast(error, TerminalNoticeVariant::Error);
+                        this.ai.models.mcp_add_dialog = Some(restore_draft);
+                        cx.notify();
                     }
                 });
             })
@@ -1180,8 +1226,8 @@ impl WorkspaceApp {
         );
     }
 
-    fn close_ai_mcp_add_dialog(&mut self) {
-        if let Some(mut draft) = self.ai_mcp_add_dialog.take() {
+    pub(in crate::workspace) fn close_ai_mcp_add_dialog(&mut self) {
+        if let Some(mut draft) = self.ai.models.mcp_add_dialog.take() {
             zeroize::Zeroize::zeroize(&mut draft.auth_token);
         }
         self.focused_settings_input = None;

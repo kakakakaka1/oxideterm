@@ -1,5 +1,5 @@
 impl WorkspaceApp {
-    fn render_ai_message(
+    pub(in crate::workspace) fn render_ai_message(
         &self,
         conversation: &AiConversation,
         message: &AiChatMessage,
@@ -36,7 +36,9 @@ impl WorkspaceApp {
                                 .gap(px(self.tokens.spacing.two))
                                 .px(px(self.tokens.spacing.three))
                                 .py(px(self.tokens.spacing.two))
-                                .hover(|style| style.bg(rgba((self.tokens.ui.bg_hover << 8) | 0x4d)))
+                                .hover(|style| {
+                                    style.bg(rgba((self.tokens.ui.bg_hover << 8) | 0x4d))
+                                })
                                 .child(Self::render_lucide_icon(
                                     LucideIcon::Archive,
                                     14.0,
@@ -91,7 +93,8 @@ impl WorkspaceApp {
             AiChatRole::Tool => oxideterm_gpui_ui::ai::AiMessageRole::Assistant,
         };
         let user = message.role == AiChatRole::User;
-        let editing = user && self.ai_editing_message_id.as_deref() == Some(message.id.as_str());
+        let editing =
+            user && self.ai.chat.editing_message_id.as_deref() == Some(message.id.as_str());
         let label = match message.role {
             AiChatRole::User => self.i18n.t("ai.message.you"),
             AiChatRole::Assistant => self.i18n.t("ai.chat.title"),
@@ -135,7 +138,9 @@ impl WorkspaceApp {
             })
             .flatten();
         let thinking_expanded = self
-            .ai_thinking_expansion_state
+            .ai
+            .chat
+            .thinking_expansion_state
             .get(&message.id)
             .copied()
             .unwrap_or_else(|| self.settings_store.settings().ai.thinking_default_expanded);
@@ -148,7 +153,8 @@ impl WorkspaceApp {
             .line_height(px(20.0))
             .text_color(rgb(self.tokens.ui.text));
         if let Some(thinking_content) = thinking_content {
-            let compact = self.settings_store.settings().ai.thinking_style == AiThinkingStyle::Compact
+            let compact = self.settings_store.settings().ai.thinking_style
+                == AiThinkingStyle::Compact
                 && !thinking_expanded;
             if compact {
                 let thinking_message_id = message.id.clone();
@@ -173,11 +179,15 @@ impl WorkspaceApp {
                             let default_expanded =
                                 this.settings_store.settings().ai.thinking_default_expanded;
                             let current = this
-                                .ai_thinking_expansion_state
+                                .ai
+                                .chat
+                                .thinking_expansion_state
                                 .get(&thinking_message_id)
                                 .copied()
                                 .unwrap_or(default_expanded);
-                            this.ai_thinking_expansion_state
+                            this.ai
+                                .chat
+                                .thinking_expansion_state
                                 .insert(thinking_message_id.clone(), !current);
                             cx.stop_propagation();
                             cx.notify();
@@ -186,10 +196,10 @@ impl WorkspaceApp {
                 );
             } else {
                 let chevron = if thinking_expanded {
-                LucideIcon::ChevronDown
-            } else {
-                LucideIcon::ChevronRight
-            };
+                    LucideIcon::ChevronDown
+                } else {
+                    LucideIcon::ChevronRight
+                };
                 let thinking_message_id = message.id.clone();
                 let thinking_header = ai_thinking_header(
                     &self.tokens,
@@ -208,11 +218,15 @@ impl WorkspaceApp {
                         let default_expanded =
                             this.settings_store.settings().ai.thinking_default_expanded;
                         let current = this
-                            .ai_thinking_expansion_state
+                            .ai
+                            .chat
+                            .thinking_expansion_state
                             .get(&thinking_message_id)
                             .copied()
                             .unwrap_or(default_expanded);
-                        this.ai_thinking_expansion_state
+                        this.ai
+                            .chat
+                            .thinking_expansion_state
                             .insert(thinking_message_id.clone(), !current);
                         cx.stop_propagation();
                         cx.notify();
@@ -241,8 +255,12 @@ impl WorkspaceApp {
                 body = body.child(self.render_ai_tool_calls(message, cx));
             }
         }
-        if user && !editing
-            && let Some(branches) = message.branches.as_ref().filter(|branches| branches.total > 1)
+        if user
+            && !editing
+            && let Some(branches) = message
+                .branches
+                .as_ref()
+                .filter(|branches| branches.total > 1)
         {
             let prev_disabled = branches.active_index == 0;
             let next_disabled = branches.active_index >= branches.total.saturating_sub(1);
@@ -272,7 +290,11 @@ impl WorkspaceApp {
                                 MouseButton::Left,
                                 cx.listener(move |this, _event, _window, cx| {
                                     if !prev_disabled {
-                                        this.switch_ai_message_branch(prev_id.clone(), prev_index, cx);
+                                        this.switch_ai_message_branch(
+                                            prev_id.clone(),
+                                            prev_index,
+                                            cx,
+                                        );
                                     }
                                     cx.stop_propagation();
                                 }),
@@ -311,7 +333,11 @@ impl WorkspaceApp {
                                 MouseButton::Left,
                                 cx.listener(move |this, _event, _window, cx| {
                                     if !next_disabled {
-                                        this.switch_ai_message_branch(next_id.clone(), next_index, cx);
+                                        this.switch_ai_message_branch(
+                                            next_id.clone(),
+                                            next_index,
+                                            cx,
+                                        );
                                     }
                                     cx.stop_propagation();
                                 }),
@@ -446,7 +472,7 @@ impl WorkspaceApp {
                                 cx.stop_propagation();
                             }),
                         ),
-                ),
+                    ),
             );
         }
         if !user
@@ -467,7 +493,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_ai_message_content(
+    pub(in crate::workspace) fn render_ai_message_content(
         &self,
         message: &AiChatMessage,
         viewport: Option<AiMessageViewport>,
@@ -484,23 +510,29 @@ impl WorkspaceApp {
                 .text_size(px(13.0))
                 .line_height(px(20.0))
                 .text_color(rgb(self.tokens.ui.text))
-                .children(message.content.split('\n').enumerate().map(|(line_index, line)| {
-                    div()
-                        .w_full()
-                        .min_w_0()
-                        .child(self.render_selectable_text_in_group(
-                            group_id,
-                            crate::workspace::selectable_text::selectable_text_id(
-                                "ai-user-message-fragment",
-                                (group_id, line_index),
-                            ),
-                            line_index,
-                            line.to_string(),
-                            self.tokens.ui.text,
-                            cx,
-                        ))
-                        .into_any_element()
-                }))
+                .children(
+                    message
+                        .content
+                        .split('\n')
+                        .enumerate()
+                        .map(|(line_index, line)| {
+                            div()
+                                .w_full()
+                                .min_w_0()
+                                .child(self.render_selectable_text_in_group(
+                                    group_id,
+                                    crate::workspace::selectable_text::selectable_text_id(
+                                        "ai-user-message-fragment",
+                                        (group_id, line_index),
+                                    ),
+                                    line_index,
+                                    line.to_string(),
+                                    self.tokens.ui.text,
+                                    cx,
+                                ))
+                                .into_any_element()
+                        }),
+                )
                 .into_any_element();
         }
 
@@ -516,35 +548,33 @@ impl WorkspaceApp {
         let workspace = cx.entity();
         let mut code_actions = self.markdown_mermaid_actions(cx);
         code_actions.on_run = Some(Arc::new(move |command, window, cx| {
-                let workspace = workspace.clone();
-                // Markdown action callbacks are plain event callbacks, not
-                // WorkspaceApp listeners. Defer the entity write so code block
-                // buttons cannot nest a WorkspaceApp update inside another one.
-                window.defer(cx, move |_window, cx| {
-                    let _ = workspace.update(cx, |this, cx| {
-                        this.insert_ai_code_block_command(command, cx);
-                    });
+            let workspace = workspace.clone();
+            // Markdown action callbacks are plain event callbacks, not
+            // WorkspaceApp listeners. Defer the entity write so code block
+            // buttons cannot nest a WorkspaceApp update inside another one.
+            window.defer(cx, move |_window, cx| {
+                let _ = workspace.update(cx, |this, cx| {
+                    this.insert_ai_code_block_command(command, cx);
                 });
-            }));
+            });
+        }));
         let mut text_order = 0usize;
-        let mut render_text = |key: String,
-                               text: gpui::SharedString,
-                               runs: Vec<gpui::TextRun>|
-         -> AnyElement {
-            let order = text_order;
-            text_order = text_order.saturating_add(1);
-            self.render_selectable_styled_text_in_group(
-                group_id,
-                crate::workspace::selectable_text::selectable_text_id(
-                    "ai-markdown-fragment",
-                    (group_id, order, &key),
-                ),
-                order,
-                text,
-                runs,
-                cx,
-            )
-        };
+        let mut render_text =
+            |key: String, text: gpui::SharedString, runs: Vec<gpui::TextRun>| -> AnyElement {
+                let order = text_order;
+                text_order = text_order.saturating_add(1);
+                self.render_selectable_styled_text_in_group(
+                    group_id,
+                    crate::workspace::selectable_text::selectable_text_id(
+                        "ai-markdown-fragment",
+                        (group_id, order, &key),
+                    ),
+                    order,
+                    text,
+                    runs,
+                    cx,
+                )
+            };
         let rendered = viewport
             .filter(|_| !message.is_streaming)
             .map(|viewport| {
@@ -577,7 +607,11 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn insert_ai_code_block_command(&mut self, command: String, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn insert_ai_code_block_command(
+        &mut self,
+        command: String,
+        cx: &mut Context<Self>,
+    ) {
         if command.trim().is_empty() {
             return;
         }
@@ -589,7 +623,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn render_ai_follow_up_suggestions(
+    pub(in crate::workspace) fn render_ai_follow_up_suggestions(
         &self,
         message: &AiChatMessage,
         cx: &mut Context<Self>,
@@ -637,7 +671,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_ai_turn_parts(
+    pub(in crate::workspace) fn render_ai_turn_parts(
         &self,
         mut body: Div,
         message: &AiChatMessage,
@@ -716,15 +750,17 @@ impl WorkspaceApp {
                         .and_then(serde_json::Value::as_str)
                         .filter(|text| !text.trim().is_empty())
                     {
-                        body = body.child(self.render_ai_thinking_part(
-                            message,
-                            segment_index,
-                            text,
-                            part.get("streaming")
-                                .and_then(serde_json::Value::as_bool)
-                                .unwrap_or(message.is_streaming),
-                            cx,
-                        ));
+                        body = body.child(
+                            self.render_ai_thinking_part(
+                                message,
+                                segment_index,
+                                text,
+                                part.get("streaming")
+                                    .and_then(serde_json::Value::as_bool)
+                                    .unwrap_or(message.is_streaming),
+                                cx,
+                            ),
+                        );
                         segment_index = segment_index.saturating_add(1);
                     }
                 }
@@ -787,7 +823,7 @@ impl WorkspaceApp {
         body
     }
 
-    fn render_ai_guardrail_part(
+    pub(in crate::workspace) fn render_ai_guardrail_part(
         &self,
         message: &AiChatMessage,
         segment_index: usize,
@@ -806,7 +842,9 @@ impl WorkspaceApp {
             .filter(|value| !value.trim().is_empty());
         let expanded_key = format!("{}-guardrail-{segment_index}", message.id);
         let expanded = self
-            .ai_tool_call_expansion_state
+            .ai
+            .chat
+            .tool_call_expansion_state
             .contains(&expanded_key);
         let mut block = ai_guardrail_block(
             &self.tokens,
@@ -851,13 +889,15 @@ impl WorkspaceApp {
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(move |this, _event, _window, cx| {
-                            let current = this
-                                .ai_tool_call_expansion_state
-                                .contains(&toggle_key);
+                            let current =
+                                this.ai.chat.tool_call_expansion_state.contains(&toggle_key);
                             if current {
-                                this.ai_tool_call_expansion_state.remove(&toggle_key);
+                                this.ai.chat.tool_call_expansion_state.remove(&toggle_key);
                             } else {
-                                this.ai_tool_call_expansion_state.insert(toggle_key.clone());
+                                this.ai
+                                    .chat
+                                    .tool_call_expansion_state
+                                    .insert(toggle_key.clone());
                             }
                             cx.stop_propagation();
                             cx.notify();
@@ -867,10 +907,7 @@ impl WorkspaceApp {
             if expanded {
                 block = block.child(ai_raw_block(
                     &self.tokens,
-                    (
-                        "ai-guardrail-raw",
-                        ai_message_element_seed(&expanded_key),
-                    ),
+                    ("ai-guardrail-raw", ai_message_element_seed(&expanded_key)),
                     Some(220.0),
                     raw_text.to_string(),
                 ));
@@ -879,7 +916,7 @@ impl WorkspaceApp {
         div().w_full().child(block)
     }
 
-    fn render_ai_thinking_part(
+    pub(in crate::workspace) fn render_ai_thinking_part(
         &self,
         message: &AiChatMessage,
         segment_index: usize,
@@ -889,13 +926,14 @@ impl WorkspaceApp {
     ) -> AnyElement {
         let thinking_key = format!("{}-thinking-{segment_index}", message.id);
         let thinking_expanded = self
-            .ai_thinking_expansion_state
+            .ai
+            .chat
+            .thinking_expansion_state
             .get(&thinking_key)
             .copied()
             .unwrap_or_else(|| self.settings_store.settings().ai.thinking_default_expanded);
-        let compact =
-            self.settings_store.settings().ai.thinking_style == AiThinkingStyle::Compact
-                && !thinking_expanded;
+        let compact = self.settings_store.settings().ai.thinking_style == AiThinkingStyle::Compact
+            && !thinking_expanded;
         if compact {
             let toggle_key = thinking_key.clone();
             return ai_thinking_compact(
@@ -914,11 +952,15 @@ impl WorkspaceApp {
                     let default_expanded =
                         this.settings_store.settings().ai.thinking_default_expanded;
                     let current = this
-                        .ai_thinking_expansion_state
+                        .ai
+                        .chat
+                        .thinking_expansion_state
                         .get(&toggle_key)
                         .copied()
                         .unwrap_or(default_expanded);
-                    this.ai_thinking_expansion_state
+                    this.ai
+                        .chat
+                        .thinking_expansion_state
                         .insert(toggle_key.clone(), !current);
                     cx.stop_propagation();
                     cx.notify();
@@ -945,11 +987,15 @@ impl WorkspaceApp {
             cx.listener(move |this, _event, _window, cx| {
                 let default_expanded = this.settings_store.settings().ai.thinking_default_expanded;
                 let current = this
-                    .ai_thinking_expansion_state
+                    .ai
+                    .chat
+                    .thinking_expansion_state
                     .get(&toggle_key)
                     .copied()
                     .unwrap_or(default_expanded);
-                this.ai_thinking_expansion_state
+                this.ai
+                    .chat
+                    .thinking_expansion_state
                     .insert(toggle_key.clone(), !current);
                 cx.stop_propagation();
                 cx.notify();
@@ -967,7 +1013,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_ai_tool_part_segment(
+    pub(in crate::workspace) fn render_ai_tool_part_segment(
         &self,
         message: &AiChatMessage,
         segment_index: usize,
@@ -1007,7 +1053,11 @@ impl WorkspaceApp {
         self.render_ai_tool_calls(&segment, cx)
     }
 
-    fn render_ai_tool_calls(&self, message: &AiChatMessage, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn render_ai_tool_calls(
+        &self,
+        message: &AiChatMessage,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let mut block = ai_tool_block(&self.tokens).child(ai_tool_heading(
             &self.tokens,
             format!(
@@ -1023,7 +1073,11 @@ impl WorkspaceApp {
             0
         };
         let condensed_key = format!("{}:condensed-tools", message.id);
-        let show_condensed = self.ai_tool_call_expansion_state.contains(&condensed_key);
+        let show_condensed = self
+            .ai
+            .chat
+            .tool_call_expansion_state
+            .contains(&condensed_key);
         if should_condense {
             let hidden_count = split_at;
             let expanded_key = condensed_key.clone();
@@ -1074,8 +1128,11 @@ impl WorkspaceApp {
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(move |this, _event, _window, cx| {
-                            if !this.ai_tool_call_expansion_state.remove(&expanded_key) {
-                                this.ai_tool_call_expansion_state.insert(expanded_key.clone());
+                            if !this.ai.chat.tool_call_expansion_state.remove(&expanded_key) {
+                                this.ai
+                                    .chat
+                                    .tool_call_expansion_state
+                                    .insert(expanded_key.clone());
                             }
                             cx.stop_propagation();
                             cx.notify();
@@ -1148,7 +1205,11 @@ impl WorkspaceApp {
             };
             let tool_mono_font = settings_mono_font_family(self.settings_store.settings());
             let expansion_key = format!("{}:{id}", message.id);
-            let expanded = self.ai_tool_call_expansion_state.contains(&expansion_key);
+            let expanded = self
+                .ai
+                .chat
+                .tool_call_expansion_state
+                .contains(&expansion_key);
             let header_key = expansion_key.clone();
             let args_scroll =
                 self.selectable_text_scroll_handle(format!("ai-tool-args:{expansion_key}"));
@@ -1184,8 +1245,11 @@ impl WorkspaceApp {
                 .on_mouse_down(
                     MouseButton::Left,
                     cx.listener(move |this, _event, _window, cx| {
-                        if !this.ai_tool_call_expansion_state.remove(&header_key) {
-                            this.ai_tool_call_expansion_state.insert(header_key.clone());
+                        if !this.ai.chat.tool_call_expansion_state.remove(&header_key) {
+                            this.ai
+                                .chat
+                                .tool_call_expansion_state
+                                .insert(header_key.clone());
                         }
                         cx.stop_propagation();
                         cx.notify();
@@ -1193,22 +1257,21 @@ impl WorkspaceApp {
                 ),
             );
 
-            let mut details = ai_tool_details(&self.tokens)
-                .child(
-                    div()
-                        .child(ai_tool_section_label(
-                            &self.tokens,
-                            self.i18n.t("ai.tool_use.arguments"),
-                            None,
-                        ))
-                        .child(ai_tool_args_pre(
-                            &self.tokens,
-                            ("ai-tool-args", ai_message_element_seed(&id)),
-                            pretty_tool_json_or_raw(&arguments),
-                            tool_mono_font.clone(),
-                            &args_scroll,
-                        )),
-                );
+            let mut details = ai_tool_details(&self.tokens).child(
+                div()
+                    .child(ai_tool_section_label(
+                        &self.tokens,
+                        self.i18n.t("ai.tool_use.arguments"),
+                        None,
+                    ))
+                    .child(ai_tool_args_pre(
+                        &self.tokens,
+                        ("ai-tool-args", ai_message_element_seed(&id)),
+                        pretty_tool_json_or_raw(&arguments),
+                        tool_mono_font.clone(),
+                        &args_scroll,
+                    )),
+            );
             if let Some(result) = result {
                 if let Some(policy_decision) = result.pointer("/meta/policyDecision") {
                     details = details.child(
@@ -1333,15 +1396,18 @@ impl WorkspaceApp {
         block.into_any_element()
     }
 
-    fn render_ai_message_edit_body(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn render_ai_message_edit_body(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let target = WorkspaceImeTarget::AiMessageEdit;
-        let save_disabled = self.ai_editing_message_draft.trim().is_empty();
+        let save_disabled = self.ai.chat.editing_message_draft.trim().is_empty();
         let input = text_input(
             &self.tokens,
             TextInputView {
-                value: &self.ai_editing_message_draft,
+                value: &self.ai.chat.editing_message_draft,
                 placeholder: String::new(),
-                focused: self.ai_editing_message_focused,
+                focused: self.ai.chat.editing_message_focused,
                 caret_visible: self.new_connection_caret_visible,
                 secret: false,
                 selected_all: false,
@@ -1356,9 +1422,9 @@ impl WorkspaceApp {
         .on_mouse_down(
             MouseButton::Left,
             cx.listener(move |this, event: &gpui::MouseDownEvent, window, cx| {
-                this.ai_editing_message_focused = true;
-                this.ai_chat_input_focused = false;
-                this.ai_model_selector_search_focused = false;
+                this.ai.chat.editing_message_focused = true;
+                this.ai.chat.input_focused = false;
+                this.ai.models.selector_search_focused = false;
                 this.ime_marked_text = None;
                 window.focus(&this.focus_handle);
                 this.begin_ime_selection_from_mouse_down(target, event, window, cx);
@@ -1442,9 +1508,14 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_ai_sidebar_chat_header(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn render_ai_sidebar_chat_header(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let active_title = self
-            .ai_chat
+            .ai
+            .chat
+            .conversation_state
             .active_conversation()
             .map(|conversation| conversation.title.clone());
         div()
@@ -1491,38 +1562,36 @@ impl WorkspaceApp {
                                 .text_color(rgba((self.tokens.ui.border << 8) | 0x66))
                                 .child("·"),
                         )
-                        .child(
-                            select_anchor_probe(
-                                SelectAnchorId::AiConversationList,
-                                div()
-                                    .min_w_0()
-                                    .cursor_pointer()
-                                    .truncate()
-                                    .text_size(px(11.0))
-                                    .text_color(rgba((self.tokens.ui.text_muted << 8) | 0x99))
-                                    .hover(|style| style.text_color(rgb(self.tokens.ui.text)))
-                                    .child(self.render_display_text_with_role_and_alpha(
-                                        SelectableTextRole::NonSelectable,
-                                        "ai-chat-header-title",
-                                        title.clone(),
-                                        title,
-                                        self.tokens.ui.text_muted,
-                                        0x99 as f32 / 255.0,
-                                        cx,
-                                    ))
-                                    .on_mouse_down(
-                                        MouseButton::Left,
-                                        cx.listener(|this, _event, _window, cx| {
-                                            let next_open = !this.ai_conversation_list_open;
-                                            this.close_ai_sidebar_popovers();
-                                            this.ai_conversation_list_open = next_open;
-                                            cx.stop_propagation();
-                                            cx.notify();
-                                        }),
-                                    ),
-                                Self::deferred_ai_select_anchor_update(workspace),
-                            ),
-                        )
+                        .child(select_anchor_probe(
+                            SelectAnchorId::AiConversationList,
+                            div()
+                                .min_w_0()
+                                .cursor_pointer()
+                                .truncate()
+                                .text_size(px(11.0))
+                                .text_color(rgba((self.tokens.ui.text_muted << 8) | 0x99))
+                                .hover(|style| style.text_color(rgb(self.tokens.ui.text)))
+                                .child(self.render_display_text_with_role_and_alpha(
+                                    SelectableTextRole::NonSelectable,
+                                    "ai-chat-header-title",
+                                    title.clone(),
+                                    title,
+                                    self.tokens.ui.text_muted,
+                                    0x99 as f32 / 255.0,
+                                    cx,
+                                ))
+                                .on_mouse_down(
+                                    MouseButton::Left,
+                                    cx.listener(|this, _event, _window, cx| {
+                                        let next_open = !this.ai.chat.conversation_list_open;
+                                        this.close_ai_sidebar_popovers();
+                                        this.ai.chat.conversation_list_open = next_open;
+                                        cx.stop_propagation();
+                                        cx.notify();
+                                    }),
+                                ),
+                            Self::deferred_ai_select_anchor_update(workspace),
+                        ))
                     }),
             )
             .child(
@@ -1547,7 +1616,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_ai_sidebar_header_button(
+    pub(in crate::workspace) fn render_ai_sidebar_header_button(
         &self,
         icon: LucideIcon,
         label: String,
@@ -1555,43 +1624,44 @@ impl WorkspaceApp {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let disabled = matches!(action, Some(AiHeaderAction::NewChat))
-            && self.ai_chat_initialization_error.is_some();
+            && self.ai.chat.initialization_error.is_some();
         // Tauri AiChatPanel header buttons are title-backed icon buttons. Route
         // tooltip ownership and disabled New Chat activation through the shared
         // workspace helper so AI header actions match other toolbar buttons.
-        let button = self.workspace_tooltip_icon_button(
-            icon,
-            14.0,
-            rgb(self.tokens.ui.text_muted),
-            IconButtonOptions {
-                disabled,
-                // Tauri AI header buttons use border/10 hover instead of the
-                // default toolbar hover token.
-                hover_background: Some(rgba((self.tokens.ui.border << 8) | 0x1a)),
-                ..IconButtonOptions::opaque_toolbar(22.0, ButtonRadius::Md)
-            },
-            label,
-            "ai-sidebar-header-button",
-            false,
-            cx.listener(move |this, _event, window, cx| {
-                match action {
-                    Some(AiHeaderAction::NewChat) => {
-                        this.create_ai_sidebar_conversation(None, cx);
+        let button = self
+            .workspace_tooltip_icon_button(
+                icon,
+                14.0,
+                rgb(self.tokens.ui.text_muted),
+                IconButtonOptions {
+                    disabled,
+                    // Tauri AI header buttons use border/10 hover instead of the
+                    // default toolbar hover token.
+                    hover_background: Some(rgba((self.tokens.ui.border << 8) | 0x1a)),
+                    ..IconButtonOptions::opaque_toolbar(22.0, ButtonRadius::Md)
+                },
+                label,
+                "ai-sidebar-header-button",
+                false,
+                cx.listener(move |this, _event, window, cx| {
+                    match action {
+                        Some(AiHeaderAction::NewChat) => {
+                            this.create_ai_sidebar_conversation(None, cx);
+                        }
+                        Some(AiHeaderAction::Settings) => {
+                            let next_open = !this.ai.chat.menu_open;
+                            this.close_ai_sidebar_popovers();
+                            this.ai.chat.menu_open = next_open;
+                            window.focus(&this.focus_handle);
+                            cx.notify();
+                        }
+                        None => {}
                     }
-                    Some(AiHeaderAction::Settings) => {
-                        let next_open = !this.ai_chat_menu_open;
-                        this.close_ai_sidebar_popovers();
-                        this.ai_chat_menu_open = next_open;
-                        window.focus(&this.focus_handle);
-                        cx.notify();
-                    }
-                    None => {}
-                }
-                cx.stop_propagation();
-            }),
-            cx.entity(),
-        )
-        .into_any_element();
+                    cx.stop_propagation();
+                }),
+                cx.entity(),
+            )
+            .into_any_element();
 
         if matches!(action, Some(AiHeaderAction::Settings)) {
             let workspace = cx.entity();
@@ -1606,7 +1676,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn ai_tool_status_label(&self, status: AiToolStatus) -> String {
+    pub(in crate::workspace) fn ai_tool_status_label(&self, status: AiToolStatus) -> String {
         // Status fallback text must follow the active UI locale when the
         // streamed tool call has not provided a model-facing summary yet.
         let key = match status {
@@ -1621,11 +1691,11 @@ impl WorkspaceApp {
         self.i18n.t(key)
     }
 
-    fn ai_tool_display_name(&self, name: &str) -> String {
+    pub(in crate::workspace) fn ai_tool_display_name(&self, name: &str) -> String {
         self.localized_ai_tool_value("tool_names", name)
     }
 
-    fn ai_tool_risk_label(&self, risk: AiToolRisk) -> String {
+    pub(in crate::workspace) fn ai_tool_risk_label(&self, risk: AiToolRisk) -> String {
         let key = match risk {
             AiToolRisk::Read => "read",
             AiToolRisk::WriteFile => "write-file",
@@ -1639,11 +1709,11 @@ impl WorkspaceApp {
         self.localized_ai_tool_value("risk_labels", key)
     }
 
-    fn ai_tool_capability_label(&self, capability: &str) -> String {
+    pub(in crate::workspace) fn ai_tool_capability_label(&self, capability: &str) -> String {
         self.localized_ai_tool_value("capability_labels", capability)
     }
 
-    fn ai_tool_policy_decision_summary(
+    pub(in crate::workspace) fn ai_tool_policy_decision_summary(
         &self,
         policy_decision: &serde_json::Value,
         arguments: &Option<serde_json::Value>,
@@ -1666,7 +1736,7 @@ impl WorkspaceApp {
         format!("{decision_label} · {reason_label} · {matched_label}")
     }
 
-    fn ai_tool_policy_key_label(
+    pub(in crate::workspace) fn ai_tool_policy_key_label(
         &self,
         matched_key: &str,
         arguments: Option<&serde_json::Value>,
@@ -1688,7 +1758,11 @@ impl WorkspaceApp {
         self.ai_tool_display_name(matched_key)
     }
 
-    fn localized_ai_tool_value(&self, category: &str, value: &str) -> String {
+    pub(in crate::workspace) fn localized_ai_tool_value(
+        &self,
+        category: &str,
+        value: &str,
+    ) -> String {
         let key = format!("ai.tool_use.{category}.{value}");
         let localized = self.i18n.t(&key);
         if localized == key {
@@ -1699,14 +1773,19 @@ impl WorkspaceApp {
     }
 }
 
-fn ai_message_element_seed(value: &str) -> u64 {
+pub(in crate::workspace) fn ai_message_element_seed(value: &str) -> u64 {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     std::hash::Hash::hash(&value, &mut hasher);
     std::hash::Hasher::finish(&hasher)
 }
 
-fn ai_tool_status_from_value(value: Option<&serde_json::Value>) -> AiToolStatus {
-    match value.and_then(serde_json::Value::as_str).unwrap_or("pending") {
+pub(in crate::workspace) fn ai_tool_status_from_value(
+    value: Option<&serde_json::Value>,
+) -> AiToolStatus {
+    match value
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("pending")
+    {
         "pending_user_approval" | "pending_approval" => AiToolStatus::PendingApproval,
         "approved" => AiToolStatus::Approved,
         "running" => AiToolStatus::Running,
@@ -1717,7 +1796,7 @@ fn ai_tool_status_from_value(value: Option<&serde_json::Value>) -> AiToolStatus 
     }
 }
 
-fn ai_latest_tool_round_marker(message: &AiChatMessage) -> Option<String> {
+pub(in crate::workspace) fn ai_latest_tool_round_marker(message: &AiChatMessage) -> Option<String> {
     message
         .turn
         .as_ref()
@@ -1729,7 +1808,9 @@ fn ai_latest_tool_round_marker(message: &AiChatMessage) -> Option<String> {
         .map(str::to_string)
 }
 
-fn ai_turn_parts(message: &AiChatMessage) -> Option<&Vec<serde_json::Value>> {
+pub(in crate::workspace) fn ai_turn_parts(
+    message: &AiChatMessage,
+) -> Option<&Vec<serde_json::Value>> {
     message
         .turn
         .as_ref()
@@ -1737,7 +1818,10 @@ fn ai_turn_parts(message: &AiChatMessage) -> Option<&Vec<serde_json::Value>> {
         .and_then(serde_json::Value::as_array)
 }
 
-fn ai_tool_part_round_id(message: &AiChatMessage, part: &serde_json::Value) -> Option<String> {
+pub(in crate::workspace) fn ai_tool_part_round_id(
+    message: &AiChatMessage,
+    part: &serde_json::Value,
+) -> Option<String> {
     let tool_call_id = part
         .get("id")
         .or_else(|| part.get("toolCallId"))
@@ -1766,7 +1850,7 @@ fn ai_tool_part_round_id(message: &AiChatMessage, part: &serde_json::Value) -> O
     })
 }
 
-fn ai_tool_call_value_from_turn_parts(
+pub(in crate::workspace) fn ai_tool_call_value_from_turn_parts(
     id: &str,
     parts: &[serde_json::Value],
 ) -> Option<serde_json::Value> {
@@ -1815,24 +1899,24 @@ fn ai_tool_call_value_from_turn_parts(
         );
         object.insert(
             "result".to_string(),
-            result
-                .get("envelope")
-                .cloned()
-                .unwrap_or_else(|| {
-                    serde_json::json!({
-                        "ok": success,
-                        "output": result
-                            .get("output")
-                            .and_then(serde_json::Value::as_str)
-                            .unwrap_or_default(),
-                    })
-                }),
+            result.get("envelope").cloned().unwrap_or_else(|| {
+                serde_json::json!({
+                    "ok": success,
+                    "output": result
+                        .get("output")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or_default(),
+                })
+            }),
         );
     }
     Some(value)
 }
 
-fn ai_tool_risk_from_value(value: Option<&serde_json::Value>, tool_name: &str) -> AiToolRisk {
+pub(in crate::workspace) fn ai_tool_risk_from_value(
+    value: Option<&serde_json::Value>,
+    tool_name: &str,
+) -> AiToolRisk {
     match value.and_then(serde_json::Value::as_str).unwrap_or("") {
         "read" => AiToolRisk::Read,
         "write" => AiToolRisk::WriteFile,
@@ -1852,7 +1936,7 @@ fn ai_tool_risk_from_value(value: Option<&serde_json::Value>, tool_name: &str) -
     }
 }
 
-fn ai_tool_status_icon(status: AiToolStatus) -> LucideIcon {
+pub(in crate::workspace) fn ai_tool_status_icon(status: AiToolStatus) -> LucideIcon {
     match status {
         AiToolStatus::Completed => LucideIcon::Check,
         AiToolStatus::Error => LucideIcon::AlertCircle,
@@ -1863,7 +1947,10 @@ fn ai_tool_status_icon(status: AiToolStatus) -> LucideIcon {
     }
 }
 
-fn ai_tool_status_color(tokens: &oxideterm_theme::ThemeTokens, status: AiToolStatus) -> u32 {
+pub(in crate::workspace) fn ai_tool_status_color(
+    tokens: &oxideterm_theme::ThemeTokens,
+    status: AiToolStatus,
+) -> u32 {
     match status {
         AiToolStatus::Completed => 0x22c55e,
         AiToolStatus::Error => 0xef4444,
@@ -1874,7 +1961,7 @@ fn ai_tool_status_color(tokens: &oxideterm_theme::ThemeTokens, status: AiToolSta
     }
 }
 
-fn pretty_tool_json_or_raw(value: &str) -> String {
+pub(in crate::workspace) fn pretty_tool_json_or_raw(value: &str) -> String {
     serde_json::from_str::<serde_json::Value>(value)
         .ok()
         .and_then(|parsed| serde_json::to_string_pretty(&parsed).ok())

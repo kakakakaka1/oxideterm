@@ -19,6 +19,7 @@ runtime = [
 chrono.workspace = true
 dashmap = { workspace = true, optional = true }
 oxideterm-backend-classification = { path = "../oxideterm-backend-classification", optional = true }
+oxideterm-atomic-file = { path = "../oxideterm-atomic-file" }
 oxideterm-ssh = { path = "../oxideterm-ssh", optional = true }
 oxideterm-x11-forwarding = { path = "../oxideterm-x11-forwarding", optional = true }
 serde.workspace = true

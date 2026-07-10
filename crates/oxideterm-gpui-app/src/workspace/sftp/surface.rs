@@ -1,5 +1,7 @@
+use super::*;
+
 impl WorkspaceApp {
-    pub(super) fn render_sftp_surface(
+    pub(in crate::workspace) fn render_sftp_surface(
         &self,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -10,7 +12,7 @@ impl WorkspaceApp {
         self.render_sftp_surface_for_tab(tab_id, window, cx)
     }
 
-    pub(super) fn render_sftp_surface_for_tab(
+    pub(in crate::workspace) fn render_sftp_surface_for_tab(
         &self,
         tab_id: TabId,
         window: &mut Window,
@@ -567,9 +569,11 @@ impl WorkspaceApp {
             .items_center()
             .overflow_hidden()
             .text_size(px(SFTP_TEXT_SM))
-            .on_scroll_wheel(cx.listener(move |this, event: &ScrollWheelEvent, window, cx| {
-                this.handle_sftp_breadcrumb_scroll(pane, event, window, cx);
-            }))
+            .on_scroll_wheel(
+                cx.listener(move |this, event: &ScrollWheelEvent, window, cx| {
+                    this.handle_sftp_breadcrumb_scroll(pane, event, window, cx);
+                }),
+            )
             .child(
                 // Tauri PathBreadcrumb is `overflow-x-auto`. GPUI's native
                 // scroll container does not expose the same hidden scrollbar
@@ -672,18 +676,20 @@ impl WorkspaceApp {
             })
             .hover(move |header| header.text_color(rgb(theme.text)))
             .cursor_pointer()
-            .child(div().truncate().child(
-                self.render_row_safe_selectable_display_text_in_group(
-                    selection_group_id,
-                    "sftp-sort-header-cell",
-                    field_key,
-                    0,
-                    label,
-                    header_text_color,
-                    None,
-                    cx,
-                ),
-            ))
+            .child(
+                div()
+                    .truncate()
+                    .child(self.render_row_safe_selectable_display_text_in_group(
+                        selection_group_id,
+                        "sftp-sort-header-cell",
+                        field_key,
+                        0,
+                        label,
+                        header_text_color,
+                        None,
+                        cx,
+                    )),
+            )
             .when(active_field == field, |header| {
                 let icon = match (field, direction) {
                     (SftpSortField::Name, SftpSortDirection::Asc) => LucideIcon::ArrowUpAZ,
@@ -789,7 +795,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_sftp_inline_text(
+    pub(in crate::workspace::sftp) fn render_sftp_inline_text(
         &self,
         input: SftpInput,
         pane: Option<SftpPane>,
@@ -815,31 +821,31 @@ impl WorkspaceApp {
                     marked_text: self.marked_text_for_target(target),
                 },
             )
-                .flex_1()
-                .min_w(px(0.0))
-                .h_full()
-                .px(px(0.0))
-                .border_0()
-                .bg(rgba(0x00000000))
-                .text_size(px(SFTP_TEXT_XS))
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(move |this, event: &MouseDownEvent, window, cx| {
-                        window.focus(&this.focus_handle);
-                        if let Some(pane) = pane {
-                            this.sftp_view.active_pane = pane;
-                        }
-                        this.sftp_view.focused_input = Some(input);
-                        this.ime_marked_text = None;
-                        this.begin_ime_selection_from_mouse_down(target, event, window, cx);
-                        cx.stop_propagation();
-                    }),
-                )
-                .on_mouse_move(cx.listener(
-                    |this, event: &gpui::MouseMoveEvent, window, cx| {
-                        this.update_ime_selection_drag_from_mouse_move(event, window, cx);
-                    },
-                )),
+            .flex_1()
+            .min_w(px(0.0))
+            .h_full()
+            .px(px(0.0))
+            .border_0()
+            .bg(rgba(0x00000000))
+            .text_size(px(SFTP_TEXT_XS))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, event: &MouseDownEvent, window, cx| {
+                    window.focus(&this.focus_handle);
+                    if let Some(pane) = pane {
+                        this.sftp_view.active_pane = pane;
+                    }
+                    this.sftp_view.focused_input = Some(input);
+                    this.ime_marked_text = None;
+                    this.begin_ime_selection_from_mouse_down(target, event, window, cx);
+                    cx.stop_propagation();
+                }),
+            )
+            .on_mouse_move(cx.listener(
+                |this, event: &gpui::MouseMoveEvent, window, cx| {
+                    this.update_ime_selection_drag_from_mouse_move(event, window, cx);
+                },
+            )),
             move |anchor, _window, cx| {
                 let _ = workspace.update(cx, |this, _cx| {
                     this.text_input_anchors.insert(anchor.id, anchor);
@@ -848,6 +854,4 @@ impl WorkspaceApp {
         )
         .into_any_element()
     }
-
-
 }

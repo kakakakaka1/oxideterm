@@ -1,14 +1,17 @@
-const SETTINGS_NETWORK_MAX_WIDTH: f32 = 672.0; // Tauri max-w-2xl
-const SETTINGS_NETWORK_FIELD_WIDTH: f32 = 320.0; // Desktop preference for normal proxy fields.
-const SETTINGS_NETWORK_PORT_FIELD_WIDTH: f32 = 140.0; // Ports should stay compact instead of sharing a full row.
+use super::*;
+
+pub(in crate::workspace) const SETTINGS_NETWORK_MAX_WIDTH: f32 = 672.0; // Tauri max-w-2xl
+pub(in crate::workspace) const SETTINGS_NETWORK_FIELD_WIDTH: f32 = 320.0; // Desktop preference for normal proxy fields.
+pub(in crate::workspace) const SETTINGS_NETWORK_PORT_FIELD_WIDTH: f32 = 140.0; // Ports should stay compact instead of sharing a full row.
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum NetworkProxyAuthMode {
+pub(in crate::workspace) enum NetworkProxyAuthMode {
     None,
     Password,
 }
 
-fn default_settings_upstream_proxy_config() -> SettingsUpstreamProxyConfig {
+pub(in crate::workspace) fn default_settings_upstream_proxy_config() -> SettingsUpstreamProxyConfig
+{
     SettingsUpstreamProxyConfig {
         protocol: SettingsUpstreamProxyProtocol::Socks5,
         host: "127.0.0.1".to_string(),
@@ -19,7 +22,10 @@ fn default_settings_upstream_proxy_config() -> SettingsUpstreamProxyConfig {
     }
 }
 
-fn network_proxy_protocol_label(protocol: SettingsUpstreamProxyProtocol, i18n: &I18n) -> String {
+pub(in crate::workspace) fn network_proxy_protocol_label(
+    protocol: SettingsUpstreamProxyProtocol,
+    i18n: &I18n,
+) -> String {
     match protocol {
         SettingsUpstreamProxyProtocol::Socks5 => i18n.t("settings_view.network.protocol_socks5"),
         SettingsUpstreamProxyProtocol::HttpConnect => {
@@ -28,7 +34,10 @@ fn network_proxy_protocol_label(protocol: SettingsUpstreamProxyProtocol, i18n: &
     }
 }
 
-fn network_proxy_auth_label(mode: NetworkProxyAuthMode, i18n: &I18n) -> String {
+pub(in crate::workspace) fn network_proxy_auth_label(
+    mode: NetworkProxyAuthMode,
+    i18n: &I18n,
+) -> String {
     match mode {
         NetworkProxyAuthMode::None => i18n.t("settings_view.network.auth_none"),
         NetworkProxyAuthMode::Password => i18n.t("settings_view.network.auth_password"),
@@ -36,7 +45,11 @@ fn network_proxy_auth_label(mode: NetworkProxyAuthMode, i18n: &I18n) -> String {
 }
 
 impl WorkspaceApp {
-    fn settings_network_section(&self, section_index: usize, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn settings_network_section(
+        &self,
+        section_index: usize,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let settings = self.settings_store.settings();
         let proxy = settings.network.upstream_proxy.as_ref();
         match section_index {
@@ -87,37 +100,41 @@ impl WorkspaceApp {
                         .flex_wrap()
                         .items_start()
                         .gap(px(32.0))
-                        .child(self.network_responsive_field(
-                            SETTINGS_NETWORK_FIELD_WIDTH,
-                            self.network_select_field(
-                                "settings_view.network.protocol",
-                                "settings_view.network.protocol_hint",
-                                SettingsSelect::NetworkProxyProtocol,
-                                network_proxy_protocol_label(
-                                    proxy
-                                        .map(|proxy| proxy.protocol)
-                                        .unwrap_or(SettingsUpstreamProxyProtocol::Socks5),
-                                    &self.i18n,
+                        .child(
+                            self.network_responsive_field(
+                                SETTINGS_NETWORK_FIELD_WIDTH,
+                                self.network_select_field(
+                                    "settings_view.network.protocol",
+                                    "settings_view.network.protocol_hint",
+                                    SettingsSelect::NetworkProxyProtocol,
+                                    network_proxy_protocol_label(
+                                        proxy
+                                            .map(|proxy| proxy.protocol)
+                                            .unwrap_or(SettingsUpstreamProxyProtocol::Socks5),
+                                        &self.i18n,
+                                    ),
+                                    proxy.is_some(),
+                                    cx,
                                 ),
-                                proxy.is_some(),
-                                cx,
                             ),
-                        ))
-                        .child(self.network_responsive_field(
-                            SETTINGS_NETWORK_PORT_FIELD_WIDTH,
-                            self.network_input_field(
-                                "settings_view.network.port",
-                                "settings_view.network.port_hint",
-                                SettingsInput::NetworkProxyPort,
-                                proxy
-                                    .map(|proxy| proxy.port.to_string())
-                                    .unwrap_or_else(|| "1080".to_string()),
-                                "1080".to_string(),
+                        )
+                        .child(
+                            self.network_responsive_field(
                                 SETTINGS_NETWORK_PORT_FIELD_WIDTH,
-                                proxy.is_some(),
-                                cx,
+                                self.network_input_field(
+                                    "settings_view.network.port",
+                                    "settings_view.network.port_hint",
+                                    SettingsInput::NetworkProxyPort,
+                                    proxy
+                                        .map(|proxy| proxy.port.to_string())
+                                        .unwrap_or_else(|| "1080".to_string()),
+                                    "1080".to_string(),
+                                    SETTINGS_NETWORK_PORT_FIELD_WIDTH,
+                                    proxy.is_some(),
+                                    cx,
+                                ),
                             ),
-                        )),
+                        ),
                 )
                 .child(self.network_full_width_input(
                     "settings_view.network.host",
@@ -128,15 +145,19 @@ impl WorkspaceApp {
                     proxy.is_some(),
                     cx,
                 ))
-                .child(self.network_full_width_input(
-                    "settings_view.network.no_proxy",
-                    "settings_view.network.no_proxy_hint",
-                    SettingsInput::NetworkProxyNoProxy,
-                    proxy.map(|proxy| proxy.no_proxy.clone()).unwrap_or_default(),
-                    "localhost,127.0.0.1,*.internal".to_string(),
-                    proxy.is_some(),
-                    cx,
-                ))
+                .child(
+                    self.network_full_width_input(
+                        "settings_view.network.no_proxy",
+                        "settings_view.network.no_proxy_hint",
+                        SettingsInput::NetworkProxyNoProxy,
+                        proxy
+                            .map(|proxy| proxy.no_proxy.clone())
+                            .unwrap_or_default(),
+                        "localhost,127.0.0.1,*.internal".to_string(),
+                        proxy.is_some(),
+                        cx,
+                    ),
+                )
                 .child(self.network_checkbox_row(
                     "settings_view.network.remote_dns",
                     "settings_view.network.remote_dns_hint",
@@ -152,7 +173,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn settings_network_auth_section(
+    pub(in crate::workspace) fn settings_network_auth_section(
         &self,
         proxy: Option<&SettingsUpstreamProxyConfig>,
         cx: &mut Context<Self>,
@@ -220,7 +241,7 @@ impl WorkspaceApp {
         section.into_any_element()
     }
 
-    fn settings_network_test_section(
+    pub(in crate::workspace) fn settings_network_test_section(
         &self,
         proxy_enabled: bool,
         cx: &mut Context<Self>,
@@ -353,7 +374,11 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn network_responsive_field(&self, preferred_width: f32, field: AnyElement) -> AnyElement {
+    pub(in crate::workspace) fn network_responsive_field(
+        &self,
+        preferred_width: f32,
+        field: AnyElement,
+    ) -> AnyElement {
         // Field slots own width. Controls fill the slot; the slot itself wraps
         // or shrinks instead of growing into the right sidebar.
         div()
@@ -365,7 +390,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn network_checkbox_row(
+    pub(in crate::workspace) fn network_checkbox_row(
         &self,
         label_key: &'static str,
         hint_key: &'static str,
@@ -374,11 +399,8 @@ impl WorkspaceApp {
         on_toggle: fn(&mut WorkspaceApp, &mut Context<Self>),
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let mut control = checkbox(&self.tokens, String::new(), checked).opacity(if enabled {
-            1.0
-        } else {
-            0.5
-        });
+        let mut control =
+            checkbox(&self.tokens, String::new(), checked).opacity(if enabled { 1.0 } else { 0.5 });
         if enabled {
             control = control.on_mouse_down(
                 MouseButton::Left,
@@ -423,7 +445,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn network_select_field(
+    pub(in crate::workspace) fn network_select_field(
         &self,
         label_key: &str,
         hint_key: &str,
@@ -443,7 +465,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn network_input_field(
+    pub(in crate::workspace) fn network_input_field(
         &self,
         label_key: &str,
         hint_key: &str,
@@ -462,20 +484,14 @@ impl WorkspaceApp {
             .gap(px(8.0))
             .child(self.network_field_label(label_key, hint_key))
             .child(
-                self.settings_text_input_control(
-                    input,
-                    value,
-                    placeholder,
-                    control_width,
-                    cx,
-                )
-                .into_any_element(),
+                self.settings_text_input_control(input, value, placeholder, control_width, cx)
+                    .into_any_element(),
             )
             .when(!enabled, |field| field.opacity(0.5))
             .into_any_element()
     }
 
-    fn network_full_width_input(
+    pub(in crate::workspace) fn network_full_width_input(
         &self,
         label_key: &str,
         hint_key: &str,
@@ -497,7 +513,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn network_full_width_text_input_control(
+    pub(in crate::workspace) fn network_full_width_text_input_control(
         &self,
         input: SettingsInput,
         value: String,
@@ -543,11 +559,11 @@ impl WorkspaceApp {
                     cx.stop_propagation();
                 }),
             )
-            .on_mouse_move(
-                cx.listener(|this, event: &gpui::MouseMoveEvent, window, cx| {
+            .on_mouse_move(cx.listener(
+                |this, event: &gpui::MouseMoveEvent, window, cx| {
                     this.update_ime_selection_drag_from_mouse_move(event, window, cx);
-                }),
-            ),
+                },
+            )),
             move |anchor, _window, cx| {
                 let _ = workspace.update(cx, |this, cx| {
                     this.update_text_input_anchor(anchor, cx);
@@ -557,7 +573,7 @@ impl WorkspaceApp {
         .into_any_element()
     }
 
-    fn network_password_field(
+    pub(in crate::workspace) fn network_password_field(
         &self,
         has_saved_password: bool,
         enabled: bool,
@@ -602,7 +618,8 @@ impl WorkspaceApp {
                                 password_input,
                                 String::new(),
                                 if has_saved_password {
-                                    self.i18n.t("settings_view.network.password_saved_placeholder")
+                                    self.i18n
+                                        .t("settings_view.network.password_saved_placeholder")
                                 } else {
                                     String::new()
                                 },
@@ -680,7 +697,11 @@ impl WorkspaceApp {
         row.into_any_element()
     }
 
-    fn network_field_label(&self, label_key: &str, hint_key: &str) -> AnyElement {
+    pub(in crate::workspace) fn network_field_label(
+        &self,
+        label_key: &str,
+        hint_key: &str,
+    ) -> AnyElement {
         div()
             .min_w(px(0.0))
             .grid()
@@ -701,7 +722,10 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn toggle_settings_network_disclaimer(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn toggle_settings_network_disclaimer(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) {
         self.edit_settings(
             |settings| {
                 settings.network.upstream_proxy_disclaimer_accepted =
@@ -711,7 +735,7 @@ impl WorkspaceApp {
         );
     }
 
-    fn toggle_settings_network_enabled(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn toggle_settings_network_enabled(&mut self, cx: &mut Context<Self>) {
         self.settings_network_proxy_password_status = None;
         self.edit_settings(
             |settings| {
@@ -725,7 +749,10 @@ impl WorkspaceApp {
         );
     }
 
-    fn toggle_settings_network_remote_dns(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn toggle_settings_network_remote_dns(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) {
         self.edit_settings(
             |settings| {
                 if let Some(proxy) = settings.network.upstream_proxy.as_mut() {
@@ -736,13 +763,19 @@ impl WorkspaceApp {
         );
     }
 
-    fn save_settings_network_proxy_password(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn save_settings_network_proxy_password(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) {
         let password = self.settings_input_draft.clone();
         if password.is_empty() {
             return;
         }
         let secret = SecretString::new(password);
-        match self.connection_store.save_global_upstream_proxy_password(&secret) {
+        match self
+            .connection_store
+            .save_global_upstream_proxy_password(&secret)
+        {
             Ok(keychain_id) => {
                 self.edit_settings(
                     move |settings| {
@@ -763,8 +796,10 @@ impl WorkspaceApp {
                 zeroize::Zeroize::zeroize(&mut self.settings_input_draft);
                 self.settings_input_draft.clear();
                 self.focused_settings_input = None;
-                self.settings_network_proxy_password_status =
-                    Some(self.i18n.t("settings_view.network.password_saved_placeholder"));
+                self.settings_network_proxy_password_status = Some(
+                    self.i18n
+                        .t("settings_view.network.password_saved_placeholder"),
+                );
             }
             Err(error) => {
                 self.settings_network_proxy_password_status = Some(error.to_string());
@@ -773,8 +808,14 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn remove_settings_network_proxy_password(&mut self, cx: &mut Context<Self>) {
-        match self.connection_store.delete_global_upstream_proxy_password() {
+    pub(in crate::workspace) fn remove_settings_network_proxy_password(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) {
+        match self
+            .connection_store
+            .delete_global_upstream_proxy_password()
+        {
             Ok(()) => {
                 self.edit_settings(
                     |settings| {
@@ -803,14 +844,17 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn start_settings_network_proxy_test(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn start_settings_network_proxy_test(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) {
         let host = self.settings_network_proxy_test_host.trim().to_string();
         let Ok(port) = self.settings_network_proxy_test_port.trim().parse::<u16>() else {
-            self.settings_network_proxy_test_status =
-                Some(self.i18n.t("settings_view.network.test_error").replace(
-                    "{{error}}",
-                    "invalid port",
-                ));
+            self.settings_network_proxy_test_status = Some(
+                self.i18n
+                    .t("settings_view.network.test_error")
+                    .replace("{{error}}", "invalid port"),
+            );
             cx.notify();
             return;
         };
@@ -822,20 +866,20 @@ impl WorkspaceApp {
             .as_ref()
             .cloned()
         else {
-            self.settings_network_proxy_test_status =
-                Some(self.i18n.t("settings_view.network.test_error").replace(
-                    "{{error}}",
-                    "proxy is disabled",
-                ));
+            self.settings_network_proxy_test_status = Some(
+                self.i18n
+                    .t("settings_view.network.test_error")
+                    .replace("{{error}}", "proxy is disabled"),
+            );
             cx.notify();
             return;
         };
         let Ok(upstream_proxy) = self.runtime_global_upstream_proxy_config(proxy) else {
-            self.settings_network_proxy_test_status =
-                Some(self.i18n.t("settings_view.network.test_error").replace(
-                    "{{error}}",
-                    "proxy password is not available",
-                ));
+            self.settings_network_proxy_test_status = Some(
+                self.i18n
+                    .t("settings_view.network.test_error")
+                    .replace("{{error}}", "proxy password is not available"),
+            );
             cx.notify();
             return;
         };
@@ -844,8 +888,8 @@ impl WorkspaceApp {
         let started_at = std::time::Instant::now();
 
         cx.spawn(async move |weak, cx| {
-            let status = check_host_key_with_upstream_proxy(&host, port, 10, Some(&upstream_proxy))
-                .await;
+            let status =
+                check_host_key_with_upstream_proxy(&host, port, 10, Some(&upstream_proxy)).await;
             let elapsed = started_at.elapsed().as_millis();
             let _ = weak.update(cx, move |this, cx| {
                 this.settings_network_proxy_test_pending = false;
@@ -866,7 +910,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn runtime_global_upstream_proxy_config(
+    pub(in crate::workspace) fn runtime_global_upstream_proxy_config(
         &self,
         proxy: SettingsUpstreamProxyConfig,
     ) -> anyhow::Result<UpstreamProxyConfig> {

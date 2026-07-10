@@ -1,4 +1,7 @@
-fn ai_transcript_boundary_id(message: Option<&AiChatMessage>, edge: &str) -> Option<String> {
+pub(in crate::workspace) fn ai_transcript_boundary_id(
+    message: Option<&AiChatMessage>,
+    edge: &str,
+) -> Option<String> {
     let message = message?;
     let transcript_ref = message.transcript_ref.as_ref();
     let primary = if edge == "start" {
@@ -23,7 +26,7 @@ fn ai_transcript_boundary_id(message: Option<&AiChatMessage>, edge: &str) -> Opt
         .or_else(|| Some(message.id.clone()))
 }
 
-fn ai_summary_source_transcript_ref(
+pub(in crate::workspace) fn ai_summary_source_transcript_ref(
     messages: &[AiChatMessage],
     conversation_id: &str,
 ) -> serde_json::Value {
@@ -36,7 +39,7 @@ fn ai_summary_source_transcript_ref(
     })
 }
 
-fn ai_find_prompt_transcript_lookup_reference(
+pub(in crate::workspace) fn ai_find_prompt_transcript_lookup_reference(
     messages: &[AiChatMessage],
 ) -> Option<serde_json::Value> {
     messages.iter().rev().find_map(|message| {
@@ -49,7 +52,9 @@ fn ai_find_prompt_transcript_lookup_reference(
     })
 }
 
-fn ai_build_transcript_lookup_prompt_reference(transcript_ref: serde_json::Value) -> String {
+pub(in crate::workspace) fn ai_build_transcript_lookup_prompt_reference(
+    transcript_ref: serde_json::Value,
+) -> String {
     let start_entry_id = transcript_ref
         .get("startEntryId")
         .and_then(serde_json::Value::as_str);
@@ -81,7 +86,7 @@ fn ai_build_transcript_lookup_prompt_reference(transcript_ref: serde_json::Value
     .join(" ")
 }
 
-fn ai_transcript_entry(
+pub(in crate::workspace) fn ai_transcript_entry(
     id: String,
     conversation_id: &str,
     kind: &str,
@@ -101,7 +106,7 @@ fn ai_transcript_entry(
     }
 }
 
-fn ai_diagnostic_event(
+pub(in crate::workspace) fn ai_diagnostic_event(
     id: String,
     conversation_id: &str,
     event_type: &str,

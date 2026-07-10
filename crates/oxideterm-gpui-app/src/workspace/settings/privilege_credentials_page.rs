@@ -1,8 +1,10 @@
-const PRIVILEGE_SCOPE_LIST_WIDTH: f32 = 280.0; // Match the current scope rail width on comfortable layouts.
-const PRIVILEGE_DETAIL_MIN_WIDTH: f32 = 320.0; // Wrap the detail pane before fixed controls crush its labels.
+use super::*;
+
+pub(in crate::workspace) const PRIVILEGE_SCOPE_LIST_WIDTH: f32 = 280.0; // Match the current scope rail width on comfortable layouts.
+pub(in crate::workspace) const PRIVILEGE_DETAIL_MIN_WIDTH: f32 = 320.0; // Wrap the detail pane before fixed controls crush its labels.
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-struct SettingsPrivilegeScopeRow {
+pub(in crate::workspace) struct SettingsPrivilegeScopeRow {
     id: String,
     title: String,
     subtitle: String,
@@ -26,7 +28,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn settings_privilege_credentials_section(
+    pub(in crate::workspace) fn settings_privilege_credentials_section(
         &self,
         section_index: usize,
         cx: &mut Context<Self>,
@@ -37,7 +39,10 @@ impl WorkspaceApp {
         }
     }
 
-    fn settings_privilege_kind_label(&self, kind: PrivilegeCredentialKind) -> String {
+    pub(in crate::workspace) fn settings_privilege_kind_label(
+        &self,
+        kind: PrivilegeCredentialKind,
+    ) -> String {
         // The unified privilege page owns these labels so local settings and
         // connection editing do not grow separate credential-specific forms.
         let key = match kind {
@@ -54,7 +59,10 @@ impl WorkspaceApp {
         self.i18n.t(key)
     }
 
-    fn settings_privilege_credentials_card(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn settings_privilege_credentials_card(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let theme = self.tokens.ui;
         let scopes = self.settings_privilege_scope_rows();
         let active_scope_id = self.settings_privilege_active_scope_id();
@@ -193,7 +201,10 @@ impl WorkspaceApp {
         )
     }
 
-    fn settings_privilege_active_header(&self, scope: &SettingsPrivilegeScopeRow) -> AnyElement {
+    pub(in crate::workspace) fn settings_privilege_active_header(
+        &self,
+        scope: &SettingsPrivilegeScopeRow,
+    ) -> AnyElement {
         let theme = self.tokens.ui;
         div()
             .flex()
@@ -238,7 +249,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn settings_privilege_credential_list(
+    pub(in crate::workspace) fn settings_privilege_credential_list(
         &self,
         scope: &SettingsPrivilegeScopeRow,
         credentials: &[SavedPrivilegeCredential],
@@ -360,7 +371,7 @@ impl WorkspaceApp {
         list.into_any_element()
     }
 
-    fn settings_privilege_credential_form(
+    pub(in crate::workspace) fn settings_privilege_credential_form(
         &self,
         scope: &SettingsPrivilegeScopeRow,
         cx: &mut Context<Self>,
@@ -377,15 +388,17 @@ impl WorkspaceApp {
             .border_color(rgba((theme.border << 8) | 0x80))
             .bg(rgba((theme.bg << 8) | 0x80))
             .p(px(12.0))
-            .child(self.settings_privilege_text_field(
-                "sessionManager.privilege_credentials.label",
-                SettingsInput::LocalPrivilegeLabel,
-                self.settings_local_privilege_draft.label.clone(),
-                self.i18n
-                    .t("sessionManager.privilege_credentials.label_placeholder"),
-                false,
-                cx,
-            ))
+            .child(
+                self.settings_privilege_text_field(
+                    "sessionManager.privilege_credentials.label",
+                    SettingsInput::LocalPrivilegeLabel,
+                    self.settings_local_privilege_draft.label.clone(),
+                    self.i18n
+                        .t("sessionManager.privilege_credentials.label_placeholder"),
+                    false,
+                    cx,
+                ),
+            )
             // These settings cards can be shown in a constrained modal. Keep
             // the credential form single-column so fixed-width inputs never
             // overflow into the neighboring pane.
@@ -402,11 +415,7 @@ impl WorkspaceApp {
                 "sessionManager.privilege_credentials.secret",
                 SettingsInput::LocalPrivilegeSecret,
                 self.settings_local_privilege_draft.secret.clone(),
-                if self
-                    .settings_local_privilege_draft
-                    .credential_id
-                    .is_some()
-                {
+                if self.settings_local_privilege_draft.credential_id.is_some() {
                     self.i18n
                         .t("sessionManager.privilege_credentials.secret_keep_placeholder")
                 } else {
@@ -451,14 +460,17 @@ impl WorkspaceApp {
                             .child(self.i18n.t("sessionManager.privilege_credentials.enabled")),
                     ),
             )
-            .when_some(self.settings_local_privilege_error.clone(), |panel, error| {
-                panel.child(
-                    div()
-                        .text_size(px(self.tokens.metrics.ui_text_xs))
-                        .text_color(rgb(theme.error))
-                        .child(error),
-                )
-            })
+            .when_some(
+                self.settings_local_privilege_error.clone(),
+                |panel, error| {
+                    panel.child(
+                        div()
+                            .text_size(px(self.tokens.metrics.ui_text_xs))
+                            .text_color(rgb(theme.error))
+                            .child(error),
+                    )
+                },
+            )
             .child(
                 div()
                     .flex()
@@ -468,54 +480,62 @@ impl WorkspaceApp {
                     .when(
                         self.settings_local_privilege_draft.credential_id.is_some(),
                         |row| {
-                            row.child(self.workspace_toolbar_action_button(
-                                self.i18n
-                                    .t("sessionManager.privilege_credentials.cancel_edit"),
-                                None,
-                                ToolbarButtonOptions {
-                                    button: ButtonOptions {
-                                        variant: ButtonVariant::Ghost,
-                                        size: ButtonSize::Sm,
-                                        ..ButtonOptions::default()
+                            row.child(
+                                self.workspace_toolbar_action_button(
+                                    self.i18n
+                                        .t("sessionManager.privilege_credentials.cancel_edit"),
+                                    None,
+                                    ToolbarButtonOptions {
+                                        button: ButtonOptions {
+                                            variant: ButtonVariant::Ghost,
+                                            size: ButtonSize::Sm,
+                                            ..ButtonOptions::default()
+                                        },
+                                        ..ToolbarButtonOptions::default()
                                     },
-                                    ..ToolbarButtonOptions::default()
-                                },
-                                cx.listener(|this, _event, _window, cx| {
-                                    this.reset_settings_privilege_credential_draft(cx);
-                                    cx.stop_propagation();
-                                }),
-                            ))
+                                    cx.listener(|this, _event, _window, cx| {
+                                        this.reset_settings_privilege_credential_draft(cx);
+                                        cx.stop_propagation();
+                                    }),
+                                ),
+                            )
                         },
                     )
-                    .child(self.workspace_toolbar_action_button(
-                        self.i18n.t("sessionManager.privilege_credentials.save"),
-                        Some(
-                            Self::render_lucide_icon(LucideIcon::Save, 14.0, rgb(theme.text_muted))
+                    .child(
+                        self.workspace_toolbar_action_button(
+                            self.i18n.t("sessionManager.privilege_credentials.save"),
+                            Some(
+                                Self::render_lucide_icon(
+                                    LucideIcon::Save,
+                                    14.0,
+                                    rgb(theme.text_muted),
+                                )
                                 .into_any_element(),
-                        ),
-                        ToolbarButtonOptions {
-                            button: ButtonOptions {
-                                variant: ButtonVariant::Default,
-                                size: ButtonSize::Sm,
-                                disabled: self
-                                    .settings_local_privilege_draft
-                                    .label
-                                    .trim()
-                                    .is_empty(),
-                                ..ButtonOptions::default()
+                            ),
+                            ToolbarButtonOptions {
+                                button: ButtonOptions {
+                                    variant: ButtonVariant::Default,
+                                    size: ButtonSize::Sm,
+                                    disabled: self
+                                        .settings_local_privilege_draft
+                                        .label
+                                        .trim()
+                                        .is_empty(),
+                                    ..ButtonOptions::default()
+                                },
+                                ..ToolbarButtonOptions::default()
                             },
-                            ..ToolbarButtonOptions::default()
-                        },
-                        cx.listener(|this, _event, _window, cx| {
-                            this.save_settings_privilege_credential(cx);
-                            cx.stop_propagation();
-                        }),
-                    )),
+                            cx.listener(|this, _event, _window, cx| {
+                                this.save_settings_privilege_credential(cx);
+                                cx.stop_propagation();
+                            }),
+                        ),
+                    ),
             )
             .into_any_element()
     }
 
-    fn settings_privilege_text_field(
+    pub(in crate::workspace) fn settings_privilege_text_field(
         &self,
         label_key: &'static str,
         input: SettingsInput,
@@ -547,7 +567,10 @@ impl WorkspaceApp {
         )
     }
 
-    fn settings_privilege_kind_field(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn settings_privilege_kind_field(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         form_field(
             &self.tokens,
             self.i18n
@@ -562,7 +585,10 @@ impl WorkspaceApp {
         )
     }
 
-    fn settings_privilege_prompt_patterns_field(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn settings_privilege_prompt_patterns_field(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let input = SettingsInput::LocalPrivilegePromptPatterns;
         let focused = self.focused_settings_input == Some(input);
         let value = if focused {
@@ -646,7 +672,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn settings_privilege_hint(&self, text: String) -> AnyElement {
+    pub(in crate::workspace) fn settings_privilege_hint(&self, text: String) -> AnyElement {
         div()
             .text_size(px(self.tokens.metrics.ui_text_xs))
             .text_color(rgb(self.tokens.ui.text_muted))
@@ -654,7 +680,9 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn settings_privilege_scope_rows(&self) -> Vec<SettingsPrivilegeScopeRow> {
+    pub(in crate::workspace) fn settings_privilege_scope_rows(
+        &self,
+    ) -> Vec<SettingsPrivilegeScopeRow> {
         let mut rows = vec![self.settings_local_privilege_scope_row()];
         // Saved SSH connections already own privilege credential metadata in the
         // connection store. Expose those explicit scopes instead of letting the
@@ -668,19 +696,21 @@ impl WorkspaceApp {
         rows
     }
 
-    fn settings_local_privilege_scope_row(&self) -> SettingsPrivilegeScopeRow {
+    pub(in crate::workspace) fn settings_local_privilege_scope_row(
+        &self,
+    ) -> SettingsPrivilegeScopeRow {
         SettingsPrivilegeScopeRow {
             id: LOCAL_SHELL_PRIVILEGE_CONNECTION_ID.to_string(),
-            title: self.i18n.t("settings_view.privilege_credentials.local_scope"),
+            title: self
+                .i18n
+                .t("settings_view.privilege_credentials.local_scope"),
             subtitle: self
                 .i18n
                 .t("settings_view.privilege_credentials.local_scope_hint"),
-            username_placeholder: self
-                .settings_local_username_hint()
-                .unwrap_or_else(|| {
-                    self.i18n
-                        .t("settings_view.local_terminal.privilege_username_placeholder")
-                }),
+            username_placeholder: self.settings_local_username_hint().unwrap_or_else(|| {
+                self.i18n
+                    .t("settings_view.local_terminal.privilege_username_placeholder")
+            }),
             credential_count: self
                 .connection_store
                 .list_privilege_credentials(LOCAL_SHELL_PRIVILEGE_CONNECTION_ID)
@@ -690,21 +720,24 @@ impl WorkspaceApp {
         }
     }
 
-    fn settings_saved_connection_privilege_scope_row(
+    pub(in crate::workspace) fn settings_saved_connection_privilege_scope_row(
         &self,
         connection: &oxideterm_connections::SavedConnection,
     ) -> SettingsPrivilegeScopeRow {
         SettingsPrivilegeScopeRow {
             id: connection.id.clone(),
             title: connection.name.clone(),
-            subtitle: format!("{}@{}:{}", connection.username, connection.host, connection.port),
+            subtitle: format!(
+                "{}@{}:{}",
+                connection.username, connection.host, connection.port
+            ),
             username_placeholder: connection.username.clone(),
             credential_count: connection.privilege_credentials.len(),
             local: false,
         }
     }
 
-    fn settings_privilege_active_scope_id(&self) -> String {
+    pub(in crate::workspace) fn settings_privilege_active_scope_id(&self) -> String {
         let selected = self.settings_page.privilege_scope_id.as_deref();
         if let Some(selected) = selected
             && self
@@ -717,7 +750,7 @@ impl WorkspaceApp {
         LOCAL_SHELL_PRIVILEGE_CONNECTION_ID.to_string()
     }
 
-    fn set_settings_privilege_scope(&mut self, scope_id: String) {
+    pub(in crate::workspace) fn set_settings_privilege_scope(&mut self, scope_id: String) {
         zeroize::Zeroize::zeroize(&mut self.settings_local_privilege_draft.secret);
         self.settings_local_privilege_draft = PrivilegeCredentialDraft::default();
         self.settings_local_privilege_error = None;
@@ -727,14 +760,21 @@ impl WorkspaceApp {
         self.settings_page.privilege_scope_id = Some(scope_id);
     }
 
-    fn select_settings_privilege_scope(&mut self, scope_id: String, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn select_settings_privilege_scope(
+        &mut self,
+        scope_id: String,
+        cx: &mut Context<Self>,
+    ) {
         if self.settings_privilege_active_scope_id() != scope_id {
             self.set_settings_privilege_scope(scope_id);
         }
         cx.notify();
     }
 
-    fn reset_settings_privilege_credential_draft(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn reset_settings_privilege_credential_draft(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) {
         zeroize::Zeroize::zeroize(&mut self.settings_local_privilege_draft.secret);
         self.settings_local_privilege_draft = PrivilegeCredentialDraft::default();
         self.settings_local_privilege_error = None;
@@ -744,7 +784,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn edit_settings_privilege_credential(
+    pub(in crate::workspace) fn edit_settings_privilege_credential(
         &mut self,
         scope_id: String,
         credential: SavedPrivilegeCredential,
@@ -766,7 +806,10 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn save_settings_privilege_credential(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn save_settings_privilege_credential(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) {
         let scope_id = self.settings_privilege_active_scope_id();
         let draft = &self.settings_local_privilege_draft;
         let label = draft.label.trim().to_string();
@@ -820,7 +863,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn delete_settings_privilege_credential(
+    pub(in crate::workspace) fn delete_settings_privilege_credential(
         &mut self,
         scope_id: String,
         credential_id: String,
@@ -849,7 +892,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn settings_local_username_hint(&self) -> Option<String> {
+    pub(in crate::workspace) fn settings_local_username_hint(&self) -> Option<String> {
         std::env::var("USER")
             .or_else(|_| std::env::var("USERNAME"))
             .ok()

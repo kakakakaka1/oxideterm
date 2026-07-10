@@ -1,5 +1,7 @@
+use super::*;
+
 impl WorkspaceApp {
-    fn render_oxide_close_button(
+    pub(super) fn render_oxide_close_button(
         &self,
         import_dialog: bool,
         cx: &mut Context<Self>,
@@ -37,10 +39,10 @@ impl WorkspaceApp {
             },
             cx,
         )
-            .into_any_element()
+        .into_any_element()
     }
 
-    fn render_oxide_labeled_input(
+    pub(super) fn render_oxide_labeled_input(
         &self,
         label: String,
         input: AnyElement,
@@ -66,8 +68,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-
-    fn render_oxide_card(
+    pub(super) fn render_oxide_card(
         &self,
         title: Option<(LucideIcon, String)>,
         children: Vec<AnyElement>,
@@ -76,7 +77,7 @@ impl WorkspaceApp {
         self.render_oxide_padded_card(OXIDE_MODAL_CARD_P, title, children, cx)
     }
 
-    fn render_oxide_padded_card(
+    pub(super) fn render_oxide_padded_card(
         &self,
         padding: f32,
         title: Option<(LucideIcon, String)>,
@@ -117,7 +118,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_oxide_option_row(
+    pub(super) fn render_oxide_option_row(
         &self,
         title: String,
         description: String,
@@ -166,8 +167,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-
-    fn render_oxide_progress(
+    pub(super) fn render_oxide_progress(
         &self,
         progress: OxideTransferProgress,
         export_embed_keys: Option<bool>,
@@ -180,7 +180,11 @@ impl WorkspaceApp {
             oxide_import_progress_label(&progress.stage, progress.total, &self.i18n)
         };
         let summary = (progress.total > 0).then(|| {
-            format!("{}/{}", progress.current.min(progress.total), progress.total)
+            format!(
+                "{}/{}",
+                progress.current.min(progress.total),
+                progress.total
+            )
         });
         let padding = if export_embed_keys.is_some() {
             OXIDE_MODAL_CARD_P
@@ -227,18 +231,16 @@ impl WorkspaceApp {
                                 )
                             }),
                     )
-                    .child(
-                        div()
-                            .text_color(rgb(self.tokens.ui.text_muted))
-                            .child(self.render_display_text_with_role(
-                                SelectableTextRole::PlainDocument,
-                                "oxide-progress-percent",
-                                (&progress.stage, export_embed_keys),
-                                format!("{percent}%"),
-                                self.tokens.ui.text_muted,
-                                cx,
-                            )),
-                    )
+                    .child(div().text_color(rgb(self.tokens.ui.text_muted)).child(
+                        self.render_display_text_with_role(
+                            SelectableTextRole::PlainDocument,
+                            "oxide-progress-percent",
+                            (&progress.stage, export_embed_keys),
+                            format!("{percent}%"),
+                            self.tokens.ui.text_muted,
+                            cx,
+                        ),
+                    ))
                     .into_any_element(),
                 div()
                     .h(px(8.0))
@@ -259,7 +261,11 @@ impl WorkspaceApp {
         )
     }
 
-    fn render_oxide_password_strength(&self, password: &str, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn render_oxide_password_strength(
+        &self,
+        password: &str,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let strength = oxide_password_strength(password);
         let text_color = match strength {
             OxidePasswordStrength::Weak => OXIDE_YELLOW_500,
@@ -306,8 +312,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-
-    fn render_oxide_tone_notice(
+    pub(super) fn render_oxide_tone_notice(
         &self,
         color: u32,
         title: String,
@@ -353,7 +358,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_oxide_settings_section_grid(
+    pub(super) fn render_oxide_settings_section_grid(
         &self,
         selected: &HashSet<String>,
         import_dialog: bool,
@@ -417,22 +422,19 @@ impl WorkspaceApp {
                         }),
                     ))
                     .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .child(
-                                div()
-                                    .text_size(px(self.tokens.metrics.ui_text_sm))
-                                    .text_color(rgb(self.tokens.ui.text))
-                                    .child(oxide_settings_section_label(&section, &self.i18n)),
-                            ),
+                        div().flex().flex_col().child(
+                            div()
+                                .text_size(px(self.tokens.metrics.ui_text_sm))
+                                .text_color(rgb(self.tokens.ui.text))
+                                .child(oxide_settings_section_label(&section, &self.i18n)),
+                        ),
                     ),
             );
         }
         list.into_any_element()
     }
 
-    fn render_oxide_primary_button_label(&self, busy: bool, label: String) -> String {
+    pub(super) fn render_oxide_primary_button_label(&self, busy: bool, label: String) -> String {
         if !busy {
             return label;
         }
@@ -444,7 +446,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn render_oxide_cancel_button_label(&self, import_dialog: bool) -> String {
+    pub(super) fn render_oxide_cancel_button_label(&self, import_dialog: bool) -> String {
         if import_dialog {
             "取消".to_string()
         } else {
@@ -452,7 +454,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn render_oxide_subcard_bg(&self, panel: bool) -> Rgba {
+    pub(super) fn render_oxide_subcard_bg(&self, panel: bool) -> Rgba {
         rgba(
             ((if panel {
                 self.tokens.ui.bg_panel
@@ -463,7 +465,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn render_oxide_section_empty_warning(
+    pub(super) fn render_oxide_section_empty_warning(
         &self,
         text: String,
         cx: &mut Context<Self>,
@@ -481,14 +483,15 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_oxide_footer(
+    pub(super) fn render_oxide_footer(
         &self,
         busy: bool,
         primary_disabled: bool,
         secondary_label: String,
         primary_label: String,
         focused_action: Option<OxideDialogFooterAction>,
-        secondary_listener: impl Fn(&mut Self, &MouseDownEvent, &mut Window, &mut Context<Self>) + 'static,
+        secondary_listener: impl Fn(&mut Self, &MouseDownEvent, &mut Window, &mut Context<Self>)
+        + 'static,
         primary_listener: impl Fn(&mut Self, &MouseDownEvent, &mut Window, &mut Context<Self>) + 'static,
         cancel_listener: impl Fn(&mut Self, &MouseDownEvent, &mut Window, &mut Context<Self>) + 'static,
         cx: &mut Context<Self>,
@@ -503,48 +506,42 @@ impl WorkspaceApp {
             .justify_end()
             .gap(px(8.0))
             .pt(px(8.0))
-            .child(
-                self.render_oxide_footer_click_action(
-                    self.render_oxide_cancel_button_label(false),
-                    ButtonVariant::Outline,
-                    OxideDialogFooterAction::Cancel,
-                    focused_action,
-                    cancel_disabled,
-                    None,
-                    cancel_listener,
-                    cx,
-                )
-            )
+            .child(self.render_oxide_footer_click_action(
+                self.render_oxide_cancel_button_label(false),
+                ButtonVariant::Outline,
+                OxideDialogFooterAction::Cancel,
+                focused_action,
+                cancel_disabled,
+                None,
+                cancel_listener,
+                cx,
+            ))
             .when(!secondary_label.is_empty(), |footer| {
-                footer.child(
-                    self.render_oxide_footer_click_action(
-                        secondary_label,
-                        ButtonVariant::Outline,
-                        OxideDialogFooterAction::Secondary,
-                        focused_action,
-                        secondary_disabled,
-                        None,
-                        secondary_listener,
-                        cx,
-                    )
-                )
-            })
-            .child(
-                self.render_oxide_footer_click_action(
-                    primary_label,
-                    ButtonVariant::Default,
-                    OxideDialogFooterAction::Primary,
+                footer.child(self.render_oxide_footer_click_action(
+                    secondary_label,
+                    ButtonVariant::Outline,
+                    OxideDialogFooterAction::Secondary,
                     focused_action,
-                    primary_disabled,
-                    Some(140.0),
-                    primary_listener,
+                    secondary_disabled,
+                    None,
+                    secondary_listener,
                     cx,
-                )
-            )
+                ))
+            })
+            .child(self.render_oxide_footer_click_action(
+                primary_label,
+                ButtonVariant::Default,
+                OxideDialogFooterAction::Primary,
+                focused_action,
+                primary_disabled,
+                Some(140.0),
+                primary_listener,
+                cx,
+            ))
             .into_any_element()
     }
 
-    fn render_oxide_footer_click_action(
+    pub(super) fn render_oxide_footer_click_action(
         &self,
         label: String,
         variant: ButtonVariant,
@@ -571,8 +568,7 @@ impl WorkspaceApp {
         )
     }
 
-
-    fn render_oxide_checkbox(
+    pub(super) fn render_oxide_checkbox(
         &self,
         label: String,
         checked: bool,
@@ -581,7 +577,7 @@ impl WorkspaceApp {
         checkbox(&self.tokens, label, checked).on_mouse_down(MouseButton::Left, listener)
     }
 
-    fn render_oxide_status_line(
+    pub(super) fn render_oxide_status_line(
         &self,
         text: String,
         error: bool,
@@ -604,17 +600,15 @@ impl WorkspaceApp {
             }))
             .text_size(px(self.tokens.metrics.ui_text_sm))
             .text_color(rgb(color))
-            .child(self.render_selectable_text_scoped(
-                "oxide-status-line",
-                error,
-                text,
-                color,
-                cx,
-            ))
+            .child(self.render_selectable_text_scoped("oxide-status-line", error, text, color, cx))
             .into_any_element()
     }
 
-    fn render_oxide_error_banner(&self, text: String, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn render_oxide_error_banner(
+        &self,
+        text: String,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         div()
             .px_3()
             .py_2()
@@ -633,5 +627,4 @@ impl WorkspaceApp {
             ))
             .into_any_element()
     }
-
 }

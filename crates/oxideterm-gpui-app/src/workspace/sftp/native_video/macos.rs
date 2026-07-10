@@ -16,7 +16,7 @@ pub(crate) struct SftpNativeVideoSurface {
 }
 
 impl SftpNativeVideoSurface {
-    pub(super) fn sync(
+    pub(in crate::workspace::sftp) fn sync(
         &mut self,
         path: &str,
         bounds: Bounds<Pixels>,
@@ -48,7 +48,7 @@ impl SftpNativeVideoSurface {
         }
     }
 
-    pub(super) fn snapshot(&self) -> PlatformVideoSnapshot {
+    pub(in crate::workspace::sftp) fn snapshot(&self) -> PlatformVideoSnapshot {
         self.snapshot.clone().unwrap_or(PlatformVideoSnapshot {
             state: PlatformVideoState::Unavailable,
             position: Duration::ZERO,
@@ -58,7 +58,7 @@ impl SftpNativeVideoSurface {
         })
     }
 
-    pub(super) fn detach(&mut self) {
+    pub(in crate::workspace::sftp) fn detach(&mut self) {
         if let Some(player) = self.player.take() {
             unsafe {
                 player.pause();

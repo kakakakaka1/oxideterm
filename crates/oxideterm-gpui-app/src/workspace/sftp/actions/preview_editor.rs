@@ -1,5 +1,12 @@
+use super::external::open_path_in_external_app;
+use super::*;
+
 impl WorkspaceApp {
-    fn open_or_preview_sftp_file(&mut self, pane: SftpPane, file: &SftpFileEntry) {
+    pub(in crate::workspace::sftp) fn open_or_preview_sftp_file(
+        &mut self,
+        pane: SftpPane,
+        file: &SftpFileEntry,
+    ) {
         self.sftp_view.active_pane = pane;
         self.sftp_view.dismiss_context_menu();
         if file.file_type == SftpFileType::Directory {
@@ -34,7 +41,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn can_compare_sftp_preview(&self, name: &str) -> bool {
+    pub(in crate::workspace::sftp) fn can_compare_sftp_preview(&self, name: &str) -> bool {
         if self.sftp_view.preview_pane != Some(SftpPane::Remote) {
             return false;
         }
@@ -48,7 +55,7 @@ impl WorkspaceApp {
             .any(|file| file.name == name && file.file_type == SftpFileType::File)
     }
 
-    fn can_edit_sftp_preview(&self) -> bool {
+    pub(in crate::workspace::sftp) fn can_edit_sftp_preview(&self) -> bool {
         self.sftp_view.preview_pane == Some(SftpPane::Remote)
             && matches!(
                 self.sftp_view.preview_content.as_ref(),
@@ -56,7 +63,7 @@ impl WorkspaceApp {
             )
     }
 
-    fn sftp_preview_is_markdown_content(&self) -> bool {
+    pub(in crate::workspace::sftp) fn sftp_preview_is_markdown_content(&self) -> bool {
         matches!(
             self.sftp_view.preview_content.as_ref(),
             Some(PreviewContent::Text {
@@ -67,7 +74,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn open_sftp_preview_editor(
+    pub(in crate::workspace::sftp) fn open_sftp_preview_editor(
         &mut self,
         name: &str,
         window: &mut Window,
@@ -150,7 +157,7 @@ impl WorkspaceApp {
         });
     }
 
-    fn save_sftp_preview_editor(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace::sftp) fn save_sftp_preview_editor(&mut self, cx: &mut Context<Self>) {
         if self.sftp_view.preview_editor_saving {
             return;
         }
@@ -212,7 +219,10 @@ impl WorkspaceApp {
         }
     }
 
-    fn retry_sftp_preview_editor_save(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace::sftp) fn retry_sftp_preview_editor_save(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) {
         if self.sftp_view.preview_editor_saving {
             return;
         }
@@ -232,7 +242,7 @@ impl WorkspaceApp {
         .detach();
     }
 
-    fn request_close_sftp_editor(&mut self) {
+    pub(in crate::workspace::sftp) fn request_close_sftp_editor(&mut self) {
         let name = match self.sftp_view.dialog.clone() {
             Some(SftpDialog::Editor { name }) => name,
             Some(SftpDialog::EditorCloseConfirm { name }) => name,
@@ -245,15 +255,15 @@ impl WorkspaceApp {
         }
     }
 
-    fn cancel_sftp_editor_close_confirm(&mut self, name: String) {
+    pub(in crate::workspace::sftp) fn cancel_sftp_editor_close_confirm(&mut self, name: String) {
         self.sftp_view.dialog = Some(SftpDialog::Editor { name });
     }
 
-    fn discard_sftp_editor_changes(&mut self) {
+    pub(in crate::workspace::sftp) fn discard_sftp_editor_changes(&mut self) {
         self.close_sftp_dialog();
     }
 
-    fn download_sftp_preview(&mut self, name: &str) {
+    pub(in crate::workspace::sftp) fn download_sftp_preview(&mut self, name: &str) {
         let Some(tab_id) = self.main_window_tabs.active_tab_id else {
             return;
         };
@@ -302,7 +312,7 @@ impl WorkspaceApp {
         );
     }
 
-    fn open_sftp_preview_compare(&mut self, name: &str) {
+    pub(in crate::workspace::sftp) fn open_sftp_preview_compare(&mut self, name: &str) {
         if !self.can_compare_sftp_preview(name) {
             return;
         }
@@ -345,7 +355,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn open_sftp_preview_external(&mut self, path: &str) {
+    pub(in crate::workspace::sftp) fn open_sftp_preview_external(&mut self, path: &str) {
         if let Err(error) = open_path_in_external_app(path) {
             self.sftp_view.preview_error = Some(format!(
                 "{}: {}",
@@ -375,7 +385,7 @@ impl WorkspaceApp {
         });
     }
 
-    fn load_more_sftp_preview_hex(&mut self) {
+    pub(in crate::workspace::sftp) fn load_more_sftp_preview_hex(&mut self) {
         if self.sftp_view.preview_loading || self.sftp_view.preview_hex_loading_more {
             return;
         }

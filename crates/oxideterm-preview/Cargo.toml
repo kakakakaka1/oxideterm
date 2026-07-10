@@ -10,7 +10,6 @@ default = []
 [dependencies]
 chardetng = "0.1"
 encoding_rs.workspace = true
-gpui.workspace = true
 image.workspace = true
 memmap2.workspace = true
 mime_guess = "2"

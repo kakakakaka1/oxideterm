@@ -1,5 +1,96 @@
+use super::*;
+
+// Keep scheduling policy independent from GPUI so lifecycle edges remain unit-testable.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct SftpRemoteLoadState {
+    loading: bool,
+    pending: bool,
+    inflight: bool,
+}
+
+impl SftpRemoteLoadState {
+    fn request(mut self) -> Self {
+        // A newer request queues behind the one shared in-flight list operation.
+        self.loading = true;
+        self.pending = true;
+        self
+    }
+
+    fn start(mut self) -> Option<Self> {
+        // SFTP views share one list slot, which keeps stale completions unambiguous.
+        if self.inflight || !self.pending {
+            return None;
+        }
+        self.loading = true;
+        self.pending = false;
+        self.inflight = true;
+        Some(self)
+    }
+
+    fn complete(mut self) -> Self {
+        // Keep the loading indicator only when another request is already queued.
+        self.inflight = false;
+        self.loading = self.pending;
+        self
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SftpRemoteListCompletionContext {
+    CurrentVisibleView,
+    CurrentHiddenView,
+    StaleView,
+}
+
+impl SftpRemoteListCompletionContext {
+    fn should_apply(self) -> bool {
+        !matches!(self, Self::StaleView)
+    }
+}
+
+fn classify_sftp_remote_list_completion(
+    tab_still_owns_node: bool,
+    view_still_owns_node: bool,
+    tab_is_active: bool,
+) -> SftpRemoteListCompletionContext {
+    // Visibility does not own the result; the remembered SFTP view does.
+    if !tab_still_owns_node || !view_still_owns_node {
+        SftpRemoteListCompletionContext::StaleView
+    } else if tab_is_active {
+        SftpRemoteListCompletionContext::CurrentVisibleView
+    } else {
+        SftpRemoteListCompletionContext::CurrentHiddenView
+    }
+}
+
 impl WorkspaceApp {
-    pub(super) fn open_sftp_tab(
+    fn sftp_remote_load_state(&self) -> SftpRemoteLoadState {
+        SftpRemoteLoadState {
+            loading: self.sftp_view.remote_loading,
+            pending: self.sftp_view.remote_load_pending,
+            inflight: self.sftp_view.remote_load_inflight,
+        }
+    }
+
+    fn set_sftp_remote_load_state(&mut self, state: SftpRemoteLoadState) {
+        self.sftp_view.remote_loading = state.loading;
+        self.sftp_view.remote_load_pending = state.pending;
+        self.sftp_view.remote_load_inflight = state.inflight;
+    }
+
+    pub(in crate::workspace::sftp) fn request_sftp_remote_load(&mut self) {
+        let state = self.sftp_remote_load_state().request();
+        self.set_sftp_remote_load_state(state);
+        self.signal_sftp_remote_load();
+    }
+
+    fn signal_sftp_remote_load(&self) {
+        // The wake shares the ordered worker channel so path changes finish
+        // mutating UI state before the GPUI consumer snapshots a new request.
+        let _ = self.sftp_worker_tx.send(SftpWorkerResult::WakeRemoteLoad);
+    }
+
+    pub(in crate::workspace) fn open_sftp_tab(
         &mut self,
         node_id: NodeId,
         _window: &mut Window,
@@ -44,7 +135,7 @@ impl WorkspaceApp {
         // Opening the SFTP surface mirrors Tauri's createTab path: it does
         // not start SSH. The SFTP worker consumes an already-connected node
         // and reports the router's not-connected error when the node is down.
-        self.sftp_view.remote_load_pending = true;
+        self.request_sftp_remote_load();
         cx.notify();
     }
 
@@ -64,8 +155,11 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    pub(super) fn activate_sftp_view_for_node(&mut self, node_id: &NodeId) {
+    pub(in crate::workspace) fn activate_sftp_view_for_node(&mut self, node_id: &NodeId) {
         if self.sftp_view_node.as_ref() == Some(node_id) {
+            // Returning to a hidden SFTP tab must restart any pending request
+            // without relying on the workspace heartbeat.
+            self.signal_sftp_remote_load();
             return;
         }
 
@@ -102,18 +196,22 @@ impl WorkspaceApp {
         self.sftp_view.remote_selected.clear();
         self.sftp_view.remote_last_selected = None;
         self.sftp_view.remote_path_scroll_x = 0.0;
-        self.sftp_view.remote_load_pending = true;
-        self.sftp_view.remote_load_inflight = false;
+        // Keep an older node's list request serialized. Its completion will
+        // release the shared in-flight slot and leave this node's request pending.
+        self.request_sftp_remote_load();
         self.sftp_view.remote_load_retry_count = 0;
         self.sftp_view.init_error = None;
     }
 
-    pub(super) fn maybe_start_sftp_remote_load(&mut self, cx: &mut Context<Self>) {
-        if self.sftp_view.remote_load_inflight || !self.sftp_view.remote_load_pending {
-            return;
-        }
+    pub(in crate::workspace::sftp) fn maybe_start_sftp_remote_load(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(started_state) = self.sftp_remote_load_state().start() else {
+            return false;
+        };
         let Some(tab_id) = self.main_window_tabs.active_tab_id else {
-            return;
+            return false;
         };
         if self
             .tabs
@@ -121,13 +219,15 @@ impl WorkspaceApp {
             .find(|tab| tab.id == tab_id)
             .is_none_or(|tab| tab.kind != TabKind::Sftp)
         {
-            return;
+            return false;
         }
         let Some(node_id) = self.sftp_tab_nodes.get(&tab_id).cloned() else {
-            return;
+            return false;
         };
         let path = self.sftp_view.remote_path.clone();
+        self.set_sftp_remote_load_state(started_state);
         self.start_sftp_remote_load(tab_id, node_id, path, cx);
+        true
     }
 
     fn start_sftp_remote_load(
@@ -138,9 +238,6 @@ impl WorkspaceApp {
         cx: &mut Context<Self>,
     ) {
         let session_id = format!("node:{}:sftp", node_id.0);
-        self.sftp_view.remote_loading = true;
-        self.sftp_view.remote_load_pending = false;
-        self.sftp_view.remote_load_inflight = true;
         self.sftp_view.init_error = None;
 
         let tx = self.sftp_worker_tx.clone();
@@ -163,15 +260,17 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    pub(super) fn poll_sftp_worker_results(&mut self, cx: &mut Context<Self>) {
-        let mut results = Vec::new();
-        while let Ok(result) = self.sftp_worker_rx.try_recv() {
-            results.push(result);
-        }
-
-        let mut changed = false;
-        for result in results {
+    pub(in crate::workspace) fn handle_sftp_worker_result(
+        &mut self,
+        result: SftpWorkerResult,
+        cx: &mut Context<Self>,
+    ) {
+        let changed = {
+            let mut changed = false;
             match result {
+                SftpWorkerResult::WakeRemoteLoad => {
+                    self.maybe_start_sftp_remote_load(cx);
+                }
                 SftpWorkerResult::RemoteList {
                     tab_id,
                     node_id,
@@ -179,9 +278,14 @@ impl WorkspaceApp {
                     path,
                     result,
                 } => {
-                    if Some(tab_id) == self.main_window_tabs.active_tab_id {
-                        self.sftp_view.remote_load_inflight = false;
-                        self.sftp_view.remote_loading = false;
+                    let completion_context = classify_sftp_remote_list_completion(
+                        self.sftp_tab_nodes.get(&tab_id) == Some(&node_id),
+                        self.sftp_view_node.as_ref() == Some(&node_id),
+                        self.main_window_tabs.active_tab_id == Some(tab_id),
+                    );
+                    self.set_sftp_remote_load_state(self.sftp_remote_load_state().complete());
+                    changed = true;
+                    if completion_context.should_apply() {
                         match result {
                             Ok(listing) => {
                                 let cwd = listing.cwd;
@@ -245,15 +349,13 @@ impl WorkspaceApp {
                                         self.sftp_path_memory
                                             .insert(node_id.clone(), "/".to_string());
                                         if path != "/" {
-                                            self.sftp_view.remote_load_pending = true;
+                                            self.request_sftp_remote_load();
                                         }
                                     }
-                                    self.sftp_view.init_error =
-                                        Some(format!("{}: {error}", path));
+                                    self.sftp_view.init_error = Some(format!("{}: {error}", path));
                                 }
                             }
                         }
-                        changed = true;
                     }
                 }
                 SftpWorkerResult::TransferProgress {
@@ -312,7 +414,7 @@ impl WorkspaceApp {
                         && should_refresh
                         && refresh_remote
                     {
-                        self.sftp_view.remote_load_pending = true;
+                        self.request_sftp_remote_load();
                     }
                     if active_sftp_node.as_ref() == Some(&node_id)
                         && should_refresh
@@ -388,7 +490,7 @@ impl WorkspaceApp {
                         }
                     }
                     if refresh_remote {
-                        self.sftp_view.remote_load_pending = true;
+                        self.request_sftp_remote_load();
                     }
                     if refresh_local && let Ok(files) = list_local_files(&self.sftp_view.local_path)
                     {
@@ -403,7 +505,7 @@ impl WorkspaceApp {
                         .and_then(|tab_id| self.sftp_tab_nodes.get(&tab_id))
                         != Some(&node_id)
                     {
-                        continue;
+                        return;
                     }
                     self.sftp_view.incomplete_load_inflight = false;
                     match result {
@@ -433,7 +535,7 @@ impl WorkspaceApp {
                         .and_then(|tab_id| self.sftp_tab_nodes.get(&tab_id))
                         != Some(&node_id)
                     {
-                        continue;
+                        return;
                     }
                     match result {
                         Ok(snapshots) => {
@@ -455,7 +557,7 @@ impl WorkspaceApp {
                     // Preview loads race with quick file switching and dialog close. Match
                     // Tauri's current-preview ownership by dropping stale worker completions.
                     if generation != self.sftp_view.preview_generation {
-                        continue;
+                        return;
                     }
                     self.sftp_view.preview_loading = false;
                     self.sftp_view.preview_hex_loading_more = false;
@@ -469,36 +571,37 @@ impl WorkspaceApp {
                                     AssetFileKind::Audio => {
                                         let _ = self.sftp_view.preview_audio.load(owner.path());
                                     }
-                                    AssetFileKind::Font => {
-                                        match std::fs::read(owner.path()) {
-                                            Ok(bytes) => {
-                                                let family = font_family_name_from_bytes(&bytes)
-                                                    .or_else(|| {
-                                                        owner
-                                                            .path()
-                                                            .file_stem()
-                                                            .and_then(|name| name.to_str())
-                                                            .map(str::to_string)
-                                                    });
-                                                match cx.text_system().add_fonts(vec![Cow::Owned(bytes)]) {
-                                                    Ok(()) => {
-                                                        self.sftp_view.preview_font_family = family;
-                                                        self.sftp_view.preview_font_error = None;
-                                                    }
-                                                    Err(error) => {
-                                                        self.sftp_view.preview_font_family = None;
-                                                        self.sftp_view.preview_font_error =
-                                                            Some(error.to_string());
-                                                    }
+                                    AssetFileKind::Font => match std::fs::read(owner.path()) {
+                                        Ok(bytes) => {
+                                            let family = font_family_name_from_bytes(&bytes)
+                                                .or_else(|| {
+                                                    owner
+                                                        .path()
+                                                        .file_stem()
+                                                        .and_then(|name| name.to_str())
+                                                        .map(str::to_string)
+                                                });
+                                            match cx
+                                                .text_system()
+                                                .add_fonts(vec![Cow::Owned(bytes)])
+                                            {
+                                                Ok(()) => {
+                                                    self.sftp_view.preview_font_family = family;
+                                                    self.sftp_view.preview_font_error = None;
+                                                }
+                                                Err(error) => {
+                                                    self.sftp_view.preview_font_family = None;
+                                                    self.sftp_view.preview_font_error =
+                                                        Some(error.to_string());
                                                 }
                                             }
-                                            Err(error) => {
-                                                self.sftp_view.preview_font_family = None;
-                                                self.sftp_view.preview_font_error =
-                                                    Some(error.to_string());
-                                            }
                                         }
-                                    }
+                                        Err(error) => {
+                                            self.sftp_view.preview_font_family = None;
+                                            self.sftp_view.preview_font_error =
+                                                Some(error.to_string());
+                                        }
+                                    },
                                     AssetFileKind::Image
                                     | AssetFileKind::Video
                                     | AssetFileKind::Office => {}
@@ -526,7 +629,7 @@ impl WorkspaceApp {
                     result,
                 } => {
                     if generation != self.sftp_view.preview_generation {
-                        continue;
+                        return;
                     }
                     self.sftp_view.preview_hex_loading_more = false;
                     match result {
@@ -579,7 +682,7 @@ impl WorkspaceApp {
                     result,
                 } => {
                     if generation != self.sftp_view.preview_generation {
-                        continue;
+                        return;
                     }
                     self.sftp_view.preview_editor_saving = false;
                     match result {
@@ -619,7 +722,7 @@ impl WorkspaceApp {
                                 }
                                 file.modified = saved.mtime.map(|mtime| mtime as i64);
                             }
-                            self.sftp_view.remote_load_pending = true;
+                            self.request_sftp_remote_load();
                         }
                         Err(error) => {
                             if sftp_preview_editor_is_network_error(&error) {
@@ -635,7 +738,8 @@ impl WorkspaceApp {
                     changed = true;
                 }
             }
-        }
+            changed
+        };
         if changed {
             cx.notify();
         }
@@ -655,16 +759,17 @@ impl WorkspaceApp {
                 .timer(std::time::Duration::from_secs(delay_secs))
                 .await;
             let _ = this.update(cx, |this, cx| {
-                if this.main_window_tabs.active_tab_id == Some(tab_id)
-                    && this
-                        .sftp_tab_nodes
-                        .get(&tab_id)
-                        .is_some_and(|active_node_id| active_node_id == &node_id)
+                if this
+                    .sftp_tab_nodes
+                    .get(&tab_id)
+                    .is_some_and(|tab_node_id| tab_node_id == &node_id)
+                    && this.sftp_view_node.as_ref() == Some(&node_id)
                     && this.sftp_view.remote_path == path
                     && !this.sftp_view.remote_load_inflight
                 {
-                    this.sftp_view.remote_load_pending = true;
-                    this.sftp_view.remote_loading = true;
+                    // Hidden SFTP views keep the retry pending; tab activation
+                    // sends another ordered wake when the view becomes visible.
+                    this.request_sftp_remote_load();
                     cx.notify();
                 }
             });
@@ -672,7 +777,7 @@ impl WorkspaceApp {
         .detach();
     }
 
-    pub(super) fn apply_sftp_ready_event(
+    pub(in crate::workspace) fn apply_sftp_ready_event(
         &mut self,
         node_id: &NodeId,
         ready: bool,
@@ -691,6 +796,70 @@ impl WorkspaceApp {
             self.sftp_view.remote_path = cwd.clone();
             self.sftp_view.remote_path_input = cwd;
         }
+    }
+}
+
+#[cfg(test)]
+mod remote_load_state_tests {
+    use super::*;
+
+    #[test]
+    fn hidden_current_view_completion_clears_inflight_before_return() {
+        let loading = SftpRemoteLoadState::default().request().start().unwrap();
+        let completion = classify_sftp_remote_list_completion(true, true, false);
+
+        let completed = loading.complete();
+
+        assert_eq!(
+            completion,
+            SftpRemoteListCompletionContext::CurrentHiddenView
+        );
+        assert!(completion.should_apply());
+        assert_eq!(completed, SftpRemoteLoadState::default());
+
+        let returned_view = classify_sftp_remote_list_completion(true, true, true);
+        assert_eq!(
+            returned_view,
+            SftpRemoteListCompletionContext::CurrentVisibleView
+        );
+        assert!(!completed.inflight);
+    }
+
+    #[test]
+    fn switching_sftp_views_waits_for_old_request_then_starts_pending_view() {
+        let old_request = SftpRemoteLoadState::default().request().start().unwrap();
+        let switched_view = old_request.request();
+        let completion = classify_sftp_remote_list_completion(true, false, false);
+
+        let old_request_completed = switched_view.complete();
+
+        assert_eq!(completion, SftpRemoteListCompletionContext::StaleView);
+        assert!(!completion.should_apply());
+        assert_eq!(
+            old_request_completed,
+            SftpRemoteLoadState {
+                loading: true,
+                pending: true,
+                inflight: false,
+            }
+        );
+        assert!(old_request_completed.start().is_some());
+    }
+
+    #[test]
+    fn hidden_pending_load_starts_after_activation_wake() {
+        let hidden_pending = SftpRemoteLoadState::default().request();
+
+        let reactivated = hidden_pending.start().unwrap();
+
+        assert_eq!(
+            reactivated,
+            SftpRemoteLoadState {
+                loading: true,
+                pending: false,
+                inflight: true,
+            }
+        );
     }
 }
 

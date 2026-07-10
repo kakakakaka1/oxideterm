@@ -1,3 +1,4 @@
+use super::*;
 use gpui::StatefulInteractiveElement;
 
 impl WorkspaceApp {
@@ -15,8 +16,8 @@ impl WorkspaceApp {
             self.duplicating_saved_connection_id.as_deref(),
             self.saved_connection_prompt_action,
         );
-        let prompt_mode = mode == super::form_state::NewConnectionFormMode::SavedConnectionPrompt;
-        let duplicate_mode = mode == super::form_state::NewConnectionFormMode::DuplicateTemplate;
+        let prompt_mode = mode == NewConnectionFormMode::SavedConnectionPrompt;
+        let duplicate_mode = mode == NewConnectionFormMode::DuplicateTemplate;
         let edit_properties_mode = mode.submits_saved_connection_properties();
         let drill_down_mode = self.drill_down_parent_node_id.is_some();
         let raw_tcp_edit_mode = self.editing_raw_tcp_profile_id.is_some()
@@ -53,23 +54,20 @@ impl WorkspaceApp {
             && !edit_properties_mode
             && !drill_down_mode
             && form.transport == NewConnectionTransport::RawUdp;
-        let remote_desktop_protocol = if !prompt_mode
-            && !duplicate_mode
-            && !edit_properties_mode
-            && !drill_down_mode
-        {
-            match form.transport {
-                NewConnectionTransport::Rdp => {
-                    Some(oxideterm_remote_desktop::RemoteDesktopProtocol::Rdp)
+        let remote_desktop_protocol =
+            if !prompt_mode && !duplicate_mode && !edit_properties_mode && !drill_down_mode {
+                match form.transport {
+                    NewConnectionTransport::Rdp => {
+                        Some(oxideterm_remote_desktop::RemoteDesktopProtocol::Rdp)
+                    }
+                    NewConnectionTransport::Vnc => {
+                        Some(oxideterm_remote_desktop::RemoteDesktopProtocol::Vnc)
+                    }
+                    _ => None,
                 }
-                NewConnectionTransport::Vnc => {
-                    Some(oxideterm_remote_desktop::RemoteDesktopProtocol::Vnc)
-                }
-                _ => None,
-            }
-        } else {
-            None
-        };
+            } else {
+                None
+            };
         let wsl_graphics_mode = !prompt_mode
             && !duplicate_mode
             && !edit_properties_mode
@@ -92,7 +90,8 @@ impl WorkspaceApp {
                 .t("sessionManager.connect_prompt.title")
                 .replace("{{name}}", &form.name)
         } else if duplicate_mode {
-            self.i18n.t("sessionManager.edit_properties.duplicate_title")
+            self.i18n
+                .t("sessionManager.edit_properties.duplicate_title")
         } else if raw_tcp_edit_mode {
             self.i18n.t("sessionManager.edit_properties.title")
         } else if edit_properties_mode {
@@ -127,7 +126,8 @@ impl WorkspaceApp {
             self.i18n.t("modals.new_connection.raw_tcp_description")
         } else if serial_mode {
             self.i18n.t("modals.new_connection.serial_description")
-        } else if remote_desktop_protocol == Some(oxideterm_remote_desktop::RemoteDesktopProtocol::Rdp)
+        } else if remote_desktop_protocol
+            == Some(oxideterm_remote_desktop::RemoteDesktopProtocol::Rdp)
         {
             self.i18n.t("modals.new_connection.rdp_description")
         } else if remote_desktop_protocol
@@ -1073,9 +1073,9 @@ impl WorkspaceApp {
                     ),
             )
             .when(!has_connections, |section| {
-                section.child(self.render_connection_hint(
-                    self.i18n.t("sessions.saved_next_hop.empty"),
-                ))
+                section.child(
+                    self.render_connection_hint(self.i18n.t("sessions.saved_next_hop.empty")),
+                )
             })
             .when(has_connections, |section| {
                 section.child(
@@ -1175,5 +1175,4 @@ impl WorkspaceApp {
             )
             .into_any_element()
     }
-
 }

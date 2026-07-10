@@ -1,14 +1,19 @@
 impl WorkspaceApp {
-    fn active_ai_safety_mode(&self) -> AiSafetyMode {
-        self.ai_chat
+    pub(in crate::workspace) fn active_ai_safety_mode(&self) -> AiSafetyMode {
+        self.ai
+            .chat
+            .conversation_state
             .active_conversation_id
             .as_ref()
-            .filter(|id| self.ai_safety_bypass_conversations.contains(*id))
+            .filter(|id| self.ai.chat.safety_bypass_conversations.contains(*id))
             .map(|_| AiSafetyMode::Bypass)
             .unwrap_or(AiSafetyMode::Default)
     }
 
-    fn render_ai_sidebar_model_bar(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn render_ai_sidebar_model_bar(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         div()
             .w_full()
             .relative()
@@ -32,29 +37,35 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_ai_sidebar_input(&self, enabled: bool, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn render_ai_sidebar_input(
+        &self,
+        enabled: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let placeholder = if enabled {
             self.i18n.t("ai.input.placeholder")
         } else {
             self.i18n.t("ai.input.placeholder_disabled")
         };
         let target = WorkspaceImeTarget::AiChatInput;
-        let focused = self.ai_chat_input_focused;
+        let focused = self.ai.chat.input_focused;
         let autocomplete_items = self.ai_chat_autocomplete_items();
         let marked_text = self.marked_text_for_target(target).unwrap_or_default();
         let selected_range = self.ime_selected_range_for_target(target);
-        let showing_placeholder = self.ai_chat_draft.is_empty() && marked_text.is_empty();
+        let showing_placeholder = self.ai.chat.draft.is_empty() && marked_text.is_empty();
         let input_text = if showing_placeholder {
             placeholder
         } else {
-            self.ai_chat_draft.clone()
+            self.ai.chat.draft.clone()
         };
         let caret_offset = selected_range
             .as_ref()
             .filter(|range| range.start == range.end)
             .map(|range| range.start);
-        let visual_lines =
-            ai_input_visual_lines(&input_text, ai_input_soft_wrap_columns(self.ai_sidebar_width));
+        let visual_lines = ai_input_visual_lines(
+            &input_text,
+            ai_input_soft_wrap_columns(self.ai.chat.sidebar_width),
+        );
         let mut input = div()
             .w_full()
             .min_h(px(20.0))
@@ -115,14 +126,11 @@ impl WorkspaceApp {
                         self.new_connection_caret_visible,
                     ))
                     .when(
-                        focused
-                            && is_last_line
-                            && !showing_placeholder
-                            && selected_range.is_none(),
+                        focused && is_last_line && !showing_placeholder && selected_range.is_none(),
                         |line| {
                             line.child(text_caret(&self.tokens, self.new_connection_caret_visible))
                         },
-                    )
+                    ),
             );
         }
         if focused && !marked_text.is_empty() {
@@ -133,32 +141,33 @@ impl WorkspaceApp {
                     .child(marked_text.to_string()),
             );
         }
-        let input = input.on_mouse_down(
-            MouseButton::Left,
-            cx.listener(move |this, event: &gpui::MouseDownEvent, window, cx| {
-                this.ai_chat_input_focused = true;
-                this.ai_chat_footer_focus = None;
-                this.ai_model_selector_search_focused = false;
-                this.ime_marked_text = None;
-                window.focus(&this.focus_handle);
-                this.begin_ime_selection_from_mouse_down(target, event, window, cx);
-                cx.stop_propagation();
-            }),
-        )
-        .on_mouse_move(
-            cx.listener(|this, event: &gpui::MouseMoveEvent, window, cx| {
-                this.update_ime_selection_drag_from_mouse_move(event, window, cx);
-            }),
-        );
+        let input = input
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, event: &gpui::MouseDownEvent, window, cx| {
+                    this.ai.chat.input_focused = true;
+                    this.ai.chat.footer_focus = None;
+                    this.ai.models.selector_search_focused = false;
+                    this.ime_marked_text = None;
+                    window.focus(&this.focus_handle);
+                    this.begin_ime_selection_from_mouse_down(target, event, window, cx);
+                    cx.stop_propagation();
+                }),
+            )
+            .on_mouse_move(
+                cx.listener(|this, event: &gpui::MouseMoveEvent, window, cx| {
+                    this.update_ime_selection_drag_from_mouse_move(event, window, cx);
+                }),
+            );
         let input = text_input_anchor_probe(
             target.anchor_id(),
             input,
             Self::deferred_ai_text_input_anchor_update(cx.entity()),
         );
-        let send_disabled = !enabled || self.ai_chat_draft.trim().is_empty();
-        let action_focused = self.ai_chat_footer_focus == Some(AiChatFooterAction::Submit)
-            && (self.ai_chat_loading || !send_disabled);
-        let action = if self.ai_chat_loading {
+        let send_disabled = !enabled || self.ai.chat.draft.trim().is_empty();
+        let action_focused = self.ai.chat.footer_focus == Some(AiChatFooterAction::Submit)
+            && (self.ai.chat.loading || !send_disabled);
+        let action = if self.ai.chat.loading {
             ai_stop_button(
                 &self.tokens,
                 self.i18n.t("ai.input.stop"),
@@ -178,7 +187,7 @@ impl WorkspaceApp {
                 frame.child(self.render_ai_autocomplete_popup(&autocomplete_items, cx))
             })
             .child(ai_chat_input_editor(&self.tokens, input));
-        let footer_leading = if self.ai_chat_loading {
+        let footer_leading = if self.ai.chat.loading {
             div()
                 .flex()
                 .min_w_0()
@@ -202,13 +211,14 @@ impl WorkspaceApp {
                 )))
                 .into_any_element()
         } else {
-            self.render_ai_context_usage_indicator(cx).into_any_element()
+            self.render_ai_context_usage_indicator(cx)
+                .into_any_element()
         };
         let footer_trailing = div()
             .flex()
             .items_center()
             .gap(px(6.0))
-            .when(!self.ai_chat_loading, |row| {
+            .when(!self.ai.chat.loading, |row| {
                 row.child(
                     div()
                         .text_size(px(9.0))
@@ -220,8 +230,8 @@ impl WorkspaceApp {
             .child(action.on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |this, _event, _window, cx| {
-                    this.ai_chat_footer_focus = None;
-                    if this.ai_chat_loading {
+                    this.ai.chat.footer_focus = None;
+                    if this.ai.chat.loading {
                         this.cancel_ai_chat_stream(cx);
                     } else if !send_disabled {
                         this.send_ai_chat_draft(cx);
@@ -243,7 +253,10 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_ai_safety_indicator(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn render_ai_safety_indicator(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let mode = self.active_ai_safety_mode();
         let icon = match mode {
             AiSafetyMode::Default => LucideIcon::ShieldCheck,
@@ -252,44 +265,42 @@ impl WorkspaceApp {
         div()
             .relative()
             .flex_none()
-            .child(
-                select_anchor_probe(
-                    SelectAnchorId::AiSafetyMenu,
-                    ai_safety_indicator(
-                        &self.tokens,
-                        mode,
-                        if mode == AiSafetyMode::Bypass {
-                            self.i18n.t("ai.safety_mode.bypass_label")
+            .child(select_anchor_probe(
+                SelectAnchorId::AiSafetyMenu,
+                ai_safety_indicator(
+                    &self.tokens,
+                    mode,
+                    if mode == AiSafetyMode::Bypass {
+                        self.i18n.t("ai.safety_mode.bypass_label")
+                    } else {
+                        self.i18n.t("ai.safety_mode.default_label")
+                    },
+                    Self::render_lucide_icon(
+                        icon,
+                        10.0,
+                        rgb(if mode == AiSafetyMode::Bypass {
+                            0xfcd34d
                         } else {
-                            self.i18n.t("ai.safety_mode.default_label")
-                        },
-                        Self::render_lucide_icon(
-                            icon,
-                            10.0,
-                            rgb(if mode == AiSafetyMode::Bypass {
-                                0xfcd34d
-                            } else {
-                                self.tokens.ui.accent
-                            }),
-                        ),
-                    )
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(|this, _event, _window, cx| {
-                            let next_open = !this.ai_safety_menu_open;
-                            this.close_ai_sidebar_popovers();
-                            this.ai_safety_menu_open = next_open;
-                            cx.stop_propagation();
-                            cx.notify();
+                            self.tokens.ui.accent
                         }),
                     ),
-                    Self::deferred_ai_select_anchor_update(cx.entity()),
+                )
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, _event, _window, cx| {
+                        let next_open = !this.ai.chat.safety_menu_open;
+                        this.close_ai_sidebar_popovers();
+                        this.ai.chat.safety_menu_open = next_open;
+                        cx.stop_propagation();
+                        cx.notify();
+                    }),
                 ),
-            )
+                Self::deferred_ai_select_anchor_update(cx.entity()),
+            ))
             .into_any_element()
     }
 
-    fn render_ai_safety_menu(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn render_ai_safety_menu(&self, cx: &mut Context<Self>) -> AnyElement {
         // Tauri DropdownMenuContent uses w-64 and opens upward from the compact status bar.
         div()
             .w(px(256.0))
@@ -337,40 +348,42 @@ impl WorkspaceApp {
                     .border_t_1()
                     .border_color(rgba((self.tokens.ui.border << 8) | 0x66)),
             )
-            .child(self.render_ai_menu_action(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(self.tokens.spacing.two))
-                    .px(px(self.tokens.spacing.three))
-                    .py(px(self.tokens.spacing.two))
-                    .text_size(px(12.0))
-                    .text_color(rgb(self.tokens.ui.text))
-                    .child(Self::render_lucide_icon(
-                        LucideIcon::Settings,
-                        14.0,
-                        rgb(self.tokens.ui.text_muted),
-                    ))
-                    .child(self.render_display_text_with_role(
-                        SelectableTextRole::NonSelectable,
-                        "ai-safety-menu",
-                        "open-settings",
-                        self.i18n.t("ai.safety_mode.open_settings"),
-                        self.tokens.ui.text,
-                        cx,
-                    )),
-                false,
-                false,
-                Some(rgba((self.tokens.ui.bg_hover << 8) | 0x99)),
-                |this, _event, window, cx| {
-                    this.open_ai_settings(window, cx);
-                },
-                cx,
-            ))
+            .child(
+                self.render_ai_menu_action(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(self.tokens.spacing.two))
+                        .px(px(self.tokens.spacing.three))
+                        .py(px(self.tokens.spacing.two))
+                        .text_size(px(12.0))
+                        .text_color(rgb(self.tokens.ui.text))
+                        .child(Self::render_lucide_icon(
+                            LucideIcon::Settings,
+                            14.0,
+                            rgb(self.tokens.ui.text_muted),
+                        ))
+                        .child(self.render_display_text_with_role(
+                            SelectableTextRole::NonSelectable,
+                            "ai-safety-menu",
+                            "open-settings",
+                            self.i18n.t("ai.safety_mode.open_settings"),
+                            self.tokens.ui.text,
+                            cx,
+                        )),
+                    false,
+                    false,
+                    Some(rgba((self.tokens.ui.bg_hover << 8) | 0x99)),
+                    |this, _event, window, cx| {
+                        this.open_ai_settings(window, cx);
+                    },
+                    cx,
+                ),
+            )
             .into_any_element()
     }
 
-    fn render_ai_safety_menu_item(
+    pub(in crate::workspace) fn render_ai_safety_menu_item(
         &self,
         mode: AiSafetyMode,
         title: String,
@@ -383,7 +396,11 @@ impl WorkspaceApp {
         } else {
             LucideIcon::ShieldCheck
         };
-        let title_color = if bypass { 0xfcd34d } else { self.tokens.ui.text };
+        let title_color = if bypass {
+            0xfcd34d
+        } else {
+            self.tokens.ui.text
+        };
         let mode_key = if bypass { "bypass" } else { "default" };
         let item = div()
             .flex()
@@ -453,7 +470,7 @@ impl WorkspaceApp {
                             // cycle so GPUI does not re-enter WorkspaceApp while
                             // the old menu frame is still being processed.
                             cx.defer_in(window, |this, _window, cx| {
-                                this.ai_safety_confirm_open = true;
+                                this.ai.chat.safety_confirm_open = true;
                                 // Tauri useConfirm does not paint a footer focus
                                 // state when the dialog is opened from a pointer
                                 // menu action; focus-visible appears only after
@@ -523,7 +540,7 @@ impl WorkspaceApp {
             },
             self.standard_confirm_focus_owner(),
             cx.listener(|this, _event, _window, cx| {
-                this.ai_safety_confirm_open = false;
+                this.ai.chat.safety_confirm_open = false;
                 this.clear_standard_confirm_focus();
                 cx.stop_propagation();
                 cx.notify();
@@ -536,7 +553,10 @@ impl WorkspaceApp {
         )
     }
 
-    fn render_ai_tool_indicator(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn render_ai_tool_indicator(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let tool_use = &self.settings_store.settings().ai.tool_use;
         let enabled = tool_use.enabled;
         let max_rounds = tool_use.max_rounds.unwrap_or(10);
@@ -580,7 +600,10 @@ impl WorkspaceApp {
         .into_any_element()
     }
 
-    fn render_ai_context_usage_indicator(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn render_ai_context_usage_indicator(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let breakdown = self.ai_context_token_breakdown();
         let total_tokens = breakdown.total;
         let max_tokens = breakdown.max_tokens;
@@ -613,9 +636,9 @@ impl WorkspaceApp {
         .on_mouse_down(
             MouseButton::Left,
             cx.listener(|this, _event, _window, cx| {
-                let next_open = !this.ai_context_popover_open;
+                let next_open = !this.ai.chat.context_popover_open;
                 this.close_ai_sidebar_popovers();
-                this.ai_context_popover_open = next_open;
+                this.ai.chat.context_popover_open = next_open;
                 cx.stop_propagation();
                 cx.notify();
             }),
@@ -629,7 +652,10 @@ impl WorkspaceApp {
         .into_any_element()
     }
 
-    fn render_ai_context_popover(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn render_ai_context_popover(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let breakdown = self.ai_context_token_breakdown();
         let total_tokens = breakdown.total;
         let max_tokens = breakdown.max_tokens;
@@ -730,7 +756,9 @@ impl WorkspaceApp {
                     )),
             )
             .when(
-                self.ai_chat
+                self.ai
+                    .chat
+                    .conversation_state
                     .active_conversation()
                     .is_some_and(|conversation| conversation.messages.len() >= 4),
                 |popover| {
@@ -776,7 +804,7 @@ impl WorkspaceApp {
                                     .on_mouse_down(
                                         MouseButton::Left,
                                         cx.listener(|this, _event, _window, cx| {
-                                            this.ai_context_popover_open = false;
+                                            this.ai.chat.context_popover_open = false;
                                             this.start_ai_compact_conversation(cx);
                                             cx.stop_propagation();
                                             cx.notify();
@@ -789,7 +817,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_ai_context_breakdown_row(
+    pub(in crate::workspace) fn render_ai_context_breakdown_row(
         &self,
         label: String,
         value: String,
@@ -828,16 +856,19 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn ai_context_token_breakdown(&self) -> AiContextTokenBreakdown {
+    pub(in crate::workspace) fn ai_context_token_breakdown(&self) -> AiContextTokenBreakdown {
         let settings = self.settings_store.settings();
         let providers = ai_provider_views(&settings.ai.providers);
-        let active_provider = active_provider_view(&providers, settings.ai.active_provider_id.as_deref());
+        let active_provider =
+            active_provider_view(&providers, settings.ai.active_provider_id.as_deref());
         let model = active_provider
             .and_then(|provider| {
                 active_model_or_provider_default(settings.ai.active_model.as_deref(), provider)
             })
             .unwrap_or_default();
-        let provider_id = active_provider.map(|provider| provider.id.as_str()).unwrap_or("");
+        let provider_id = active_provider
+            .map(|provider| provider.id.as_str())
+            .unwrap_or("");
         let max_tokens = ai_context_window_from_maps(
             &settings.ai.user_context_windows,
             &settings.ai.model_context_windows,
@@ -846,7 +877,7 @@ impl WorkspaceApp {
         )
         .unwrap_or(AI_COMPACTION_DEFAULT_CONTEXT_WINDOW);
         let system_prompt = settings.ai.custom_system_prompt.trim();
-        let conversation = self.ai_chat.active_conversation();
+        let conversation = self.ai.chat.conversation_state.active_conversation();
         let cache_key = AiContextTokenBreakdownKey {
             conversation_id: conversation.map(|conversation| conversation.id.clone()),
             conversation_fingerprint: ai_conversation_token_fingerprint(conversation),
@@ -857,11 +888,11 @@ impl WorkspaceApp {
             tool_use_enabled: settings.ai.tool_use.enabled,
         };
         {
-            let cache = self.ai_context_token_cache.borrow();
+            let cache = self.ai.chat.context_token_cache.borrow();
             if cache.key.as_ref() == Some(&cache_key)
                 && let Some(cached) = cache.breakdown_without_draft.as_ref()
             {
-                return ai_context_breakdown_with_draft(cached.clone(), &self.ai_chat_draft);
+                return ai_context_breakdown_with_draft(cached.clone(), &self.ai.chat.draft);
             }
         }
         let system_instructions = ai_estimated_tokens(if system_prompt.is_empty() {
@@ -887,7 +918,9 @@ impl WorkspaceApp {
                     .sum::<usize>()
             })
             .unwrap_or(0);
-        let tool_results = conversation.map(ai_conversation_tool_result_tokens).unwrap_or(0);
+        let tool_results = conversation
+            .map(ai_conversation_tool_result_tokens)
+            .unwrap_or(0);
         let breakdown_without_draft = AiContextTokenBreakdown {
             system_instructions,
             tool_definitions,
@@ -901,20 +934,26 @@ impl WorkspaceApp {
                 .saturating_add(tool_results),
             max_tokens,
         };
-        let mut cache = self.ai_context_token_cache.borrow_mut();
+        let mut cache = self.ai.chat.context_token_cache.borrow_mut();
         cache.key = Some(cache_key);
         cache.breakdown_without_draft = Some(breakdown_without_draft.clone());
-        ai_context_breakdown_with_draft(breakdown_without_draft, &self.ai_chat_draft)
+        ai_context_breakdown_with_draft(breakdown_without_draft, &self.ai.chat.draft)
     }
 
-    fn ai_should_show_context_chips(&self, cx: &mut Context<Self>) -> bool {
+    pub(in crate::workspace) fn ai_should_show_context_chips(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> bool {
         self.ai_active_terminal_context_available()
             || self.ai_active_tab_has_split_panes()
             || self.ai_has_ide_context(cx)
             || self.ai_has_sftp_context()
     }
 
-    fn render_ai_context_chips(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn render_ai_context_chips(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let mut chips = ai_chat_input_chips(&self.tokens);
         if self.ai_active_terminal_context_available() {
             chips = chips.child(
@@ -922,11 +961,11 @@ impl WorkspaceApp {
                     &self.tokens,
                     self.i18n.t("ai.input.context"),
                     AiTone::Accent,
-                    self.ai_chat_include_context,
+                    self.ai.chat.include_context,
                     Self::render_lucide_icon(
                         LucideIcon::Terminal,
                         12.0,
-                        rgb(if self.ai_chat_include_context {
+                        rgb(if self.ai.chat.include_context {
                             self.tokens.ui.accent
                         } else {
                             self.tokens.ui.text_muted
@@ -936,9 +975,9 @@ impl WorkspaceApp {
                 .on_mouse_down(
                     MouseButton::Left,
                     cx.listener(|this, _event, _window, cx| {
-                        this.ai_chat_include_context = !this.ai_chat_include_context;
-                        if !this.ai_chat_include_context {
-                            this.ai_chat_include_all_panes = false;
+                        this.ai.chat.include_context = !this.ai.chat.include_context;
+                        if !this.ai.chat.include_context {
+                            this.ai.chat.include_all_panes = false;
                         }
                         cx.stop_propagation();
                         cx.notify();
@@ -946,17 +985,17 @@ impl WorkspaceApp {
                 ),
             );
         }
-        if self.ai_active_tab_has_split_panes() && self.ai_chat_include_context {
+        if self.ai_active_tab_has_split_panes() && self.ai.chat.include_context {
             chips = chips.child(
                 ai_context_chip(
                     &self.tokens,
                     self.i18n.t("ai.input.panes"),
                     AiTone::Blue,
-                    self.ai_chat_include_all_panes,
+                    self.ai.chat.include_all_panes,
                     Self::render_lucide_icon(
                         LucideIcon::SplitSquareHorizontal,
                         12.0,
-                        rgb(if self.ai_chat_include_all_panes {
+                        rgb(if self.ai.chat.include_all_panes {
                             0x3b82f6
                         } else {
                             self.tokens.ui.text_muted
@@ -966,7 +1005,7 @@ impl WorkspaceApp {
                 .on_mouse_down(
                     MouseButton::Left,
                     cx.listener(|this, _event, _window, cx| {
-                        this.ai_chat_include_all_panes = !this.ai_chat_include_all_panes;
+                        this.ai.chat.include_all_panes = !this.ai.chat.include_all_panes;
                         cx.stop_propagation();
                         cx.notify();
                     }),
@@ -995,18 +1034,22 @@ impl WorkspaceApp {
     }
 
     pub(in crate::workspace) fn ai_chat_autocomplete_items(&self) -> Vec<AiAutocompleteCandidate> {
-        if !self.ai_chat_input_focused || self.ai_chat_autocomplete_suppressed {
+        if !self.ai.chat.input_focused || self.ai.chat.autocomplete_suppressed {
             return Vec::new();
         }
-        ai_autocomplete_candidates(&self.ai_chat_draft, self.ai_chat_draft.len())
+        ai_autocomplete_candidates(&self.ai.chat.draft, self.ai.chat.draft.len())
     }
 
-    fn render_ai_autocomplete_popup(
+    pub(in crate::workspace) fn render_ai_autocomplete_popup(
         &self,
         items: &[AiAutocompleteCandidate],
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let active_index = self.ai_chat_autocomplete_index.min(items.len().saturating_sub(1));
+        let active_index = self
+            .ai
+            .chat
+            .autocomplete_index
+            .min(items.len().saturating_sub(1));
         let mut popup = ai_autocomplete_popup(&self.tokens, "ai-chat-autocomplete");
         for (index, item) in items.iter().enumerate() {
             let prefix = match item.kind {
@@ -1035,24 +1078,24 @@ impl WorkspaceApp {
         popup.into_any_element()
     }
 
-    fn apply_ai_chat_autocomplete_candidate(
+    pub(in crate::workspace) fn apply_ai_chat_autocomplete_candidate(
         &mut self,
         candidate: &AiAutocompleteCandidate,
         cx: &mut Context<Self>,
     ) {
-        self.ai_chat_draft = apply_ai_autocomplete_candidate(
-            &self.ai_chat_draft,
-            self.ai_chat_draft.len(),
+        self.ai.chat.draft = apply_ai_autocomplete_candidate(
+            &self.ai.chat.draft,
+            self.ai.chat.draft.len(),
             candidate,
         );
-        self.ai_chat_autocomplete_index = 0;
-        self.ai_chat_autocomplete_suppressed = true;
+        self.ai.chat.autocomplete_index = 0;
+        self.ai.chat.autocomplete_suppressed = true;
         self.ime_marked_text = None;
         cx.notify();
     }
 }
 
-fn ai_input_line_segments(
+pub(in crate::workspace) fn ai_input_line_segments(
     tokens: &oxideterm_theme::ThemeTokens,
     line: &str,
     selection_range: Option<std::ops::Range<usize>>,
@@ -1077,29 +1120,32 @@ fn ai_input_line_segments(
 }
 
 #[derive(Clone, Copy)]
-struct AiInputVisualLine<'a> {
+pub(in crate::workspace) struct AiInputVisualLine<'a> {
     text: &'a str,
     utf16_start: usize,
     utf16_end: usize,
 }
 
 impl AiInputVisualLine<'_> {
-    fn utf16_len(&self) -> usize {
+    pub(in crate::workspace) fn utf16_len(&self) -> usize {
         self.utf16_end.saturating_sub(self.utf16_start)
     }
 }
 
-const AI_INPUT_SOFT_WRAP_CHROME_PX: f32 = 56.0;
-const AI_INPUT_SOFT_WRAP_HALF_WIDTH_PX: f32 = 7.0;
-const AI_INPUT_SOFT_WRAP_MIN_COLUMNS: usize = 12;
+pub(in crate::workspace) const AI_INPUT_SOFT_WRAP_CHROME_PX: f32 = 56.0;
+pub(in crate::workspace) const AI_INPUT_SOFT_WRAP_HALF_WIDTH_PX: f32 = 7.0;
+pub(in crate::workspace) const AI_INPUT_SOFT_WRAP_MIN_COLUMNS: usize = 12;
 
-fn ai_input_soft_wrap_columns(sidebar_width: f32) -> usize {
+pub(in crate::workspace) fn ai_input_soft_wrap_columns(sidebar_width: f32) -> usize {
     let text_width = (sidebar_width - AI_INPUT_SOFT_WRAP_CHROME_PX).max(80.0);
     ((text_width / AI_INPUT_SOFT_WRAP_HALF_WIDTH_PX).floor() as usize)
         .max(AI_INPUT_SOFT_WRAP_MIN_COLUMNS)
 }
 
-fn ai_input_visual_lines(input: &str, wrap_columns: usize) -> Vec<AiInputVisualLine<'_>> {
+pub(in crate::workspace) fn ai_input_visual_lines(
+    input: &str,
+    wrap_columns: usize,
+) -> Vec<AiInputVisualLine<'_>> {
     let wrap_columns = wrap_columns.max(AI_INPUT_SOFT_WRAP_MIN_COLUMNS);
     let mut visual_lines = Vec::new();
     let mut utf16_line_start = 0;
@@ -1119,7 +1165,7 @@ fn ai_input_visual_lines(input: &str, wrap_columns: usize) -> Vec<AiInputVisualL
     visual_lines
 }
 
-fn ai_push_wrapped_input_line<'a>(
+pub(in crate::workspace) fn ai_push_wrapped_input_line<'a>(
     line: &'a str,
     utf16_line_start: usize,
     wrap_columns: usize,
@@ -1163,7 +1209,7 @@ fn ai_push_wrapped_input_line<'a>(
     });
 }
 
-fn ai_input_char_columns(ch: char) -> usize {
+pub(in crate::workspace) fn ai_input_char_columns(ch: char) -> usize {
     // GPUI does not expose textarea-style wrapping here, so this estimates
     // terminal-adjacent text width with UTF-16-safe boundaries for IME state.
     if ch == '\t' {
@@ -1175,7 +1221,7 @@ fn ai_input_char_columns(ch: char) -> usize {
     }
 }
 
-fn ai_format_tokens(tokens: usize) -> String {
+pub(in crate::workspace) fn ai_format_tokens(tokens: usize) -> String {
     if tokens >= 1000 {
         format!("{:.1}K", tokens as f32 / 1000.0)
     } else {
@@ -1183,7 +1229,7 @@ fn ai_format_tokens(tokens: usize) -> String {
     }
 }
 
-fn ai_context_percent(tokens: usize, max_tokens: usize) -> String {
+pub(in crate::workspace) fn ai_context_percent(tokens: usize, max_tokens: usize) -> String {
     if max_tokens == 0 {
         return "0%".to_string();
     }
@@ -1195,7 +1241,7 @@ fn ai_context_percent(tokens: usize, max_tokens: usize) -> String {
     }
 }
 
-fn ai_context_breakdown_with_draft(
+pub(in crate::workspace) fn ai_context_breakdown_with_draft(
     mut breakdown: AiContextTokenBreakdown,
     draft: &str,
 ) -> AiContextTokenBreakdown {
@@ -1205,7 +1251,9 @@ fn ai_context_breakdown_with_draft(
     breakdown
 }
 
-fn ai_conversation_token_fingerprint(conversation: Option<&AiConversation>) -> u64 {
+pub(in crate::workspace) fn ai_conversation_token_fingerprint(
+    conversation: Option<&AiConversation>,
+) -> u64 {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     let Some(conversation) = conversation else {
         return 0;
@@ -1232,7 +1280,7 @@ fn ai_conversation_token_fingerprint(conversation: Option<&AiConversation>) -> u
     std::hash::Hasher::finish(&hasher)
 }
 
-fn ai_role_fingerprint(role: &AiChatRole) -> u8 {
+pub(in crate::workspace) fn ai_role_fingerprint(role: &AiChatRole) -> u8 {
     match role {
         AiChatRole::User => 0,
         AiChatRole::Assistant => 1,
@@ -1241,13 +1289,16 @@ fn ai_role_fingerprint(role: &AiChatRole) -> u8 {
     }
 }
 
-fn ai_text_shape_fingerprint(text: &str) -> u64 {
+pub(in crate::workspace) fn ai_text_shape_fingerprint(text: &str) -> u64 {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     ai_hash_text_shape(text, &mut hasher);
     std::hash::Hasher::finish(&hasher)
 }
 
-fn ai_hash_text_shape(text: &str, hasher: &mut std::collections::hash_map::DefaultHasher) {
+pub(in crate::workspace) fn ai_hash_text_shape(
+    text: &str,
+    hasher: &mut std::collections::hash_map::DefaultHasher,
+) {
     let bytes = text.as_bytes();
     std::hash::Hash::hash(&bytes.len(), hasher);
     let head = bytes.len().min(32);
@@ -1258,7 +1309,7 @@ fn ai_hash_text_shape(text: &str, hasher: &mut std::collections::hash_map::Defau
     }
 }
 
-fn ai_hash_tool_call_shape(
+pub(in crate::workspace) fn ai_hash_tool_call_shape(
     tool_call: &serde_json::Value,
     hasher: &mut std::collections::hash_map::DefaultHasher,
 ) {
@@ -1284,7 +1335,9 @@ fn ai_hash_tool_call_shape(
     }
 }
 
-fn ai_conversation_tool_result_tokens(conversation: &AiConversation) -> usize {
+pub(in crate::workspace) fn ai_conversation_tool_result_tokens(
+    conversation: &AiConversation,
+) -> usize {
     conversation
         .messages
         .iter()
@@ -1294,7 +1347,7 @@ fn ai_conversation_tool_result_tokens(conversation: &AiConversation) -> usize {
         .sum()
 }
 
-fn ai_tool_call_estimated_tokens(tool_call: &serde_json::Value) -> usize {
+pub(in crate::workspace) fn ai_tool_call_estimated_tokens(tool_call: &serde_json::Value) -> usize {
     let arguments = tool_call
         .get("arguments")
         .and_then(serde_json::Value::as_str)
@@ -1313,6 +1366,6 @@ fn ai_tool_call_estimated_tokens(tool_call: &serde_json::Value) -> usize {
     }
 }
 
-fn ai_estimated_tool_definitions_tokens() -> usize {
+pub(in crate::workspace) fn ai_estimated_tool_definitions_tokens() -> usize {
     ai_tool_definitions_estimated_tokens(&oxideterm_ai::orchestrator_tool_definitions())
 }

@@ -1,11 +1,12 @@
 use super::*;
 use crate::workspace::forwards::ForwardingWorkerResult;
 
-include!("tabs/create.rs");
-include!("tabs/state.rs");
-include!("tabs/nodes.rs");
-include!("tabs/nodes_reconnect_helpers.rs");
-include!("tabs/navigation.rs");
-include!("tabs/detach.rs");
-include!("tabs/render.rs");
-include!("tabs/helpers.rs");
+// Keep tab responsibilities in real modules while preserving WorkspaceApp's API.
+mod create;
+mod detach;
+mod helpers;
+mod navigation;
+mod nodes;
+mod nodes_reconnect_helpers;
+mod render;
+mod state;

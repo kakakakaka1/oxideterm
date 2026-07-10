@@ -1,5 +1,7 @@
+use super::*;
+
 impl WorkspaceApp {
-    fn render_sftp_init_error(
+    pub(in crate::workspace::sftp) fn render_sftp_init_error(
         &self,
         error: &str,
         _has_background: bool,
@@ -36,7 +38,7 @@ impl WorkspaceApp {
                         // through the node owner, so a tab with no terminal
                         // pane can rebuild the SSH/SFTP path first.
                         this.ensure_node_connection_started(&node_id);
-                        this.sftp_view.remote_load_pending = true;
+                        this.request_sftp_remote_load();
                     }
                     cx.stop_propagation();
                     cx.notify();
@@ -45,7 +47,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_sftp_icon_button(
+    pub(in crate::workspace::sftp) fn render_sftp_icon_button(
         &self,
         icon: LucideIcon,
         title: String,
@@ -65,7 +67,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn render_sftp_nav_button(
+    pub(in crate::workspace::sftp) fn render_sftp_nav_button(
         &self,
         pane: SftpPane,
         target: &'static str,
@@ -85,14 +87,17 @@ impl WorkspaceApp {
         )
     }
 
-    fn render_sftp_refresh_button(&self, pane: SftpPane, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace::sftp) fn render_sftp_refresh_button(
+        &self,
+        pane: SftpPane,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         self.render_sftp_icon_button(
             LucideIcon::RefreshCw,
             self.i18n.t("sftp.toolbar.refresh"),
             cx.listener(move |this, _event, _window, cx| {
                 if pane == SftpPane::Remote {
-                    this.sftp_view.remote_load_pending = true;
-                    this.sftp_view.remote_loading = true;
+                    this.request_sftp_remote_load();
                 }
                 cx.stop_propagation();
                 cx.notify();
@@ -101,7 +106,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn render_sftp_transfer_button(
+    pub(in crate::workspace::sftp) fn render_sftp_transfer_button(
         &self,
         pane: SftpPane,
         direction: SftpTransferDirection,
@@ -138,7 +143,7 @@ impl WorkspaceApp {
         .into_any_element()
     }
 
-    fn render_sftp_text_button(
+    pub(in crate::workspace::sftp) fn render_sftp_text_button(
         &self,
         label: String,
         primary: bool,
@@ -152,7 +157,7 @@ impl WorkspaceApp {
         self.render_sftp_button_variant(label, variant, listener)
     }
 
-    fn render_sftp_button_variant(
+    pub(in crate::workspace::sftp) fn render_sftp_button_variant(
         &self,
         label: String,
         variant: SftpButtonVariant,
@@ -206,7 +211,7 @@ impl WorkspaceApp {
         .into_any_element()
     }
 
-    fn queue_title(&self, active_count: usize) -> String {
+    pub(in crate::workspace::sftp) fn queue_title(&self, active_count: usize) -> String {
         let mut title = self.i18n.t("sftp.queue.title").to_uppercase();
         if active_count > 0 {
             title.push(' ');
@@ -220,7 +225,10 @@ impl WorkspaceApp {
         title
     }
 
-    fn transfer_status_text(&self, transfer: &SftpTransferItem) -> String {
+    pub(in crate::workspace::sftp) fn transfer_status_text(
+        &self,
+        transfer: &SftpTransferItem,
+    ) -> String {
         match transfer.state {
             SftpTransferState::Pending => self.i18n.t("sftp.queue.status_waiting"),
             SftpTransferState::Active => format_transfer_speed(transfer.speed),

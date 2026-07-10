@@ -1,9 +1,13 @@
+use gpui::{App, Context, MouseDownEvent, Window, rgb, rgba};
 use oxideterm_gpui_ui::button::{
     ButtonOptions, ButtonRadius, ButtonSize, ButtonVariant, IconButtonOptions, ToolbarButtonOptions,
 };
 
+use super::super::WorkspaceApp;
+use crate::assets::LucideIcon;
+
 impl WorkspaceApp {
-    fn quick_command_icon_button(
+    pub(super) fn quick_command_icon_button(
         &self,
         icon: LucideIcon,
         listener: impl Fn(&mut Self, &MouseDownEvent, &mut Window, &mut Context<Self>) + 'static,
@@ -24,7 +28,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn quick_command_mini_button(
+    pub(super) fn quick_command_mini_button(
         &self,
         icon: LucideIcon,
         listener: impl Fn(&mut Self, &MouseDownEvent, &mut Window, &mut Context<Self>) + 'static,
@@ -43,7 +47,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn quick_command_pin_button(
+    pub(super) fn quick_command_pin_button(
         &self,
         active: bool,
         listener: impl Fn(&mut Self, &MouseDownEvent, &mut Window, &mut Context<Self>) + 'static,
@@ -68,7 +72,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn quick_command_action_button(
+    pub(super) fn quick_command_action_button(
         &self,
         icon: LucideIcon,
         listener: impl Fn(&mut Self, &MouseDownEvent, &mut Window, &mut Context<Self>) + 'static,
@@ -88,7 +92,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn quick_command_text_button(
+    pub(super) fn quick_command_text_button(
         &self,
         label: String,
         enabled: bool,

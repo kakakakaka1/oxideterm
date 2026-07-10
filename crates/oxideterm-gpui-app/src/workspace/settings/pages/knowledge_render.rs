@@ -1,14 +1,18 @@
+use super::*;
+
 impl WorkspaceApp {
-    fn settings_knowledge_section(
+    pub(in crate::workspace) fn settings_knowledge_section(
         &mut self,
         section_index: usize,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         self.ensure_ai_provider_key_statuses(cx);
-        let collections = oxideterm_ai::rag_list_collections(&self.ai_rag_store.get(), None)
-            .unwrap_or_default();
+        let collections =
+            oxideterm_ai::rag_list_collections(&self.ai.knowledge.rag_store.get(), None)
+                .unwrap_or_default();
         let selected_id = self
-            .settings_page.knowledge_selected_collection_id
+            .settings_page
+            .knowledge_selected_collection_id
             .as_deref()
             .filter(|id| collections.iter().any(|collection| collection.id == *id))
             .map(str::to_string)
@@ -16,14 +20,18 @@ impl WorkspaceApp {
         let selected_collection = selected_id
             .as_deref()
             .and_then(|id| collections.iter().find(|collection| collection.id == id));
-        let selected_documents = selected_id
-            .as_deref()
-            .and_then(|id| {
-                oxideterm_ai::rag_list_documents(&self.ai_rag_store.get(), id, None, Some(100)).ok()
-            });
-        let selected_stats = selected_id
-            .as_deref()
-            .and_then(|id| oxideterm_ai::rag_get_collection_stats(&self.ai_rag_store.get(), id).ok());
+        let selected_documents = selected_id.as_deref().and_then(|id| {
+            oxideterm_ai::rag_list_documents(
+                &self.ai.knowledge.rag_store.get(),
+                id,
+                None,
+                Some(100),
+            )
+            .ok()
+        });
+        let selected_stats = selected_id.as_deref().and_then(|id| {
+            oxideterm_ai::rag_get_collection_stats(&self.ai.knowledge.rag_store.get(), id).ok()
+        });
 
         let mut index = section_index;
         if let Some(error) = self.settings_page.knowledge_error.as_ref() {
@@ -40,10 +48,10 @@ impl WorkspaceApp {
         if index == 1 {
             if let Some(collection) = selected_collection {
                 return self.knowledge_documents_card(
-                collection,
-                selected_documents,
-                selected_stats,
-                cx,
+                    collection,
+                    selected_documents,
+                    selected_stats,
+                    cx,
                 );
             }
         }
@@ -51,7 +59,7 @@ impl WorkspaceApp {
         div().into_any_element()
     }
 
-    fn knowledge_error_row(&self, error: &str) -> AnyElement {
+    pub(in crate::workspace) fn knowledge_error_row(&self, error: &str) -> AnyElement {
         div()
             .rounded(px(self.tokens.radii.lg))
             .border_1()
@@ -64,7 +72,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn knowledge_collections_card(
+    pub(in crate::workspace) fn knowledge_collections_card(
         &self,
         collections: &[oxideterm_ai::RagCollectionResponse],
         selected_id: Option<&str>,
@@ -125,7 +133,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn knowledge_documents_card(
+    pub(in crate::workspace) fn knowledge_documents_card(
         &self,
         collection: &oxideterm_ai::RagCollectionResponse,
         documents: Option<oxideterm_ai::RagPaginatedDocuments>,
@@ -137,15 +145,18 @@ impl WorkspaceApp {
         let embedding_collection_id = collection.id.clone();
         let documents = documents.map(|page| page.documents).unwrap_or_default();
         let import_label = self
-            .settings_page.knowledge_import_progress
+            .settings_page
+            .knowledge_import_progress
             .map(|(current, total)| format!("{current}/{total}"))
             .unwrap_or_else(|| self.i18n.t("settings_view.knowledge.import_files"));
         let embedding_label = self
-            .settings_page.knowledge_embedding_progress
+            .settings_page
+            .knowledge_embedding_progress
             .map(|(current, total)| format!("{current}/{total}"))
             .unwrap_or_else(|| self.i18n.t("settings_view.knowledge.generate_embeddings"));
         let reindex_label = self
-            .settings_page.knowledge_reindex_progress
+            .settings_page
+            .knowledge_reindex_progress
             .map(|(current, total)| {
                 if total == 0 {
                     self.i18n.t("settings_view.knowledge.reindex")
@@ -197,7 +208,8 @@ impl WorkspaceApp {
                         .justify_end()
                         .gap(px(8.0))
                         .child({
-                            let import_disabled = self.settings_page.knowledge_import_progress.is_some();
+                            let import_disabled =
+                                self.settings_page.knowledge_import_progress.is_some();
                             self.knowledge_text_icon_button(
                                 LucideIcon::FolderOpen,
                                 import_label,
@@ -212,21 +224,20 @@ impl WorkspaceApp {
                                 }),
                             )
                         })
-                        .child(
-                            self.knowledge_text_icon_button(
-                                LucideIcon::FilePlus,
-                                self.i18n.t("settings_view.knowledge.new_document"),
-                                false,
-                                cx.listener(|this, _event, _window, cx| {
-                                    this.settings_page.open_knowledge_new_document_dialog();
-                                    this.reset_standard_confirm_focus();
-                                    cx.stop_propagation();
-                                    cx.notify();
-                                }),
-                            ),
-                        )
+                        .child(self.knowledge_text_icon_button(
+                            LucideIcon::FilePlus,
+                            self.i18n.t("settings_view.knowledge.new_document"),
+                            false,
+                            cx.listener(|this, _event, _window, cx| {
+                                this.settings_page.open_knowledge_new_document_dialog();
+                                this.reset_standard_confirm_focus();
+                                cx.stop_propagation();
+                                cx.notify();
+                            }),
+                        ))
                         .child({
-                            let embedding_disabled = self.settings_page.knowledge_embedding_progress.is_some();
+                            let embedding_disabled =
+                                self.settings_page.knowledge_embedding_progress.is_some();
                             self.knowledge_text_icon_button(
                                 LucideIcon::Sparkles,
                                 embedding_label,
@@ -241,8 +252,10 @@ impl WorkspaceApp {
                             )
                         })
                         .child({
-                            let reindex_disabled =
-                                matches!(self.settings_page.knowledge_reindex_progress, Some((_current, 0)));
+                            let reindex_disabled = matches!(
+                                self.settings_page.knowledge_reindex_progress,
+                                Some((_current, 0))
+                            );
                             self.knowledge_text_icon_button(
                                 if self.settings_page.knowledge_reindex_progress.is_some() {
                                     LucideIcon::X
@@ -287,7 +300,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn knowledge_collection_row(
+    pub(in crate::workspace) fn knowledge_collection_row(
         &self,
         collection: &oxideterm_ai::RagCollectionResponse,
         selected_id: Option<&str>,
@@ -321,7 +334,8 @@ impl WorkspaceApp {
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |this, _event, _window, cx| {
-                    this.settings_page.select_knowledge_collection(collection_id.clone());
+                    this.settings_page
+                        .select_knowledge_collection(collection_id.clone());
                     cx.stop_propagation();
                     cx.notify();
                 }),
@@ -365,28 +379,23 @@ impl WorkspaceApp {
                             ),
                     ),
             )
-            .child(
-                div().flex_none().child(
-                    self.knowledge_icon_button(
-                        LucideIcon::Trash2,
-                        rgb(self.tokens.ui.text_muted),
-                        Some(rgb(self.tokens.ui.error)),
-                        move |this, _event, _window, cx| {
-                            this
-                                .settings_page
-                                .request_delete_collection(delete_id.clone(), delete_name.clone());
-                            this.reset_standard_confirm_focus();
-                            cx.stop_propagation();
-                            cx.notify();
-                        },
-                        cx,
-                    ),
-                ),
-            )
+            .child(div().flex_none().child(self.knowledge_icon_button(
+                LucideIcon::Trash2,
+                rgb(self.tokens.ui.text_muted),
+                Some(rgb(self.tokens.ui.error)),
+                move |this, _event, _window, cx| {
+                    this.settings_page
+                        .request_delete_collection(delete_id.clone(), delete_name.clone());
+                    this.reset_standard_confirm_focus();
+                    cx.stop_propagation();
+                    cx.notify();
+                },
+                cx,
+            )))
             .into_any_element()
     }
 
-    fn knowledge_text_icon_button(
+    pub(in crate::workspace) fn knowledge_text_icon_button(
         &self,
         icon: LucideIcon,
         label: String,
@@ -423,7 +432,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn knowledge_icon_button(
+    pub(in crate::workspace) fn knowledge_icon_button(
         &self,
         icon: LucideIcon,
         color: gpui::Rgba,
@@ -440,9 +449,7 @@ impl WorkspaceApp {
             KNOWLEDGE_INLINE_ICON_SIZE,
             color,
             IconButtonOptions {
-                hover_background: Some(rgba(
-                    (0xffffff << 8) | KNOWLEDGE_ICON_BUTTON_HOVER_ALPHA,
-                )),
+                hover_background: Some(rgba((0xffffff << 8) | KNOWLEDGE_ICON_BUTTON_HOVER_ALPHA)),
                 ..IconButtonOptions::opaque_toolbar(KNOWLEDGE_ICON_BUTTON_SIZE, ButtonRadius::Sm)
             },
             listener,
@@ -450,7 +457,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn knowledge_document_row(
+    pub(in crate::workspace) fn knowledge_document_row(
         &self,
         document: oxideterm_ai::RagDocumentResponse,
         cx: &mut Context<Self>,
@@ -459,7 +466,8 @@ impl WorkspaceApp {
         let delete_name = document.title.clone();
         let edit_id = document.id.clone();
         let editing_this = self
-            .settings_page.knowledge_external_edit
+            .settings_page
+            .knowledge_external_edit
             .as_ref()
             .is_some_and(|edit| edit.doc_id == document.id);
         div()
@@ -541,27 +549,27 @@ impl WorkspaceApp {
                             cx,
                         )
                     })
-                    .child(
-                        self.knowledge_icon_button(
-                            LucideIcon::Trash2,
-                            rgb(self.tokens.ui.text_muted),
-                            Some(rgb(self.tokens.ui.error)),
-                            move |this, _event, _window, cx| {
-                                this
-                                    .settings_page
-                                    .request_delete_document(delete_id.clone(), delete_name.clone());
-                                this.reset_standard_confirm_focus();
-                                cx.stop_propagation();
-                                cx.notify();
-                            },
-                            cx,
-                        ),
-                    ),
+                    .child(self.knowledge_icon_button(
+                        LucideIcon::Trash2,
+                        rgb(self.tokens.ui.text_muted),
+                        Some(rgb(self.tokens.ui.error)),
+                        move |this, _event, _window, cx| {
+                            this.settings_page
+                                .request_delete_document(delete_id.clone(), delete_name.clone());
+                            this.reset_standard_confirm_focus();
+                            cx.stop_propagation();
+                            cx.notify();
+                        },
+                        cx,
+                    )),
             )
             .into_any_element()
     }
 
-    fn knowledge_embedding_config_section(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn knowledge_embedding_config_section(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let settings = self.settings_store.settings();
         let preliminary = oxideterm_ai::resolve_ai_embedding_provider(
             &settings.ai.providers,
@@ -591,7 +599,10 @@ impl WorkspaceApp {
                     .find(|provider| provider.id == provider_id)
                     .map(|provider| provider.name)
             })
-            .unwrap_or_else(|| self.i18n.t("settings_view.knowledge.auto_embedding_provider"));
+            .unwrap_or_else(|| {
+                self.i18n
+                    .t("settings_view.knowledge.auto_embedding_provider")
+            });
         let model_value = self.current_settings_input_value(SettingsInput::AiEmbeddingModel);
         let status = match resolved.reason {
             oxideterm_ai::AiEmbeddingProviderReason::Ready => resolved
@@ -603,19 +614,22 @@ impl WorkspaceApp {
                         .replace("{{provider}}", &provider.name)
                         .replace("{{model}}", &resolved.model)
                 })
-                .unwrap_or_else(|| self.i18n.t("settings_view.knowledge.semantic_search_not_configured")),
-            oxideterm_ai::AiEmbeddingProviderReason::MissingModel => {
-                self.i18n.t("settings_view.knowledge.semantic_search_missing_model")
-            }
-            oxideterm_ai::AiEmbeddingProviderReason::MissingApiKey => {
-                self.i18n.t("settings_view.knowledge.embedding_api_key_missing")
-            }
-            oxideterm_ai::AiEmbeddingProviderReason::UnsupportedProvider => {
-                self.i18n.t("settings_view.knowledge.embedding_provider_unsupported")
-            }
-            oxideterm_ai::AiEmbeddingProviderReason::NoProvider => {
-                self.i18n.t("settings_view.knowledge.semantic_search_not_configured")
-            }
+                .unwrap_or_else(|| {
+                    self.i18n
+                        .t("settings_view.knowledge.semantic_search_not_configured")
+                }),
+            oxideterm_ai::AiEmbeddingProviderReason::MissingModel => self
+                .i18n
+                .t("settings_view.knowledge.semantic_search_missing_model"),
+            oxideterm_ai::AiEmbeddingProviderReason::MissingApiKey => self
+                .i18n
+                .t("settings_view.knowledge.embedding_api_key_missing"),
+            oxideterm_ai::AiEmbeddingProviderReason::UnsupportedProvider => self
+                .i18n
+                .t("settings_view.knowledge.embedding_provider_unsupported"),
+            oxideterm_ai::AiEmbeddingProviderReason::NoProvider => self
+                .i18n
+                .t("settings_view.knowledge.semantic_search_not_configured"),
         };
         let status_color = if resolved.reason == oxideterm_ai::AiEmbeddingProviderReason::Ready {
             self.tokens.ui.success
@@ -814,7 +828,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn knowledge_stats_row(
+    pub(in crate::workspace) fn knowledge_stats_row(
         &self,
         stats: oxideterm_ai::RagStatsResponse,
         cx: &mut Context<Self>,
@@ -856,7 +870,7 @@ impl WorkspaceApp {
         row.into_any_element()
     }
 
-    fn knowledge_stat_item(
+    pub(in crate::workspace) fn knowledge_stat_item(
         &self,
         value: String,
         label: String,
@@ -888,7 +902,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn knowledge_format_date(&self, timestamp_millis: i64) -> String {
+    pub(in crate::workspace) fn knowledge_format_date(&self, timestamp_millis: i64) -> String {
         let Some(datetime) = chrono::DateTime::from_timestamp_millis(timestamp_millis) else {
             return "-".to_string();
         };
@@ -899,7 +913,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn knowledge_empty_row(
+    pub(in crate::workspace) fn knowledge_empty_row(
         &self,
         icon: LucideIcon,
         label: String,
@@ -918,21 +932,22 @@ impl WorkspaceApp {
                 32.0,
                 rgba((self.tokens.ui.text_muted << 8) | 0x66),
             ))
-            .child(
-                div()
-                    .text_size(px(self.tokens.metrics.ui_text_sm))
-                    .child(self.render_selectable_display_text(
-                        "knowledge-empty-row",
-                        &label,
-                        label.clone(),
-                        self.tokens.ui.text_muted,
-                        cx,
-                    )),
-            )
+            .child(div().text_size(px(self.tokens.metrics.ui_text_sm)).child(
+                self.render_selectable_display_text(
+                    "knowledge-empty-row",
+                    &label,
+                    label.clone(),
+                    self.tokens.ui.text_muted,
+                    cx,
+                ),
+            ))
             .into_any_element()
     }
 
-    fn knowledge_scope_label(&self, scope: &oxideterm_ai::DocScope) -> String {
+    pub(in crate::workspace) fn knowledge_scope_label(
+        &self,
+        scope: &oxideterm_ai::DocScope,
+    ) -> String {
         match scope {
             oxideterm_ai::DocScope::Global => self.i18n.t("settings_view.knowledge.scope_global"),
             oxideterm_ai::DocScope::Connection(_) => {
@@ -941,11 +956,10 @@ impl WorkspaceApp {
         }
     }
 
-    fn knowledge_document_format_label(&self) -> String {
+    pub(in crate::workspace) fn knowledge_document_format_label(&self) -> String {
         match self.settings_page.knowledge_new_document_format.as_str() {
             "plaintext" => "Plain Text".to_string(),
             _ => "Markdown".to_string(),
         }
     }
-
 }

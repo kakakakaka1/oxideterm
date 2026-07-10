@@ -206,6 +206,22 @@ struct McpProcess {
 #[derive(Default)]
 struct McpProcessRegistry {
     processes: Mutex<HashMap<String, Arc<McpProcess>>>,
+    #[cfg(test)]
+    stop_all_calls: std::sync::atomic::AtomicUsize,
+}
+
+/// Owns the shared process registry until every registry handle and process task is gone.
+#[derive(Default)]
+struct McpProcessOwner {
+    registry: Arc<McpProcessRegistry>,
+}
+
+impl std::ops::Deref for McpProcessOwner {
+    type Target = McpProcessRegistry;
+
+    fn deref(&self) -> &Self::Target {
+        &self.registry
+    }
 }
 
 #[derive(Clone)]
@@ -316,7 +332,7 @@ struct McpRuntimeState {
 #[derive(Clone)]
 pub struct McpRegistry {
     state: Arc<RwLock<McpRuntimeState>>,
-    processes: Arc<McpProcessRegistry>,
+    processes: Arc<McpProcessOwner>,
     http: Client,
     key_store: AiProviderKeyStore,
 }

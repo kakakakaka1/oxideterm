@@ -1,5 +1,8 @@
+use super::dialog_lifecycle::sftp_i18n_count;
+use super::*;
+
 impl WorkspaceApp {
-    fn open_sftp_context_menu(
+    pub(in crate::workspace::sftp) fn open_sftp_context_menu(
         &mut self,
         pane: SftpPane,
         file: Option<SftpFileEntry>,
@@ -27,19 +30,23 @@ impl WorkspaceApp {
         self.sftp_view.context_menu = Some(SftpContextMenu { pane, file, x, y });
     }
 
-    fn open_sftp_rename_dialog(&mut self, pane: SftpPane, old_name: String) {
+    pub(in crate::workspace::sftp) fn open_sftp_rename_dialog(
+        &mut self,
+        pane: SftpPane,
+        old_name: String,
+    ) {
         self.sftp_view.dialog_value = old_name.clone();
         self.sftp_view.dialog = Some(SftpDialog::Rename { pane, old_name });
         self.sftp_view.focused_input = Some(SftpInput::DialogValue);
     }
 
-    fn open_sftp_new_folder_dialog(&mut self, pane: SftpPane) {
+    pub(in crate::workspace::sftp) fn open_sftp_new_folder_dialog(&mut self, pane: SftpPane) {
         self.sftp_view.dialog_value.clear();
         self.sftp_view.dialog = Some(SftpDialog::NewFolder { pane });
         self.sftp_view.focused_input = Some(SftpInput::DialogValue);
     }
 
-    fn extract_remote_sftp_archive(&mut self, file: SftpFileEntry) {
+    pub(in crate::workspace::sftp) fn extract_remote_sftp_archive(&mut self, file: SftpFileEntry) {
         let Some(tab_id) = self.main_window_tabs.active_tab_id else {
             self.push_sftp_toast(
                 self.i18n.t("sftp.toast.extract_failed"),
@@ -109,7 +116,11 @@ impl WorkspaceApp {
         self.sftp_view.dismiss_context_menu();
     }
 
-    fn queue_sftp_transfers(&mut self, pane: SftpPane, direction: SftpTransferDirection) {
+    pub(in crate::workspace::sftp) fn queue_sftp_transfers(
+        &mut self,
+        pane: SftpPane,
+        direction: SftpTransferDirection,
+    ) {
         let selected = match pane {
             SftpPane::Local => self.sftp_view.local_selected.clone(),
             SftpPane::Remote => self.sftp_view.remote_selected.clone(),
@@ -117,7 +128,7 @@ impl WorkspaceApp {
         self.queue_sftp_named_transfers(pane, direction, selected.into_iter().collect());
     }
 
-    fn queue_sftp_named_transfers(
+    pub(in crate::workspace::sftp) fn queue_sftp_named_transfers(
         &mut self,
         pane: SftpPane,
         direction: SftpTransferDirection,
@@ -184,7 +195,10 @@ impl WorkspaceApp {
         self.clear_sftp_selection(pane);
     }
 
-    fn queue_sftp_external_upload_paths(&mut self, paths: &[std::path::PathBuf]) {
+    pub(in crate::workspace::sftp) fn queue_sftp_external_upload_paths(
+        &mut self,
+        paths: &[std::path::PathBuf],
+    ) {
         let Some(tab_id) = self.main_window_tabs.active_tab_id else {
             return;
         };
@@ -263,7 +277,10 @@ impl WorkspaceApp {
         self.execute_sftp_pending_transfers(node_id, pending_transfers, resolved_actions);
     }
 
-    fn sftp_target_files_for_direction(&self, direction: SftpTransferDirection) -> Vec<SftpFileEntry> {
+    fn sftp_target_files_for_direction(
+        &self,
+        direction: SftpTransferDirection,
+    ) -> Vec<SftpFileEntry> {
         match direction {
             SftpTransferDirection::Upload => self.sftp_view.remote_files.clone(),
             SftpTransferDirection::Download => self.sftp_view.local_files.clone(),
@@ -311,7 +328,12 @@ impl WorkspaceApp {
                 batch.queued += 1;
             }
             batch.total += 1;
-            self.queue_sftp_pending_transfer(node_id.clone(), transfer, target_name, Some(batch_id));
+            self.queue_sftp_pending_transfer(
+                node_id.clone(),
+                transfer,
+                target_name,
+                Some(batch_id),
+            );
         }
         if batch.total > 0 {
             self.sftp_view.transfer_batches.insert(batch_id, batch);
@@ -333,10 +355,14 @@ impl WorkspaceApp {
         let size = transfer.source.size.max(1);
         let local_path = match direction {
             SftpTransferDirection::Upload => transfer.source.path.clone(),
-            SftpTransferDirection::Download => join_local_path(&self.sftp_view.local_path, &target_name),
+            SftpTransferDirection::Download => {
+                join_local_path(&self.sftp_view.local_path, &target_name)
+            }
         };
         let remote_path = match direction {
-            SftpTransferDirection::Upload => join_sftp_path(&self.sftp_view.remote_path, &target_name),
+            SftpTransferDirection::Upload => {
+                join_sftp_path(&self.sftp_view.remote_path, &target_name)
+            }
             SftpTransferDirection::Download => transfer.source.path.clone(),
         };
         self.sftp_view.transfers.push(SftpTransferItem {
@@ -370,13 +396,16 @@ impl WorkspaceApp {
         );
     }
 
-    fn toggle_sftp_conflict_apply_all(&mut self) {
+    pub(in crate::workspace::sftp) fn toggle_sftp_conflict_apply_all(&mut self) {
         if let Some(conflict) = self.sftp_view.conflict_state.as_mut() {
             conflict.apply_to_all = !conflict.apply_to_all;
         }
     }
 
-    fn resolve_sftp_transfer_conflict(&mut self, resolution: SftpConflictResolution) {
+    pub(in crate::workspace::sftp) fn resolve_sftp_transfer_conflict(
+        &mut self,
+        resolution: SftpConflictResolution,
+    ) {
         let Some(mut conflict_state) = self.sftp_view.conflict_state.clone() else {
             return;
         };
@@ -432,12 +461,16 @@ impl WorkspaceApp {
         }
     }
 
-    fn cancel_sftp_transfer_conflicts(&mut self) {
+    pub(in crate::workspace::sftp) fn cancel_sftp_transfer_conflicts(&mut self) {
         self.sftp_view.conflict_state = None;
         self.close_sftp_dialog();
     }
 
-    fn update_sftp_transfer_batch_toast(&mut self, batch_id: u64, state: SftpTransferState) {
+    pub(in crate::workspace::sftp) fn update_sftp_transfer_batch_toast(
+        &mut self,
+        batch_id: u64,
+        state: SftpTransferState,
+    ) {
         let Some(batch) = self.sftp_view.transfer_batches.get_mut(&batch_id) else {
             return;
         };
@@ -531,7 +564,7 @@ fn sftp_i18n_partial_detail(
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum SftpExtractArchiveKind {
+pub(in crate::workspace) enum SftpExtractArchiveKind {
     Zip,
     Tar,
     TarGzip,
@@ -562,16 +595,15 @@ fn sftp_extract_archive_command(
     Some(command)
 }
 
-fn sftp_extract_archive_kind(file_name: &str) -> Option<SftpExtractArchiveKind> {
+pub(in crate::workspace) fn sftp_extract_archive_kind(
+    file_name: &str,
+) -> Option<SftpExtractArchiveKind> {
     let lower = file_name.to_ascii_lowercase();
     if lower.ends_with(".zip") {
         Some(SftpExtractArchiveKind::Zip)
     } else if lower.ends_with(".tar.gz") || lower.ends_with(".tgz") {
         Some(SftpExtractArchiveKind::TarGzip)
-    } else if lower.ends_with(".tar.bz2")
-        || lower.ends_with(".tbz")
-        || lower.ends_with(".tbz2")
-    {
+    } else if lower.ends_with(".tar.bz2") || lower.ends_with(".tbz") || lower.ends_with(".tbz2") {
         Some(SftpExtractArchiveKind::TarBzip2)
     } else if lower.ends_with(".tar.xz") || lower.ends_with(".txz") {
         Some(SftpExtractArchiveKind::TarXz)
@@ -639,11 +671,13 @@ mod sftp_extract_archive_tests {
 
     #[test]
     fn sftp_extract_archive_command_escapes_single_quotes() {
-        let command =
-            sftp_extract_archive_command("it.zip", "/srv/it's/it.zip", "/srv/it's")
-                .expect("zip archives should be extractable");
+        let command = sftp_extract_archive_command("it.zip", "/srv/it's/it.zip", "/srv/it's")
+            .expect("zip archives should be extractable");
 
-        assert_eq!(command, "unzip -nq '/srv/it'\\''s/it.zip' -d '/srv/it'\\''s'");
+        assert_eq!(
+            command,
+            "unzip -nq '/srv/it'\\''s/it.zip' -d '/srv/it'\\''s'"
+        );
     }
 
     #[test]

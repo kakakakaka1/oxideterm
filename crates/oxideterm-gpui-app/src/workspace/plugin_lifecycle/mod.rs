@@ -64,10 +64,10 @@ impl WorkspaceApp {
         &mut self,
         cx: &mut Context<Self>,
     ) {
-        if self.native_plugin_runtime_services_started {
+        if self.native_plugin_runtime.services_started {
             return;
         }
-        self.native_plugin_runtime_services_started = true;
+        self.native_plugin_runtime.services_started = true;
         // Runtime request queues only need polling once a native process/WASM
         // plugin can issue host calls; keeping them cold avoids idle startup work.
         self.start_native_plugin_confirm_polling(cx);
@@ -76,10 +76,10 @@ impl WorkspaceApp {
     }
 
     pub(super) fn start_native_plugin_confirm_polling(&mut self, cx: &mut Context<Self>) {
-        if self.native_plugin_confirm_polling {
+        if self.native_plugin_runtime.confirm_polling {
             return;
         }
-        self.native_plugin_confirm_polling = true;
+        self.native_plugin_runtime.confirm_polling = true;
         cx.spawn(async move |weak, cx| {
             loop {
                 Timer::after(NATIVE_PLUGIN_DELIVERY_POLL_INTERVAL).await;
@@ -97,28 +97,28 @@ impl WorkspaceApp {
     }
 
     fn poll_native_plugin_confirm_requests(&mut self, cx: &mut Context<Self>) {
-        if self.native_plugin_confirm.is_some() {
+        if self.native_plugin_runtime.confirm.is_some() {
             return;
         }
 
-        match self.native_plugin_confirm_rx.try_recv() {
+        match self.native_plugin_runtime.confirm_rx.try_recv() {
             Ok(request) => {
                 // Tauri resolves ui.showConfirm from the window UI event bridge.
                 // Native stores only the pending response channel here; plugin
                 // code never runs in the render path.
-                self.native_plugin_confirm = Some(request.into());
+                self.native_plugin_runtime.confirm = Some(request.into());
                 self.reset_standard_confirm_focus();
                 cx.notify();
             }
             Err(mpsc::TryRecvError::Empty) => {}
             Err(mpsc::TryRecvError::Disconnected) => {
-                self.native_plugin_confirm_polling = false;
+                self.native_plugin_runtime.confirm_polling = false;
             }
         }
     }
 
     fn respond_native_plugin_confirm(&mut self, confirmed: bool, cx: &mut Context<Self>) {
-        if let Some(dialog) = self.native_plugin_confirm.take() {
+        if let Some(dialog) = self.native_plugin_runtime.confirm.take() {
             dialog.respond(confirmed);
         }
         self.clear_standard_confirm_focus();
@@ -127,10 +127,10 @@ impl WorkspaceApp {
     }
 
     pub(super) fn start_native_plugin_terminal_polling(&mut self, cx: &mut Context<Self>) {
-        if self.native_plugin_terminal_polling {
+        if self.native_plugin_runtime.terminal_polling {
             return;
         }
-        self.native_plugin_terminal_polling = true;
+        self.native_plugin_runtime.terminal_polling = true;
         cx.spawn(async move |weak, cx| {
             loop {
                 Timer::after(NATIVE_PLUGIN_DELIVERY_POLL_INTERVAL).await;
@@ -149,11 +149,11 @@ impl WorkspaceApp {
 
     fn poll_native_plugin_terminal_requests(&mut self, cx: &mut Context<Self>) {
         loop {
-            match self.native_plugin_terminal_rx.try_recv() {
+            match self.native_plugin_runtime.terminal_rx.try_recv() {
                 Ok(request) => self.handle_native_plugin_terminal_request(request, cx),
                 Err(mpsc::TryRecvError::Empty) => break,
                 Err(mpsc::TryRecvError::Disconnected) => {
-                    self.native_plugin_terminal_polling = false;
+                    self.native_plugin_runtime.terminal_polling = false;
                     break;
                 }
             }
@@ -171,7 +171,9 @@ impl WorkspaceApp {
         ) {
             // Opening a terminal tab needs the GPUI Window; queue it for the
             // render pass instead of constructing a pane from the runtime task.
-            self.native_plugin_terminal_ui_requests.push_back(request);
+            self.native_plugin_runtime
+                .terminal_ui_requests
+                .push_back(request);
             cx.notify();
             return;
         }
@@ -199,7 +201,7 @@ impl WorkspaceApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        while let Some(request) = self.native_plugin_terminal_ui_requests.pop_front() {
+        while let Some(request) = self.native_plugin_runtime.terminal_ui_requests.pop_front() {
             let response = match request.action {
                 NativePluginTerminalAction::OpenTelnet { host, port } => self
                     .open_native_plugin_telnet_terminal(
@@ -270,10 +272,10 @@ impl WorkspaceApp {
     }
 
     pub(super) fn start_native_plugin_sync_polling(&mut self, cx: &mut Context<Self>) {
-        if self.native_plugin_sync_polling {
+        if self.native_plugin_runtime.sync_polling {
             return;
         }
-        self.native_plugin_sync_polling = true;
+        self.native_plugin_runtime.sync_polling = true;
         cx.spawn(async move |weak, cx| {
             loop {
                 Timer::after(NATIVE_PLUGIN_DELIVERY_POLL_INTERVAL).await;
@@ -292,11 +294,11 @@ impl WorkspaceApp {
 
     fn poll_native_plugin_sync_requests(&mut self, cx: &mut Context<Self>) {
         loop {
-            match self.native_plugin_sync_rx.try_recv() {
+            match self.native_plugin_runtime.sync_rx.try_recv() {
                 Ok(request) => self.handle_native_plugin_sync_request(request, cx),
                 Err(mpsc::TryRecvError::Empty) => break,
                 Err(mpsc::TryRecvError::Disconnected) => {
-                    self.native_plugin_sync_polling = false;
+                    self.native_plugin_runtime.sync_polling = false;
                     break;
                 }
             }
@@ -622,14 +624,15 @@ impl WorkspaceApp {
 
     fn refresh_native_plugin_terminal_input_interceptors(&mut self, cx: &mut Context<Self>) {
         let hooks = self
-            .plugin_registry
+            .native_plugin_runtime
+            .registry
             .contributions()
             .runtime_terminal_input_interceptors
             .clone();
         let interceptor = if hooks.is_empty() {
             None
         } else {
-            let runtime_host = self.plugin_runtime_host.clone();
+            let runtime_host = self.native_plugin_runtime.host.clone();
             let runtime = self.forwarding_runtime.clone();
             let host_api_resolver = native_plugin_terminal_hook_host_api_resolver();
             Some(Arc::new(move |bytes: &[u8]| {
@@ -652,14 +655,15 @@ impl WorkspaceApp {
 
     fn refresh_native_plugin_terminal_output_processors(&mut self, cx: &mut Context<Self>) {
         let hooks = self
-            .plugin_registry
+            .native_plugin_runtime
+            .registry
             .contributions()
             .runtime_terminal_output_processors
             .clone();
         let processor = if hooks.is_empty() {
             None
         } else {
-            let runtime_host = self.plugin_runtime_host.clone();
+            let runtime_host = self.native_plugin_runtime.host.clone();
             let runtime = self.forwarding_runtime.clone();
             let host_api_resolver = native_plugin_terminal_hook_host_api_resolver();
             Some(Arc::new(move |bytes: &[u8]| {
@@ -685,7 +689,7 @@ impl WorkspaceApp {
         event: &KeyDownEvent,
         cx: &mut Context<Self>,
     ) -> bool {
-        if self.native_plugin_confirm.is_none() {
+        if self.native_plugin_runtime.confirm.is_none() {
             return false;
         }
 
@@ -707,7 +711,7 @@ impl WorkspaceApp {
         &self,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
-        let dialog = self.native_plugin_confirm.as_ref()?;
+        let dialog = self.native_plugin_runtime.confirm.as_ref()?;
         Some(confirm_dialog_with_focus(
             &self.tokens,
             ConfirmDialogView {
@@ -736,10 +740,10 @@ impl WorkspaceApp {
     }
 
     pub(super) fn start_native_plugin_layout_polling(&mut self, cx: &mut Context<Self>) {
-        if self.native_plugin_layout_polling {
+        if self.native_plugin_runtime.layout_polling {
             return;
         }
-        self.native_plugin_layout_polling = true;
+        self.native_plugin_runtime.layout_polling = true;
         cx.spawn(async move |weak, cx| {
             loop {
                 Timer::after(NATIVE_PLUGIN_DELIVERY_POLL_INTERVAL).await;
@@ -767,10 +771,10 @@ impl WorkspaceApp {
     }
 
     pub(super) fn start_native_plugin_session_polling(&mut self, cx: &mut Context<Self>) {
-        if self.native_plugin_session_polling {
+        if self.native_plugin_runtime.session_polling {
             return;
         }
-        self.native_plugin_session_polling = true;
+        self.native_plugin_runtime.session_polling = true;
         cx.spawn(async move |weak, cx| {
             loop {
                 Timer::after(NATIVE_PLUGIN_DELIVERY_POLL_INTERVAL).await;
@@ -792,10 +796,10 @@ impl WorkspaceApp {
     }
 
     pub(super) fn start_native_plugin_saved_forwards_polling(&mut self, cx: &mut Context<Self>) {
-        if self.native_plugin_saved_forwards_polling {
+        if self.native_plugin_runtime.saved_forwards_polling {
             return;
         }
-        self.native_plugin_saved_forwards_polling = true;
+        self.native_plugin_runtime.saved_forwards_polling = true;
         cx.spawn(async move |weak, cx| {
             loop {
                 Timer::after(NATIVE_PLUGIN_DELIVERY_POLL_INTERVAL).await;
@@ -818,10 +822,10 @@ impl WorkspaceApp {
     }
 
     pub(super) fn start_native_plugin_transfer_polling(&mut self, cx: &mut Context<Self>) {
-        if self.native_plugin_transfer_polling {
+        if self.native_plugin_runtime.transfer_polling {
             return;
         }
-        self.native_plugin_transfer_polling = true;
+        self.native_plugin_runtime.transfer_polling = true;
         cx.spawn(async move |weak, cx| {
             loop {
                 Timer::after(NATIVE_PLUGIN_DELIVERY_POLL_INTERVAL).await;
@@ -843,10 +847,10 @@ impl WorkspaceApp {
     }
 
     pub(super) fn start_native_plugin_profiler_polling(&mut self, cx: &mut Context<Self>) {
-        if self.native_plugin_profiler_polling {
+        if self.native_plugin_runtime.profiler_polling {
             return;
         }
-        self.native_plugin_profiler_polling = true;
+        self.native_plugin_runtime.profiler_polling = true;
         cx.spawn(async move |weak, cx| {
             loop {
                 Timer::after(NATIVE_PLUGIN_DELIVERY_POLL_INTERVAL).await;
@@ -871,10 +875,10 @@ impl WorkspaceApp {
     }
 
     pub(super) fn start_native_plugin_ide_polling(&mut self, cx: &mut Context<Self>) {
-        if self.native_plugin_ide_polling {
+        if self.native_plugin_runtime.ide_polling {
             return;
         }
-        self.native_plugin_ide_polling = true;
+        self.native_plugin_runtime.ide_polling = true;
         cx.spawn(async move |weak, cx| {
             loop {
                 Timer::after(NATIVE_PLUGIN_DELIVERY_POLL_INTERVAL).await;
@@ -905,10 +909,10 @@ impl WorkspaceApp {
     }
 
     pub(super) fn start_native_plugin_ai_polling(&mut self, cx: &mut Context<Self>) {
-        if self.native_plugin_ai_polling {
+        if self.native_plugin_runtime.ai_polling {
             return;
         }
-        self.native_plugin_ai_polling = true;
+        self.native_plugin_runtime.ai_polling = true;
         cx.spawn(async move |weak, cx| {
             loop {
                 Timer::after(NATIVE_PLUGIN_DELIVERY_POLL_INTERVAL).await;
@@ -928,7 +932,7 @@ impl WorkspaceApp {
     pub(super) fn native_plugin_ai_snapshot(&self) -> Value {
         let settings = self.settings_store.settings();
         native_plugin_ai_snapshot_value(
-            &self.ai_chat,
+            &self.ai.chat.conversation_state,
             &settings.ai.providers,
             settings.ai.active_provider_id.as_deref(),
             &settings.ai.model_context_windows,
@@ -936,10 +940,10 @@ impl WorkspaceApp {
     }
 
     pub(super) fn start_native_plugin_event_log_polling(&mut self, cx: &mut Context<Self>) {
-        if self.native_plugin_event_log_polling {
+        if self.native_plugin_runtime.event_log_polling {
             return;
         }
-        self.native_plugin_event_log_polling = true;
+        self.native_plugin_runtime.event_log_polling = true;
         cx.spawn(async move |weak, cx| {
             loop {
                 Timer::after(NATIVE_PLUGIN_DELIVERY_POLL_INTERVAL).await;
@@ -969,7 +973,7 @@ impl WorkspaceApp {
         if self.has_native_plugin_subscription(
             super::plugin_host::NATIVE_PLUGIN_UI_LAYOUT_CHANGED_EVENT,
         ) {
-            self.native_plugin_layout_snapshot = self.native_plugin_layout_snapshot();
+            self.native_plugin_runtime.layout_snapshot = self.native_plugin_layout_snapshot();
             self.start_native_plugin_layout_polling(cx);
         }
         if self.has_native_plugin_subscription(
@@ -977,13 +981,14 @@ impl WorkspaceApp {
         ) || self.has_native_plugin_subscription(
             super::plugin_host::NATIVE_PLUGIN_SESSION_NODE_STATE_CHANGED_EVENT,
         ) {
-            self.native_plugin_session_tree_snapshot = self.native_plugin_session_tree_snapshot();
+            self.native_plugin_runtime.session_tree_snapshot =
+                self.native_plugin_session_tree_snapshot();
             self.start_native_plugin_session_polling(cx);
         }
         if self.has_native_plugin_subscription(
             super::plugin_host::NATIVE_PLUGIN_FORWARD_SAVED_FORWARDS_CHANGED_EVENT,
         ) {
-            self.native_plugin_saved_forwards_snapshot =
+            self.native_plugin_runtime.saved_forwards_snapshot =
                 self.native_plugin_saved_forwards_snapshot();
             self.start_native_plugin_saved_forwards_polling(cx);
         }
@@ -994,13 +999,13 @@ impl WorkspaceApp {
         ) || self
             .has_native_plugin_subscription(super::plugin_host::NATIVE_PLUGIN_TRANSFER_ERROR_EVENT)
         {
-            self.native_plugin_transfer_snapshot = self.native_plugin_transfer_snapshot();
+            self.native_plugin_runtime.transfer_snapshot = self.native_plugin_transfer_snapshot();
             self.start_native_plugin_transfer_polling(cx);
         }
         if self.has_native_plugin_subscription(
             super::plugin_host::NATIVE_PLUGIN_PROFILER_METRICS_EVENT,
         ) {
-            self.native_plugin_profiler_snapshot = self.native_plugin_profiler_snapshot();
+            self.native_plugin_runtime.profiler_snapshot = self.native_plugin_profiler_snapshot();
             self.start_native_plugin_profiler_polling(cx);
         }
         if self
@@ -1012,24 +1017,25 @@ impl WorkspaceApp {
                 super::plugin_host::NATIVE_PLUGIN_IDE_ACTIVE_FILE_CHANGED_EVENT,
             )
         {
-            self.native_plugin_ide_snapshot = self.native_plugin_ide_snapshot(cx);
+            self.native_plugin_runtime.ide_snapshot = self.native_plugin_ide_snapshot(cx);
             self.start_native_plugin_ide_polling(cx);
         }
         if self.has_native_plugin_subscription(super::plugin_host::NATIVE_PLUGIN_AI_MESSAGE_EVENT) {
-            self.native_plugin_ai_snapshot = self.native_plugin_ai_snapshot();
+            self.native_plugin_runtime.ai_snapshot = self.native_plugin_ai_snapshot();
             self.start_native_plugin_ai_polling(cx);
         }
         if self
             .has_native_plugin_subscription(super::plugin_host::NATIVE_PLUGIN_EVENT_LOG_ENTRY_EVENT)
         {
-            self.native_plugin_event_log_last_id = self.native_plugin_last_event_log_id();
+            self.native_plugin_runtime.event_log_last_id = self.native_plugin_last_event_log_id();
             self.start_native_plugin_event_log_polling(cx);
         }
     }
 
     fn has_native_plugin_subscription(&self, event_name: &str) -> bool {
         !self
-            .plugin_registry
+            .native_plugin_runtime
+            .registry
             .contributions()
             .runtime_event_subscriptions_for(event_name)
             .is_empty()
@@ -1063,13 +1069,14 @@ impl WorkspaceApp {
 
     fn emit_native_plugin_layout_if_changed(&mut self, cx: &mut Context<Self>) {
         let layout = self.native_plugin_layout_snapshot();
-        if layout == self.native_plugin_layout_snapshot {
+        if layout == self.native_plugin_runtime.layout_snapshot {
             return;
         }
 
-        self.native_plugin_layout_snapshot = layout.clone();
+        self.native_plugin_runtime.layout_snapshot = layout.clone();
         let has_subscribers = !self
-            .plugin_registry
+            .native_plugin_runtime
+            .registry
             .contributions()
             .runtime_event_subscriptions_for(
                 super::plugin_host::NATIVE_PLUGIN_UI_LAYOUT_CHANGED_EVENT,
@@ -1089,17 +1096,18 @@ impl WorkspaceApp {
 
     fn emit_native_plugin_sessions_if_changed(&mut self, cx: &mut Context<Self>) {
         let tree = self.native_plugin_session_tree_snapshot();
-        if tree == self.native_plugin_session_tree_snapshot {
+        if tree == self.native_plugin_runtime.session_tree_snapshot {
             return;
         }
 
         let previous_states =
-            native_plugin_session_state_map(&self.native_plugin_session_tree_snapshot);
+            native_plugin_session_state_map(&self.native_plugin_runtime.session_tree_snapshot);
         let next_states = native_plugin_session_state_map(&tree);
-        self.native_plugin_session_tree_snapshot = tree.clone();
+        self.native_plugin_runtime.session_tree_snapshot = tree.clone();
 
         let has_tree_subscribers = !self
-            .plugin_registry
+            .native_plugin_runtime
+            .registry
             .contributions()
             .runtime_event_subscriptions_for(
                 super::plugin_host::NATIVE_PLUGIN_SESSION_TREE_CHANGED_EVENT,
@@ -1117,7 +1125,8 @@ impl WorkspaceApp {
         }
 
         let has_node_state_subscribers = !self
-            .plugin_registry
+            .native_plugin_runtime
+            .registry
             .contributions()
             .runtime_event_subscriptions_for(
                 super::plugin_host::NATIVE_PLUGIN_SESSION_NODE_STATE_CHANGED_EVENT,
@@ -1153,13 +1162,14 @@ impl WorkspaceApp {
 
     fn emit_native_plugin_saved_forwards_if_changed(&mut self, cx: &mut Context<Self>) {
         let saved_forwards = self.native_plugin_saved_forwards_snapshot();
-        if saved_forwards == self.native_plugin_saved_forwards_snapshot {
+        if saved_forwards == self.native_plugin_runtime.saved_forwards_snapshot {
             return;
         }
-        self.native_plugin_saved_forwards_snapshot = saved_forwards.clone();
+        self.native_plugin_runtime.saved_forwards_snapshot = saved_forwards.clone();
 
         let has_subscribers = !self
-            .plugin_registry
+            .native_plugin_runtime
+            .registry
             .contributions()
             .runtime_event_subscriptions_for(
                 super::plugin_host::NATIVE_PLUGIN_FORWARD_SAVED_FORWARDS_CHANGED_EVENT,
@@ -1180,15 +1190,16 @@ impl WorkspaceApp {
     fn emit_native_plugin_transfers_if_changed(&mut self, cx: &mut Context<Self>) {
         let transfers = self.native_plugin_transfer_snapshot();
         let previous_states =
-            native_plugin_transfer_state_map(&self.native_plugin_transfer_snapshot);
+            native_plugin_transfer_state_map(&self.native_plugin_runtime.transfer_snapshot);
         let next_states = native_plugin_transfer_state_map(&transfers);
-        let changed = transfers != self.native_plugin_transfer_snapshot;
+        let changed = transfers != self.native_plugin_runtime.transfer_snapshot;
         if changed {
-            self.native_plugin_transfer_snapshot = transfers.clone();
+            self.native_plugin_runtime.transfer_snapshot = transfers.clone();
         }
 
         let has_progress_subscribers = !self
-            .plugin_registry
+            .native_plugin_runtime
+            .registry
             .contributions()
             .runtime_event_subscriptions_for(
                 super::plugin_host::NATIVE_PLUGIN_TRANSFER_PROGRESS_EVENT,
@@ -1196,13 +1207,14 @@ impl WorkspaceApp {
             .is_empty();
         if has_progress_subscribers
             && native_plugin_transfer_progress_due(
-                self.native_plugin_transfer_progress_last_emitted,
+                self.native_plugin_runtime.transfer_progress_last_emitted,
                 NATIVE_PLUGIN_TRANSFER_PROGRESS_INTERVAL,
             )
         {
             // Tauri's transfer progress bridge is throttled to 500ms. Native keeps
             // the same throttle while polling the backend-owned SFTP transfer map.
-            self.native_plugin_transfer_progress_last_emitted = Some(std::time::Instant::now());
+            self.native_plugin_runtime.transfer_progress_last_emitted =
+                Some(std::time::Instant::now());
             for transfer in
                 native_plugin_transfer_values_by_state(&transfers, BackgroundTransferState::Active)
             {
@@ -1219,7 +1231,8 @@ impl WorkspaceApp {
         }
 
         let has_complete_subscribers = !self
-            .plugin_registry
+            .native_plugin_runtime
+            .registry
             .contributions()
             .runtime_event_subscriptions_for(
                 super::plugin_host::NATIVE_PLUGIN_TRANSFER_COMPLETE_EVENT,
@@ -1241,7 +1254,8 @@ impl WorkspaceApp {
         }
 
         let has_error_subscribers = !self
-            .plugin_registry
+            .native_plugin_runtime
+            .registry
             .contributions()
             .runtime_event_subscriptions_for(super::plugin_host::NATIVE_PLUGIN_TRANSFER_ERROR_EVENT)
             .is_empty();
@@ -1263,16 +1277,17 @@ impl WorkspaceApp {
 
     fn emit_native_plugin_profiler_if_changed(&mut self, cx: &mut Context<Self>) {
         let metrics = self.native_plugin_profiler_snapshot();
-        if metrics == self.native_plugin_profiler_snapshot {
+        if metrics == self.native_plugin_runtime.profiler_snapshot {
             return;
         }
         let previous_timestamps =
-            native_plugin_profiler_timestamp_map(&self.native_plugin_profiler_snapshot);
+            native_plugin_profiler_timestamp_map(&self.native_plugin_runtime.profiler_snapshot);
         let next_timestamps = native_plugin_profiler_timestamp_map(&metrics);
-        self.native_plugin_profiler_snapshot = metrics.clone();
+        self.native_plugin_runtime.profiler_snapshot = metrics.clone();
 
         let subscriptions = self
-            .plugin_registry
+            .native_plugin_runtime
+            .registry
             .contributions()
             .runtime_event_subscriptions_for(
                 super::plugin_host::NATIVE_PLUGIN_PROFILER_METRICS_EVENT,
@@ -1280,7 +1295,7 @@ impl WorkspaceApp {
         if subscriptions.is_empty() || !native_plugin_profiler_metrics_due(self) {
             return;
         }
-        self.native_plugin_profiler_last_emitted = Some(std::time::Instant::now());
+        self.native_plugin_runtime.profiler_last_emitted = Some(std::time::Instant::now());
 
         for entry in native_plugin_profiler_changed_metric_entries(
             &metrics,
@@ -1320,14 +1335,15 @@ impl WorkspaceApp {
 
     fn emit_native_plugin_ide_if_changed(&mut self, cx: &mut Context<Self>) {
         let next = self.native_plugin_ide_snapshot(cx);
-        if next == self.native_plugin_ide_snapshot {
+        if next == self.native_plugin_runtime.ide_snapshot {
             return;
         }
-        let previous_files = native_plugin_ide_file_map(&self.native_plugin_ide_snapshot);
+        let previous_files = native_plugin_ide_file_map(&self.native_plugin_runtime.ide_snapshot);
         let next_files = native_plugin_ide_file_map(&next);
-        let previous_active = native_plugin_ide_active_file_path(&self.native_plugin_ide_snapshot);
+        let previous_active =
+            native_plugin_ide_active_file_path(&self.native_plugin_runtime.ide_snapshot);
         let next_active = native_plugin_ide_active_file_path(&next);
-        self.native_plugin_ide_snapshot = next.clone();
+        self.native_plugin_runtime.ide_snapshot = next.clone();
 
         for (path, file) in &next_files {
             if !previous_files.contains_key(path) {
@@ -1361,11 +1377,12 @@ impl WorkspaceApp {
 
     fn emit_native_plugin_ai_if_changed(&mut self, cx: &mut Context<Self>) {
         let next = self.native_plugin_ai_snapshot();
-        if next == self.native_plugin_ai_snapshot {
+        if next == self.native_plugin_runtime.ai_snapshot {
             return;
         }
-        let previous_counts = native_plugin_ai_message_count_map(&self.native_plugin_ai_snapshot);
-        self.native_plugin_ai_snapshot = next.clone();
+        let previous_counts =
+            native_plugin_ai_message_count_map(&self.native_plugin_runtime.ai_snapshot);
+        self.native_plugin_runtime.ai_snapshot = next.clone();
 
         for event in native_plugin_ai_new_message_events(&next, &previous_counts) {
             // AI message events intentionally omit message content; plugins can
@@ -1379,7 +1396,7 @@ impl WorkspaceApp {
     }
 
     fn emit_native_plugin_event_log_entries(&mut self, cx: &mut Context<Self>) {
-        let last_seen = self.native_plugin_event_log_last_id;
+        let last_seen = self.native_plugin_runtime.event_log_last_id;
         let new_entries = self
             .notification_center
             .event_log
@@ -1388,13 +1405,14 @@ impl WorkspaceApp {
             .filter(|entry| entry.id > last_seen)
             .cloned()
             .collect::<Vec<_>>();
-        self.native_plugin_event_log_last_id = self.native_plugin_last_event_log_id();
+        self.native_plugin_runtime.event_log_last_id = self.native_plugin_last_event_log_id();
         if new_entries.is_empty() {
             return;
         }
 
         let has_subscribers = !self
-            .plugin_registry
+            .native_plugin_runtime
+            .registry
             .contributions()
             .runtime_event_subscriptions_for(
                 super::plugin_host::NATIVE_PLUGIN_EVENT_LOG_ENTRY_EVENT,
@@ -1415,22 +1433,31 @@ impl WorkspaceApp {
     }
 
     pub(super) fn bootstrap_native_plugin_runtime(&mut self, cx: &mut Context<Self>) {
-        let process_plans = self.plugin_registry.process_activation_plans();
-        let wasm_plans = self.plugin_registry.wasm_activation_plans();
+        let process_plans = self
+            .native_plugin_runtime
+            .registry
+            .process_activation_plans();
+        let wasm_plans = self.native_plugin_runtime.registry.wasm_activation_plans();
         if process_plans.is_empty() && wasm_plans.is_empty() {
             return;
         }
         self.start_native_plugin_runtime_services_if_needed(cx);
 
         for plan in &process_plans {
-            let _ = self.plugin_registry.mark_runtime_loading(&plan.plugin_id);
+            let _ = self
+                .native_plugin_runtime
+                .registry
+                .mark_runtime_loading(&plan.plugin_id);
         }
         for plan in &wasm_plans {
-            let _ = self.plugin_registry.mark_runtime_loading(&plan.plugin_id);
+            let _ = self
+                .native_plugin_runtime
+                .registry
+                .mark_runtime_loading(&plan.plugin_id);
         }
 
         let (tx, rx) = mpsc::channel();
-        let host = self.plugin_runtime_host.clone();
+        let host = self.native_plugin_runtime.host.clone();
         let host_api_resolver = self.native_plugin_host_api_resolver(cx);
         let wasm_sidecar_path =
             plugin_runtime::installed_wasm_sidecar_binary_path(self.settings_store.path());
@@ -1544,14 +1571,17 @@ impl WorkspaceApp {
                 } else {
                     error.message
                 };
-                let _ = self.plugin_registry.mark_runtime_error(&plugin_id, message);
+                let _ = self
+                    .native_plugin_runtime
+                    .registry
+                    .mark_runtime_error(&plugin_id, message);
                 cx.notify();
                 return;
             }
         };
 
         if activation.plugin_id != plugin_id {
-            let _ = self.plugin_registry.mark_runtime_error(
+            let _ = self.native_plugin_runtime.registry.mark_runtime_error(
                 &plugin_id,
                 format!(
                     "Runtime activated plugin \"{}\" while loading \"{}\"",
@@ -1564,12 +1594,17 @@ impl WorkspaceApp {
 
         for message in &activation.messages {
             if let Err(error) = self
-                .plugin_registry
+                .native_plugin_runtime
+                .registry
                 .apply_runtime_outbound_message(&plugin_id, message)
             {
-                self.plugin_registry
+                self.native_plugin_runtime
+                    .registry
                     .cleanup_runtime_plugin_contributions(&plugin_id);
-                let _ = self.plugin_registry.mark_runtime_error(&plugin_id, error);
+                let _ = self
+                    .native_plugin_runtime
+                    .registry
+                    .mark_runtime_error(&plugin_id, error);
                 cx.notify();
                 return;
             }
@@ -1577,13 +1612,18 @@ impl WorkspaceApp {
 
         match &activation.response.result {
             PluginResponseResult::Ok { .. } => {
-                let _ = self.plugin_registry.mark_runtime_active(&plugin_id);
+                let _ = self
+                    .native_plugin_runtime
+                    .registry
+                    .mark_runtime_active(&plugin_id);
             }
             PluginResponseResult::Error { error } => {
-                self.plugin_registry
+                self.native_plugin_runtime
+                    .registry
                     .cleanup_runtime_plugin_contributions(&plugin_id);
                 let _ = self
-                    .plugin_registry
+                    .native_plugin_runtime
+                    .registry
                     .mark_runtime_error(&plugin_id, error.message.clone());
             }
         }
@@ -1602,7 +1642,7 @@ impl WorkspaceApp {
         command: String,
         cx: &mut Context<Self>,
     ) {
-        let host = self.plugin_runtime_host.clone();
+        let host = self.native_plugin_runtime.host.clone();
         let host_api_resolver = self.native_plugin_host_api_resolver(cx);
         let (tx, rx) = mpsc::channel();
         self.forwarding_runtime.spawn({
@@ -1659,7 +1699,8 @@ impl WorkspaceApp {
             return false;
         };
         let Some(keybinding) = self
-            .plugin_registry
+            .native_plugin_runtime
+            .registry
             .contributions()
             .runtime_keybinding_for_normalized_key(&normalized_keybinding)
             .cloned()
@@ -1686,7 +1727,7 @@ impl WorkspaceApp {
         let dispatch = match result {
             Ok(dispatch) => dispatch,
             Err(error) => {
-                self.plugin_registry.record_manager_error(
+                self.native_plugin_runtime.registry.record_manager_error(
                     plugin_id,
                     format!("Native plugin command dispatch failed: {}", error.message),
                 );
@@ -1697,17 +1738,18 @@ impl WorkspaceApp {
 
         for message in &dispatch.messages {
             if let Err(error) = self
-                .plugin_registry
+                .native_plugin_runtime
+                .registry
                 .apply_runtime_outbound_message(&dispatch.plugin_id, message)
             {
-                self.plugin_registry.record_manager_error(
+                self.native_plugin_runtime.registry.record_manager_error(
                     dispatch.plugin_id.clone(),
                     format!("Native plugin command contribution update failed: {error}"),
                 );
             }
         }
         if let PluginResponseResult::Error { error } = &dispatch.response.result {
-            self.plugin_registry.record_manager_error(
+            self.native_plugin_runtime.registry.record_manager_error(
                 dispatch.plugin_id.clone(),
                 format!(
                     "Native plugin command \"{}\" failed: {}",
@@ -1735,7 +1777,7 @@ impl WorkspaceApp {
         let dispatch = match result {
             Ok(dispatch) => dispatch,
             Err(error) => {
-                self.plugin_registry.record_manager_error(
+                self.native_plugin_runtime.registry.record_manager_error(
                     plugin_id,
                     format!("Native plugin event dispatch failed: {}", error.message),
                 );
@@ -1746,17 +1788,18 @@ impl WorkspaceApp {
 
         for message in &dispatch.messages {
             if let Err(error) = self
-                .plugin_registry
+                .native_plugin_runtime
+                .registry
                 .apply_runtime_outbound_message(&dispatch.plugin_id, message)
             {
-                self.plugin_registry.record_manager_error(
+                self.native_plugin_runtime.registry.record_manager_error(
                     dispatch.plugin_id.clone(),
                     format!("Native plugin event contribution update failed: {error}"),
                 );
             }
         }
         if let PluginResponseResult::Error { error } = &dispatch.response.result {
-            self.plugin_registry.record_manager_error(
+            self.native_plugin_runtime.registry.record_manager_error(
                 dispatch.plugin_id.clone(),
                 format!(
                     "Native plugin event \"{}\" failed: {}",
@@ -1789,7 +1832,8 @@ impl WorkspaceApp {
         cx: &mut Context<Self>,
     ) {
         let subscriptions = self
-            .plugin_registry
+            .native_plugin_runtime
+            .registry
             .contributions()
             .runtime_event_subscriptions_for(event_name);
         for subscription in subscriptions {
@@ -1822,7 +1866,7 @@ impl WorkspaceApp {
         payload: serde_json::Value,
         cx: &mut Context<Self>,
     ) {
-        let host = self.plugin_runtime_host.clone();
+        let host = self.native_plugin_runtime.host.clone();
         let host_api_resolver = self.native_plugin_host_api_resolver(cx);
         let (tx, rx) = mpsc::channel();
         let event = plugin_runtime::PluginEvent {
@@ -1871,9 +1915,9 @@ impl WorkspaceApp {
         cx: &mut Context<Self>,
     ) -> plugin_runtime::NativeHostApiResolver {
         let snapshot = native_plugin_host_api_snapshot_from_workspace(self, cx);
-        let confirm_tx = self.native_plugin_confirm_tx.clone();
-        let terminal_tx = self.native_plugin_terminal_tx.clone();
-        let sync_tx = self.native_plugin_sync_tx.clone();
+        let confirm_tx = self.native_plugin_runtime.confirm_tx.clone();
+        let terminal_tx = self.native_plugin_runtime.terminal_tx.clone();
+        let sync_tx = self.native_plugin_runtime.sync_tx.clone();
         let sftp_router = self.node_router.clone();
         let sftp_runtime = self.forwarding_runtime.clone();
         let forwarding_registry = self.forwarding_registry.clone();
@@ -1904,9 +1948,10 @@ impl WorkspaceApp {
                 .unwrap_or_default();
         let sync_plugin_settings_revisions =
             native_plugin_settings_revision_map(&sync_plugin_settings);
-        let plugin_secret_store = self.ai_key_store.clone();
+        let plugin_secret_store = self.ai.models.key_store.clone();
         let telnet_transport_plugins = self
-            .plugin_registry
+            .native_plugin_runtime
+            .registry
             .contributions()
             .terminal_transports
             .iter()
@@ -2082,7 +2127,7 @@ impl WorkspaceApp {
             ("settings", "applySyncableSettings") => {
                 self.apply_native_plugin_syncable_settings(plugin_id, args, cx)
             }
-            _ => self.plugin_registry.record_manager_error(
+            _ => self.native_plugin_runtime.registry.record_manager_error(
                 plugin_id.to_string(),
                 format!("Unsupported native plugin host call \"{namespace}.{method}\""),
             ),
@@ -2101,16 +2146,17 @@ impl WorkspaceApp {
                 // Runtime protocol frames and ctx.ui calls share one mutation
                 // path so manifest gates and schema validation cannot diverge.
                 if let Err(error) = self
-                    .plugin_registry
+                    .native_plugin_runtime
+                    .registry
                     .apply_runtime_registration(registration)
                 {
-                    self.plugin_registry.record_manager_error(
+                    self.native_plugin_runtime.registry.record_manager_error(
                         plugin_id.to_string(),
                         format!("Native plugin declarative UI registration failed: {error}"),
                     );
                 }
             }
-            Err(error) => self.plugin_registry.record_manager_error(
+            Err(error) => self.native_plugin_runtime.registry.record_manager_error(
                 plugin_id.to_string(),
                 format!("Native plugin declarative UI registration failed: {error}"),
             ),
@@ -2125,14 +2171,14 @@ impl WorkspaceApp {
         cx: &mut Context<Self>,
     ) {
         let Some(tab_id) = native_plugin_ui_tab_id_arg(&args) else {
-            self.plugin_registry.record_manager_error(
+            self.native_plugin_runtime.registry.record_manager_error(
                 plugin_id.to_string(),
                 "Native plugin ui.openTab requires args.tabId".to_string(),
             );
             return;
         };
         if let Err(error) = self.open_native_plugin_tab(plugin_id, &tab_id, cx) {
-            self.plugin_registry.record_manager_error(
+            self.native_plugin_runtime.registry.record_manager_error(
                 plugin_id.to_string(),
                 format!("Native plugin ui.openTab failed: {error}"),
             );
@@ -2201,7 +2247,7 @@ impl WorkspaceApp {
 
     fn refresh_native_after_external_sync(&mut self, plugin_id: &str, cx: &mut Context<Self>) {
         if let Err(error) = self.reload_after_external_sync(cx) {
-            self.plugin_registry.record_manager_error(
+            self.native_plugin_runtime.registry.record_manager_error(
                 plugin_id.to_string(),
                 format!("Native plugin app.refreshAfterExternalSync failed: {error}"),
             );
@@ -2218,7 +2264,7 @@ impl WorkspaceApp {
             Ok((event_key, payload)) => {
                 self.emit_native_plugin_event_to_subscribers(&event_key, payload, cx);
             }
-            Err(error) => self.plugin_registry.record_manager_error(
+            Err(error) => self.native_plugin_runtime.registry.record_manager_error(
                 plugin_id.to_string(),
                 format!("Native plugin events.emit failed: {error}"),
             ),
@@ -2227,7 +2273,7 @@ impl WorkspaceApp {
 
     fn set_native_plugin_storage(&mut self, plugin_id: &str, args: serde_json::Value) {
         let Some(key) = args.get("key").and_then(serde_json::Value::as_str) else {
-            self.plugin_registry.record_manager_error(
+            self.native_plugin_runtime.registry.record_manager_error(
                 plugin_id.to_string(),
                 "Native plugin storage.set requires args.key".to_string(),
             );
@@ -2238,10 +2284,11 @@ impl WorkspaceApp {
             .cloned()
             .unwrap_or(serde_json::Value::Null);
         if let Err(error) = self
-            .plugin_registry
+            .native_plugin_runtime
+            .registry
             .set_plugin_storage_value(plugin_id, key, value)
         {
-            self.plugin_registry.record_manager_error(
+            self.native_plugin_runtime.registry.record_manager_error(
                 plugin_id.to_string(),
                 format!("Native plugin storage.set failed: {error}"),
             );
@@ -2250,17 +2297,18 @@ impl WorkspaceApp {
 
     fn remove_native_plugin_storage(&mut self, plugin_id: &str, args: serde_json::Value) {
         let Some(key) = args.get("key").and_then(serde_json::Value::as_str) else {
-            self.plugin_registry.record_manager_error(
+            self.native_plugin_runtime.registry.record_manager_error(
                 plugin_id.to_string(),
                 "Native plugin storage.remove requires args.key".to_string(),
             );
             return;
         };
         if let Err(error) = self
-            .plugin_registry
+            .native_plugin_runtime
+            .registry
             .remove_plugin_storage_value(plugin_id, key)
         {
-            self.plugin_registry.record_manager_error(
+            self.native_plugin_runtime.registry.record_manager_error(
                 plugin_id.to_string(),
                 format!("Native plugin storage.remove failed: {error}"),
             );
@@ -2274,7 +2322,7 @@ impl WorkspaceApp {
         cx: &mut Context<Self>,
     ) {
         let Some(key) = args.get("key").and_then(serde_json::Value::as_str) else {
-            self.plugin_registry.record_manager_error(
+            self.native_plugin_runtime.registry.record_manager_error(
                 plugin_id.to_string(),
                 "Native plugin settings.set requires args.key".to_string(),
             );
@@ -2286,7 +2334,7 @@ impl WorkspaceApp {
             .unwrap_or(serde_json::Value::Null);
         if let Err(error) = self.set_native_plugin_setting_value_and_emit(plugin_id, key, value, cx)
         {
-            self.plugin_registry.record_manager_error(
+            self.native_plugin_runtime.registry.record_manager_error(
                 plugin_id.to_string(),
                 format!("Native plugin settings.set failed: {error}"),
             );
@@ -2300,7 +2348,8 @@ impl WorkspaceApp {
         value: serde_json::Value,
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
-        self.plugin_registry
+        self.native_plugin_runtime
+            .registry
             .set_plugin_setting_value(plugin_id, key, value)?;
         self.emit_native_plugin_event_to_matching_subscribers(
             super::plugin_host::NATIVE_PLUGIN_SETTING_CHANGED_EVENT,
@@ -2309,7 +2358,7 @@ impl WorkspaceApp {
                 "pluginId": plugin_id,
                 "key": key,
                 "value": self
-                    .plugin_registry
+                    .native_plugin_runtime.registry
                     .plugin_setting_value(plugin_id, key)
                     .unwrap_or(serde_json::Value::Null),
             }),
@@ -2327,7 +2376,7 @@ impl WorkspaceApp {
         let payload = native_syncable_settings_payload_arg(args);
         let normalized = native_normalize_syncable_settings_payload(&payload);
         if let Err(error) = native_apply_syncable_settings_payload(self, &normalized.payload, cx) {
-            self.plugin_registry.record_manager_error(
+            self.native_plugin_runtime.registry.record_manager_error(
                 plugin_id.to_string(),
                 format!("Native plugin settings.applySyncableSettings failed: {error}"),
             );

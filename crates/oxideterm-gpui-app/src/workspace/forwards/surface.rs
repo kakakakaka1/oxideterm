@@ -1,3 +1,25 @@
+use gpui::prelude::*;
+
+use super::helpers::{
+    ForwardButtonVariant, ForwardRowCorners, forward_addresses, forwards_palette_alpha,
+    forwards_palette_color, forwards_theme_border, forwards_theme_border_half,
+    forwards_theme_card_bg, forwards_theme_card_surface, forwards_theme_hover_bg,
+    forwards_theme_panel_bg, forwards_theme_sunken_bg, forwards_theme_with_alpha,
+    forwards_transparent,
+};
+use super::{
+    ActiveSurface, AnyElement, Arc, ButtonOptions, ButtonRadius, ButtonSize, ClipboardItem,
+    Context, DefaultHasher, Duration, FORWARDS_PAGE_PADDING, FORWARDS_SECTION_GAP,
+    FORWARDS_SECTION_LIST_ESTIMATED_HEIGHT, FORWARDS_SECTION_LIST_OVERSCAN,
+    FORWARDS_TABLE_HEADER_H, FORWARDS_TABLE_ROW_H, FORWARDS_TABLE_ROW_LIST_OVERSCAN,
+    FORWARDS_TW_ALPHA_30, FORWARDS_TW_ALPHA_50, ForwardRule, ForwardStats, ForwardStatus,
+    ForwardType, ForwardingManager, Hash, Hasher, LucideIcon, MouseButton, NodeId, NodeReadiness,
+    TW_BLUE_500, TW_CYAN_500, TW_GREEN_400, TW_ORANGE_400, TW_ORANGE_500, Tab, TabId, TabKind,
+    TabTitleSource, TauriVirtualListSpec, Timer, ToolbarButtonOptions, UiButtonVariant, Window,
+    WorkspaceApp, div, px, rgb, rounded_shell_child_radius, settings_ui_font_family,
+    sync_tauri_variable_list_state_by_signatures, tauri_virtual_list,
+};
+
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 enum ForwardsSection {
     PortDetection,
@@ -26,7 +48,7 @@ fn forward_rule_row_signature(rule: &ForwardRule) -> u64 {
 }
 
 impl WorkspaceApp {
-    pub(super) fn open_forwards_tab(
+    pub(in crate::workspace) fn open_forwards_tab(
         &mut self,
         node_id: NodeId,
         _window: &mut Window,
@@ -68,7 +90,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    pub(super) fn render_forwards_surface(
+    pub(in crate::workspace) fn render_forwards_surface(
         &mut self,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -79,7 +101,7 @@ impl WorkspaceApp {
         self.render_forwards_surface_for_tab(tab_id, window, cx)
     }
 
-    pub(super) fn render_forwards_surface_for_tab(
+    pub(in crate::workspace) fn render_forwards_surface_for_tab(
         &mut self,
         tab_id: TabId,
         _window: &mut Window,
@@ -106,11 +128,15 @@ impl WorkspaceApp {
             } else {
                 rgb(theme.bg)
             })
-            .child(tauri_virtual_list(state, spec, move |index, _window, cx| {
-                workspace.update(cx, |this, cx| {
-                    this.render_forwards_section_item(index, tab_id, list_node_id.clone(), cx)
-                })
-            }));
+            .child(tauri_virtual_list(
+                state,
+                spec,
+                move |index, _window, cx| {
+                    workspace.update(cx, |this, cx| {
+                        this.render_forwards_section_item(index, tab_id, list_node_id.clone(), cx)
+                    })
+                },
+            ));
         if self.forwarding_view.editing_forward.is_some() {
             surface = surface.child(self.render_forward_edit_modal(
                 node_id.clone(),
@@ -529,76 +555,75 @@ impl WorkspaceApp {
             .child(
                 forwards_theme_card_surface(
                     div()
-                    .min_h(px(100.0))
-                    .w_full()
-                    .overflow_hidden()
-                    .rounded(px(self.tokens.radii.lg))
-                    .border_1()
-                    .border_color(forwards_theme_border(theme.border, has_background))
-                    .bg(forwards_theme_card_bg(theme.bg_card, has_background)),
+                        .min_h(px(100.0))
+                        .w_full()
+                        .overflow_hidden()
+                        .rounded(px(self.tokens.radii.lg))
+                        .border_1()
+                        .border_color(forwards_theme_border(theme.border, has_background))
+                        .bg(forwards_theme_card_bg(theme.bg_card, has_background)),
                     theme.bg_card,
                 )
-                    .child(self.render_forward_table_header(has_background))
-                    .when(forwards.is_empty(), |table| {
-                        table.child(
-                            div()
-                                .h(px(120.0))
-                                .flex()
-                                .flex_col()
-                                .items_center()
-                                .justify_center()
-                                .gap(px(12.0))
-                                .rounded_b(px(rounded_shell_child_radius(self.tokens.radii.lg)))
-                                .text_size(px(self.tokens.metrics.ui_text_sm))
-                                .text_color(rgb(theme.text_muted))
-                                .child(Self::render_lucide_icon(
-                                    LucideIcon::ArrowUpDown,
-                                    40.0,
-                                    forwards_theme_with_alpha(
-                                        theme.text_muted,
-                                        FORWARDS_TW_ALPHA_30,
-                                    ),
-                                ))
-                                .child(self.render_forward_ui_text(
+                .child(self.render_forward_table_header(has_background))
+                .when(forwards.is_empty(), |table| {
+                    table.child(
+                        div()
+                            .h(px(120.0))
+                            .flex()
+                            .flex_col()
+                            .items_center()
+                            .justify_center()
+                            .gap(px(12.0))
+                            .rounded_b(px(rounded_shell_child_radius(self.tokens.radii.lg)))
+                            .text_size(px(self.tokens.metrics.ui_text_sm))
+                            .text_color(rgb(theme.text_muted))
+                            .child(Self::render_lucide_icon(
+                                LucideIcon::ArrowUpDown,
+                                40.0,
+                                forwards_theme_with_alpha(theme.text_muted, FORWARDS_TW_ALPHA_30),
+                            ))
+                            .child(
+                                self.render_forward_ui_text(
                                     self.i18n.t("forwards.table.no_forwards"),
-                                )),
-                        )
-                    })
-                    .when(!row_forwards.is_empty(), |table| {
-                        table.child(
-                            div()
-                                .h(px(forward_count as f32 * FORWARDS_TABLE_ROW_H))
-                                .child(tauri_virtual_list(
-                                    table_row_state,
-                                    table_row_spec,
-                                    move |index, _window, cx| {
-                                        let Some(rule) = row_forwards.get(index).cloned() else {
-                                            return div().into_any_element();
-                                        };
-                                        let manager = row_manager.clone();
-                                        let node_id = row_node_id.clone();
-                                        workspace.update(cx, |this, cx| {
-                                            let stats = matches!(rule.status, ForwardStatus::Active)
-                                                .then(|| {
-                                                    manager.as_ref().and_then(|manager| {
-                                                        manager.get_stats(&rule.id).ok()
-                                                    })
+                                ),
+                            ),
+                    )
+                })
+                .when(!row_forwards.is_empty(), |table| {
+                    table.child(
+                        div()
+                            .h(px(forward_count as f32 * FORWARDS_TABLE_ROW_H))
+                            .child(tauri_virtual_list(
+                                table_row_state,
+                                table_row_spec,
+                                move |index, _window, cx| {
+                                    let Some(rule) = row_forwards.get(index).cloned() else {
+                                        return div().into_any_element();
+                                    };
+                                    let manager = row_manager.clone();
+                                    let node_id = row_node_id.clone();
+                                    workspace.update(cx, |this, cx| {
+                                        let stats = matches!(rule.status, ForwardStatus::Active)
+                                            .then(|| {
+                                                manager.as_ref().and_then(|manager| {
+                                                    manager.get_stats(&rule.id).ok()
                                                 })
-                                                .flatten();
-                                            this.render_forward_row(
-                                                node_id,
-                                                tab_id,
-                                                rule,
-                                                stats,
-                                                index + 1 == forward_count,
-                                                row_has_background,
-                                                cx,
-                                            )
-                                        })
-                                    },
-                                )),
-                        )
-                    }),
+                                            })
+                                            .flatten();
+                                        this.render_forward_row(
+                                            node_id,
+                                            tab_id,
+                                            rule,
+                                            stats,
+                                            index + 1 == forward_count,
+                                            row_has_background,
+                                            cx,
+                                        )
+                                    })
+                                },
+                            )),
+                    )
+                }),
             )
             .into_any_element()
     }
@@ -866,5 +891,4 @@ impl WorkspaceApp {
                 .into_any_element(),
         )
     }
-
 }

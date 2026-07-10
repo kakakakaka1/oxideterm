@@ -1,4 +1,6 @@
-async fn cleanup_reconnect_created_forwards(
+use super::*;
+
+pub(super) async fn cleanup_reconnect_created_forwards(
     forwarding_registry: &ForwardingRegistry,
     created_forwards: &[(String, String)],
 ) {
@@ -9,7 +11,7 @@ async fn cleanup_reconnect_created_forwards(
     }
 }
 
-fn release_reconnect_forward_bindings(
+pub(super) fn release_reconnect_forward_bindings(
     router: &NodeRouter,
     bindings: &[(String, String, ConnectionConsumer)],
 ) {
@@ -18,7 +20,7 @@ fn release_reconnect_forward_bindings(
     }
 }
 
-fn reconnect_forward_rule_from_rule(rule: ForwardRule) -> ReconnectForwardRule {
+pub(super) fn reconnect_forward_rule_from_rule(rule: ForwardRule) -> ReconnectForwardRule {
     ReconnectForwardRule {
         id: rule.id,
         forward_type: forward_type_to_snapshot(rule.forward_type).to_string(),
@@ -31,7 +33,9 @@ fn reconnect_forward_rule_from_rule(rule: ForwardRule) -> ReconnectForwardRule {
     }
 }
 
-fn forward_rule_from_reconnect_snapshot(rule: &ReconnectForwardRule) -> Option<ForwardRule> {
+pub(super) fn forward_rule_from_reconnect_snapshot(
+    rule: &ReconnectForwardRule,
+) -> Option<ForwardRule> {
     let mut restored = match rule.forward_type.as_str() {
         "local" => ForwardRule::local(
             rule.bind_address.clone(),
@@ -59,7 +63,7 @@ fn forward_rule_from_reconnect_snapshot(rule: &ReconnectForwardRule) -> Option<F
     Some(restored)
 }
 
-fn forward_restore_key_for_rule(rule: &ForwardRule) -> String {
+pub(super) fn forward_restore_key_for_rule(rule: &ForwardRule) -> String {
     [
         forward_type_to_snapshot(rule.forward_type).to_string(),
         rule.bind_address.clone(),
@@ -70,7 +74,7 @@ fn forward_restore_key_for_rule(rule: &ForwardRule) -> String {
     .join(":")
 }
 
-fn forward_restore_key_for_snapshot_rule(rule: &ReconnectForwardRule) -> String {
+pub(super) fn forward_restore_key_for_snapshot_rule(rule: &ReconnectForwardRule) -> String {
     [
         rule.forward_type.clone(),
         rule.bind_address.clone(),
@@ -81,7 +85,7 @@ fn forward_restore_key_for_snapshot_rule(rule: &ReconnectForwardRule) -> String 
     .join(":")
 }
 
-fn forward_restore_failure_label(rule: &ReconnectForwardRule) -> String {
+pub(super) fn forward_restore_failure_label(rule: &ReconnectForwardRule) -> String {
     match rule.forward_type.as_str() {
         "dynamic" => format!("dynamic {}:{}", rule.bind_address, rule.bind_port),
         forward_type => format!(
@@ -91,7 +95,7 @@ fn forward_restore_failure_label(rule: &ReconnectForwardRule) -> String {
     }
 }
 
-fn forward_restore_result_detail(
+pub(super) fn forward_restore_result_detail(
     restored: u32,
     failures: u32,
     failure_details: &[String],
@@ -119,7 +123,7 @@ fn forward_restore_result_detail(
     detail
 }
 
-fn forward_restore_phase_result(_failures: u32) -> PhaseResult {
+pub(super) fn forward_restore_phase_result(_failures: u32) -> PhaseResult {
     // Tauri treats restore-forwards as a best-effort phase: individual
     // nodeCreateForward failures are logged, but the reconnect pipeline still
     // proceeds to transfer and IDE recovery.
@@ -144,7 +148,7 @@ fn forward_status_to_snapshot(status: &ForwardStatus) -> &'static str {
     }
 }
 
-fn reconnect_error_is_non_retryable(error: &str) -> bool {
+pub(super) fn reconnect_error_is_non_retryable(error: &str) -> bool {
     let error = error.to_ascii_lowercase();
     [
         "authentication failed",
@@ -158,7 +162,7 @@ fn reconnect_error_is_non_retryable(error: &str) -> bool {
     .any(|needle| error.contains(needle))
 }
 
-fn readiness_for_connection_status(status: &str) -> Option<NodeReadiness> {
+pub(super) fn readiness_for_connection_status(status: &str) -> Option<NodeReadiness> {
     match status {
         "connected" => Some(NodeReadiness::Ready),
         "link_down" => Some(NodeReadiness::Error),
@@ -168,7 +172,7 @@ fn readiness_for_connection_status(status: &str) -> Option<NodeReadiness> {
     }
 }
 
-fn reason_for_connection_status(status: &str) -> String {
+pub(super) fn reason_for_connection_status(status: &str) -> String {
     match status {
         "connected" => "connection restored",
         "link_down" => "link down",
@@ -179,7 +183,7 @@ fn reason_for_connection_status(status: &str) -> String {
     .to_string()
 }
 
-fn event_log_severity_for_connection_status(status: &str) -> WorkspaceEventSeverity {
+pub(super) fn event_log_severity_for_connection_status(status: &str) -> WorkspaceEventSeverity {
     match status {
         // Mirrors Tauri `useEventLogCapture.statusSeverity`: link loss is the
         // disruptive event, while a final explicit disconnect is informational.
@@ -190,7 +194,7 @@ fn event_log_severity_for_connection_status(status: &str) -> WorkspaceEventSever
     }
 }
 
-fn event_log_title_for_node_readiness(readiness: &NodeReadiness) -> &'static str {
+pub(super) fn event_log_title_for_node_readiness(readiness: &NodeReadiness) -> &'static str {
     match readiness {
         NodeReadiness::Ready => "event_log.events.node_state_ready",
         NodeReadiness::Connecting => "event_log.events.node_state_connecting",
@@ -199,7 +203,7 @@ fn event_log_title_for_node_readiness(readiness: &NodeReadiness) -> &'static str
     }
 }
 
-fn reconnect_cascade_child_should_start(readiness: &NodeReadiness) -> bool {
+pub(super) fn reconnect_cascade_child_should_start(readiness: &NodeReadiness) -> bool {
     matches!(readiness, NodeReadiness::Error | NodeReadiness::Connecting)
 }
 
@@ -242,8 +246,8 @@ mod node_reconnect_helper_tests {
             description: "socks".to_string(),
         };
 
-        let restored =
-            forward_rule_from_reconnect_snapshot(&snapshot).expect("dynamic snapshot should restore");
+        let restored = forward_rule_from_reconnect_snapshot(&snapshot)
+            .expect("dynamic snapshot should restore");
 
         assert_ne!(restored.id, snapshot.id);
         assert_eq!(restored.status, ForwardStatus::Starting);

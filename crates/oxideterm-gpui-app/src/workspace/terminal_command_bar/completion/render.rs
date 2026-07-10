@@ -1,3 +1,5 @@
+use super::*;
+
 use oxideterm_gpui_ui::{StatusPillOptions, StatusTone, status_pill};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -90,8 +92,7 @@ impl WorkspaceApp {
                         // rounded suggestion popover edge; match the shell's
                         // inner curve so GPUI cannot expose square pixels.
                         .when(index == 0, |header| {
-                            header
-                                .rounded_t(px(rounded_shell_child_radius(self.tokens.radii.lg)))
+                            header.rounded_t(px(rounded_shell_child_radius(self.tokens.radii.lg)))
                         })
                         .px(px(12.0))
                         .py(px(4.0))
@@ -156,15 +157,13 @@ impl WorkspaceApp {
                         )
                     })
                     .when_some(suggestion.risk, |row, risk| {
-                        row.child(
-                            status_pill(
-                                &self.tokens,
-                                risk.to_uppercase(),
-                                StatusPillOptions::new(terminal_command_suggestion_risk_tone(risk))
-                                    .compact()
-                                    .strong(),
-                            ),
-                        )
+                        row.child(status_pill(
+                            &self.tokens,
+                            risk.to_uppercase(),
+                            StatusPillOptions::new(terminal_command_suggestion_risk_tone(risk))
+                                .compact()
+                                .strong(),
+                        ))
                     })
                     .child(status_pill(
                         &self.tokens,
@@ -179,7 +178,13 @@ impl WorkspaceApp {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use oxideterm_gpui_ui::StatusTone;
+
+    use super::{
+        TerminalCommandSuggestionRowBackgroundRole, TerminalCommandSuggestionRowTextRole,
+        TerminalCommandSuggestionRowUiState, terminal_command_suggestion_risk_tone,
+        terminal_command_suggestion_row_ui_state,
+    };
 
     #[test]
     fn highlighted_suggestion_row_uses_active_visual_state() {
@@ -205,7 +210,10 @@ mod tests {
 
     #[test]
     fn suggestion_risk_tone_maps_classifier_labels_to_shared_status_tones() {
-        assert_eq!(terminal_command_suggestion_risk_tone("high"), StatusTone::Error);
+        assert_eq!(
+            terminal_command_suggestion_risk_tone("high"),
+            StatusTone::Error
+        );
         assert_eq!(
             terminal_command_suggestion_risk_tone("medium"),
             StatusTone::Warning

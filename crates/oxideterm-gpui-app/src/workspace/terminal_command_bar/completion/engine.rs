@@ -1,3 +1,5 @@
+use super::*;
+
 impl WorkspaceApp {
     pub(in crate::workspace) fn terminal_command_bar_suggestions(
         &self,
@@ -119,9 +121,11 @@ impl WorkspaceApp {
     fn terminal_command_context(&self, cx: &mut Context<Self>) -> TerminalCommandContext {
         let tab = self.active_tab();
         let pane_id = self.active_pane_id();
-        let session_id = tab
-            .and_then(|tab| pane_id.and_then(|pane_id| tab.root_pane.as_ref()?.session_id_for_pane(pane_id)));
-        let node_id = session_id.and_then(|session_id| self.terminal_ssh_nodes.get(&session_id).cloned());
+        let session_id = tab.and_then(|tab| {
+            pane_id.and_then(|pane_id| tab.root_pane.as_ref()?.session_id_for_pane(pane_id))
+        });
+        let node_id =
+            session_id.and_then(|session_id| self.terminal_ssh_nodes.get(&session_id).cloned());
         let cwd = self.terminal_command_context_cwd(pane_id, tab.map(|tab| &tab.kind), cx);
         let cwd_host = pane_id
             .and_then(|pane_id| self.panes.get(&pane_id))
@@ -131,7 +135,13 @@ impl WorkspaceApp {
             Some(TabKind::LocalTerminal) => TerminalCommandContextType::LocalTerminal,
             _ => TerminalCommandContextType::Terminal,
         };
-        let target_label = self.terminal_command_target_label(tab, node_id.as_ref(), cwd.as_deref(), cwd_host.as_deref(), cx);
+        let target_label = self.terminal_command_target_label(
+            tab,
+            node_id.as_ref(),
+            cwd.as_deref(),
+            cwd_host.as_deref(),
+            cx,
+        );
 
         TerminalCommandContext {
             pane_id,

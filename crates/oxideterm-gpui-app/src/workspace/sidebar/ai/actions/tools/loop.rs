@@ -1,4 +1,4 @@
-async fn run_ai_chat_tool_loop(
+pub(in crate::workspace) async fn run_ai_chat_tool_loop(
     config: AiChatStreamConfig,
     mut history: Vec<AiChatMessage>,
     snapshot: AiOrchestratorRuntimeSnapshot,
@@ -40,8 +40,8 @@ async fn run_ai_chat_tool_loop(
         .and_then(|tokens| usize::try_from(tokens).ok())
         .filter(|tokens| *tokens > 0)
         .unwrap_or_else(|| ai_response_reserve(snapshot.ai_context_window));
-    let transcript_lookup_prompt =
-        ai_find_prompt_transcript_lookup_reference(&history).map(ai_build_transcript_lookup_prompt_reference);
+    let transcript_lookup_prompt = ai_find_prompt_transcript_lookup_reference(&history)
+        .map(ai_build_transcript_lookup_prompt_reference);
     let available_tool_names = config
         .tools
         .iter()
@@ -109,7 +109,8 @@ async fn run_ai_chat_tool_loop(
         let mut round_thinking = String::new();
         let mut buffered_required_content = String::new();
         let mut buffered_required_thinking = String::new();
-        let mut buffering_required_tool = tool_obligation.mode == AiOrchestratorObligationMode::Required;
+        let mut buffering_required_tool =
+            tool_obligation.mode == AiOrchestratorObligationMode::Required;
         let mut pending_calls = BTreeMap::<String, AiToolCall>::new();
         let mut completed_calls = Vec::<AiToolCall>::new();
 
@@ -350,8 +351,7 @@ async fn run_ai_chat_tool_loop(
                 && ai_should_trigger_hard_deny(&round_content, user_requested_json)
             {
                 let retry_attempt = hard_deny_retry_count.saturating_add(1);
-                let synthetic_round_id =
-                    format!("{assistant_id}-hard-deny-{retry_attempt}");
+                let synthetic_round_id = format!("{assistant_id}-hard-deny-{retry_attempt}");
                 let synthetic_tool_call_id = format!("{synthetic_round_id}-tool");
                 let _ = send_ai_guardrail(
                     &ui_tx,
@@ -520,7 +520,7 @@ async fn run_ai_chat_tool_loop(
                     transcript_ref: None,
                     summary_ref: None,
                     branches: None,
-            suggestions: Vec::new(),
+                    suggestions: Vec::new(),
                 });
                 history.push(AiChatMessage {
                     id: format!("required-retry-user-{retry_attempt}"),
@@ -538,7 +538,7 @@ async fn run_ai_chat_tool_loop(
                     transcript_ref: None,
                     summary_ref: None,
                     branches: None,
-            suggestions: Vec::new(),
+                    suggestions: Vec::new(),
                 });
                 required_tool_retry_count = retry_attempt;
                 continue;
@@ -676,9 +676,7 @@ async fn run_ai_chat_tool_loop(
                 continue;
             }
             let parsed_args = parse_ai_tool_args(&call.arguments);
-            let approval_args = parsed_args
-                .clone()
-                .unwrap_or_else(|| serde_json::json!({}));
+            let approval_args = parsed_args.clone().unwrap_or_else(|| serde_json::json!({}));
             let decision = resolve_ai_policy_decision(
                 &call.name,
                 Some(&approval_args),
@@ -878,12 +876,19 @@ async fn run_ai_chat_tool_loop(
             };
             if executed_after_policy {
                 if call.name == "run_command" {
-                    annotate_ai_run_command_execution_result(&mut executed, &execution_summary_args);
+                    annotate_ai_run_command_execution_result(
+                        &mut executed,
+                        &execution_summary_args,
+                    );
                 }
                 annotate_executed_ai_tool_result_policy(&mut executed, &decision);
             }
 
-            let status = if executed.success { "completed" } else { "error" };
+            let status = if executed.success {
+                "completed"
+            } else {
+                "error"
+            };
             send_ai_tool_status(
                 &ui_tx,
                 generation,
@@ -913,7 +918,10 @@ async fn run_ai_chat_tool_loop(
             .filter(|message| message.role == AiChatRole::System)
             .map(ai_message_estimated_tokens)
             .sum::<usize>();
-        let total_message_tokens = history.iter().map(ai_message_estimated_tokens).sum::<usize>();
+        let total_message_tokens = history
+            .iter()
+            .map(ai_message_estimated_tokens)
+            .sum::<usize>();
         let system_budget = system_message_tokens
             .saturating_add(ai_tool_definitions_estimated_tokens(&config.tools));
         let regular_messages = history
@@ -977,7 +985,7 @@ async fn run_ai_chat_tool_loop(
                     transcript_ref: None,
                     summary_ref: None,
                     branches: None,
-            suggestions: Vec::new(),
+                    suggestions: Vec::new(),
                 });
                 transcript_lookup_prompt_injected = true;
             }
@@ -1021,7 +1029,7 @@ async fn run_ai_chat_tool_loop(
     );
 }
 
-async fn run_acp_chat_loop(
+pub(in crate::workspace) async fn run_acp_chat_loop(
     config: AiChatStreamConfig,
     history: Vec<AiChatMessage>,
     snapshot: AiOrchestratorRuntimeSnapshot,
@@ -1197,7 +1205,9 @@ async fn run_acp_chat_loop(
                     response_tx,
                 } => {
                     let response = if bridge_host_policy.terminal {
-                        bridge_terminal_registry.wait_for_terminal_exit(&request).await
+                        bridge_terminal_registry
+                            .wait_for_terminal_exit(&request)
+                            .await
                     } else {
                         Err(oxideterm_ai::acp_method_not_found("terminal/wait_for_exit"))
                     };
@@ -1286,7 +1296,7 @@ async fn run_acp_chat_loop(
     }
 }
 
-fn acp_agent_config_from_settings(
+pub(in crate::workspace) fn acp_agent_config_from_settings(
     settings_state: &serde_json::Value,
     agent_id: &str,
 ) -> Result<oxideterm_settings::AcpAgentConfig, String> {
@@ -1305,7 +1315,7 @@ fn acp_agent_config_from_settings(
         .ok_or_else(|| format!("ACP agent `{agent_id}` is not configured."))
 }
 
-fn acp_launch_config_from_agent(
+pub(in crate::workspace) fn acp_launch_config_from_agent(
     agent: &oxideterm_settings::AcpAgentConfig,
 ) -> oxideterm_ai::AcpLaunchConfig {
     oxideterm_ai::AcpLaunchConfig {
@@ -1322,7 +1332,7 @@ fn acp_launch_config_from_agent(
     }
 }
 
-fn acp_host_capability_policy_from_agent(
+pub(in crate::workspace) fn acp_host_capability_policy_from_agent(
     agent: &oxideterm_settings::AcpAgentConfig,
 ) -> oxideterm_ai::AcpHostCapabilityPolicy {
     oxideterm_ai::AcpHostCapabilityPolicy {
@@ -1332,7 +1342,7 @@ fn acp_host_capability_policy_from_agent(
     }
 }
 
-fn flush_ai_required_tool_buffer(
+pub(in crate::workspace) fn flush_ai_required_tool_buffer(
     ui_tx: &std::sync::mpsc::Sender<AiStreamDelivery>,
     generation: u64,
     conversation_id: &str,

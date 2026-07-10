@@ -1,5 +1,9 @@
+use super::*;
+
+use oxideterm_connection_monitor::ResourceSampler;
+
 impl WorkspaceApp {
-    pub(super) fn open_connection_runtime_tab(
+    pub(in crate::workspace) fn open_connection_runtime_tab(
         &mut self,
         section: ConnectionRuntimeSection,
         window: &mut Window,
@@ -25,7 +29,7 @@ impl WorkspaceApp {
         self.sync_connection_monitor_selection(cx);
     }
 
-    pub(super) fn open_connection_monitor_tab(
+    pub(in crate::workspace) fn open_connection_monitor_tab(
         &mut self,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -33,15 +37,23 @@ impl WorkspaceApp {
         self.open_connection_runtime_tab(ConnectionRuntimeSection::Health, window, cx);
     }
 
-    pub(super) fn open_connection_pool_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn open_connection_pool_tab(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.open_connection_runtime_tab(ConnectionRuntimeSection::Overview, window, cx);
     }
 
-    pub(super) fn open_topology_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn open_topology_tab(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.open_connection_runtime_tab(ConnectionRuntimeSection::Topology, window, cx);
     }
 
-    pub(super) fn poll_connection_monitor_updates(
+    pub(in crate::workspace) fn poll_connection_monitor_updates(
         &mut self,
         request_repaint: bool,
         cx: &mut Context<Self>,
@@ -62,11 +74,16 @@ impl WorkspaceApp {
         }
     }
 
-    pub(super) fn maybe_refresh_connection_monitor(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn maybe_refresh_connection_monitor(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) {
         let monitor_surface_visible = self.active_tab().is_some_and(|tab| {
             matches!(
                 tab.kind,
-                TabKind::ConnectionPool | TabKind::ConnectionMonitor | TabKind::Topology
+                TabKind::ConnectionPool
+                    | TabKind::ConnectionMonitor
+                    | TabKind::Topology
                     | TabKind::Runtime
             )
         }) || (self.context_sidebar_visible()
@@ -113,7 +130,7 @@ impl WorkspaceApp {
         }
     }
 
-    pub(super) fn refresh_connection_monitor_pool_stats(&mut self) {
+    pub(in crate::workspace) fn refresh_connection_monitor_pool_stats(&mut self) {
         self.connection_monitor.pool_stats = Some(self.ssh_registry.monitor_stats());
         self.connection_monitor.pool_summaries = self.ssh_registry.list_connection_summaries();
         self.connection_monitor.topology_snapshot =
@@ -122,7 +139,10 @@ impl WorkspaceApp {
         self.connection_monitor.last_pool_refresh = Some(Instant::now());
     }
 
-    pub(super) fn sync_connection_monitor_selection(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn sync_connection_monitor_selection(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) {
         let connections = self.monitor_connections();
         let live_connection_ids = connections
             .iter()
@@ -184,17 +204,22 @@ impl WorkspaceApp {
         }
     }
 
-    fn start_connection_monitor_profiler(&mut self, connection_id: String, cx: &mut Context<Self>) {
+    pub(super) fn start_connection_monitor_profiler(
+        &mut self,
+        connection_id: String,
+        cx: &mut Context<Self>,
+    ) {
         let Some(handle) = self.ssh_registry.get(&connection_id) else {
             return;
         };
         self.connection_monitor
             .disabled_profiler_connections
             .remove(&connection_id);
-        let os_type = handle
-            .remote_env()
-            .map(|env| env.os_type)
-            .unwrap_or_else(|| "Linux".to_string());
+        let Some(os_type) = handle.remote_env().map(|env| env.os_type) else {
+            // Lifecycle polling retries this start after environment detection;
+            // choosing Linux here would run incorrect probes on other hosts.
+            return;
+        };
         let sampler: Arc<dyn ResourceSampler> = Arc::new(handle);
         self.connection_monitor
             .profiler_registry
@@ -208,7 +233,11 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn stop_connection_monitor_profiler(&mut self, connection_id: String, cx: &mut Context<Self>) {
+    pub(super) fn stop_connection_monitor_profiler(
+        &mut self,
+        connection_id: String,
+        cx: &mut Context<Self>,
+    ) {
         self.connection_monitor
             .profiler_registry
             .stop(&connection_id);
@@ -218,7 +247,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn monitor_connections(&self) -> Vec<MonitorConnectionOption> {
+    pub(super) fn monitor_connections(&self) -> Vec<MonitorConnectionOption> {
         if !self.connection_monitor.pool_summaries.is_empty() {
             return self
                 .connection_monitor
@@ -240,5 +269,4 @@ impl WorkspaceApp {
         });
         connections
     }
-
 }

@@ -4,12 +4,14 @@
 //! Core IDE state for OxideTerm's native editor surface.
 //!
 //! This crate owns project, tab, dirty-buffer, close-confirmation, and
-//! snapshot/restore state. It intentionally does not depend on GPUI, SFTP, SSH,
+//! snapshot/restore state and plugin-facing IDE snapshot DTOs. It intentionally
+//! does not depend on GPUI, SFTP, SSH,
 //! or terminal panes. Upper layers provide file-system adapters and render the
 //! state however they need.
 
 mod filesystem;
 mod model;
+mod plugin_snapshot;
 mod tree;
 mod workspace;
 #[cfg(test)]
@@ -25,5 +27,6 @@ pub use model::{
     EditorTabId, FileKind, FileTreeEntry, IdeLocation, OpenFileOutcome, ProjectId, ProjectSnapshot,
     ReloadError, RestoreSkipReason, RestoreSnapshotResult, SavedFileVersion, WorkspaceSnapshot,
 };
+pub use plugin_snapshot::{IdePluginFileSnapshot, IdePluginProjectSnapshot, IdePluginSnapshot};
 pub use tree::{FileTreeDirectorySnapshot, FileTreeSnapshot, FileTreeState};
 pub use workspace::{IdeWorkspace, SaveError, WorkspaceError};

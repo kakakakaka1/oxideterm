@@ -1,10 +1,10 @@
 impl WorkspaceApp {
-    pub(super) fn handle_ai_sidebar_key(
+    pub(in crate::workspace) fn handle_ai_sidebar_key(
         &mut self,
         event: &KeyDownEvent,
         cx: &mut Context<Self>,
     ) -> bool {
-        if self.ai_model_selector_open && self.ai_model_selector_search_focused {
+        if self.ai.models.selector_open && self.ai.models.selector_search_focused {
             if event.keystroke.modifiers.platform {
                 return false;
             }
@@ -47,8 +47,8 @@ impl WorkspaceApp {
                     true
                 }
                 "backspace" => {
-                    let changed = self.ai_model_selector_search_query.pop().is_some()
-                        || self.ai_model_selector_highlighted_model.take().is_some()
+                    let changed = self.ai.models.selector_search_query.pop().is_some()
+                        || self.ai.models.selector_highlighted_model.take().is_some()
                         || self.ime_marked_text.take().is_some();
                     if changed {
                         // Empty Backspace should not repaint the selector when
@@ -59,7 +59,8 @@ impl WorkspaceApp {
                 }
                 _ => true,
             }
-        } else if self.ai_editing_message_id.is_some() && self.ai_editing_message_focused {
+        } else if self.ai.chat.editing_message_id.is_some() && self.ai.chat.editing_message_focused
+        {
             if event.keystroke.modifiers.platform {
                 return false;
             }
@@ -69,7 +70,7 @@ impl WorkspaceApp {
                     true
                 }
                 "backspace" => {
-                    let changed = self.ai_editing_message_draft.pop().is_some()
+                    let changed = self.ai.chat.editing_message_draft.pop().is_some()
                         || self.ime_marked_text.take().is_some();
                     if changed {
                         cx.notify();
@@ -81,7 +82,7 @@ impl WorkspaceApp {
                     true
                 }
                 "enter" => {
-                    self.ai_editing_message_draft.push('\n');
+                    self.ai.chat.editing_message_draft.push('\n');
                     self.ime_marked_text = None;
                     cx.notify();
                     true
@@ -89,7 +90,7 @@ impl WorkspaceApp {
                 "tab" => {
                     // Textareas in the Tauri sidebar release focus on Tab
                     // unless an autocomplete/menu owner consumes it first.
-                    self.ai_editing_message_focused = false;
+                    self.ai.chat.editing_message_focused = false;
                     self.ime_marked_text = None;
                     cx.notify();
                     true
@@ -106,7 +107,7 @@ impl WorkspaceApp {
                 }
                 _ => true,
             }
-        } else if let Some(action) = self.ai_chat_footer_focus {
+        } else if let Some(action) = self.ai.chat.footer_focus {
             if event.keystroke.modifiers.platform {
                 return false;
             }
@@ -121,7 +122,7 @@ impl WorkspaceApp {
                 self.apply_ai_chat_inline_footer_key_action(action, cx);
             }
             true
-        } else if self.ai_chat_input_focused {
+        } else if self.ai.chat.input_focused {
             if event.keystroke.modifiers.platform {
                 return false;
             }
@@ -129,28 +130,29 @@ impl WorkspaceApp {
             if autocomplete_len > 0 {
                 match event.keystroke.key.as_str() {
                     "down" | "arrowdown" => {
-                        self.ai_chat_autocomplete_index =
-                            (self.ai_chat_autocomplete_index + 1) % autocomplete_len;
+                        self.ai.chat.autocomplete_index =
+                            (self.ai.chat.autocomplete_index + 1) % autocomplete_len;
                         cx.notify();
                         return true;
                     }
                     "up" | "arrowup" => {
-                        self.ai_chat_autocomplete_index =
-                            (self.ai_chat_autocomplete_index + autocomplete_len - 1)
+                        self.ai.chat.autocomplete_index =
+                            (self.ai.chat.autocomplete_index + autocomplete_len - 1)
                                 % autocomplete_len;
                         cx.notify();
                         return true;
                     }
                     "tab" | "enter" if !event.keystroke.modifiers.shift => {
-                        let index = self.ai_chat_autocomplete_index.min(autocomplete_len - 1);
-                        if let Some(candidate) = self.ai_chat_autocomplete_items().get(index).cloned()
+                        let index = self.ai.chat.autocomplete_index.min(autocomplete_len - 1);
+                        if let Some(candidate) =
+                            self.ai_chat_autocomplete_items().get(index).cloned()
                         {
                             self.apply_ai_chat_autocomplete_candidate(&candidate, cx);
                         }
                         return true;
                     }
                     "escape" => {
-                        self.ai_chat_autocomplete_suppressed = true;
+                        self.ai.chat.autocomplete_suppressed = true;
                         self.ime_marked_text = None;
                         cx.notify();
                         return true;
@@ -176,23 +178,23 @@ impl WorkspaceApp {
             }
             match event.keystroke.key.as_str() {
                 "backspace" => {
-                    let changed = self.ai_chat_draft.pop().is_some()
-                        || self.ai_chat_autocomplete_suppressed
-                        || self.ai_chat_autocomplete_index != 0
+                    let changed = self.ai.chat.draft.pop().is_some()
+                        || self.ai.chat.autocomplete_suppressed
+                        || self.ai.chat.autocomplete_index != 0
                         || self.ime_marked_text.take().is_some();
-                    self.ai_chat_autocomplete_suppressed = false;
-                    self.ai_chat_autocomplete_index = 0;
+                    self.ai.chat.autocomplete_suppressed = false;
+                    self.ai.chat.autocomplete_index = 0;
                     if changed {
                         cx.notify();
                     }
                     true
                 }
-                "enter" if !event.keystroke.modifiers.shift && !self.ai_chat_loading => {
+                "enter" if !event.keystroke.modifiers.shift && !self.ai.chat.loading => {
                     self.send_ai_chat_draft(cx);
                     true
                 }
                 "enter" => {
-                    self.ai_chat_draft.push('\n');
+                    self.ai.chat.draft.push('\n');
                     self.ime_marked_text = None;
                     cx.notify();
                     true
@@ -214,24 +216,28 @@ impl WorkspaceApp {
         }
     }
 
-    fn ai_chat_footer_action_enabled(&self) -> bool {
-        self.ai_chat_loading || !self.ai_chat_draft.trim().is_empty()
+    pub(in crate::workspace) fn ai_chat_footer_action_enabled(&self) -> bool {
+        self.ai.chat.loading || !self.ai.chat.draft.trim().is_empty()
     }
 
-    fn activate_ai_chat_footer_action(&mut self, action: AiChatFooterAction, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn activate_ai_chat_footer_action(
+        &mut self,
+        action: AiChatFooterAction,
+        cx: &mut Context<Self>,
+    ) {
         match action {
-            AiChatFooterAction::Submit if self.ai_chat_loading => self.cancel_ai_chat_stream(cx),
-            AiChatFooterAction::Submit if !self.ai_chat_draft.trim().is_empty() => {
+            AiChatFooterAction::Submit if self.ai.chat.loading => self.cancel_ai_chat_stream(cx),
+            AiChatFooterAction::Submit if !self.ai.chat.draft.trim().is_empty() => {
                 self.send_ai_chat_draft(cx)
             }
             AiChatFooterAction::Submit => {
-                self.ai_chat_footer_focus = None;
+                self.ai.chat.footer_focus = None;
                 cx.notify();
             }
         }
     }
 
-    fn apply_ai_chat_inline_footer_key_action(
+    pub(in crate::workspace) fn apply_ai_chat_inline_footer_key_action(
         &mut self,
         action: browser_behavior::InlineFooterInputKeyAction<AiChatFooterAction>,
         cx: &mut Context<Self>,
@@ -241,20 +247,20 @@ impl WorkspaceApp {
         // helper while this method performs the Workspace-specific state writes.
         match action {
             browser_behavior::InlineFooterInputKeyAction::ClearFocus => {
-                self.ai_chat_input_focused = false;
-                self.ai_chat_footer_focus = None;
+                self.ai.chat.input_focused = false;
+                self.ai.chat.footer_focus = None;
                 self.ime_marked_text = None;
                 cx.notify();
             }
             browser_behavior::InlineFooterInputKeyAction::FocusInput => {
-                self.ai_chat_input_focused = true;
-                self.ai_chat_footer_focus = None;
+                self.ai.chat.input_focused = true;
+                self.ai.chat.footer_focus = None;
                 self.ime_marked_text = None;
                 cx.notify();
             }
             browser_behavior::InlineFooterInputKeyAction::FocusFooter(action) => {
-                self.ai_chat_input_focused = false;
-                self.ai_chat_footer_focus = Some(action);
+                self.ai.chat.input_focused = false;
+                self.ai.chat.footer_focus = Some(action);
                 self.ime_marked_text = None;
                 cx.notify();
             }
@@ -264,7 +270,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn insert_ai_text_input_literal_space(
+    pub(in crate::workspace) fn insert_ai_text_input_literal_space(
         &mut self,
         target: WorkspaceImeTarget,
         cx: &mut Context<Self>,
@@ -283,7 +289,11 @@ impl WorkspaceApp {
     }
 }
 
-fn ai_text_input_space_inserts_literal(platform: bool, control: bool, alt: bool) -> bool {
+pub(in crate::workspace) fn ai_text_input_space_inserts_literal(
+    platform: bool,
+    control: bool,
+    alt: bool,
+) -> bool {
     !platform && !control && !alt
 }
 
@@ -292,12 +302,12 @@ mod key_tests {
     use super::ai_text_input_space_inserts_literal;
 
     #[test]
-    fn ai_text_input_plain_space_inserts_literal() {
+    pub(in crate::workspace) fn ai_text_input_plain_space_inserts_literal() {
         assert!(ai_text_input_space_inserts_literal(false, false, false));
     }
 
     #[test]
-    fn ai_text_input_modified_space_falls_through() {
+    pub(in crate::workspace) fn ai_text_input_modified_space_falls_through() {
         assert!(!ai_text_input_space_inserts_literal(true, false, false));
         assert!(!ai_text_input_space_inserts_literal(false, true, false));
         assert!(!ai_text_input_space_inserts_literal(false, false, true));

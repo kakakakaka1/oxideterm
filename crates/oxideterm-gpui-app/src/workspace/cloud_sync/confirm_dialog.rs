@@ -11,7 +11,7 @@ impl WorkspaceApp {
         event: &KeyDownEvent,
         cx: &mut Context<Self>,
     ) -> bool {
-        if self.cloud_sync_confirm.is_none()
+        if self.cloud_sync.view.confirm.is_none()
             || event.keystroke.modifiers.platform
             || event.keystroke.modifiers.control
         {
@@ -22,7 +22,7 @@ impl WorkspaceApp {
             event.keystroke.key.as_str(),
             event.keystroke.modifiers.shift,
             &CONFIRM_DIALOG_FOOTER_ACTIONS,
-            self.cloud_sync_confirm_focused_action,
+            self.cloud_sync.view.confirm_focused_action,
             ConfirmDialogAction::Cancel,
         ) {
             Some(browser_behavior::ModalFooterKeyAction::Cancel) => {
@@ -31,7 +31,7 @@ impl WorkspaceApp {
                 true
             }
             Some(browser_behavior::ModalFooterKeyAction::Focus(action)) => {
-                self.cloud_sync_confirm_focused_action = Some(action);
+                self.cloud_sync.view.confirm_focused_action = Some(action);
                 cx.notify();
                 true
             }
@@ -51,7 +51,7 @@ impl WorkspaceApp {
         &self,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let Some(confirm) = self.cloud_sync_confirm.clone() else {
+        let Some(confirm) = self.cloud_sync.view.confirm.clone() else {
             return div().into_any_element();
         };
         let copy = cloud_sync_confirm_copy_spec(&confirm);
@@ -129,7 +129,7 @@ impl WorkspaceApp {
                     ))
                     .into_any_element(),
             },
-            self.cloud_sync_confirm_focused_action,
+            self.cloud_sync.view.confirm_focused_action,
             cx.listener(
                 |this: &mut WorkspaceApp, _event, _window, cx: &mut Context<WorkspaceApp>| {
                     this.cancel_cloud_sync_confirm();

@@ -1,5 +1,7 @@
+use super::*;
+
 impl WorkspaceApp {
-    fn number_input(
+    pub(in crate::workspace) fn number_input(
         &self,
         input: SettingsInput,
         value: String,
@@ -46,11 +48,11 @@ impl WorkspaceApp {
                     cx.stop_propagation();
                 }),
             )
-            .on_mouse_move(
-                cx.listener(|this, event: &gpui::MouseMoveEvent, window, cx| {
+            .on_mouse_move(cx.listener(
+                |this, event: &gpui::MouseMoveEvent, window, cx| {
                     this.update_ime_selection_drag_from_mouse_move(event, window, cx);
-                }),
-            ),
+                },
+            )),
             move |anchor, _window, cx| {
                 let _ = workspace.update(cx, |this, cx| {
                     this.update_text_input_anchor(anchor, cx);
@@ -60,7 +62,11 @@ impl WorkspaceApp {
         .into_any_element()
     }
 
-    fn font_size_row(&self, settings: &PersistedSettings, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn font_size_row(
+        &self,
+        settings: &PersistedSettings,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let slider_view = SliderView {
             min: 8.0,
             max: 32.0,
@@ -142,7 +148,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn decimal_row(
+    pub(in crate::workspace) fn decimal_row(
         &self,
         label_key: &str,
         hint_key: &str,
@@ -163,7 +169,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn checkbox_row(
+    pub(in crate::workspace) fn checkbox_row(
         &self,
         label_key: &str,
         hint_key: &str,
@@ -186,7 +192,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn settings_text_input_control(
+    pub(in crate::workspace) fn settings_text_input_control(
         &self,
         input: SettingsInput,
         value: String,
@@ -204,7 +210,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn settings_secret_text_input_control(
+    pub(in crate::workspace) fn settings_secret_text_input_control(
         &self,
         input: SettingsInput,
         value: String,
@@ -223,7 +229,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn settings_text_input_control_with_align(
+    pub(in crate::workspace) fn settings_text_input_control_with_align(
         &self,
         input: SettingsInput,
         value: String,
@@ -235,7 +241,7 @@ impl WorkspaceApp {
         self.settings_text_input_control_inner(input, value, placeholder, width, align, false, cx)
     }
 
-    fn settings_text_input_control_inner(
+    pub(in crate::workspace) fn settings_text_input_control_inner(
         &self,
         input: SettingsInput,
         value: String,
@@ -286,11 +292,11 @@ impl WorkspaceApp {
                     cx.stop_propagation();
                 }),
             )
-            .on_mouse_move(
-                cx.listener(|this, event: &gpui::MouseMoveEvent, window, cx| {
+            .on_mouse_move(cx.listener(
+                |this, event: &gpui::MouseMoveEvent, window, cx| {
                     this.update_ime_selection_drag_from_mouse_move(event, window, cx);
-                }),
-            ),
+                },
+            )),
             move |anchor, _window, cx| {
                 let _ = workspace.update(cx, |this, cx| {
                     this.update_text_input_anchor(anchor, cx);

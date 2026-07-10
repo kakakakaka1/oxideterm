@@ -1,8 +1,34 @@
-use oxideterm_gpui_ui::{
-    CommandPanelOptions, StatusPillOptions, StatusTone, SurfacePadding, command_panel, status_pill,
+use std::{
+    collections::hash_map::DefaultHasher,
+    hash::{Hash, Hasher},
 };
 
-pub(super) fn quick_command_lucide_icon(icon: QuickCommandIcon) -> LucideIcon {
+use gpui::{
+    AnyElement, Context, CursorStyle, KeyDownEvent, MouseButton, div, prelude::*, px, rgb, rgba,
+};
+use oxideterm_gpui_ui::{
+    CommandPanelOptions, StatusPillOptions, StatusTone, SurfacePadding, command_panel,
+    modal::rounded_shell_child_radius,
+    select::SelectAnchorId,
+    status_pill,
+    text_input::{TextInputView, text_input, text_input_anchor_probe},
+};
+
+use super::super::actions::classify_command_risk;
+use super::super::ime::WorkspaceImeTarget;
+use super::super::{
+    QUICK_COMMAND_LIST_ESTIMATED_HEIGHT, QUICK_COMMAND_LIST_OVERSCAN, SelectableTextRole,
+    TauriVirtualListSpec, WorkspaceApp, settings_mono_font_family,
+    sync_tauri_variable_list_state_by_signatures, tauri_virtual_list,
+};
+use super::{
+    QuickCommand, QuickCommandCategory, QuickCommandCategoryDraft, QuickCommandDraft,
+    QuickCommandIcon, QuickCommandInput, default_quick_command_categories,
+    quick_command_icon_source_id,
+};
+use crate::assets::LucideIcon;
+
+fn quick_command_lucide_icon(icon: QuickCommandIcon) -> LucideIcon {
     match icon {
         QuickCommandIcon::Server => LucideIcon::Server,
         QuickCommandIcon::Folder => LucideIcon::Folder,
@@ -18,8 +44,11 @@ const QUICK_COMMANDS_LIST_MAX_HEIGHT: f32 = 360.0;
 const QUICK_COMMANDS_CONTENT_MIN_HEIGHT: f32 = 300.0;
 const QUICK_COMMANDS_BODY_HEADER_HEIGHT: f32 = 49.0;
 
-pub(super) fn quick_command_icon_label_key(icon: QuickCommandIcon) -> String {
-    format!("terminal.quick_commands.icon_{}", icon.as_source_id())
+fn quick_command_icon_label_key(icon: QuickCommandIcon) -> String {
+    format!(
+        "terminal.quick_commands.icon_{}",
+        quick_command_icon_source_id(icon)
+    )
 }
 
 fn close_terminal_quick_commands_popover_state(
@@ -95,7 +124,9 @@ fn quick_command_category_draft_can_save(draft: &QuickCommandCategoryDraft) -> b
 
 fn quick_commands_popover_width_for_bar(command_bar_width: f32) -> f32 {
     let available_width = command_bar_width - QUICK_COMMANDS_POPOVER_HORIZONTAL_MARGIN * 2.0;
-    available_width.max(0.0).min(QUICK_COMMANDS_POPOVER_MAX_WIDTH)
+    available_width
+        .max(0.0)
+        .min(QUICK_COMMANDS_POPOVER_MAX_WIDTH)
 }
 
 fn quick_command_list_height(row_count: usize) -> f32 {
@@ -234,7 +265,7 @@ impl WorkspaceApp {
             .visible_commands_for_targets(&[active_label])
     }
 
-    pub(super) fn close_terminal_quick_commands_popover(&mut self) {
+    pub(in crate::workspace) fn close_terminal_quick_commands_popover(&mut self) {
         close_terminal_quick_commands_popover_state(
             &mut self.terminal_quick_commands_open,
             &mut self.terminal_quick_commands_pinned,
@@ -244,7 +275,7 @@ impl WorkspaceApp {
         );
     }
 
-    pub(super) fn finish_terminal_quick_command_execution(&mut self) {
+    pub(in crate::workspace) fn finish_terminal_quick_command_execution(&mut self) {
         finish_quick_command_execution_state(
             &mut self.terminal_quick_commands_open,
             self.terminal_quick_commands_pinned,
@@ -266,7 +297,7 @@ impl WorkspaceApp {
         );
     }
 
-    pub(super) fn handle_quick_commands_key(
+    pub(in crate::workspace) fn handle_quick_commands_key(
         &mut self,
         event: &KeyDownEvent,
         cx: &mut Context<Self>,
@@ -407,7 +438,10 @@ impl WorkspaceApp {
         }
     }
 
-    pub(super) fn quick_command_input_value(&self, input: QuickCommandInput) -> Option<String> {
+    pub(in crate::workspace) fn quick_command_input_value(
+        &self,
+        input: QuickCommandInput,
+    ) -> Option<String> {
         match input {
             QuickCommandInput::Search => Some(self.quick_commands.query.clone()),
             QuickCommandInput::CommandName => self
@@ -438,7 +472,7 @@ impl WorkspaceApp {
         }
     }
 
-    pub(super) fn quick_command_input_value_mut(
+    pub(in crate::workspace) fn quick_command_input_value_mut(
         &mut self,
         input: QuickCommandInput,
     ) -> &mut String {
@@ -487,7 +521,10 @@ impl WorkspaceApp {
         }
     }
 
-    pub(super) fn render_quick_commands_popover(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn render_quick_commands_popover(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let visible_commands = self.visible_quick_commands_for_active_terminal();
         let popover_width = self
             .select_anchors
@@ -502,32 +539,32 @@ impl WorkspaceApp {
                 .padding(SurfacePadding::None)
                 .terminal_owned(),
         )
-            .absolute()
-            .bottom(px(56.0))
-            .right(px(QUICK_COMMANDS_POPOVER_HORIZONTAL_MARGIN))
-            // The popover sits inside an occluding outside-dismiss backdrop.
-            // Mark the panel itself as occluding too, so category-row clicks
-            // are hit-tested against this event island instead of the backdrop.
-            .occlude()
-            // Tauri uses `w-[min(860px,calc(100%-1.5rem))]` on a child of
-            // TerminalCommandBar. Compute against the cached command-bar
-            // bounds so AI sidebar and window-width changes shrink the panel
-            // instead of clipping its left edge.
-            .max_w(px(QUICK_COMMANDS_POPOVER_MAX_WIDTH))
-            .text_size(px(12.0))
-            .font_family(settings_mono_font_family(self.settings_store.settings()))
-            .on_mouse_down(MouseButton::Left, |_event, _window, cx| {
-                cx.stop_propagation();
-            })
-            .on_mouse_down(MouseButton::Right, |_event, _window, cx| {
-                cx.stop_propagation();
-            })
-            .on_scroll_wheel(|_, _, cx| {
-                // Match Tauri's popover scroll boundary: wheel input inside
-                // the quick command surface must not close the overlay or leak
-                // to the terminal behind it.
-                cx.stop_propagation();
-            });
+        .absolute()
+        .bottom(px(56.0))
+        .right(px(QUICK_COMMANDS_POPOVER_HORIZONTAL_MARGIN))
+        // The popover sits inside an occluding outside-dismiss backdrop.
+        // Mark the panel itself as occluding too, so category-row clicks
+        // are hit-tested against this event island instead of the backdrop.
+        .occlude()
+        // Tauri uses `w-[min(860px,calc(100%-1.5rem))]` on a child of
+        // TerminalCommandBar. Compute against the cached command-bar
+        // bounds so AI sidebar and window-width changes shrink the panel
+        // instead of clipping its left edge.
+        .max_w(px(QUICK_COMMANDS_POPOVER_MAX_WIDTH))
+        .text_size(px(12.0))
+        .font_family(settings_mono_font_family(self.settings_store.settings()))
+        .on_mouse_down(MouseButton::Left, |_event, _window, cx| {
+            cx.stop_propagation();
+        })
+        .on_mouse_down(MouseButton::Right, |_event, _window, cx| {
+            cx.stop_propagation();
+        })
+        .on_scroll_wheel(|_, _, cx| {
+            // Match Tauri's popover scroll boundary: wheel input inside
+            // the quick command surface must not close the overlay or leak
+            // to the terminal behind it.
+            cx.stop_propagation();
+        });
 
         let content_height = quick_commands_content_height(visible_commands.len());
         let sidebar = self.render_quick_command_category_sidebar(cx);
@@ -693,7 +730,11 @@ impl WorkspaceApp {
                                     "quick-command-category-cell",
                                     ("name", category.id.as_str()),
                                     category.name.clone(),
-                                    if active { theme.accent } else { theme.text_muted },
+                                    if active {
+                                        theme.accent
+                                    } else {
+                                        theme.text_muted
+                                    },
                                     cx,
                                 ),
                             ))
@@ -878,8 +919,9 @@ impl WorkspaceApp {
                 state,
                 spec,
                 move |index, _window, cx| {
-                    workspace
-                        .update(cx, |this, cx| this.render_quick_command_list_item(index, cx))
+                    workspace.update(cx, |this, cx| {
+                        this.render_quick_command_list_item(index, cx)
+                    })
                 },
             ))
             .into_any_element()
@@ -906,11 +948,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn render_quick_command_list_item(
-        &self,
-        index: usize,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
+    fn render_quick_command_list_item(&self, index: usize, cx: &mut Context<Self>) -> AnyElement {
         let visible_commands = self.visible_quick_commands_for_active_terminal();
         let total = visible_commands.len();
         let Some(command) = visible_commands.into_iter().nth(index) else {
@@ -1164,9 +1202,13 @@ impl WorkspaceApp {
                     .child(self.render_display_text_with_role(
                         SelectableTextRole::NonSelectable,
                         "quick-command-icon-option",
-                        icon.as_source_id(),
+                        quick_command_icon_source_id(icon),
                         self.i18n.t(&quick_command_icon_label_key(icon)),
-                        if active { theme.accent } else { theme.text_muted },
+                        if active {
+                            theme.accent
+                        } else {
+                            theme.text_muted
+                        },
                         cx,
                     )),
             );
@@ -1253,7 +1295,11 @@ impl WorkspaceApp {
                         "quick-command-editor-category",
                         category.id.as_str(),
                         category.name.clone(),
-                        if active { theme.accent } else { theme.text_muted },
+                        if active {
+                            theme.accent
+                        } else {
+                            theme.text_muted
+                        },
                         cx,
                     )),
             );
@@ -1345,11 +1391,11 @@ impl WorkspaceApp {
                         cx.stop_propagation();
                     }),
                 )
-                    .bg(if can_save {
-                        rgba((theme.accent << 8) | 0x26)
-                    } else {
-                        rgba(0x00000000)
-                    }),
+                .bg(if can_save {
+                    rgba((theme.accent << 8) | 0x26)
+                } else {
+                    rgba(0x00000000)
+                }),
             )
             .into_any_element()
     }
@@ -1391,11 +1437,11 @@ impl WorkspaceApp {
                     cx.stop_propagation();
                 }),
             )
-            .on_mouse_move(
-                cx.listener(|this, event: &gpui::MouseMoveEvent, window, cx| {
+            .on_mouse_move(cx.listener(
+                |this, event: &gpui::MouseMoveEvent, window, cx| {
                     this.update_ime_selection_drag_from_mouse_move(event, window, cx);
-                }),
-            ),
+                },
+            )),
             move |anchor, _window, cx| {
                 let _ = workspace.update(cx, |this, cx| {
                     this.update_text_input_anchor(anchor, cx);
@@ -1498,7 +1544,16 @@ impl WorkspaceApp {
 
 #[cfg(test)]
 mod terminal_command_bar_quick_command_tests {
-    use super::*;
+    use super::{
+        QuickCommand, QuickCommandCategoryDraft, QuickCommandDraft, QuickCommandIcon,
+        QuickCommandInput, QuickCommandKeyDirection, StatusTone,
+        close_terminal_quick_commands_popover_state, finish_quick_command_execution_state,
+        insert_quick_command_into_command_bar_state, quick_command_category_draft_can_save,
+        quick_command_draft_can_save, quick_command_editor_tab_target,
+        quick_command_keyboard_highlight, quick_command_risk_tone,
+        quick_command_space_inserts_literal, quick_commands_popover_width_for_bar,
+        select_quick_command_category_state,
+    };
 
     #[test]
     fn quick_command_popover_outside_click_closes_without_blurring_command_bar() {

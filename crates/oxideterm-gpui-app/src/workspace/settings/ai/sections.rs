@@ -1,15 +1,17 @@
-const AI_TEXTAREA_SYSTEM_PROMPT_MIN_H: f32 = 80.0; // Tauri rows=4 min-h-[80px].
-const AI_TEXTAREA_MEMORY_MIN_H: f32 = 120.0; // Tauri rows=5 min-h-[120px].
-const AI_ACP_AGENT_TEXTAREA_MIN_H: f32 = 72.0; // Tauri min-h-[72px] for ACP args/env drafts.
-const AI_TOOL_NUMBER_INPUT_W: f32 = 96.0; // Tauri w-24.
-const AI_ACP_AGENT_FIELD_MIN_WIDTH: f32 = 220.0; // Keep ACP form fields readable on narrow settings panes.
-const AI_ACP_AGENT_TEXTAREA_FIELD_MIN_WIDTH: f32 = 240.0; // Multiline command fields need more room than compact selects.
-const AI_ACP_AGENT_AUTH_TOKEN_MIN_WIDTH: f32 = 220.0; // Let token actions wrap without crushing the secret input.
-const AI_ACP_AGENT_CAPABILITY_MIN_WIDTH: f32 = 150.0; // Capability checkboxes should wrap as chips, not grid columns.
-const AI_READONLY_VALUE_WIDTH: f32 = 180.0; // Keep compact status fields aligned with text inputs.
+use super::*;
+
+pub(in crate::workspace) const AI_TEXTAREA_SYSTEM_PROMPT_MIN_H: f32 = 80.0; // Tauri rows=4 min-h-[80px].
+pub(in crate::workspace) const AI_TEXTAREA_MEMORY_MIN_H: f32 = 120.0; // Tauri rows=5 min-h-[120px].
+pub(in crate::workspace) const AI_ACP_AGENT_TEXTAREA_MIN_H: f32 = 72.0; // Tauri min-h-[72px] for ACP args/env drafts.
+pub(in crate::workspace) const AI_TOOL_NUMBER_INPUT_W: f32 = 96.0; // Tauri w-24.
+pub(in crate::workspace) const AI_ACP_AGENT_FIELD_MIN_WIDTH: f32 = 220.0; // Keep ACP form fields readable on narrow settings panes.
+pub(in crate::workspace) const AI_ACP_AGENT_TEXTAREA_FIELD_MIN_WIDTH: f32 = 240.0; // Multiline command fields need more room than compact selects.
+pub(in crate::workspace) const AI_ACP_AGENT_AUTH_TOKEN_MIN_WIDTH: f32 = 220.0; // Let token actions wrap without crushing the secret input.
+pub(in crate::workspace) const AI_ACP_AGENT_CAPABILITY_MIN_WIDTH: f32 = 150.0; // Capability checkboxes should wrap as chips, not grid columns.
+pub(in crate::workspace) const AI_READONLY_VALUE_WIDTH: f32 = 180.0; // Keep compact status fields aligned with text inputs.
 
 impl WorkspaceApp {
-    fn ai_readonly_value(&self, label: String) -> AnyElement {
+    pub(in crate::workspace) fn ai_readonly_value(&self, label: String) -> AnyElement {
         div()
             .w(px(AI_READONLY_VALUE_WIDTH))
             .max_w_full()
@@ -28,7 +30,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn ai_acp_agents_section(
+    pub(in crate::workspace) fn ai_acp_agents_section(
         &self,
         settings: &PersistedSettings,
         cx: &mut Context<Self>,
@@ -42,7 +44,9 @@ impl WorkspaceApp {
             .border_color(rgba(
                 (self.tokens.ui.border << 8) | AI_PROVIDER_SECTION_BORDER_ALPHA,
             ))
-            .bg(rgba((self.tokens.ui.bg_card << 8) | AI_PROVIDER_SECTION_BG_ALPHA))
+            .bg(rgba(
+                (self.tokens.ui.bg_card << 8) | AI_PROVIDER_SECTION_BG_ALPHA,
+            ))
             .p(px(16.0))
             .flex()
             .flex_col()
@@ -111,13 +115,13 @@ impl WorkspaceApp {
         section.into_any_element()
     }
 
-    fn ai_acp_agent_card(
+    pub(in crate::workspace) fn ai_acp_agent_card(
         &self,
         index: usize,
         agent: &oxideterm_settings::AcpAgentConfig,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let testing = self.ai_acp_agent_probe_pending.contains(&agent.id);
+        let testing = self.ai.runtime.acp_agent_probe_pending.contains(&agent.id);
         div()
             .w_full()
             .min_w(px(0.0))
@@ -191,15 +195,18 @@ impl WorkspaceApp {
                             cx,
                         ),
                     ))
-                    .child(self.ai_responsive_field(
-                        AI_ACP_AGENT_FIELD_MIN_WIDTH,
-                        self.ai_labeled_text_input(
-                            "settings_view.ai.acp_agent_command",
-                            SettingsInput::AiAcpAgentCommand(index),
-                            self.i18n.t("settings_view.ai.acp_agent_command_placeholder"),
-                            cx,
+                    .child(
+                        self.ai_responsive_field(
+                            AI_ACP_AGENT_FIELD_MIN_WIDTH,
+                            self.ai_labeled_text_input(
+                                "settings_view.ai.acp_agent_command",
+                                SettingsInput::AiAcpAgentCommand(index),
+                                self.i18n
+                                    .t("settings_view.ai.acp_agent_command_placeholder"),
+                                cx,
+                            ),
                         ),
-                    ))
+                    )
                     .child(self.ai_responsive_field(
                         AI_ACP_AGENT_FIELD_MIN_WIDTH,
                         self.ai_labeled_text_input(
@@ -253,7 +260,11 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn ai_responsive_field(&self, min_width: f32, control: AnyElement) -> AnyElement {
+    pub(in crate::workspace) fn ai_responsive_field(
+        &self,
+        min_width: f32,
+        control: AnyElement,
+    ) -> AnyElement {
         // Flex-basis keeps desktop columns stable, while min-width zero lets the
         // field shrink only after it has wrapped onto its own line.
         div()
@@ -265,7 +276,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn ai_acp_agent_add_button(
+    pub(in crate::workspace) fn ai_acp_agent_add_button(
         &self,
         label: String,
         preset: Option<AcpAgentPreset>,
@@ -302,7 +313,7 @@ impl WorkspaceApp {
         .into_any_element()
     }
 
-    fn ai_acp_agent_auth_token_input(
+    pub(in crate::workspace) fn ai_acp_agent_auth_token_input(
         &self,
         index: usize,
         agent: &oxideterm_settings::AcpAgentConfig,
@@ -413,7 +424,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn save_ai_acp_agent_auth_token(
+    pub(in crate::workspace) fn save_ai_acp_agent_auth_token(
         &mut self,
         index: usize,
         agent_id: String,
@@ -430,7 +441,7 @@ impl WorkspaceApp {
             cx.notify();
             return;
         };
-        let key_store = self.ai_key_store.clone();
+        let key_store = self.ai.models.key_store.clone();
         let runtime = self.forwarding_runtime.clone();
         cx.spawn(async move |weak, cx| {
             let agent_id_for_store = agent_id.clone();
@@ -477,13 +488,13 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn delete_ai_acp_agent_auth_token(
+    pub(in crate::workspace) fn delete_ai_acp_agent_auth_token(
         &mut self,
         _index: usize,
         agent_id: String,
         cx: &mut Context<Self>,
     ) {
-        let key_store = self.ai_key_store.clone();
+        let key_store = self.ai.models.key_store.clone();
         let runtime = self.forwarding_runtime.clone();
         cx.spawn(async move |weak, cx| {
             let agent_id_for_delete = agent_id.clone();
@@ -525,7 +536,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn ai_labeled_text_input(
+    pub(in crate::workspace) fn ai_labeled_text_input(
         &self,
         label_key: &str,
         input: SettingsInput,
@@ -554,7 +565,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn ai_acp_agent_enabled_toggle(
+    pub(in crate::workspace) fn ai_acp_agent_enabled_toggle(
         &self,
         index: usize,
         enabled: bool,
@@ -586,7 +597,7 @@ impl WorkspaceApp {
         .into_any_element()
     }
 
-    fn ai_acp_agent_status_badge(
+    pub(in crate::workspace) fn ai_acp_agent_status_badge(
         &self,
         agent: &oxideterm_settings::AcpAgentConfig,
     ) -> AnyElement {
@@ -597,11 +608,14 @@ impl WorkspaceApp {
             .py(px(4.0))
             .text_size(px(10.0))
             .text_color(rgb(self.tokens.ui.text_muted))
-            .child(self.i18n.t(acp_agent_runtime_status_key(&agent.status.state)))
+            .child(
+                self.i18n
+                    .t(acp_agent_runtime_status_key(&agent.status.state)),
+            )
             .into_any_element()
     }
 
-    fn ai_acp_agent_test_button(
+    pub(in crate::workspace) fn ai_acp_agent_test_button(
         &self,
         index: usize,
         agent: &oxideterm_settings::AcpAgentConfig,
@@ -640,26 +654,29 @@ impl WorkspaceApp {
         .into_any_element()
     }
 
-    fn test_ai_acp_agent(
+    pub(in crate::workspace) fn test_ai_acp_agent(
         &mut self,
         _index: usize,
         agent: oxideterm_settings::AcpAgentConfig,
         cx: &mut Context<Self>,
     ) {
-        if self.ai_acp_agent_probe_pending.contains(&agent.id) {
+        if self.ai.runtime.acp_agent_probe_pending.contains(&agent.id) {
             cx.notify();
             return;
         }
 
         let agent_id = agent.id.clone();
-        self.ai_acp_agent_probe_pending.insert(agent_id.clone());
-        if self.ai_acp_agent_probe_tx.is_none() {
+        self.ai
+            .runtime
+            .acp_agent_probe_pending
+            .insert(agent_id.clone());
+        if self.ai.runtime.acp_agent_probe_tx.is_none() {
             let (tx, rx) = std::sync::mpsc::channel();
-            self.ai_acp_agent_probe_tx = Some(tx);
-            self.ai_acp_agent_probe_rx = Some(rx);
+            self.ai.runtime.acp_agent_probe_tx = Some(tx);
+            self.ai.runtime.acp_agent_probe_rx = Some(rx);
         }
-        let Some(ui_tx) = self.ai_acp_agent_probe_tx.as_ref().cloned() else {
-            self.ai_acp_agent_probe_pending.remove(&agent_id);
+        let Some(ui_tx) = self.ai.runtime.acp_agent_probe_tx.as_ref().cloned() else {
+            self.ai.runtime.acp_agent_probe_pending.remove(&agent_id);
             cx.notify();
             return;
         };
@@ -711,15 +728,18 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn poll_ai_acp_agent_probe_results(&mut self, cx: &mut Context<Self>) {
-        let Some(rx) = self.ai_acp_agent_probe_rx.take() else {
+    pub(in crate::workspace) fn poll_ai_acp_agent_probe_results(&mut self, cx: &mut Context<Self>) {
+        let Some(rx) = self.ai.runtime.acp_agent_probe_rx.take() else {
             return;
         };
         let mut keep_rx = true;
         loop {
             match rx.try_recv() {
                 Ok(delivery) => {
-                    self.ai_acp_agent_probe_pending.remove(&delivery.agent_id);
+                    self.ai
+                        .runtime
+                        .acp_agent_probe_pending
+                        .remove(&delivery.agent_id);
                     self.edit_settings(
                         |settings| {
                             if let Some(agent) = settings
@@ -740,30 +760,33 @@ impl WorkspaceApp {
                 Err(std::sync::mpsc::TryRecvError::Empty) => break,
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
                     keep_rx = false;
-                    self.ai_acp_agent_probe_tx = None;
-                    self.ai_acp_agent_probe_pending.clear();
+                    self.ai.runtime.acp_agent_probe_tx = None;
+                    self.ai.runtime.acp_agent_probe_pending.clear();
                     break;
                 }
             }
         }
-        if keep_rx && !self.ai_acp_agent_probe_pending.is_empty() {
-            self.ai_acp_agent_probe_rx = Some(rx);
-        } else if self.ai_acp_agent_probe_pending.is_empty() {
-            self.ai_acp_agent_probe_tx = None;
+        if keep_rx && !self.ai.runtime.acp_agent_probe_pending.is_empty() {
+            self.ai.runtime.acp_agent_probe_rx = Some(rx);
+        } else if self.ai.runtime.acp_agent_probe_pending.is_empty() {
+            self.ai.runtime.acp_agent_probe_tx = None;
         }
     }
 
-    fn schedule_ai_acp_agent_probe_poll(&mut self, cx: &mut Context<Self>) {
-        if self.ai_acp_agent_probe_polling {
+    pub(in crate::workspace) fn schedule_ai_acp_agent_probe_poll(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) {
+        if self.ai.runtime.acp_agent_probe_polling {
             return;
         }
-        self.ai_acp_agent_probe_polling = true;
+        self.ai.runtime.acp_agent_probe_polling = true;
         cx.spawn(async move |weak, cx| {
             Timer::after(Duration::from_millis(50)).await;
             let _ = weak.update(cx, |this, cx| {
-                this.ai_acp_agent_probe_polling = false;
+                this.ai.runtime.acp_agent_probe_polling = false;
                 this.poll_ai_acp_agent_probe_results(cx);
-                if !this.ai_acp_agent_probe_pending.is_empty() {
+                if !this.ai.runtime.acp_agent_probe_pending.is_empty() {
                     this.schedule_ai_acp_agent_probe_poll(cx);
                 }
             });
@@ -771,7 +794,7 @@ impl WorkspaceApp {
         .detach();
     }
 
-    fn ai_acp_agent_capabilities(
+    pub(in crate::workspace) fn ai_acp_agent_capabilities(
         &self,
         index: usize,
         agent: &oxideterm_settings::AcpAgentConfig,
@@ -841,7 +864,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn ai_acp_agent_capability_toggle(
+    pub(in crate::workspace) fn ai_acp_agent_capability_toggle(
         &self,
         index: usize,
         label_key: &str,
@@ -868,7 +891,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn ai_provider_settings_section(
+    pub(in crate::workspace) fn ai_provider_settings_section(
         &self,
         providers: &[AiProviderView],
         cx: &mut Context<Self>,
@@ -880,7 +903,7 @@ impl WorkspaceApp {
         );
         self.sync_ai_provider_card_list_state(providers);
         let provider_list = if expanded {
-            let state = self.ai_provider_card_list_state.clone();
+            let state = self.ai.models.provider_card_list_state.clone();
             let spec = self.ai_provider_card_list_spec();
             let workspace = cx.entity();
             let list_height = self.ai_provider_card_list_estimated_height(providers);
@@ -894,9 +917,8 @@ impl WorkspaceApp {
                         state,
                         spec,
                         move |index, _window, cx| {
-                            workspace.update(cx, |this, cx| {
-                                this.ai_provider_card_list_item(index, cx)
-                            })
+                            workspace
+                                .update(cx, |this, cx| this.ai_provider_card_list_item(index, cx))
                         },
                     ))
                     .into_any_element(),
@@ -915,7 +937,8 @@ impl WorkspaceApp {
                 summary,
                 expanded,
                 |this, _event, _window, cx| {
-                    this.settings_page.toggle_ai_section(AiSettingsSection::ProviderSettings);
+                    this.settings_page
+                        .toggle_ai_section(AiSettingsSection::ProviderSettings);
                     cx.stop_propagation();
                     cx.notify();
                 },
@@ -927,7 +950,10 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn ai_provider_card_list_estimated_height(&self, providers: &[AiProviderView]) -> f32 {
+    pub(in crate::workspace) fn ai_provider_card_list_estimated_height(
+        &self,
+        providers: &[AiProviderView],
+    ) -> f32 {
         providers
             .iter()
             .map(|provider| self.ai_provider_card_estimated_height(provider))
@@ -935,7 +961,10 @@ impl WorkspaceApp {
             + AI_PROVIDER_CARD_LIST_ESTIMATED_HEIGHT
     }
 
-    fn ai_provider_card_estimated_height(&self, provider: &AiProviderView) -> f32 {
+    pub(in crate::workspace) fn ai_provider_card_estimated_height(
+        &self,
+        provider: &AiProviderView,
+    ) -> f32 {
         let active_provider = self
             .settings_store
             .settings()
@@ -944,14 +973,18 @@ impl WorkspaceApp {
             .as_deref()
             == Some(provider.id.as_str());
         let expanded = self
-            .settings_page.expanded_ai_providers
+            .settings_page
+            .expanded_ai_providers
             .get(&provider.id)
             .copied()
             .unwrap_or(active_provider);
         if !expanded {
             return 72.0;
         }
-        let models_expanded = self.settings_page.expanded_ai_provider_models.contains(&provider.id);
+        let models_expanded = self
+            .settings_page
+            .expanded_ai_provider_models
+            .contains(&provider.id);
         let visible_model_count = if models_expanded {
             provider.models.len()
         } else {
@@ -960,7 +993,10 @@ impl WorkspaceApp {
         let chip_rows = visible_model_count
             .div_ceil(AI_PROVIDER_MODEL_CHIPS_PER_VIRTUAL_ROW)
             .max(1);
-        let key_input_height = if self.ai_provider_key_display_state(provider).shows_key_control() {
+        let key_input_height = if self
+            .ai_provider_key_display_state(provider)
+            .shows_key_control()
+        {
             72.0
         } else {
             0.0
@@ -975,7 +1011,10 @@ impl WorkspaceApp {
             + 16.0
     }
 
-    fn sync_ai_provider_card_list_state(&self, providers: &[AiProviderView]) {
+    pub(in crate::workspace) fn sync_ai_provider_card_list_state(
+        &self,
+        providers: &[AiProviderView],
+    ) {
         let mut signatures = providers
             .iter()
             .map(|provider| {
@@ -987,14 +1026,17 @@ impl WorkspaceApp {
                     .as_deref()
                     == Some(provider.id.as_str());
                 let expanded = self
-                    .settings_page.expanded_ai_providers
+                    .settings_page
+                    .expanded_ai_providers
                     .get(&provider.id)
                     .copied()
                     .unwrap_or(active_provider);
                 ai_provider_card_signature(
                     provider,
                     expanded,
-                    self.settings_page.expanded_ai_provider_models.contains(&provider.id),
+                    self.settings_page
+                        .expanded_ai_provider_models
+                        .contains(&provider.id),
                     self.ai_provider_has_key_cached(&provider.id),
                 )
             })
@@ -1003,22 +1045,26 @@ impl WorkspaceApp {
         // section. Keep a stable sentinel signature for that fixed row.
         signatures.push(0xadd0_0001);
         sync_tauri_variable_list_state_by_signatures(
-            &self.ai_provider_card_list_state,
-            &mut self.ai_provider_card_list_cache.borrow_mut(),
+            &self.ai.models.provider_card_list_state,
+            &mut self.ai.models.provider_card_list_cache.borrow_mut(),
             "ai-provider-cards",
             &signatures,
             self.ai_provider_card_list_spec(),
         );
     }
 
-    fn ai_provider_card_list_spec(&self) -> TauriVirtualListSpec {
+    pub(in crate::workspace) fn ai_provider_card_list_spec(&self) -> TauriVirtualListSpec {
         TauriVirtualListSpec::new(
             px(AI_PROVIDER_CARD_LIST_ESTIMATED_HEIGHT),
             AI_PROVIDER_CARD_LIST_OVERSCAN,
         )
     }
 
-    fn ai_provider_card_list_item(&self, index: usize, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn ai_provider_card_list_item(
+        &self,
+        index: usize,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let providers = ai_provider_views(self.settings_store.settings());
         if index == providers.len() {
             return div()
@@ -1039,7 +1085,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn ai_context_controls_section(
+    pub(in crate::workspace) fn ai_context_controls_section(
         &self,
         settings: &PersistedSettings,
         cx: &mut Context<Self>,
@@ -1049,19 +1095,19 @@ impl WorkspaceApp {
             self.ai_section_title("settings_view.ai.context_controls"),
             vec![
                 self.ai_context_select_field(
-                        "settings_view.ai.max_context",
-                        "settings_view.ai.max_context_hint",
-                        SettingsSelect::AiContextMaxChars,
-                        self.ai_context_max_chars_label(settings.ai.context_max_chars),
-                        cx,
-                    ),
+                    "settings_view.ai.max_context",
+                    "settings_view.ai.max_context_hint",
+                    SettingsSelect::AiContextMaxChars,
+                    self.ai_context_max_chars_label(settings.ai.context_max_chars),
+                    cx,
+                ),
                 self.ai_context_select_field(
-                        "settings_view.ai.buffer_history",
-                        "settings_view.ai.buffer_history_hint",
-                        SettingsSelect::AiContextVisibleLines,
-                        self.ai_context_visible_lines_label(settings.ai.context_visible_lines),
-                        cx,
-                    ),
+                    "settings_view.ai.buffer_history",
+                    "settings_view.ai.buffer_history_hint",
+                    SettingsSelect::AiContextVisibleLines,
+                    self.ai_context_visible_lines_label(settings.ai.context_visible_lines),
+                    cx,
+                ),
             ],
             settings_ai_context_sources_group(
                 &self.tokens,
@@ -1086,7 +1132,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn ai_context_select_field(
+    pub(in crate::workspace) fn ai_context_select_field(
         &self,
         label_key: &str,
         hint_key: &str,
@@ -1102,7 +1148,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn ai_context_source_row(
+    pub(in crate::workspace) fn ai_context_source_row(
         &self,
         label_key: &str,
         hint_key: &str,
@@ -1116,29 +1162,29 @@ impl WorkspaceApp {
             self.i18n.t(hint_key),
             checkbox(&self.tokens, String::new(), checked).into_any_element(),
         )
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(move |this, _event, _window, cx| {
-                    this.edit_settings(|settings| setter(settings, !checked), cx);
-                    cx.stop_propagation();
-                }),
-            )
-            .into_any_element()
+        .on_mouse_down(
+            MouseButton::Left,
+            cx.listener(move |this, _event, _window, cx| {
+                this.edit_settings(|settings| setter(settings, !checked), cx);
+                cx.stop_propagation();
+            }),
+        )
+        .into_any_element()
     }
 
-    fn ai_context_max_chars_label(&self, value: i64) -> String {
+    pub(in crate::workspace) fn ai_context_max_chars_label(&self, value: i64) -> String {
         ai_context_max_chars_label_key(value)
             .map(|key| self.i18n.t(key))
             .unwrap_or_else(|| value.to_string())
     }
 
-    fn ai_context_visible_lines_label(&self, value: i64) -> String {
+    pub(in crate::workspace) fn ai_context_visible_lines_label(&self, value: i64) -> String {
         ai_context_visible_lines_label_key(value)
             .map(|key| self.i18n.t(key))
             .unwrap_or_else(|| value.to_string())
     }
 
-    fn ai_system_prompt_section(
+    pub(in crate::workspace) fn ai_system_prompt_section(
         &self,
         settings: &PersistedSettings,
         providers: &[AiProviderView],
@@ -1158,11 +1204,7 @@ impl WorkspaceApp {
             ),
             self.ai_separator(),
             settings_ai_icon_heading(
-                Self::render_lucide_icon(
-                        LucideIcon::Brain,
-                        16.0,
-                        rgb(self.tokens.ui.text),
-                    ),
+                Self::render_lucide_icon(LucideIcon::Brain, 16.0, rgb(self.tokens.ui.text)),
                 self.ai_section_title("settings_view.ai.memory_title"),
             )
             .into_any_element(),
@@ -1182,27 +1224,27 @@ impl WorkspaceApp {
                 AI_TEXTAREA_MEMORY_MIN_H,
                 cx,
             ),
-                // Tauri renders memory clear as a ghost small Button. Keep it
-                // on the shared toolbar primitive so disabled state does not
-                // need custom per-section button styling.
-                self.workspace_toolbar_action_button(
-                    self.i18n.t("settings_view.ai.memory_clear"),
-                    None,
-                    ToolbarButtonOptions {
-                        button: ButtonOptions {
-                            variant: ButtonVariant::Ghost,
-                            size: ButtonSize::Sm,
-                            radius: ButtonRadius::Md,
-                            disabled: settings.ai.memory.content.trim().is_empty(),
-                        },
-                        ..ToolbarButtonOptions::default()
+            // Tauri renders memory clear as a ghost small Button. Keep it
+            // on the shared toolbar primitive so disabled state does not
+            // need custom per-section button styling.
+            self.workspace_toolbar_action_button(
+                self.i18n.t("settings_view.ai.memory_clear"),
+                None,
+                ToolbarButtonOptions {
+                    button: ButtonOptions {
+                        variant: ButtonVariant::Ghost,
+                        size: ButtonSize::Sm,
+                        radius: ButtonRadius::Md,
+                        disabled: settings.ai.memory.content.trim().is_empty(),
                     },
-                    cx.listener(|this, _event, _window, cx| {
-                        this.edit_settings(|settings| settings.ai.memory.content.clear(), cx);
-                        cx.stop_propagation();
-                    }),
-                )
-                .into_any_element(),
+                    ..ToolbarButtonOptions::default()
+                },
+                cx.listener(|this, _event, _window, cx| {
+                    this.edit_settings(|settings| settings.ai.memory.content.clear(), cx);
+                    cx.stop_propagation();
+                }),
+            )
+            .into_any_element(),
             self.ai_separator(),
             vec![
                 self.ai_global_reasoning_section(settings, cx),
@@ -1214,7 +1256,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn ai_global_reasoning_section(
+    pub(in crate::workspace) fn ai_global_reasoning_section(
         &self,
         settings: &PersistedSettings,
         cx: &mut Context<Self>,
@@ -1224,9 +1266,10 @@ impl WorkspaceApp {
             self.i18n.t("settings_view.ai.reasoning_title"),
             self.settings_select_control(
                 SettingsSelect::AiGlobalReasoning,
-                self.i18n.t(ai_reasoning_label_key(ai_reasoning_profile_value(
-                    settings.ai.reasoning_effort,
-                ))),
+                self.i18n
+                    .t(ai_reasoning_label_key(ai_reasoning_profile_value(
+                        settings.ai.reasoning_effort,
+                    ))),
                 false,
                 None,
                 cx,
@@ -1236,7 +1279,11 @@ impl WorkspaceApp {
         )
     }
 
-    fn ai_tool_use_section(&self, settings: &PersistedSettings, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn ai_tool_use_section(
+        &self,
+        settings: &PersistedSettings,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let approved_count = ai_tool_auto_approved_count(settings);
         let total_count = ai_tool_auto_approve_total_count(settings);
         let policy_groups = settings_ai_tool_policy_grid(
@@ -1322,7 +1369,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn ai_tool_number_input_row(
+    pub(in crate::workspace) fn ai_tool_number_input_row(
         &self,
         label_key: &str,
         hint_key: &str,
@@ -1341,11 +1388,15 @@ impl WorkspaceApp {
         )
     }
 
-    fn ai_section_heading(&self, title_key: &str, hint_key: &str) -> AnyElement {
+    pub(in crate::workspace) fn ai_section_heading(
+        &self,
+        title_key: &str,
+        hint_key: &str,
+    ) -> AnyElement {
         settings_ai_section_heading(&self.tokens, self.i18n.t(title_key), self.i18n.t(hint_key))
     }
 
-    fn ai_collapsible_header(
+    pub(in crate::workspace) fn ai_collapsible_header(
         &self,
         title_key: &str,
         summary: String,
@@ -1367,11 +1418,11 @@ impl WorkspaceApp {
                 rgb(self.tokens.ui.text_muted),
             ),
         )
-            .on_mouse_down(MouseButton::Left, cx.listener(on_click))
-            .into_any_element()
+        .on_mouse_down(MouseButton::Left, cx.listener(on_click))
+        .into_any_element()
     }
 
-    fn ai_icon_button(
+    pub(in crate::workspace) fn ai_icon_button(
         &self,
         icon: LucideIcon,
         disabled: bool,
@@ -1401,7 +1452,7 @@ impl WorkspaceApp {
         .into_any_element()
     }
 
-    fn ai_textarea_row(
+    pub(in crate::workspace) fn ai_textarea_row(
         &self,
         input: SettingsInput,
         label: String,
@@ -1435,32 +1486,33 @@ impl WorkspaceApp {
             caret,
         )
         .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(move |this, event: &gpui::MouseDownEvent, window, cx| {
-                    let current = this.current_settings_input_value(input);
-                    this.focus_settings_input(input, current, cx);
-                    this.ime_marked_text = None;
-                    window.focus(&this.focus_handle);
-                    this.begin_ime_selection_from_mouse_down(target, event, window, cx);
-                    cx.stop_propagation();
-                }),
-            )
+            MouseButton::Left,
+            cx.listener(move |this, event: &gpui::MouseDownEvent, window, cx| {
+                let current = this.current_settings_input_value(input);
+                this.focus_settings_input(input, current, cx);
+                this.ime_marked_text = None;
+                window.focus(&this.focus_handle);
+                this.begin_ime_selection_from_mouse_down(target, event, window, cx);
+                cx.stop_propagation();
+            }),
+        )
         .on_mouse_move(
-                cx.listener(|this, event: &gpui::MouseMoveEvent, window, cx| {
-                    this.update_ime_selection_drag_from_mouse_move(event, window, cx);
-                }),
-            );
+            cx.listener(|this, event: &gpui::MouseMoveEvent, window, cx| {
+                this.update_ime_selection_drag_from_mouse_move(event, window, cx);
+            }),
+        );
 
-        let control = text_input_anchor_probe(target.anchor_id(), textarea, move |anchor, _window, cx| {
-            let _ = workspace.update(cx, |this, cx| {
-                this.update_text_input_anchor(anchor, cx);
+        let control =
+            text_input_anchor_probe(target.anchor_id(), textarea, move |anchor, _window, cx| {
+                let _ = workspace.update(cx, |this, cx| {
+                    this.update_text_input_anchor(anchor, cx);
+                });
             });
-        });
 
         settings_ai_textarea_row(&self.tokens, label, control.into_any_element(), hint)
     }
 
-    fn ai_model_reasoning_overrides_section(
+    pub(in crate::workspace) fn ai_model_reasoning_overrides_section(
         &self,
         settings: &PersistedSettings,
         providers: &[AiProviderView],
@@ -1478,7 +1530,8 @@ impl WorkspaceApp {
                 if provider_panels.is_empty() {
                     section.child(settings_ai_model_empty_text(
                         &self.tokens,
-                        self.i18n.t("settings_view.ai.model_reasoning_overrides_empty"),
+                        self.i18n
+                            .t("settings_view.ai.model_reasoning_overrides_empty"),
                     ))
                 } else {
                     let mut list = div()
@@ -1496,11 +1549,15 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn ai_model_reasoning_header(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn ai_model_reasoning_header(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         settings_ai_model_reasoning_header(
             &self.tokens,
             self.i18n.t("settings_view.ai.model_reasoning_overrides"),
-            self.i18n.t("settings_view.ai.model_reasoning_overrides_hint"),
+            self.i18n
+                .t("settings_view.ai.model_reasoning_overrides_hint"),
             Self::render_lucide_icon(
                 if self.settings_page.ai_model_reasoning_expanded {
                     LucideIcon::ChevronDown
@@ -1511,18 +1568,19 @@ impl WorkspaceApp {
                 rgb(self.tokens.ui.text_muted),
             ),
         )
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, _event, _window, cx| {
-                    this.settings_page.toggle_ai_section(AiSettingsSection::ModelReasoning);
-                    cx.stop_propagation();
-                    cx.notify();
-                }),
-            )
-            .into_any_element()
+        .on_mouse_down(
+            MouseButton::Left,
+            cx.listener(|this, _event, _window, cx| {
+                this.settings_page
+                    .toggle_ai_section(AiSettingsSection::ModelReasoning);
+                cx.stop_propagation();
+                cx.notify();
+            }),
+        )
+        .into_any_element()
     }
 
-    fn ai_model_reasoning_provider(
+    pub(in crate::workspace) fn ai_model_reasoning_provider(
         &self,
         settings: &PersistedSettings,
         panel: AiProviderModelPanel,
@@ -1530,7 +1588,8 @@ impl WorkspaceApp {
     ) -> AnyElement {
         let provider_id = panel.provider_id.clone();
         let expanded = self
-            .settings_page.expanded_ai_model_reasoning_providers
+            .settings_page
+            .expanded_ai_model_reasoning_providers
             .contains(&provider_id);
         let header_provider_id = provider_id.clone();
         let header = settings_ai_model_provider_header(
@@ -1566,32 +1625,27 @@ impl WorkspaceApp {
             let workspace = cx.entity();
             let provider_id_for_rows = provider_id.clone();
             let provider_index = panel.provider_index;
-            let list_height =
-                models.len() as f32 * AI_PROVIDER_MODEL_ROW_LIST_ESTIMATED_HEIGHT;
+            let list_height = models.len() as f32 * AI_PROVIDER_MODEL_ROW_LIST_ESTIMATED_HEIGHT;
             Some(settings_ai_model_row_list_frame(
                 &self.tokens,
                 list_height,
-                tauri_virtual_list(
-                    state,
-                    spec,
-                    move |model_index, _window, cx| {
-                        let Some(model) = models.get(model_index).cloned() else {
-                            return div().into_any_element();
-                        };
-                        let provider_id = provider_id_for_rows.clone();
-                        workspace.update(cx, |this, cx| {
-                            let settings = this.settings_store.settings();
-                            this.ai_model_reasoning_row(
-                                provider_index,
-                                model_index,
-                                settings,
-                                &provider_id,
-                                &model,
-                                cx,
-                            )
-                        })
-                    },
-                )
+                tauri_virtual_list(state, spec, move |model_index, _window, cx| {
+                    let Some(model) = models.get(model_index).cloned() else {
+                        return div().into_any_element();
+                    };
+                    let provider_id = provider_id_for_rows.clone();
+                    workspace.update(cx, |this, cx| {
+                        let settings = this.settings_store.settings();
+                        this.ai_model_reasoning_row(
+                            provider_index,
+                            model_index,
+                            settings,
+                            &provider_id,
+                            &model,
+                            cx,
+                        )
+                    })
+                })
                 .into_any_element(),
             ))
         } else {
@@ -1600,7 +1654,7 @@ impl WorkspaceApp {
         settings_ai_model_provider_section(header, rows)
     }
 
-    fn sync_ai_reasoning_model_list_state(
+    pub(in crate::workspace) fn sync_ai_reasoning_model_list_state(
         &self,
         settings: &PersistedSettings,
         provider_id: &str,
@@ -1621,7 +1675,7 @@ impl WorkspaceApp {
             })
             .collect::<Vec<_>>();
         let state = {
-            let mut states = self.ai_reasoning_model_list_states.borrow_mut();
+            let mut states = self.ai.models.reasoning_model_list_states.borrow_mut();
             states
                 .entry(provider_id.to_string())
                 .or_insert_with(|| {
@@ -1638,7 +1692,7 @@ impl WorkspaceApp {
                 .clone()
         };
         {
-            let mut caches = self.ai_reasoning_model_list_caches.borrow_mut();
+            let mut caches = self.ai.models.reasoning_model_list_caches.borrow_mut();
             let cache = caches.entry(provider_id.to_string()).or_default();
             sync_tauri_variable_list_state_by_signatures(
                 &state,
@@ -1651,7 +1705,7 @@ impl WorkspaceApp {
         state
     }
 
-    fn ai_model_reasoning_row(
+    pub(in crate::workspace) fn ai_model_reasoning_row(
         &self,
         provider_index: usize,
         model_index: usize,
@@ -1676,7 +1730,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn ai_model_context_windows_section(
+    pub(in crate::workspace) fn ai_model_context_windows_section(
         &self,
         settings: &PersistedSettings,
         providers: &[AiProviderView],
@@ -1712,7 +1766,10 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn ai_context_windows_header(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn ai_context_windows_header(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         settings_ai_context_windows_header(
             &self.tokens,
             self.i18n.t("settings_view.ai.model_context_windows"),
@@ -1728,25 +1785,29 @@ impl WorkspaceApp {
             ),
             AI_PROVIDER_MAX_W,
         )
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, _event, _window, cx| {
-                    this.settings_page.toggle_ai_section(AiSettingsSection::ContextWindows);
-                    cx.stop_propagation();
-                    cx.notify();
-                }),
-            )
-            .into_any_element()
+        .on_mouse_down(
+            MouseButton::Left,
+            cx.listener(|this, _event, _window, cx| {
+                this.settings_page
+                    .toggle_ai_section(AiSettingsSection::ContextWindows);
+                cx.stop_propagation();
+                cx.notify();
+            }),
+        )
+        .into_any_element()
     }
 
-    fn ai_context_window_provider(
+    pub(in crate::workspace) fn ai_context_window_provider(
         &self,
         settings: &PersistedSettings,
         panel: AiProviderModelPanel,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let provider_id = panel.provider_id.clone();
-        let expanded = self.settings_page.expanded_ai_context_providers.contains(&provider_id);
+        let expanded = self
+            .settings_page
+            .expanded_ai_context_providers
+            .contains(&provider_id);
         let header_provider_id = provider_id.clone();
         let header = settings_ai_model_provider_header(
             &self.tokens,
@@ -1781,32 +1842,27 @@ impl WorkspaceApp {
             let workspace = cx.entity();
             let provider_id_for_rows = provider_id.clone();
             let provider_index = panel.provider_index;
-            let list_height =
-                models.len() as f32 * AI_PROVIDER_MODEL_ROW_LIST_ESTIMATED_HEIGHT;
+            let list_height = models.len() as f32 * AI_PROVIDER_MODEL_ROW_LIST_ESTIMATED_HEIGHT;
             Some(settings_ai_model_row_list_frame(
                 &self.tokens,
                 list_height,
-                tauri_virtual_list(
-                    state,
-                    spec,
-                    move |model_index, _window, cx| {
-                        let Some(model) = models.get(model_index).cloned() else {
-                            return div().into_any_element();
-                        };
-                        let provider_id = provider_id_for_rows.clone();
-                        workspace.update(cx, |this, cx| {
-                            let settings = this.settings_store.settings();
-                            this.ai_context_window_row(
-                                provider_index,
-                                model_index,
-                                settings,
-                                &provider_id,
-                                &model,
-                                cx,
-                            )
-                        })
-                    },
-                )
+                tauri_virtual_list(state, spec, move |model_index, _window, cx| {
+                    let Some(model) = models.get(model_index).cloned() else {
+                        return div().into_any_element();
+                    };
+                    let provider_id = provider_id_for_rows.clone();
+                    workspace.update(cx, |this, cx| {
+                        let settings = this.settings_store.settings();
+                        this.ai_context_window_row(
+                            provider_index,
+                            model_index,
+                            settings,
+                            &provider_id,
+                            &model,
+                            cx,
+                        )
+                    })
+                })
                 .into_any_element(),
             ))
         } else {
@@ -1815,7 +1871,7 @@ impl WorkspaceApp {
         settings_ai_model_provider_section(header, rows)
     }
 
-    fn sync_ai_context_model_list_state(
+    pub(in crate::workspace) fn sync_ai_context_model_list_state(
         &self,
         settings: &PersistedSettings,
         provider_id: &str,
@@ -1836,7 +1892,7 @@ impl WorkspaceApp {
             })
             .collect::<Vec<_>>();
         let state = {
-            let mut states = self.ai_context_model_list_states.borrow_mut();
+            let mut states = self.ai.models.context_model_list_states.borrow_mut();
             states
                 .entry(provider_id.to_string())
                 .or_insert_with(|| {
@@ -1852,7 +1908,7 @@ impl WorkspaceApp {
                 .clone()
         };
         {
-            let mut caches = self.ai_context_model_list_caches.borrow_mut();
+            let mut caches = self.ai.models.context_model_list_caches.borrow_mut();
             let cache = caches.entry(provider_id.to_string()).or_default();
             sync_tauri_variable_list_state_by_signatures(
                 &state,
@@ -1865,14 +1921,14 @@ impl WorkspaceApp {
         state
     }
 
-    fn ai_provider_model_row_list_spec(&self) -> TauriVirtualListSpec {
+    pub(in crate::workspace) fn ai_provider_model_row_list_spec(&self) -> TauriVirtualListSpec {
         TauriVirtualListSpec::new(
             px(AI_PROVIDER_MODEL_ROW_LIST_ESTIMATED_HEIGHT),
             AI_PROVIDER_MODEL_ROW_LIST_OVERSCAN,
         )
     }
 
-    fn ai_context_window_row(
+    pub(in crate::workspace) fn ai_context_window_row(
         &self,
         provider_index: usize,
         model_index: usize,
@@ -1902,12 +1958,7 @@ impl WorkspaceApp {
                         let model = reset_model.clone();
                         this.edit_settings(
                             move |settings| {
-                                set_ai_user_context_window(
-                                    settings,
-                                    &provider_id,
-                                    &model,
-                                    None,
-                                );
+                                set_ai_user_context_window(settings, &provider_id, &model, None);
                             },
                             cx,
                         );
@@ -1939,7 +1990,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn ai_active_model_max_response_tokens_row(
+    pub(in crate::workspace) fn ai_active_model_max_response_tokens_row(
         &self,
         settings: &PersistedSettings,
         cx: &mut Context<Self>,
@@ -1963,7 +2014,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn ai_tool_expand_button(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn ai_tool_expand_button(&self, cx: &mut Context<Self>) -> AnyElement {
         let expanded = self.settings_page.ai_tool_use_expanded;
         // Tool-policy expand/collapse is an outline small Button in Tauri.
         // Route it through the same shared primitive as other settings
@@ -1985,7 +2036,8 @@ impl WorkspaceApp {
                 ..ToolbarButtonOptions::default()
             },
             cx.listener(|this, _event, _window, cx| {
-                this.settings_page.toggle_ai_section(AiSettingsSection::ToolUse);
+                this.settings_page
+                    .toggle_ai_section(AiSettingsSection::ToolUse);
                 cx.stop_propagation();
                 cx.notify();
             }),
@@ -1993,7 +2045,7 @@ impl WorkspaceApp {
         .into_any_element()
     }
 
-    fn ai_tool_policy_group(
+    pub(in crate::workspace) fn ai_tool_policy_group(
         &self,
         group: AiToolPolicyGroup,
         cx: &mut Context<Self>,
@@ -2042,7 +2094,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn ai_disabled_tools_notice(
+    pub(in crate::workspace) fn ai_disabled_tools_notice(
         &self,
         settings: &PersistedSettings,
         cx: &mut Context<Self>,
@@ -2077,10 +2129,9 @@ impl WorkspaceApp {
             .into_any_element(),
         )
     }
-
 }
 
-fn acp_agent_auth_status_key(
+pub(in crate::workspace) fn acp_agent_auth_status_key(
     status: &oxideterm_settings::AcpAgentAuthStatus,
 ) -> &'static str {
     match status {
@@ -2102,7 +2153,7 @@ fn acp_agent_auth_status_key(
     }
 }
 
-fn acp_agent_runtime_status_key(
+pub(in crate::workspace) fn acp_agent_runtime_status_key(
     status: &oxideterm_settings::AcpAgentRuntimeState,
 ) -> &'static str {
     match status {
@@ -2121,7 +2172,7 @@ fn acp_agent_runtime_status_key(
     }
 }
 
-fn acp_agent_error_kind_key(kind: &str) -> &'static str {
+pub(in crate::workspace) fn acp_agent_error_kind_key(kind: &str) -> &'static str {
     match kind {
         "command_not_found" => "settings_view.ai.acp_agent_error_command_not_found",
         "config" => "settings_view.ai.acp_agent_error_config",
@@ -2130,7 +2181,7 @@ fn acp_agent_error_kind_key(kind: &str) -> &'static str {
     }
 }
 
-fn ai_acp_launch_config_from_settings(
+pub(in crate::workspace) fn ai_acp_launch_config_from_settings(
     agent: &oxideterm_settings::AcpAgentConfig,
 ) -> oxideterm_ai::AcpLaunchConfig {
     oxideterm_ai::AcpLaunchConfig {
@@ -2143,7 +2194,7 @@ fn ai_acp_launch_config_from_settings(
     }
 }
 
-fn ai_acp_capability_policy_from_settings(
+pub(in crate::workspace) fn ai_acp_capability_policy_from_settings(
     policy: &oxideterm_settings::AcpAgentCapabilityPolicy,
 ) -> oxideterm_ai::AcpHostCapabilityPolicy {
     oxideterm_ai::AcpHostCapabilityPolicy {
@@ -2153,7 +2204,7 @@ fn ai_acp_capability_policy_from_settings(
     }
 }
 
-fn ai_acp_probe_error_result(kind: &'static str) -> AcpAgentProbeResult {
+pub(in crate::workspace) fn ai_acp_probe_error_result(kind: &'static str) -> AcpAgentProbeResult {
     // Probe failures store only stable categories. Raw process errors can
     // contain command args, env values, or auth material from local agents.
     AcpAgentProbeResult {

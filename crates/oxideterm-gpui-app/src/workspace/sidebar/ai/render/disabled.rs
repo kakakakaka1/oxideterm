@@ -1,5 +1,8 @@
 impl WorkspaceApp {
-    fn render_ai_sidebar_disabled(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn render_ai_sidebar_disabled(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         div()
             .w_full()
             .min_w_0()
@@ -82,7 +85,4 @@ impl WorkspaceApp {
             )
             .into_any_element()
     }
-
-
-
 }

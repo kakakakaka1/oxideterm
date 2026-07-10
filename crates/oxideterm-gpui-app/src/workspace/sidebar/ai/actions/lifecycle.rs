@@ -1,52 +1,54 @@
 impl WorkspaceApp {
-    pub(super) fn ensure_ai_chat_initialized(&mut self) {
-        if self.ai_chat_initialized {
+    pub(in crate::workspace) fn ensure_ai_chat_initialized(&mut self) {
+        if self.ai.chat.initialized {
             return;
         }
-        self.ai_chat_initialized = true;
+        self.ai.chat.initialized = true;
         match oxideterm_ai::AiChatPersistenceStore::load(default_ai_conversations_path()) {
             Ok((store, state)) => {
-                self.ai_chat_store = Some(store);
-                self.ai_chat = state;
-                self.ai_chat_initialization_error = None;
-                self.ai_chat_list_state =
+                self.ai.chat.persistence_store = Some(store);
+                self.ai.chat.conversation_state = state;
+                self.ai.chat.initialization_error = None;
+                self.ai.chat.message_list_state =
                     tauri_virtual_list_state(0, ListAlignment::Top, ai_chat_virtual_list_spec());
-                self.ai_chat_list_cache
+                self.ai
+                    .chat
+                    .message_list_cache
                     .replace(VirtualListSignatureCache::default());
             }
             Err(error) => {
                 eprintln!("failed to load AI chat store: {error}");
-                self.ai_chat = oxideterm_ai::AiChatState::default();
-                self.ai_chat_store = None;
-                self.ai_chat_initialization_error = Some(ai_chat_initialization_error(&error));
+                self.ai.chat.conversation_state = oxideterm_ai::AiChatState::default();
+                self.ai.chat.persistence_store = None;
+                self.ai.chat.initialization_error = Some(ai_chat_initialization_error(&error));
             }
         }
     }
 
-    pub(super) fn bootstrap_ai_mcp_registry(&self) {
+    pub(in crate::workspace) fn bootstrap_ai_mcp_registry(&self) {
         // Tauri boots the MCP registry from AiChatPanel mount, not from process
         // startup or every settings write. Keep native at the same user-visible
         // boundary so HTTP auth-token/keychain access only happens when the AI
         // surface is actually in use.
-        let registry = self.ai_mcp_registry.clone();
+        let registry = self.ai.runtime.mcp_registry.clone();
         let configs = self.settings_store.settings().ai.mcp_servers.clone();
         self.forwarding_runtime.spawn(async move {
             registry.connect_all_values(&configs).await;
         });
     }
 
-    pub(super) fn clear_ai_sidebar_keyboard_focus(&mut self) {
-        self.ai_chat_input_focused = false;
-        self.ai_chat_footer_focus = None;
+    pub(in crate::workspace) fn clear_ai_sidebar_keyboard_focus(&mut self) {
+        self.ai.chat.input_focused = false;
+        self.ai.chat.footer_focus = None;
         self.close_ai_model_selector();
         self.ime_marked_text = None;
     }
 
     pub(in crate::workspace) fn close_ai_sidebar_popovers(&mut self) {
-        self.ai_conversation_list_open = false;
-        self.ai_chat_menu_open = false;
-        self.ai_safety_menu_open = false;
-        self.ai_context_popover_open = false;
+        self.ai.chat.conversation_list_open = false;
+        self.ai.chat.menu_open = false;
+        self.ai.chat.safety_menu_open = false;
+        self.ai.chat.context_popover_open = false;
         self.close_ai_model_selector();
     }
 
@@ -55,45 +57,60 @@ impl WorkspaceApp {
         // searchable input owner. Closing it must clear popup state, keyboard
         // focus origin, highlighted option, and any marked text together so Esc,
         // outside click, Tab, footer navigation, and row activation do not drift.
-        let restore_terminal_inline_prompt =
-            self.ai_model_selector_scope == Some(AiModelSelectorScope::TerminalInline)
-                && self.ai_inline_panel.open;
-        self.ai_model_selector_open = false;
-        self.ai_model_selector_scope = None;
-        self.ai_model_selector_focus_origin = None;
-        self.ai_model_selector_search_focused = false;
-        self.ai_model_selector_search_query.clear();
-        self.ai_model_selector_highlighted_model = None;
+        let restore_terminal_inline_prompt = self.ai.models.selector_scope
+            == Some(AiModelSelectorScope::TerminalInline)
+            && self.ai.chat.inline_panel.open;
+        self.ai.models.selector_open = false;
+        self.ai.models.selector_scope = None;
+        self.ai.models.selector_focus_origin = None;
+        self.ai.models.selector_search_focused = false;
+        self.ai.models.selector_search_query.clear();
+        self.ai.models.selector_highlighted_model = None;
         self.ime_marked_text = None;
         if restore_terminal_inline_prompt {
             // Tauri's inline command bar returns focus to its prompt after a
             // nested model picker closes; otherwise the next typed key appears
             // to vanish into the terminal surface.
-            self.ai_inline_panel.prompt_focused = true;
+            self.ai.chat.inline_panel.prompt_focused = true;
         }
     }
 
-    fn cancel_ai_chat_stream(&mut self, cx: &mut Context<Self>) {
-        if let Some(conversation_id) = self.ai_chat.active_conversation_id.as_deref() {
-            let generation_id = self.ai_chat_stream_generation.to_string();
+    pub(in crate::workspace) fn cancel_ai_chat_stream(&mut self, cx: &mut Context<Self>) {
+        if let Some(conversation_id) = self
+            .ai
+            .chat
+            .conversation_state
+            .active_conversation_id
+            .as_deref()
+        {
+            let generation_id = self.ai.chat.stream_generation.to_string();
             // ACP Stop must target the live generation before local task abort
             // drops the registered session handle.
             let _ = self
-                .ai_acp_runtime_registry
+                .ai
+                .runtime
+                .acp_runtime_registry
                 .cancel_generation(conversation_id, &generation_id);
         }
-        if let Some(task) = self.ai_chat_stream_task.take() {
+        if let Some(task) = self.ai.chat.stream_task.take() {
             task.abort();
         }
-        self.ai_chat_stream_rx = None;
-        self.ai_chat_stream_generation = self.ai_chat_stream_generation.saturating_add(1);
-        self.ai_chat_loading = false;
-        for (_, sender) in self.ai_pending_tool_approvals.drain() {
+        self.ai.chat.stream_rx = None;
+        self.ai.chat.stream_generation = self.ai.chat.stream_generation.saturating_add(1);
+        self.ai.chat.loading = false;
+        for (_, sender) in self.ai.runtime.pending_tool_approvals.drain() {
             let _ = sender.send(false);
         }
-        let conversation_id = self.ai_chat.active_conversation_id.clone();
+        let conversation_id = self
+            .ai
+            .chat
+            .conversation_state
+            .active_conversation_id
+            .clone();
         let stopped_turns = self
-            .ai_chat
+            .ai
+            .chat
+            .conversation_state
             .active_conversation_mut()
             .map(finalize_streaming_ai_messages_on_cancel)
             .unwrap_or_default();
@@ -104,15 +121,19 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn select_ai_conversation(&mut self, id: String) {
+    pub(in crate::workspace) fn select_ai_conversation(&mut self, id: String) {
         if let Some(previous) = self
-            .ai_chat
+            .ai
+            .chat
+            .conversation_state
             .active_conversation_id
             .as_ref()
             .filter(|previous| *previous != &id)
             .cloned()
             && let Some(conversation) = self
-                .ai_chat
+                .ai
+                .chat
+                .conversation_state
                 .conversations
                 .iter_mut()
                 .find(|conversation| conversation.id == previous)
@@ -121,75 +142,95 @@ impl WorkspaceApp {
             conversation.messages_loaded = false;
         }
         if let Some(conversation) = self
-            .ai_chat
+            .ai
+            .chat
+            .conversation_state
             .conversations
             .iter()
             .find(|conversation| conversation.id == id)
             && !conversation.messages_loaded
-            && let Some(store) = self.ai_chat_store.as_ref()
+            && let Some(store) = self.ai.chat.persistence_store.as_ref()
             && let Ok(Some(loaded)) = store.load_conversation(&id)
             && let Some(slot) = self
-                .ai_chat
+                .ai
+                .chat
+                .conversation_state
                 .conversations
                 .iter_mut()
                 .find(|conversation| conversation.id == id)
         {
             *slot = loaded;
         }
-        self.ai_chat.set_active_conversation(id);
-        self.ai_conversation_list_open = false;
-        self.ai_chat_menu_open = false;
-        self.ai_safety_menu_open = false;
-        self.ai_editing_message_id = None;
-        self.ai_editing_message_draft.clear();
-        self.ai_editing_message_focused = false;
-        self.ai_thinking_expansion_state.clear();
-        self.ai_tool_call_expansion_state.clear();
-        self.ai_chat_input_focused = false;
-        self.ai_chat_footer_focus = None;
+        self.ai.chat.conversation_state.set_active_conversation(id);
+        self.ai.chat.conversation_list_open = false;
+        self.ai.chat.menu_open = false;
+        self.ai.chat.safety_menu_open = false;
+        self.ai.chat.editing_message_id = None;
+        self.ai.chat.editing_message_draft.clear();
+        self.ai.chat.editing_message_focused = false;
+        self.ai.chat.thinking_expansion_state.clear();
+        self.ai.chat.tool_call_expansion_state.clear();
+        self.ai.chat.input_focused = false;
+        self.ai.chat.footer_focus = None;
     }
 
-    fn delete_ai_conversation(&mut self, id: &str) {
-        self.ai_chat.delete_conversation(id);
-        self.ai_safety_bypass_conversations.remove(id);
-        self.ai_thinking_expansion_state.clear();
-        self.ai_tool_call_expansion_state.clear();
-        self.ai_conversation_list_open = !self.ai_chat.conversations.is_empty();
-        self.ai_chat_menu_open = false;
+    pub(in crate::workspace) fn delete_ai_conversation(&mut self, id: &str) {
+        self.ai.chat.conversation_state.delete_conversation(id);
+        self.ai.chat.safety_bypass_conversations.remove(id);
+        self.ai.chat.thinking_expansion_state.clear();
+        self.ai.chat.tool_call_expansion_state.clear();
+        self.ai.chat.conversation_list_open =
+            !self.ai.chat.conversation_state.conversations.is_empty();
+        self.ai.chat.menu_open = false;
         self.persist_ai_chat_state();
     }
 
-    pub(super) fn clear_ai_conversations(&mut self) {
-        self.ai_chat.clear_conversations();
-        self.ai_safety_bypass_conversations.clear();
-        self.ai_thinking_expansion_state.clear();
-        self.ai_tool_call_expansion_state.clear();
+    pub(in crate::workspace) fn clear_ai_conversations(&mut self) {
+        self.ai.chat.conversation_state.clear_conversations();
+        self.ai.chat.safety_bypass_conversations.clear();
+        self.ai.chat.thinking_expansion_state.clear();
+        self.ai.chat.tool_call_expansion_state.clear();
         self.close_ai_sidebar_popovers();
-        self.ai_clear_all_confirm_open = false;
+        self.ai.chat.clear_all_confirm_open = false;
         self.cancel_ai_chat_stream_without_notify();
         self.persist_ai_chat_state();
     }
 
-    fn cancel_ai_chat_stream_without_notify(&mut self) {
-        if let Some(conversation_id) = self.ai_chat.active_conversation_id.as_deref() {
-            let generation_id = self.ai_chat_stream_generation.to_string();
+    pub(in crate::workspace) fn cancel_ai_chat_stream_without_notify(&mut self) {
+        if let Some(conversation_id) = self
+            .ai
+            .chat
+            .conversation_state
+            .active_conversation_id
+            .as_deref()
+        {
+            let generation_id = self.ai.chat.stream_generation.to_string();
             // Keep silent cancellation aligned with the visible Stop path.
             let _ = self
-                .ai_acp_runtime_registry
+                .ai
+                .runtime
+                .acp_runtime_registry
                 .cancel_generation(conversation_id, &generation_id);
         }
-        if let Some(task) = self.ai_chat_stream_task.take() {
+        if let Some(task) = self.ai.chat.stream_task.take() {
             task.abort();
         }
-        self.ai_chat_stream_rx = None;
-        self.ai_chat_stream_generation = self.ai_chat_stream_generation.saturating_add(1);
-        self.ai_chat_loading = false;
-        for (_, sender) in self.ai_pending_tool_approvals.drain() {
+        self.ai.chat.stream_rx = None;
+        self.ai.chat.stream_generation = self.ai.chat.stream_generation.saturating_add(1);
+        self.ai.chat.loading = false;
+        for (_, sender) in self.ai.runtime.pending_tool_approvals.drain() {
             let _ = sender.send(false);
         }
-        let conversation_id = self.ai_chat.active_conversation_id.clone();
+        let conversation_id = self
+            .ai
+            .chat
+            .conversation_state
+            .active_conversation_id
+            .clone();
         let stopped_turns = self
-            .ai_chat
+            .ai
+            .chat
+            .conversation_state
             .active_conversation_mut()
             .map(finalize_streaming_ai_messages_on_cancel)
             .unwrap_or_default();
@@ -198,11 +239,11 @@ impl WorkspaceApp {
         }
     }
 
-    fn persist_ai_chat_state(&self) {
-        let Some(store) = self.ai_chat_store.clone() else {
+    pub(in crate::workspace) fn persist_ai_chat_state(&self) {
+        let Some(store) = self.ai.chat.persistence_store.clone() else {
             return;
         };
-        let state = self.ai_chat.clone();
+        let state = self.ai.chat.conversation_state.clone();
         let projection_updated_at =
             oxideterm_ai::AiChatPersistenceStore::next_projection_persist_at();
         self.forwarding_runtime.spawn_blocking(move || {
@@ -214,7 +255,7 @@ impl WorkspaceApp {
         });
     }
 
-    fn persist_ai_stopped_assistant_turns(
+    pub(in crate::workspace) fn persist_ai_stopped_assistant_turns(
         &self,
         conversation_id: &str,
         stopped_turns: &[AiStoppedAssistantTurn],
@@ -236,42 +277,47 @@ impl WorkspaceApp {
         }
     }
 
-    fn retry_ai_chat_initialization(&mut self, cx: &mut Context<Self>) {
-        self.ai_chat_initialized = true;
+    pub(in crate::workspace) fn retry_ai_chat_initialization(&mut self, cx: &mut Context<Self>) {
+        self.ai.chat.initialized = true;
         match oxideterm_ai::AiChatPersistenceStore::load(default_ai_conversations_path()) {
             Ok((store, state)) => {
-                self.ai_chat_store = Some(store);
-                self.ai_chat = state;
-                self.ai_chat_initialization_error = None;
-                self.ai_chat_list_state =
+                self.ai.chat.persistence_store = Some(store);
+                self.ai.chat.conversation_state = state;
+                self.ai.chat.initialization_error = None;
+                self.ai.chat.message_list_state =
                     tauri_virtual_list_state(0, ListAlignment::Top, ai_chat_virtual_list_spec());
-                self.ai_chat_list_cache
+                self.ai
+                    .chat
+                    .message_list_cache
                     .replace(VirtualListSignatureCache::default());
             }
             Err(error) => {
                 eprintln!("failed to retry AI chat store load: {error}");
-                self.ai_chat = oxideterm_ai::AiChatState::default();
-                self.ai_chat_store = None;
-                self.ai_chat_initialization_error = Some(ai_chat_initialization_error(&error));
+                self.ai.chat.conversation_state = oxideterm_ai::AiChatState::default();
+                self.ai.chat.persistence_store = None;
+                self.ai.chat.initialization_error = Some(ai_chat_initialization_error(&error));
             }
         }
         cx.notify();
     }
 
-    fn ai_messages_count_label(&self, count: usize) -> String {
+    pub(in crate::workspace) fn ai_messages_count_label(&self, count: usize) -> String {
         self.i18n
             .t("ai.chat.messages_count")
             .replace("{{count}}", &count.to_string())
     }
 
-    fn next_ai_chat_id(&mut self, now_ms: i64) -> String {
-        self.next_ai_chat_sequence = self.next_ai_chat_sequence.saturating_add(1);
-        format!("chat-{now_ms}-{}", self.next_ai_chat_sequence)
+    pub(in crate::workspace) fn next_ai_chat_id(&mut self, now_ms: i64) -> String {
+        self.ai.chat.next_sequence = self.ai.chat.next_sequence.saturating_add(1);
+        format!("chat-{now_ms}-{}", self.ai.chat.next_sequence)
     }
 
-    fn open_ai_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn open_ai_settings(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.settings_page.set_active_tab(SettingsTab::Ai);
         self.open_settings(window, cx);
     }
-
 }

@@ -620,24 +620,24 @@ impl WorkspaceApp {
             return Some(WorkspaceImeTarget::Sftp(input));
         }
 
-        if (self.ai_sidebar_visible() || self.ai_inline_panel.open)
-            && self.ai_model_selector_open
-            && self.ai_model_selector_search_focused
+        if (self.ai_sidebar_visible() || self.ai.chat.inline_panel.open)
+            && self.ai.models.selector_open
+            && self.ai.models.selector_search_focused
         {
             return Some(WorkspaceImeTarget::AiModelSelectorSearch);
         }
 
-        if self.ai_inline_panel.open && self.ai_inline_panel.prompt_focused {
+        if self.ai.chat.inline_panel.open && self.ai.chat.inline_panel.prompt_focused {
             return Some(WorkspaceImeTarget::AiInlinePrompt);
         }
 
-        if self.ai_sidebar_visible() && self.ai_chat_input_focused {
+        if self.ai_sidebar_visible() && self.ai.chat.input_focused {
             return Some(WorkspaceImeTarget::AiChatInput);
         }
 
         if self.ai_sidebar_visible()
-            && self.ai_editing_message_id.is_some()
-            && self.ai_editing_message_focused
+            && self.ai.chat.editing_message_id.is_some()
+            && self.ai.chat.editing_message_focused
         {
             return Some(WorkspaceImeTarget::AiMessageEdit);
         }
@@ -1432,18 +1432,26 @@ impl WorkspaceApp {
                 }
             }
             WorkspaceImeTarget::AiModelSelectorSearch => self
-                .ai_model_selector_search_focused
-                .then(|| self.ai_model_selector_search_query.clone()),
+                .ai
+                .models
+                .selector_search_focused
+                .then(|| self.ai.models.selector_search_query.clone()),
             WorkspaceImeTarget::AiInlinePrompt => self
-                .ai_inline_panel
+                .ai
+                .chat
+                .inline_panel
                 .prompt_focused
-                .then(|| self.ai_inline_panel.prompt.clone()),
+                .then(|| self.ai.chat.inline_panel.prompt.clone()),
             WorkspaceImeTarget::AiChatInput => self
-                .ai_chat_input_focused
-                .then(|| self.ai_chat_draft.clone()),
+                .ai
+                .chat
+                .input_focused
+                .then(|| self.ai.chat.draft.clone()),
             WorkspaceImeTarget::AiMessageEdit => self
-                .ai_editing_message_focused
-                .then(|| self.ai_editing_message_draft.clone()),
+                .ai
+                .chat
+                .editing_message_focused
+                .then(|| self.ai.chat.editing_message_draft.clone()),
             WorkspaceImeTarget::Sftp(input) => {
                 if self.sftp_view.focused_input == Some(input) {
                     Some(self.sftp_input_value(input).to_string())
@@ -2335,40 +2343,48 @@ impl WorkspaceApp {
                 }
             }
             WorkspaceImeTarget::AiModelSelectorSearch => {
-                if self.ai_model_selector_search_focused {
+                if self.ai.models.selector_search_focused {
                     replace_utf16(
-                        &mut self.ai_model_selector_search_query,
+                        &mut self.ai.models.selector_search_query,
                         replacement_range,
                         text,
                     );
                     // Search changes rebuild the visible model rows; clear the
                     // Radix-style active item so keyboard focus cannot point at
                     // a filtered-out model.
-                    self.ai_model_selector_highlighted_model = None;
+                    self.ai.models.selector_highlighted_model = None;
                     self.new_connection_caret_visible = true;
                     cx.notify();
                 }
             }
             WorkspaceImeTarget::AiInlinePrompt => {
-                if self.ai_inline_panel.prompt_focused {
-                    replace_utf16(&mut self.ai_inline_panel.prompt, replacement_range, text);
-                    self.ai_inline_panel.error = None;
+                if self.ai.chat.inline_panel.prompt_focused {
+                    replace_utf16(
+                        &mut self.ai.chat.inline_panel.prompt,
+                        replacement_range,
+                        text,
+                    );
+                    self.ai.chat.inline_panel.error = None;
                     self.new_connection_caret_visible = true;
                     cx.notify();
                 }
             }
             WorkspaceImeTarget::AiChatInput => {
-                if self.ai_chat_input_focused {
-                    replace_utf16(&mut self.ai_chat_draft, replacement_range, text);
-                    self.ai_chat_autocomplete_suppressed = false;
-                    self.ai_chat_autocomplete_index = 0;
+                if self.ai.chat.input_focused {
+                    replace_utf16(&mut self.ai.chat.draft, replacement_range, text);
+                    self.ai.chat.autocomplete_suppressed = false;
+                    self.ai.chat.autocomplete_index = 0;
                     self.new_connection_caret_visible = true;
                     cx.notify();
                 }
             }
             WorkspaceImeTarget::AiMessageEdit => {
-                if self.ai_editing_message_focused {
-                    replace_utf16(&mut self.ai_editing_message_draft, replacement_range, text);
+                if self.ai.chat.editing_message_focused {
+                    replace_utf16(
+                        &mut self.ai.chat.editing_message_draft,
+                        replacement_range,
+                        text,
+                    );
                     self.new_connection_caret_visible = true;
                     cx.notify();
                 }

@@ -204,7 +204,7 @@ impl WorkspaceApp {
         }
 
         let terminal_panel_open =
-            self.search.visible || self.ai_inline_panel.open || self.context_sidebar_visible();
+            self.search.visible || self.ai.chat.inline_panel.open || self.context_sidebar_visible();
         if !crate::keybindings::action_allowed_by_terminal_behavior(
             definition,
             &combo,
@@ -299,7 +299,7 @@ impl WorkspaceApp {
             self.close_search(window, cx);
             return;
         }
-        if self.ai_inline_panel.open {
+        if self.ai.chat.inline_panel.open {
             self.close_terminal_ai_inline_panel(window, cx);
             return;
         }
@@ -556,7 +556,7 @@ impl WorkspaceApp {
         }
 
         if self.ai_sidebar_visible()
-            && (self.ai_chat_input_focused || self.ai_model_selector_search_focused)
+            && (self.ai.chat.input_focused || self.ai.models.selector_search_focused)
         {
             let _ = self.handle_ai_sidebar_key(event, cx);
             return;
@@ -937,10 +937,10 @@ impl WorkspaceApp {
         event: &KeyDownEvent,
         cx: &mut Context<Self>,
     ) -> bool {
-        if self.ai_safety_confirm_open {
+        if self.ai.chat.safety_confirm_open {
             match self.handle_standard_confirm_key(event, cx) {
                 Some(ConfirmKeyboardAction::Cancel) => {
-                    self.ai_safety_confirm_open = false;
+                    self.ai.chat.safety_confirm_open = false;
                     cx.notify();
                     true
                 }
@@ -951,25 +951,25 @@ impl WorkspaceApp {
                 Some(ConfirmKeyboardAction::Handled) => true,
                 None => false,
             }
-        } else if self.ai_summarize_confirm_open {
+        } else if self.ai.chat.summarize_confirm_open {
             match self.handle_standard_confirm_key(event, cx) {
                 Some(ConfirmKeyboardAction::Cancel) => {
-                    self.ai_summarize_confirm_open = false;
+                    self.ai.chat.summarize_confirm_open = false;
                     cx.notify();
                     true
                 }
                 Some(ConfirmKeyboardAction::Confirm) => {
-                    self.ai_summarize_confirm_open = false;
+                    self.ai.chat.summarize_confirm_open = false;
                     self.start_ai_summarize_conversation(cx);
                     true
                 }
                 Some(ConfirmKeyboardAction::Handled) => true,
                 None => false,
             }
-        } else if self.ai_clear_all_confirm_open {
+        } else if self.ai.chat.clear_all_confirm_open {
             match self.handle_standard_confirm_key(event, cx) {
                 Some(ConfirmKeyboardAction::Cancel) => {
-                    self.ai_clear_all_confirm_open = false;
+                    self.ai.chat.clear_all_confirm_open = false;
                     cx.notify();
                     true
                 }
@@ -981,15 +981,15 @@ impl WorkspaceApp {
                 Some(ConfirmKeyboardAction::Handled) => true,
                 None => false,
             }
-        } else if self.ai_delete_message_confirm.is_some() {
+        } else if self.ai.chat.delete_message_confirm.is_some() {
             match self.handle_standard_confirm_key(event, cx) {
                 Some(ConfirmKeyboardAction::Cancel) => {
-                    self.ai_delete_message_confirm = None;
+                    self.ai.chat.delete_message_confirm = None;
                     cx.notify();
                     true
                 }
                 Some(ConfirmKeyboardAction::Confirm) => {
-                    if let Some(message_id) = self.ai_delete_message_confirm.take() {
+                    if let Some(message_id) = self.ai.chat.delete_message_confirm.take() {
                         self.delete_ai_message(&message_id, cx);
                     } else {
                         cx.notify();

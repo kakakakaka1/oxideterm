@@ -1,4 +1,4 @@
-fn apply_ai_acp_session_started_to_conversations(
+pub(in crate::workspace) fn apply_ai_acp_session_started_to_conversations(
     conversations: &mut [AiConversation],
     current_generation: u64,
     delivery_generation: u64,
@@ -42,7 +42,7 @@ fn apply_ai_acp_session_started_to_conversations(
 }
 
 impl WorkspaceApp {
-    fn apply_ai_acp_session_started(
+    pub(in crate::workspace) fn apply_ai_acp_session_started(
         &mut self,
         generation: u64,
         conversation_id: &str,
@@ -51,8 +51,8 @@ impl WorkspaceApp {
         agent_id: &str,
     ) -> bool {
         if !apply_ai_acp_session_started_to_conversations(
-            &mut self.ai_chat.conversations,
-            self.ai_chat_stream_generation,
+            &mut self.ai.chat.conversation_state.conversations,
+            self.ai.chat.stream_generation,
             generation,
             conversation_id,
             session_id,
@@ -65,7 +65,7 @@ impl WorkspaceApp {
         true
     }
 
-    fn apply_ai_stream_event(
+    pub(in crate::workspace) fn apply_ai_stream_event(
         &mut self,
         generation: u64,
         conversation_id: &str,
@@ -73,60 +73,75 @@ impl WorkspaceApp {
         event: AiStreamEvent,
         cx: &mut Context<Self>,
     ) {
-        if self.ai_chat_stream_generation != generation {
+        if self.ai.chat.stream_generation != generation {
             return;
         }
         match event {
             AiStreamEvent::Content(chunk) => {
-                self.ai_chat
-                    .update_message(conversation_id, message_id, |message| {
+                self.ai.chat.conversation_state.update_message(
+                    conversation_id,
+                    message_id,
+                    |message| {
                         message.content.push_str(&chunk);
                         append_ai_turn_text_part(message, "text", &chunk, false);
-                    });
+                    },
+                );
             }
             AiStreamEvent::Thinking(chunk) => {
-                self.ai_chat
-                    .update_message(conversation_id, message_id, |message| {
+                self.ai.chat.conversation_state.update_message(
+                    conversation_id,
+                    message_id,
+                    |message| {
                         message
                             .thinking_content
                             .get_or_insert_with(String::new)
                             .push_str(&chunk);
                         append_ai_turn_text_part(message, "thinking", &chunk, true);
-                    });
+                    },
+                );
             }
             AiStreamEvent::ToolCall {
                 id,
                 name,
                 arguments,
             } => {
-                self.ai_chat
-                    .update_message(conversation_id, message_id, |message| {
+                self.ai.chat.conversation_state.update_message(
+                    conversation_id,
+                    message_id,
+                    |message| {
                         upsert_ai_tool_call(message, &id, &name, &arguments, "running");
                         upsert_ai_turn_tool_call(message, &id, &name, &arguments, "partial");
-                    });
+                    },
+                );
             }
             AiStreamEvent::ToolCallComplete {
                 id,
                 name,
                 arguments,
             } => {
-                self.ai_chat
-                    .update_message(conversation_id, message_id, |message| {
+                self.ai.chat.conversation_state.update_message(
+                    conversation_id,
+                    message_id,
+                    |message| {
                         upsert_ai_tool_call(message, &id, &name, &arguments, "pending");
                         upsert_ai_turn_tool_call(message, &id, &name, &arguments, "complete");
-                    });
+                    },
+                );
             }
             AiStreamEvent::Done => {
                 let turn_facts = self.ai_tool_result_facts_for_message(conversation_id, message_id);
                 let mut result_binding_guardrail = None;
-                self.ai_chat
-                    .update_message(conversation_id, message_id, |message| {
+                self.ai.chat.conversation_state.update_message(
+                    conversation_id,
+                    message_id,
+                    |message| {
                         result_binding_guardrail =
                             apply_ai_result_binding_guard(message, &turn_facts);
                         finalize_ai_turn_suggestions(message);
                         message.is_streaming = false;
                         set_ai_turn_status(message, "complete");
-                    });
+                    },
+                );
                 if let Some(guardrail) = result_binding_guardrail {
                     let now = ai_now_ms();
                     self.persist_ai_transcript_entries(
@@ -164,14 +179,16 @@ impl WorkspaceApp {
                     );
                 }
                 self.persist_ai_assistant_turn_end(conversation_id, message_id, "complete");
-                self.ai_chat_stream_task = None;
-                self.ai_chat_loading = false;
+                self.ai.chat.stream_task = None;
+                self.ai.chat.loading = false;
                 self.persist_ai_chat_state();
                 self.maybe_start_ai_auto_compaction(conversation_id, cx);
             }
             AiStreamEvent::Error(error) => {
-                self.ai_chat
-                    .update_message(conversation_id, message_id, |message| {
+                self.ai.chat.conversation_state.update_message(
+                    conversation_id,
+                    message_id,
+                    |message| {
                         message.is_streaming = false;
                         if message.content.is_empty() {
                             message.content = error.clone();
@@ -181,7 +198,8 @@ impl WorkspaceApp {
                         }
                         append_ai_turn_error_part(message, &error);
                         set_ai_turn_status(message, "error");
-                    });
+                    },
+                );
                 self.persist_ai_assistant_turn_end(conversation_id, message_id, "error");
                 self.persist_ai_diagnostic_events(
                     conversation_id.to_string(),
@@ -198,8 +216,8 @@ impl WorkspaceApp {
                         })),
                     )],
                 );
-                self.ai_chat_stream_task = None;
-                self.ai_chat_loading = false;
+                self.ai.chat.stream_task = None;
+                self.ai.chat.loading = false;
                 self.persist_ai_chat_state();
                 self.push_ai_settings_toast(error, TerminalNoticeVariant::Error);
             }
@@ -207,7 +225,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn apply_ai_round_summary(
+    pub(in crate::workspace) fn apply_ai_round_summary(
         &mut self,
         generation: u64,
         conversation_id: &str,
@@ -217,7 +235,7 @@ impl WorkspaceApp {
         metadata: serde_json::Value,
         cx: &mut Context<Self>,
     ) {
-        if self.ai_chat_stream_generation != generation {
+        if self.ai.chat.stream_generation != generation {
             return;
         }
         let text = text.trim();
@@ -225,7 +243,9 @@ impl WorkspaceApp {
             return;
         }
 
-        self.ai_chat
+        self.ai
+            .chat
+            .conversation_state
             .update_message(conversation_id, message_id, |message| {
                 upsert_ai_round_summary(message, round_id, text, metadata.clone());
             });
@@ -272,7 +292,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn apply_ai_round_stateful_marker(
+    pub(in crate::workspace) fn apply_ai_round_stateful_marker(
         &mut self,
         generation: u64,
         conversation_id: &str,
@@ -281,10 +301,12 @@ impl WorkspaceApp {
         marker: Option<String>,
         cx: &mut Context<Self>,
     ) {
-        if self.ai_chat_stream_generation != generation {
+        if self.ai.chat.stream_generation != generation {
             return;
         }
-        self.ai_chat
+        self.ai
+            .chat
+            .conversation_state
             .update_message(conversation_id, message_id, |message| {
                 set_ai_turn_round_stateful_marker(message, round_id, marker.as_deref());
             });
@@ -292,7 +314,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn persist_ai_stream_diagnostic(
+    pub(in crate::workspace) fn persist_ai_stream_diagnostic(
         &self,
         generation: u64,
         conversation_id: &str,
@@ -301,7 +323,7 @@ impl WorkspaceApp {
         round_id: Option<String>,
         data: serde_json::Value,
     ) {
-        if self.ai_chat_stream_generation != generation {
+        if self.ai.chat.stream_generation != generation {
             return;
         }
         let now = ai_now_ms();
@@ -319,7 +341,7 @@ impl WorkspaceApp {
         );
     }
 
-    fn apply_ai_tool_status(
+    pub(in crate::workspace) fn apply_ai_tool_status(
         &mut self,
         generation: u64,
         conversation_id: &str,
@@ -337,7 +359,7 @@ impl WorkspaceApp {
         round_number_override: Option<i64>,
         cx: &mut Context<Self>,
     ) {
-        if self.ai_chat_stream_generation != generation {
+        if self.ai.chat.stream_generation != generation {
             return;
         }
         let should_persist = result.is_some()
@@ -347,7 +369,9 @@ impl WorkspaceApp {
             );
         let mut round_id = None;
         let mut round_number = None;
-        self.ai_chat
+        self.ai
+            .chat
+            .conversation_state
             .update_message(conversation_id, message_id, |message| {
                 update_ai_tool_call_status(
                     message,
@@ -361,8 +385,12 @@ impl WorkspaceApp {
                     round_id_override.as_deref(),
                     round_number_override,
                 );
-                let (id, number) =
-                    ai_turn_round_for_tool_call_with_override(message, tool_call_id, round_id_override.as_deref(), round_number_override);
+                let (id, number) = ai_turn_round_for_tool_call_with_override(
+                    message,
+                    tool_call_id,
+                    round_id_override.as_deref(),
+                    round_number_override,
+                );
                 round_id = Some(id);
                 round_number = Some(number);
             });
@@ -383,7 +411,8 @@ impl WorkspaceApp {
             );
             let mut transcript_entries = Vec::new();
             let mut diagnostic_events = Vec::new();
-            if synthetic_denied || matches!(status, "pending" | "running" | "pending_user_approval") {
+            if synthetic_denied || matches!(status, "pending" | "running" | "pending_user_approval")
+            {
                 let mut call_payload = serde_json::json!({
                     "id": tool_call_id,
                     "name": name,
@@ -514,7 +543,7 @@ impl WorkspaceApp {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn record_ai_tool_execution_status(
+    pub(in crate::workspace) fn record_ai_tool_execution_status(
         &mut self,
         conversation_id: &str,
         message_id: &str,
@@ -528,11 +557,13 @@ impl WorkspaceApp {
     ) -> Option<AiToolExecutionRecord> {
         let args = serde_json::from_str::<serde_json::Value>(arguments).ok();
         let existing = self
-            .ai_tool_execution_records
+            .ai
+            .runtime
+            .tool_execution_records
             .iter()
             .position(|record| record.tool_call_id == tool_call_id);
         let mut record = existing
-            .and_then(|index| self.ai_tool_execution_records.remove(index))
+            .and_then(|index| self.ai.runtime.tool_execution_records.remove(index))
             .unwrap_or_else(|| AiToolExecutionRecord {
                 record_id: format!("tool-exec-{tool_call_id}"),
                 conversation_id: conversation_id.to_string(),
@@ -553,19 +584,20 @@ impl WorkspaceApp {
                 duration_ms: None,
                 started_at: now,
                 finished_at: None,
-                runtime_epoch: self.ai_runtime_epoch.clone(),
+                runtime_epoch: self.ai.runtime.epoch.clone(),
             });
 
         record.status = status.to_string();
         record.risk = risk.unwrap_or(&record.risk).to_string();
         record.argument_summary = ai_tool_argument_summary(tool_name, args.as_ref());
-        record.target_id = ai_tool_result_target_id(result).or_else(|| ai_tool_argument_target_id(args.as_ref()));
+        record.target_id =
+            ai_tool_result_target_id(result).or_else(|| ai_tool_argument_target_id(args.as_ref()));
         record.target_kind = ai_tool_result_target_kind(result);
         record.execution_surface = ai_tool_execution_surface(tool_name, args.as_ref(), result);
         record.visible_in_terminal = ai_tool_visible_in_terminal(result);
         record.approval_source = ai_tool_approval_source(status, result);
-        record.runtime_epoch = ai_tool_runtime_epoch(result)
-            .unwrap_or_else(|| self.ai_runtime_epoch.clone());
+        record.runtime_epoch =
+            ai_tool_runtime_epoch(result).unwrap_or_else(|| self.ai.runtime.epoch.clone());
 
         if matches!(status, "rejected" | "completed" | "error") {
             record.finished_at = Some(now);
@@ -574,19 +606,26 @@ impl WorkspaceApp {
             record.result_summary = result
                 .and_then(|value| value.get("summary"))
                 .and_then(serde_json::Value::as_str)
-                .or_else(|| result.and_then(|value| value.get("output")).and_then(serde_json::Value::as_str))
+                .or_else(|| {
+                    result
+                        .and_then(|value| value.get("output"))
+                        .and_then(serde_json::Value::as_str)
+                })
                 .map(|value| truncate_ai_tool_record_text(value, 240));
             record.duration_ms = ai_tool_duration_ms(result);
         }
 
-        self.ai_tool_execution_records.push_back(record.clone());
-        while self.ai_tool_execution_records.len() > 500 {
-            self.ai_tool_execution_records.pop_front();
+        self.ai
+            .runtime
+            .tool_execution_records
+            .push_back(record.clone());
+        while self.ai.runtime.tool_execution_records.len() > 500 {
+            self.ai.runtime.tool_execution_records.pop_front();
         }
         Some(record)
     }
 
-    fn record_ai_tool_result_facts(
+    pub(in crate::workspace) fn record_ai_tool_result_facts(
         &mut self,
         record: &AiToolExecutionRecord,
         result: Option<&serde_json::Value>,
@@ -597,27 +636,27 @@ impl WorkspaceApp {
         }
         let facts = extract_ai_tool_result_facts(record, result, now);
         for fact in &facts {
-            self.ai_tool_result_facts.push_back(fact.clone());
+            self.ai.runtime.tool_result_facts.push_back(fact.clone());
         }
-        while self.ai_tool_result_facts.len() > 1000 {
-            self.ai_tool_result_facts.pop_front();
+        while self.ai.runtime.tool_result_facts.len() > 1000 {
+            self.ai.runtime.tool_result_facts.pop_front();
         }
         facts
     }
 
-    fn ai_tool_result_facts_for_message(
+    pub(in crate::workspace) fn ai_tool_result_facts_for_message(
         &self,
         conversation_id: &str,
         assistant_message_id: &str,
     ) -> Vec<AiToolResultFact> {
         ai_tool_result_facts_for_message(
-            &self.ai_tool_result_facts,
+            &self.ai.runtime.tool_result_facts,
             conversation_id,
             assistant_message_id,
         )
     }
 
-    fn record_ai_command_from_tool_status(
+    pub(in crate::workspace) fn record_ai_command_from_tool_status(
         &mut self,
         tool_name: &str,
         arguments: &str,
@@ -658,15 +697,13 @@ impl WorkspaceApp {
             .and_then(|value| value.get("targets"))
             .and_then(serde_json::Value::as_array)
             .and_then(|targets| targets.first());
-        let target_refs = target
-            .and_then(|value| value.get("refs"))
-            .or_else(|| {
-                // Tauri tool result targets keep refs under metadata; retain
-                // the old native fallback while reading the canonical shape.
-                target
-                    .and_then(|value| value.get("metadata"))
-                    .and_then(|metadata| metadata.get("refs"))
-            });
+        let target_refs = target.and_then(|value| value.get("refs")).or_else(|| {
+            // Tauri tool result targets keep refs under metadata; retain
+            // the old native fallback while reading the canonical shape.
+            target
+                .and_then(|value| value.get("metadata"))
+                .and_then(|metadata| metadata.get("refs"))
+        });
         let target_id = meta
             .and_then(|value| value.get("targetId"))
             .and_then(serde_json::Value::as_str)
@@ -700,16 +737,17 @@ impl WorkspaceApp {
         let runtime_epoch = meta
             .and_then(|value| value.get("runtimeEpoch"))
             .and_then(serde_json::Value::as_str)
-            .unwrap_or(&self.ai_runtime_epoch)
+            .unwrap_or(&self.ai.runtime.epoch)
             .to_string();
         let approval_mode = meta
             .and_then(|value| value.get("approvalMode"))
             .and_then(serde_json::Value::as_str)
             .map(ToString::to_string);
-        self.ai_command_record_sequence = self.ai_command_record_sequence.saturating_add(1);
+        self.ai.runtime.command_record_sequence =
+            self.ai.runtime.command_record_sequence.saturating_add(1);
         let now = ai_now_ms();
         let record = AiRuntimeCommandRecord {
-            command_id: format!("cmd-{}-{}", now, self.ai_command_record_sequence),
+            command_id: format!("cmd-{}-{}", now, self.ai.runtime.command_record_sequence),
             target_id,
             session_id,
             node_id,
@@ -738,17 +776,17 @@ impl WorkspaceApp {
             risk: risk.unwrap_or("read").to_string(),
         };
         self.record_ai_cli_agent_command(&record);
-        self.ai_command_records.push_back(record);
-        while self.ai_command_records.len() > 200 {
-            self.ai_command_records.pop_front();
+        self.ai.runtime.command_records.push_back(record);
+        while self.ai.runtime.command_records.len() > 200 {
+            self.ai.runtime.command_records.pop_front();
         }
         self.trim_ai_command_records_per_session();
     }
 
-    fn trim_ai_command_records_per_session(&mut self) {
+    pub(in crate::workspace) fn trim_ai_command_records_per_session(&mut self) {
         let mut per_session: HashMap<String, usize> = HashMap::new();
         let mut keep = VecDeque::new();
-        for record in self.ai_command_records.iter().rev() {
+        for record in self.ai.runtime.command_records.iter().rev() {
             let key = record
                 .session_id
                 .as_ref()
@@ -762,10 +800,13 @@ impl WorkspaceApp {
                 *count += 1;
             }
         }
-        self.ai_command_records = keep;
+        self.ai.runtime.command_records = keep;
     }
 
-    fn record_ai_cli_agent_command(&mut self, record: &AiRuntimeCommandRecord) {
+    pub(in crate::workspace) fn record_ai_cli_agent_command(
+        &mut self,
+        record: &AiRuntimeCommandRecord,
+    ) {
         let Some(kind) = detect_ai_cli_agent_kind(&record.command) else {
             return;
         };
@@ -778,7 +819,9 @@ impl WorkspaceApp {
             .unwrap_or_else(|| "unknown".to_string());
         let id = format!("cli-agent:{kind}:{target_key}");
         let existing_started_at = self
-            .ai_cli_agent_sessions
+            .ai
+            .runtime
+            .cli_agent_sessions
             .get(&id)
             .map(|session| session.started_at)
             .unwrap_or(record.started_at);
@@ -787,7 +830,7 @@ impl WorkspaceApp {
             "error" => "failed",
             _ => "running",
         };
-        self.ai_cli_agent_sessions.insert(
+        self.ai.runtime.cli_agent_sessions.insert(
             id.clone(),
             AiCliAgentSession {
                 id,
@@ -805,7 +848,7 @@ impl WorkspaceApp {
         );
     }
 
-    fn apply_ai_guardrail(
+    pub(in crate::workspace) fn apply_ai_guardrail(
         &mut self,
         generation: u64,
         conversation_id: &str,
@@ -815,13 +858,16 @@ impl WorkspaceApp {
         raw_text: Option<String>,
         cx: &mut Context<Self>,
     ) {
-        if self.ai_chat_stream_generation != generation {
+        if self.ai.chat.stream_generation != generation {
             return;
         }
-        self.ai_chat
-            .update_message(conversation_id, message_id, |message_value| {
+        self.ai.chat.conversation_state.update_message(
+            conversation_id,
+            message_id,
+            |message_value| {
                 append_ai_turn_guardrail_part(message_value, code, message, raw_text.as_deref());
-            });
+            },
+        );
         let now = ai_now_ms();
         self.persist_ai_transcript_entries(
             conversation_id.to_string(),
@@ -861,19 +907,19 @@ impl WorkspaceApp {
     }
 }
 
-struct AiResultBindingGuardrail {
+pub(in crate::workspace) struct AiResultBindingGuardrail {
     message: String,
     raw_text: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-struct AiEvidenceClaim {
+pub(in crate::workspace) struct AiEvidenceClaim {
     text: String,
     evidence: Vec<String>,
     confidence: String,
 }
 
-fn apply_ai_result_binding_guard(
+pub(in crate::workspace) fn apply_ai_result_binding_guard(
     message: &mut AiChatMessage,
     recent_facts: &[AiToolResultFact],
 ) -> Option<AiResultBindingGuardrail> {
@@ -881,8 +927,7 @@ fn apply_ai_result_binding_guard(
         Ok(Some(parsed)) => {
             message.content = parsed.visible_text;
             strip_ai_evidence_claims_block_from_turn_text_parts(message);
-            if ai_validate_evidence_claims(&message.content, &parsed.claims, recent_facts).is_ok()
-            {
+            if ai_validate_evidence_claims(&message.content, &parsed.claims, recent_facts).is_ok() {
                 append_ai_turn_claim_parts(message, &parsed.claims, "verified");
                 return None;
             }
@@ -902,7 +947,7 @@ fn apply_ai_result_binding_guard(
     Some(ai_result_binding_guardrail_for_message(message))
 }
 
-fn ai_result_binding_guardrail_for_message(
+pub(in crate::workspace) fn ai_result_binding_guardrail_for_message(
     message: &mut AiChatMessage,
 ) -> AiResultBindingGuardrail {
     let raw_text = message.content.clone();
@@ -920,12 +965,12 @@ fn ai_result_binding_guardrail_for_message(
     }
 }
 
-struct ParsedAiEvidenceClaims {
+pub(in crate::workspace) struct ParsedAiEvidenceClaims {
     visible_text: String,
     claims: Vec<AiEvidenceClaim>,
 }
 
-fn parse_ai_evidence_claims_from_message(
+pub(in crate::workspace) fn parse_ai_evidence_claims_from_message(
     text: &str,
 ) -> Result<Option<ParsedAiEvidenceClaims>, String> {
     let Some((visible_text, block)) = extract_ai_evidence_claims_block(text)? else {
@@ -979,7 +1024,9 @@ fn parse_ai_evidence_claims_from_message(
     }))
 }
 
-fn extract_ai_evidence_claims_block(text: &str) -> Result<Option<(String, String)>, String> {
+pub(in crate::workspace) fn extract_ai_evidence_claims_block(
+    text: &str,
+) -> Result<Option<(String, String)>, String> {
     const OPEN: &str = "<evidence_claims>";
     const CLOSE: &str = "</evidence_claims>";
     let Some(start) = text.find(OPEN) else {
@@ -1001,7 +1048,7 @@ fn extract_ai_evidence_claims_block(text: &str) -> Result<Option<(String, String
     Ok(Some((visible_text, block)))
 }
 
-fn strip_ai_evidence_claims_code_fence(text: &str) -> &str {
+pub(in crate::workspace) fn strip_ai_evidence_claims_code_fence(text: &str) -> &str {
     let trimmed = text.trim();
     if !trimmed.starts_with("```") {
         return trimmed;
@@ -1013,7 +1060,9 @@ fn strip_ai_evidence_claims_code_fence(text: &str) -> &str {
     body.strip_suffix("```").map(str::trim).unwrap_or(body)
 }
 
-fn strip_ai_evidence_claims_block_from_turn_text_parts(message: &mut AiChatMessage) {
+pub(in crate::workspace) fn strip_ai_evidence_claims_block_from_turn_text_parts(
+    message: &mut AiChatMessage,
+) {
     mutate_ai_turn_parts(message, |parts| {
         for part in parts {
             if part.get("type").and_then(serde_json::Value::as_str) != Some("text") {
@@ -1032,7 +1081,7 @@ fn strip_ai_evidence_claims_block_from_turn_text_parts(message: &mut AiChatMessa
     });
 }
 
-fn append_ai_turn_claim_parts(
+pub(in crate::workspace) fn append_ai_turn_claim_parts(
     message: &mut AiChatMessage,
     claims: &[AiEvidenceClaim],
     status: &str,
@@ -1050,7 +1099,7 @@ fn append_ai_turn_claim_parts(
     });
 }
 
-fn ai_validate_evidence_claims(
+pub(in crate::workspace) fn ai_validate_evidence_claims(
     visible_text: &str,
     claims: &[AiEvidenceClaim],
     facts: &[AiToolResultFact],
@@ -1068,7 +1117,7 @@ fn ai_validate_evidence_claims(
     Ok(())
 }
 
-fn ai_validate_evidence_claim(
+pub(in crate::workspace) fn ai_validate_evidence_claim(
     claim: &AiEvidenceClaim,
     facts: &[AiToolResultFact],
 ) -> Result<(), String> {
@@ -1095,7 +1144,7 @@ fn ai_validate_evidence_claim(
     Ok(())
 }
 
-fn ai_cited_evidence_facts(
+pub(in crate::workspace) fn ai_cited_evidence_facts(
     claims: &[AiEvidenceClaim],
     facts: &[AiToolResultFact],
 ) -> Vec<AiToolResultFact> {
@@ -1110,7 +1159,7 @@ fn ai_cited_evidence_facts(
         .collect()
 }
 
-fn ai_text_claims_tool_backed_fact(text: &str) -> bool {
+pub(in crate::workspace) fn ai_text_claims_tool_backed_fact(text: &str) -> bool {
     let normalized = text.to_ascii_lowercase();
     let english_markers = [
         "i ran ",
@@ -1156,7 +1205,10 @@ fn ai_text_claims_tool_backed_fact(text: &str) -> bool {
     chinese_markers.iter().any(|marker| text.contains(marker))
 }
 
-fn ai_recent_facts_support_text(text: &str, facts: &[AiToolResultFact]) -> bool {
+pub(in crate::workspace) fn ai_recent_facts_support_text(
+    text: &str,
+    facts: &[AiToolResultFact],
+) -> bool {
     if facts.is_empty() {
         return false;
     }
@@ -1176,7 +1228,7 @@ fn ai_recent_facts_support_text(text: &str, facts: &[AiToolResultFact]) -> bool 
         .all(|token| compact_support.contains(&ai_compact_evidence_text(token)))
 }
 
-fn ai_numeric_evidence_tokens(text: &str) -> Vec<String> {
+pub(in crate::workspace) fn ai_numeric_evidence_tokens(text: &str) -> Vec<String> {
     let mut tokens = Vec::new();
     let mut current = String::new();
     for character in text.chars() {
@@ -1194,7 +1246,7 @@ fn ai_numeric_evidence_tokens(text: &str) -> Vec<String> {
     tokens
 }
 
-fn ai_push_evidence_token(tokens: &mut Vec<String>, current: &mut String) {
+pub(in crate::workspace) fn ai_push_evidence_token(tokens: &mut Vec<String>, current: &mut String) {
     if current.is_empty() {
         return;
     }
@@ -1205,7 +1257,7 @@ fn ai_push_evidence_token(tokens: &mut Vec<String>, current: &mut String) {
     current.clear();
 }
 
-fn ai_tool_result_facts_for_message(
+pub(in crate::workspace) fn ai_tool_result_facts_for_message(
     facts: &VecDeque<AiToolResultFact>,
     conversation_id: &str,
     assistant_message_id: &str,
@@ -1223,14 +1275,17 @@ fn ai_tool_result_facts_for_message(
         .collect()
 }
 
-fn ai_compact_evidence_text(value: &str) -> String {
+pub(in crate::workspace) fn ai_compact_evidence_text(value: &str) -> String {
     value
         .chars()
         .filter(|character| !character.is_whitespace() && !matches!(character, '*' | '`' | ','))
         .collect::<String>()
 }
 
-fn ai_tool_argument_summary(tool_name: &str, args: Option<&serde_json::Value>) -> String {
+pub(in crate::workspace) fn ai_tool_argument_summary(
+    tool_name: &str,
+    args: Option<&serde_json::Value>,
+) -> String {
     // Audit summaries describe routing intent without retaining large or
     // secret-bearing payload fields such as write_resource.content.
     let Some(args) = args.and_then(serde_json::Value::as_object) else {
@@ -1310,13 +1365,17 @@ fn ai_tool_argument_summary(tool_name: &str, args: Option<&serde_json::Value>) -
     }
 }
 
-fn ai_tool_argument_target_id(args: Option<&serde_json::Value>) -> Option<String> {
+pub(in crate::workspace) fn ai_tool_argument_target_id(
+    args: Option<&serde_json::Value>,
+) -> Option<String> {
     args.and_then(|value| value.get("target_id"))
         .and_then(serde_json::Value::as_str)
         .map(ToString::to_string)
 }
 
-fn ai_tool_result_target_id(result: Option<&serde_json::Value>) -> Option<String> {
+pub(in crate::workspace) fn ai_tool_result_target_id(
+    result: Option<&serde_json::Value>,
+) -> Option<String> {
     result
         .and_then(|value| value.pointer("/meta/targetId"))
         .and_then(serde_json::Value::as_str)
@@ -1338,7 +1397,9 @@ fn ai_tool_result_target_id(result: Option<&serde_json::Value>) -> Option<String
         })
 }
 
-fn ai_tool_result_target_kind(result: Option<&serde_json::Value>) -> Option<String> {
+pub(in crate::workspace) fn ai_tool_result_target_kind(
+    result: Option<&serde_json::Value>,
+) -> Option<String> {
     result
         .and_then(|value| value.pointer("/execution/target/kind"))
         .and_then(serde_json::Value::as_str)
@@ -1354,14 +1415,16 @@ fn ai_tool_result_target_kind(result: Option<&serde_json::Value>) -> Option<Stri
         })
 }
 
-fn ai_tool_visible_in_terminal(result: Option<&serde_json::Value>) -> Option<bool> {
+pub(in crate::workspace) fn ai_tool_visible_in_terminal(
+    result: Option<&serde_json::Value>,
+) -> Option<bool> {
     result
         .and_then(|value| value.pointer("/execution/visibleInTerminal"))
         .or_else(|| result.and_then(|value| value.pointer("/data/visibleInTerminal")))
         .and_then(serde_json::Value::as_bool)
 }
 
-fn ai_tool_execution_surface(
+pub(in crate::workspace) fn ai_tool_execution_surface(
     tool_name: &str,
     args: Option<&serde_json::Value>,
     result: Option<&serde_json::Value>,
@@ -1395,7 +1458,10 @@ fn ai_tool_execution_surface(
     }
 }
 
-fn ai_tool_approval_source(status: &str, result: Option<&serde_json::Value>) -> Option<String> {
+pub(in crate::workspace) fn ai_tool_approval_source(
+    status: &str,
+    result: Option<&serde_json::Value>,
+) -> Option<String> {
     result
         .and_then(|value| value.pointer("/meta/approvalMode"))
         .or_else(|| result.and_then(|value| value.pointer("/meta/policyDecision/approvalMode")))
@@ -1409,27 +1475,33 @@ fn ai_tool_approval_source(status: &str, result: Option<&serde_json::Value>) -> 
         })
 }
 
-fn ai_tool_error_code(result: Option<&serde_json::Value>) -> Option<String> {
+pub(in crate::workspace) fn ai_tool_error_code(
+    result: Option<&serde_json::Value>,
+) -> Option<String> {
     result
         .and_then(|value| value.pointer("/error/code"))
         .and_then(serde_json::Value::as_str)
         .map(ToString::to_string)
 }
 
-fn ai_tool_duration_ms(result: Option<&serde_json::Value>) -> Option<u64> {
+pub(in crate::workspace) fn ai_tool_duration_ms(result: Option<&serde_json::Value>) -> Option<u64> {
     result
         .and_then(|value| value.pointer("/meta/durationMs"))
         .and_then(serde_json::Value::as_u64)
 }
 
-fn ai_tool_runtime_epoch(result: Option<&serde_json::Value>) -> Option<String> {
+pub(in crate::workspace) fn ai_tool_runtime_epoch(
+    result: Option<&serde_json::Value>,
+) -> Option<String> {
     result
         .and_then(|value| value.pointer("/meta/runtimeEpoch"))
         .and_then(serde_json::Value::as_str)
         .map(ToString::to_string)
 }
 
-fn ai_tool_execution_record_json(record: &AiToolExecutionRecord) -> serde_json::Value {
+pub(in crate::workspace) fn ai_tool_execution_record_json(
+    record: &AiToolExecutionRecord,
+) -> serde_json::Value {
     serde_json::json!({
         "recordId": record.record_id,
         "conversationId": record.conversation_id,
@@ -1454,7 +1526,7 @@ fn ai_tool_execution_record_json(record: &AiToolExecutionRecord) -> serde_json::
     })
 }
 
-fn extract_ai_tool_result_facts(
+pub(in crate::workspace) fn extract_ai_tool_result_facts(
     record: &AiToolExecutionRecord,
     result: Option<&serde_json::Value>,
     now: i64,
@@ -1513,7 +1585,7 @@ fn extract_ai_tool_result_facts(
     facts
 }
 
-fn ai_tool_result_fact(
+pub(in crate::workspace) fn ai_tool_result_fact(
     record: &AiToolExecutionRecord,
     source_kind: &str,
     text: &str,
@@ -1535,7 +1607,7 @@ fn ai_tool_result_fact(
     }
 }
 
-fn ai_tool_result_fact_json(fact: &AiToolResultFact) -> serde_json::Value {
+pub(in crate::workspace) fn ai_tool_result_fact_json(fact: &AiToolResultFact) -> serde_json::Value {
     serde_json::json!({
         "factId": fact.fact_id,
         "conversationId": fact.conversation_id,
@@ -1551,19 +1623,19 @@ fn ai_tool_result_fact_json(fact: &AiToolResultFact) -> serde_json::Value {
     })
 }
 
-fn ai_tool_fact_hash(text: &str) -> String {
+pub(in crate::workspace) fn ai_tool_fact_hash(text: &str) -> String {
     let digest = <sha2::Sha256 as sha2::Digest>::digest(text.as_bytes());
     format!("sha256:{digest:x}")
 }
 
-fn ai_fact_value_text(value: &serde_json::Value) -> String {
+pub(in crate::workspace) fn ai_fact_value_text(value: &serde_json::Value) -> String {
     value
         .as_str()
         .map(ToString::to_string)
         .unwrap_or_else(|| value.to_string())
 }
 
-fn truncate_ai_tool_record_text(value: &str, max_chars: usize) -> String {
+pub(in crate::workspace) fn truncate_ai_tool_record_text(value: &str, max_chars: usize) -> String {
     let mut result = value.chars().take(max_chars).collect::<String>();
     if value.chars().count() > max_chars {
         result.push_str("...");
@@ -1571,7 +1643,7 @@ fn truncate_ai_tool_record_text(value: &str, max_chars: usize) -> String {
     result
 }
 
-fn detect_ai_cli_agent_kind(command: &str) -> Option<String> {
+pub(in crate::workspace) fn detect_ai_cli_agent_kind(command: &str) -> Option<String> {
     let tokens = command
         .split_whitespace()
         .filter(|token| !token.is_empty())

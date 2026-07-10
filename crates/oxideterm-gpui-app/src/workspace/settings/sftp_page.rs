@@ -1,8 +1,14 @@
-const SFTP_SETTINGS_CARD_PADDING: f32 = 20.0; // Tauri p-5
-const SFTP_SETTINGS_SELECT_WIDTH: f32 = 180.0; // Tauri w-[180px]
+use super::*;
+
+pub(in crate::workspace) const SFTP_SETTINGS_CARD_PADDING: f32 = 20.0; // Tauri p-5
+pub(in crate::workspace) const SFTP_SETTINGS_SELECT_WIDTH: f32 = 180.0; // Tauri w-[180px]
 
 impl WorkspaceApp {
-    fn settings_sftp_section(&self, section_index: usize, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn settings_sftp_section(
+        &self,
+        section_index: usize,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let settings = self.settings_store.settings();
         if section_index == 0 {
             return self.sftp_settings_card(
@@ -61,10 +67,15 @@ impl WorkspaceApp {
             return div().into_any_element();
         }
 
-        let mut speed_rows = vec![self.sftp_settings_row(
-            "settings_view.sftp.bandwidth",
-            Some("settings_view.sftp.bandwidth_hint"),
-            checkbox(&self.tokens, String::new(), settings.sftp.speed_limit_enabled)
+        let mut speed_rows = vec![
+            self.sftp_settings_row(
+                "settings_view.sftp.bandwidth",
+                Some("settings_view.sftp.bandwidth_hint"),
+                checkbox(
+                    &self.tokens,
+                    String::new(),
+                    settings.sftp.speed_limit_enabled,
+                )
                 .on_mouse_down(
                     MouseButton::Left,
                     cx.listener(move |this, _event, _window, cx| {
@@ -78,7 +89,8 @@ impl WorkspaceApp {
                     }),
                 )
                 .into_any_element(),
-        )];
+            ),
+        ];
 
         if settings.sftp.speed_limit_enabled {
             speed_rows.push(
@@ -102,7 +114,11 @@ impl WorkspaceApp {
         self.sftp_settings_card(speed_rows, 16.0)
     }
 
-    fn sftp_settings_card(&self, rows: Vec<AnyElement>, gap: f32) -> AnyElement {
+    pub(in crate::workspace) fn sftp_settings_card(
+        &self,
+        rows: Vec<AnyElement>,
+        gap: f32,
+    ) -> AnyElement {
         let card = div()
             .w_full()
             .min_w(px(0.0))
@@ -118,7 +134,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn sftp_settings_row(
+    pub(in crate::workspace) fn sftp_settings_row(
         &self,
         label_key: &str,
         hint_key: Option<&str>,
@@ -159,13 +175,18 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn sftp_select_control(
+    pub(in crate::workspace) fn sftp_select_control(
         &self,
         select_id: SettingsSelect,
         value: String,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        self.settings_select_control(select_id, value, false, Some(SFTP_SETTINGS_SELECT_WIDTH), cx)
+        self.settings_select_control(
+            select_id,
+            value,
+            false,
+            Some(SFTP_SETTINGS_SELECT_WIDTH),
+            cx,
+        )
     }
-
 }

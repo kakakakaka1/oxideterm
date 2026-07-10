@@ -2,7 +2,7 @@ impl McpRegistry {
     pub fn new(key_store: AiProviderKeyStore) -> Self {
         Self {
             state: Arc::new(RwLock::new(McpRuntimeState::default())),
-            processes: Arc::new(McpProcessRegistry::default()),
+            processes: Arc::new(McpProcessOwner::default()),
             http: Client::new(),
             key_store,
         }
@@ -86,6 +86,13 @@ impl McpRegistry {
         for id in ids {
             self.disconnect(&id).await;
         }
+    }
+
+    /// Stops every managed MCP process before the application runtime shuts down.
+    pub async fn shutdown(&self) {
+        self.disconnect_all().await;
+        // Also close processes that have not yet been attached to server state.
+        self.processes.stop_all().await;
     }
 
     pub fn tool_definitions(&self) -> Vec<AiToolDefinition> {

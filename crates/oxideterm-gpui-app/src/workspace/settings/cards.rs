@@ -1,7 +1,9 @@
+use super::*;
+
 impl WorkspaceApp {
     const SETTINGS_BG_ACTIVE_SURFACE_ALPHA: u32 = 0x66; // Tauri [data-bg-active] bg-theme-bg-panel/card color-mix(... 40%, transparent).
 
-    fn settings_select_trigger(
+    pub(in crate::workspace) fn settings_select_trigger(
         &self,
         select_id: SettingsSelect,
         value: String,
@@ -21,7 +23,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn settings_select_control(
+    pub(in crate::workspace) fn settings_select_control(
         &self,
         select_id: SettingsSelect,
         value: String,
@@ -39,7 +41,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn settings_select_control_with_trigger_style(
+    pub(in crate::workspace) fn settings_select_control_with_trigger_style(
         &self,
         select_id: SettingsSelect,
         value: String,
@@ -50,29 +52,26 @@ impl WorkspaceApp {
     ) -> AnyElement {
         let anchor_id = select_id.anchor_id();
         let workspace = cx.entity();
-        let trigger =
-            trigger_style(self.settings_select_trigger(select_id, value, false, disabled)).when(
-                !disabled,
-                |trigger| {
-                trigger.cursor_pointer().on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(move |this, _event, _window, cx| {
-                        this.open_settings_select_from_pointer(select_id);
-                        cx.stop_propagation();
-                        cx.notify();
-                    }),
-                )
-                },
-            );
+        let trigger = trigger_style(
+            self.settings_select_trigger(select_id, value, false, disabled),
+        )
+        .when(!disabled, |trigger| {
+            trigger.cursor_pointer().on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, _event, _window, cx| {
+                    this.open_settings_select_from_pointer(select_id);
+                    cx.stop_propagation();
+                    cx.notify();
+                }),
+            )
+        });
         // Settings selects all share the same Radix-like trigger contract:
         // pointer-open sets focus origin, anchor bounds are refreshed in the
         // same paint pass, and scroll-close is owned by the settings surface.
         div()
             .relative()
             .min_w(px(0.0))
-            .when_some(width, |control, width| {
-                control.w(px(width)).max_w_full()
-            })
+            .when_some(width, |control, width| control.w(px(width)).max_w_full())
             .when(width.is_none(), |control| control.w_full())
             .child(select_anchor_probe(
                 anchor_id,
@@ -86,7 +85,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn settings_card(
+    pub(in crate::workspace) fn settings_card(
         &self,
         title_key: &str,
         _description_key: &str,
@@ -115,7 +114,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn plain_settings_card(&self, rows: Vec<AnyElement>) -> AnyElement {
+    pub(in crate::workspace) fn plain_settings_card(&self, rows: Vec<AnyElement>) -> AnyElement {
         let card = div()
             .w_full()
             .min_w(px(0.0))
@@ -131,7 +130,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn terminal_input_settings_card(
+    pub(in crate::workspace) fn terminal_input_settings_card(
         &self,
         settings: &PersistedSettings,
         cx: &mut Context<Self>,
@@ -188,69 +187,74 @@ impl WorkspaceApp {
             ));
         }
 
-        let rows = rows.child(self.settings_row_with_margin(
-            self.checkbox_row(
-                "settings_view.terminal.copy_on_select",
-                "settings_view.terminal.copy_on_select_hint",
-                settings.terminal.copy_on_select,
-                set_copy_on_select,
+        let rows = rows
+            .child(self.settings_row_with_margin(
+                self.checkbox_row(
+                    "settings_view.terminal.copy_on_select",
+                    "settings_view.terminal.copy_on_select_hint",
+                    settings.terminal.copy_on_select,
+                    set_copy_on_select,
+                    cx,
+                ),
+                16.0,
+            ))
+            .child(self.settings_row_with_margin(
+                self.checkbox_row(
+                    "settings_view.terminal.middle_click_paste",
+                    "settings_view.terminal.middle_click_paste_hint",
+                    settings.terminal.middle_click_paste,
+                    set_middle_click_paste,
+                    cx,
+                ),
+                16.0,
+            ))
+            .child(self.settings_row_with_margin(
+                self.checkbox_row(
+                    "settings_view.terminal.selection_requires_shift",
+                    "settings_view.terminal.selection_requires_shift_hint",
+                    settings.terminal.selection_requires_shift,
+                    set_selection_requires_shift,
+                    cx,
+                ),
+                16.0,
+            ))
+            .child(self.settings_row_with_margin(
+                self.checkbox_row(
+                    "settings_view.terminal.free_type_cursor_positioning",
+                    "settings_view.terminal.free_type_cursor_positioning_hint",
+                    settings.terminal.free_type_cursor_positioning,
+                    set_free_type_cursor_positioning,
+                    cx,
+                ),
+                16.0,
+            ))
+            .child(
+                div()
+                    .my(px(20.0))
+                    .h(px(1.0))
+                    .w_full()
+                    .bg(rgba((self.tokens.ui.border << 8) | 0x80)),
+            )
+            .child(self.checkbox_row(
+                "settings_view.terminal.autosuggest_local_history",
+                "settings_view.terminal.autosuggest_local_history_hint",
+                settings.terminal.autosuggest.local_shell_history,
+                set_autosuggest_local_history,
                 cx,
-            ),
-            16.0,
-        ))
-        .child(self.settings_row_with_margin(
-            self.checkbox_row(
-                "settings_view.terminal.middle_click_paste",
-                "settings_view.terminal.middle_click_paste_hint",
-                settings.terminal.middle_click_paste,
-                set_middle_click_paste,
-                cx,
-            ),
-            16.0,
-        ))
-        .child(self.settings_row_with_margin(
-            self.checkbox_row(
-                "settings_view.terminal.selection_requires_shift",
-                "settings_view.terminal.selection_requires_shift_hint",
-                settings.terminal.selection_requires_shift,
-                set_selection_requires_shift,
-                cx,
-            ),
-            16.0,
-        ))
-        .child(self.settings_row_with_margin(
-            self.checkbox_row(
-                "settings_view.terminal.free_type_cursor_positioning",
-                "settings_view.terminal.free_type_cursor_positioning_hint",
-                settings.terminal.free_type_cursor_positioning,
-                set_free_type_cursor_positioning,
-                cx,
-            ),
-            16.0,
-        ))
-        .child(
-            div()
-                .my(px(20.0))
-                .h(px(1.0))
-                .w_full()
-                .bg(rgba((self.tokens.ui.border << 8) | 0x80)),
-        )
-        .child(self.checkbox_row(
-            "settings_view.terminal.autosuggest_local_history",
-            "settings_view.terminal.autosuggest_local_history_hint",
-            settings.terminal.autosuggest.local_shell_history,
-            set_autosuggest_local_history,
-            cx,
-        ));
+            ));
         self.settings_card_surface(rows, self.tokens.ui.bg_card)
             .into_any_element()
     }
 
-    fn settings_row_with_margin(&self, row: AnyElement, margin_top: f32) -> AnyElement {
+    pub(in crate::workspace) fn settings_row_with_margin(
+        &self,
+        row: AnyElement,
+        margin_top: f32,
+    ) -> AnyElement {
         div().mt(px(margin_top)).child(row).into_any_element()
     }
 
-    fn card_title(&self, title_key: &str) -> AnyElement {
+    pub(in crate::workspace) fn card_title(&self, title_key: &str) -> AnyElement {
         div()
             .text_size(px(self.tokens.metrics.ui_text_sm))
             .font_weight(gpui::FontWeight::MEDIUM)
@@ -259,7 +263,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn card_separator(&self) -> AnyElement {
+    pub(in crate::workspace) fn card_separator(&self) -> AnyElement {
         div()
             .h(px(1.0))
             .w_full()
@@ -267,11 +271,11 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn settings_background_active(&self) -> bool {
+    pub(in crate::workspace) fn settings_background_active(&self) -> bool {
         self.terminal_background_preferences("settings").is_some()
     }
 
-    fn settings_panel_background(&self, color: u32) -> Rgba {
+    pub(in crate::workspace) fn settings_panel_background(&self, color: u32) -> Rgba {
         if self.settings_background_active() {
             rgba((color << 8) | Self::SETTINGS_BG_ACTIVE_SURFACE_ALPHA)
         } else {
@@ -279,7 +283,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn settings_card_surface(&self, card: Div, _color: u32) -> Div {
+    pub(in crate::workspace) fn settings_card_surface(&self, card: Div, _color: u32) -> Div {
         let chrome = oxideterm_gpui_ui::surface_chrome(
             &self.tokens,
             oxideterm_gpui_ui::SurfaceOptions::new(oxideterm_gpui_ui::SurfaceKind::Inspector)
@@ -293,7 +297,7 @@ impl WorkspaceApp {
             .bg(chrome.background)
     }
 
-    fn text_badge(&self, label: String, color: u32) -> AnyElement {
+    pub(in crate::workspace) fn text_badge(&self, label: String, color: u32) -> AnyElement {
         div()
             .px(px(8.0))
             .py(px(2.0))
@@ -305,7 +309,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn standard_footer_action_button(
+    pub(in crate::workspace) fn standard_footer_action_button(
         &self,
         label: String,
         variant: ButtonVariant,
@@ -333,7 +337,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn split_confirm_footer_button(
+    pub(in crate::workspace) fn split_confirm_footer_button(
         &self,
         label: String,
         action: ConfirmDialogAction,
@@ -384,7 +388,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn split_confirm_footer_action_button(
+    pub(in crate::workspace) fn split_confirm_footer_action_button(
         &self,
         label: String,
         action: ConfirmDialogAction,
@@ -408,7 +412,10 @@ impl WorkspaceApp {
             )
     }
 
-    fn terminal_page_switcher(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn terminal_page_switcher(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let theme = self.tokens.ui;
         let mut tabs = div()
             .w_full()
@@ -475,7 +482,7 @@ impl WorkspaceApp {
         tabs.into_any_element()
     }
 
-    fn ai_page_switcher(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn ai_page_switcher(&self, cx: &mut Context<Self>) -> AnyElement {
         let theme = self.tokens.ui;
         // OxideSens uses the same lightweight subpage tabs as terminal settings.
         let mut tabs = div()
@@ -553,62 +560,52 @@ impl WorkspaceApp {
             .is_some_and(|select| select.anchor_id() == anchor.id)
             || matches!(
                 (self.open_new_connection_select, anchor.id),
-                (Some(NewConnectionSelect::Group), SelectAnchorId::NewConnectionGroup)
-                    | (
-                        Some(NewConnectionSelect::KeyAuthSource),
-                        SelectAnchorId::NewConnectionKeyAuthSource
-                    )
-                    | (
-                        Some(NewConnectionSelect::ManagedKey),
-                        SelectAnchorId::NewConnectionManagedKey
-                    )
-                    | (
-                        Some(NewConnectionSelect::JumpSavedConnection),
-                        SelectAnchorId::NewConnectionJumpSavedConnection
-                    )
-                    | (
-                        Some(NewConnectionSelect::JumpKeyAuthSource),
-                        SelectAnchorId::NewConnectionJumpKeyAuthSource
-                    )
-                    | (
-                        Some(NewConnectionSelect::JumpManagedKey),
-                        SelectAnchorId::NewConnectionJumpManagedKey
-                    )
-                    | (
-                        Some(NewConnectionSelect::UpstreamProxyPolicy),
-                        SelectAnchorId::NewConnectionUpstreamProxyPolicy
-                    )
-                    | (
-                        Some(NewConnectionSelect::UpstreamProxyProtocol),
-                        SelectAnchorId::NewConnectionUpstreamProxyProtocol
-                    )
-                    | (
-                        Some(NewConnectionSelect::UpstreamProxyAuth),
-                        SelectAnchorId::NewConnectionUpstreamProxyAuth
-                    )
-                    | (
-                        Some(NewConnectionSelect::SerialPort),
-                        SelectAnchorId::NewConnectionSerialPort
-                    )
-                    | (
-                        Some(NewConnectionSelect::SerialDataBits),
-                        SelectAnchorId::NewConnectionSerialDataBits
-                    )
-                    | (
-                        Some(NewConnectionSelect::SerialStopBits),
-                        SelectAnchorId::NewConnectionSerialStopBits
-                    )
-                    | (
-                        Some(NewConnectionSelect::SerialParity),
-                        SelectAnchorId::NewConnectionSerialParity
-                    )
-                    | (
-                        Some(NewConnectionSelect::SerialFlowControl),
-                        SelectAnchorId::NewConnectionSerialFlowControl
-                    )
+                (
+                    Some(NewConnectionSelect::Group),
+                    SelectAnchorId::NewConnectionGroup
+                ) | (
+                    Some(NewConnectionSelect::KeyAuthSource),
+                    SelectAnchorId::NewConnectionKeyAuthSource
+                ) | (
+                    Some(NewConnectionSelect::ManagedKey),
+                    SelectAnchorId::NewConnectionManagedKey
+                ) | (
+                    Some(NewConnectionSelect::JumpSavedConnection),
+                    SelectAnchorId::NewConnectionJumpSavedConnection
+                ) | (
+                    Some(NewConnectionSelect::JumpKeyAuthSource),
+                    SelectAnchorId::NewConnectionJumpKeyAuthSource
+                ) | (
+                    Some(NewConnectionSelect::JumpManagedKey),
+                    SelectAnchorId::NewConnectionJumpManagedKey
+                ) | (
+                    Some(NewConnectionSelect::UpstreamProxyPolicy),
+                    SelectAnchorId::NewConnectionUpstreamProxyPolicy
+                ) | (
+                    Some(NewConnectionSelect::UpstreamProxyProtocol),
+                    SelectAnchorId::NewConnectionUpstreamProxyProtocol
+                ) | (
+                    Some(NewConnectionSelect::UpstreamProxyAuth),
+                    SelectAnchorId::NewConnectionUpstreamProxyAuth
+                ) | (
+                    Some(NewConnectionSelect::SerialPort),
+                    SelectAnchorId::NewConnectionSerialPort
+                ) | (
+                    Some(NewConnectionSelect::SerialDataBits),
+                    SelectAnchorId::NewConnectionSerialDataBits
+                ) | (
+                    Some(NewConnectionSelect::SerialStopBits),
+                    SelectAnchorId::NewConnectionSerialStopBits
+                ) | (
+                    Some(NewConnectionSelect::SerialParity),
+                    SelectAnchorId::NewConnectionSerialParity
+                ) | (
+                    Some(NewConnectionSelect::SerialFlowControl),
+                    SelectAnchorId::NewConnectionSerialFlowControl
+                )
             )
             || matches!(
-                (self.cloud_sync_open_select, anchor.id),
+                (self.cloud_sync.view.open_select, anchor.id),
                 (
                     Some(crate::workspace::cloud_sync::CloudSyncSelect::Backend),
                     SelectAnchorId::CloudSyncBackend
@@ -634,8 +631,7 @@ impl WorkspaceApp {
                 && self.terminal_broadcast_menu_open)
             || (anchor.id == SelectAnchorId::TerminalCommandBar
                 && self.terminal_quick_commands_open)
-            || (anchor.id == SelectAnchorId::TerminalCwdMenu
-                && self.terminal_cwd_picker.open)
+            || (anchor.id == SelectAnchorId::TerminalCwdMenu && self.terminal_cwd_picker.open)
             || (anchor.id == SelectAnchorId::TerminalGitBranchMenu
                 && self.terminal_git_branch_picker.open)
             || (anchor.id == SelectAnchorId::TerminalProjectMenu
@@ -691,7 +687,7 @@ impl WorkspaceApp {
         }
     }
 
-    pub(super) fn handle_settings_input_key(
+    pub(in crate::workspace) fn handle_settings_input_key(
         &mut self,
         event: &KeyDownEvent,
         cx: &mut Context<Self>,
@@ -703,7 +699,7 @@ impl WorkspaceApp {
         let modifiers = event.keystroke.modifiers;
 
         match key {
-            "tab" if self.ai_mcp_add_dialog.is_some() && input.is_ai_mcp() => {
+            "tab" if self.ai.models.mcp_add_dialog.is_some() && input.is_ai_mcp() => {
                 // Tauri MCP add dialog lets Tab leave the active input and enter
                 // the DialogFooter. GPUI settings inputs are manually owned, so
                 // delegate the input-to-footer edge to the shared browser model.
@@ -759,7 +755,7 @@ impl WorkspaceApp {
         }
     }
 
-    pub(super) fn blur_text_inputs(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn blur_text_inputs(&mut self, cx: &mut Context<Self>) {
         let mut changed = false;
         if let Some(input) = self.focused_settings_input.take() {
             self.clear_settings_input_draft(input);
@@ -820,36 +816,36 @@ impl WorkspaceApp {
             self.ime_marked_text = None;
             changed = true;
         }
-        if self.ai_model_selector_search_focused || self.ai_model_selector_open {
+        if self.ai.models.selector_search_focused || self.ai.models.selector_open {
             // The AI model selector can live either in the sidebar portal or
             // inside the terminal inline panel. A generic outside blur should
             // release the searchable select without restoring inline focus.
-            self.ai_model_selector_search_focused = false;
-            self.ai_model_selector_open = false;
-            self.ai_model_selector_scope = None;
-            self.ai_model_selector_focus_origin = None;
-            self.ai_model_selector_search_query.clear();
-            self.ai_model_selector_highlighted_model = None;
+            self.ai.models.selector_search_focused = false;
+            self.ai.models.selector_open = false;
+            self.ai.models.selector_scope = None;
+            self.ai.models.selector_focus_origin = None;
+            self.ai.models.selector_search_query.clear();
+            self.ai.models.selector_highlighted_model = None;
             self.ime_marked_text = None;
             changed = true;
         }
-        if self.ai_inline_panel.prompt_focused {
+        if self.ai.chat.inline_panel.prompt_focused {
             // The inline AI prompt is rendered inside the terminal pane rather
             // than as a normal form control, so it must explicitly join the
             // shared blur path or it remains the active IME target after an
             // outside click.
-            self.ai_inline_panel.prompt_focused = false;
+            self.ai.chat.inline_panel.prompt_focused = false;
             self.ime_marked_text = None;
             changed = true;
         }
-        if self.ai_chat_input_focused {
-            self.ai_chat_input_focused = false;
-            self.ai_chat_autocomplete_suppressed = true;
+        if self.ai.chat.input_focused {
+            self.ai.chat.input_focused = false;
+            self.ai.chat.autocomplete_suppressed = true;
             self.ime_marked_text = None;
             changed = true;
         }
-        if self.ai_editing_message_focused {
-            self.ai_editing_message_focused = false;
+        if self.ai.chat.editing_message_focused {
+            self.ai.chat.editing_message_focused = false;
             self.ime_marked_text = None;
             changed = true;
         }
@@ -868,7 +864,7 @@ impl WorkspaceApp {
         }
     }
 
-    pub(super) fn update_settings_slider_drag(
+    pub(in crate::workspace) fn update_settings_slider_drag(
         &mut self,
         event: &MouseMoveEvent,
         cx: &mut Context<Self>,
@@ -878,7 +874,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn apply_settings_slider_from_position(
+    pub(in crate::workspace) fn apply_settings_slider_from_position(
         &mut self,
         slider: SettingsSlider,
         x: f32,
@@ -922,7 +918,7 @@ impl WorkspaceApp {
         }
     }
 
-    pub(super) fn finish_settings_slider_drag(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn finish_settings_slider_drag(&mut self, cx: &mut Context<Self>) {
         if self.settings_slider_drag.take().is_some() {
             cx.notify();
         }
@@ -935,7 +931,9 @@ impl WorkspaceApp {
         cx: &mut Context<Self>,
     ) {
         self.close_settings_select();
-        if let Some(previous_input) = self.focused_settings_input.filter(|previous| *previous != input)
+        if let Some(previous_input) = self
+            .focused_settings_input
+            .filter(|previous| *previous != input)
         {
             self.clear_settings_input_draft(previous_input);
         }
@@ -953,7 +951,7 @@ impl WorkspaceApp {
         );
     }
 
-    fn clear_settings_input_draft(&mut self, input: SettingsInput) {
+    pub(in crate::workspace) fn clear_settings_input_draft(&mut self, input: SettingsInput) {
         if input.is_secret() {
             zeroize::Zeroize::zeroize(&mut self.settings_input_draft);
         }
@@ -965,7 +963,7 @@ impl WorkspaceApp {
             return false;
         };
         if !apply_cloud_sync_form_input_draft(
-            &mut self.cloud_sync_form,
+            &mut self.cloud_sync.view.form,
             input,
             &self.settings_input_draft,
         ) {
@@ -979,7 +977,10 @@ impl WorkspaceApp {
         true
     }
 
-    pub(in crate::workspace) fn current_settings_input_value(&self, input: SettingsInput) -> String {
+    pub(in crate::workspace) fn current_settings_input_value(
+        &self,
+        input: SettingsInput,
+    ) -> String {
         let settings = self.settings_store.settings();
         if let Some(value) = persisted_settings_input_value(settings, input) {
             return value;
@@ -987,22 +988,25 @@ impl WorkspaceApp {
         if let Some(value) = self.settings_page.page_input_value(input) {
             return value;
         }
-        if let Some(value) = ai_mcp_draft_input_value(self.ai_mcp_add_dialog.as_ref(), input) {
+        if let Some(value) = ai_mcp_draft_input_value(self.ai.models.mcp_add_dialog.as_ref(), input)
+        {
             return value;
         }
-        if let Some(value) = cloud_sync_form_input_value(&self.cloud_sync_form, input) {
+        if let Some(value) = cloud_sync_form_input_value(&self.cloud_sync.view.form, input) {
             return value;
         }
         match input {
             SettingsInput::TerminalCommandSpecsJson => {
                 self.terminal_command_specs_editor_initial_value()
             }
-            SettingsInput::NativePluginInstallUrl => self.plugin_manager_install_url_draft.clone(),
+            SettingsInput::NativePluginInstallUrl => {
+                self.native_plugin_manager.install_url_draft.clone()
+            }
             SettingsInput::NativePluginInstallChecksum => {
-                self.plugin_manager_install_checksum_draft.clone()
+                self.native_plugin_manager.install_checksum_draft.clone()
             }
             SettingsInput::NativePluginRegistryUrl => {
-                self.plugin_manager_registry_url_draft.clone()
+                self.native_plugin_manager.registry_url_draft.clone()
             }
             SettingsInput::PortableCurrentPassword => self.portable_current_password.clone(),
             SettingsInput::PortableNewPassword => self.portable_new_password.clone(),
@@ -1027,17 +1031,21 @@ impl WorkspaceApp {
             SettingsInput::LocalPrivilegeUsernameHint => {
                 self.settings_local_privilege_draft.username_hint.clone()
             }
-            SettingsInput::LocalPrivilegeSecret => self.settings_local_privilege_draft.secret.clone(),
+            SettingsInput::LocalPrivilegeSecret => {
+                self.settings_local_privilege_draft.secret.clone()
+            }
             SettingsInput::LocalPrivilegePromptPatterns => {
                 self.settings_local_privilege_draft.prompt_patterns.clone()
             }
             SettingsInput::PluginSetting(index) => self
-                .plugin_registry
+                .native_plugin_runtime
+                .registry
                 .contributions()
                 .settings
                 .get(index)
                 .and_then(|setting| {
-                    self.plugin_registry
+                    self.native_plugin_runtime
+                        .registry
                         .plugin_setting_value(&setting.plugin_id, &setting.definition.id)
                 })
                 .map(|value| plugin_setting_input_value(&value))
@@ -1046,7 +1054,7 @@ impl WorkspaceApp {
         }
     }
 
-    pub(super) fn apply_settings_input_draft(
+    pub(in crate::workspace) fn apply_settings_input_draft(
         &mut self,
         input: SettingsInput,
         cx: &mut Context<Self>,
@@ -1076,7 +1084,7 @@ impl WorkspaceApp {
             return;
         }
         if apply_cloud_sync_form_input_draft(
-            &mut self.cloud_sync_form,
+            &mut self.cloud_sync.view.form,
             input,
             &self.settings_input_draft,
         ) {
@@ -1084,7 +1092,7 @@ impl WorkspaceApp {
             return;
         }
         if apply_ai_mcp_draft_input(
-            self.ai_mcp_add_dialog.as_mut(),
+            self.ai.models.mcp_add_dialog.as_mut(),
             input,
             &self.settings_input_draft,
         ) {
@@ -1100,17 +1108,17 @@ impl WorkspaceApp {
                 cx.notify();
             }
             SettingsInput::NativePluginInstallUrl => {
-                self.plugin_manager_install_url_draft =
+                self.native_plugin_manager.install_url_draft =
                     self.settings_input_draft.trim().to_string();
                 cx.notify();
             }
             SettingsInput::NativePluginInstallChecksum => {
-                self.plugin_manager_install_checksum_draft =
+                self.native_plugin_manager.install_checksum_draft =
                     self.settings_input_draft.trim().to_string();
                 cx.notify();
             }
             SettingsInput::NativePluginRegistryUrl => {
-                self.plugin_manager_registry_url_draft =
+                self.native_plugin_manager.registry_url_draft =
                     self.settings_input_draft.trim().to_string();
                 cx.notify();
             }
@@ -1199,7 +1207,8 @@ impl WorkspaceApp {
             }
             SettingsInput::PluginSetting(index) => {
                 let Some(setting) = self
-                    .plugin_registry
+                    .native_plugin_runtime
+                    .registry
                     .contributions()
                     .settings
                     .get(index)
@@ -1214,7 +1223,8 @@ impl WorkspaceApp {
                 ) {
                     Ok(value) => value,
                     Err(error) => {
-                        self.plugin_registry
+                        self.native_plugin_runtime
+                            .registry
                             .record_manager_error(setting.plugin_id.clone(), error);
                         cx.notify();
                         return;
@@ -1226,7 +1236,8 @@ impl WorkspaceApp {
                     value,
                     cx,
                 ) {
-                    self.plugin_registry
+                    self.native_plugin_runtime
+                        .registry
                         .record_manager_error(setting.plugin_id.clone(), error);
                 }
                 cx.notify();
@@ -1237,7 +1248,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn edit_highlight_rule(
+    pub(in crate::workspace) fn edit_highlight_rule(
         &mut self,
         index: usize,
         edit: impl FnOnce(&mut HighlightRule),
@@ -1255,11 +1266,15 @@ impl WorkspaceApp {
         );
     }
 
-    fn add_highlight_rule(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn add_highlight_rule(&mut self, cx: &mut Context<Self>) {
         self.add_highlight_preset(vec![create_default_highlight_rule(|_| {})], cx);
     }
 
-    fn add_highlight_preset(&mut self, rules: Vec<HighlightRule>, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn add_highlight_preset(
+        &mut self,
+        rules: Vec<HighlightRule>,
+        cx: &mut Context<Self>,
+    ) {
         self.edit_settings(
             move |settings| {
                 settings.terminal.highlight_rules.extend(rules);
@@ -1273,7 +1288,11 @@ impl WorkspaceApp {
         );
     }
 
-    fn remove_highlight_rule(&mut self, index: usize, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn remove_highlight_rule(
+        &mut self,
+        index: usize,
+        cx: &mut Context<Self>,
+    ) {
         self.edit_settings(
             move |settings| {
                 if index < settings.terminal.highlight_rules.len() {
@@ -1286,7 +1305,12 @@ impl WorkspaceApp {
         );
     }
 
-    fn move_highlight_rule(&mut self, index: usize, direction: isize, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn move_highlight_rule(
+        &mut self,
+        index: usize,
+        direction: isize,
+        cx: &mut Context<Self>,
+    ) {
         self.edit_settings(
             move |settings| {
                 let len = settings.terminal.highlight_rules.len();
@@ -1307,7 +1331,11 @@ impl WorkspaceApp {
         );
     }
 
-    fn set_font_size_from_position(&mut self, x: f32, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn set_font_size_from_position(
+        &mut self,
+        x: f32,
+        cx: &mut Context<Self>,
+    ) {
         let Some(anchor) = self
             .select_anchors
             .get(&SelectAnchorId::SettingsTerminalFontSizeSlider)
@@ -1324,7 +1352,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn settings_slider_value_from_position(
+    pub(in crate::workspace) fn settings_slider_value_from_position(
         &self,
         anchor_id: SelectAnchorId,
         x: f32,
@@ -1342,7 +1370,11 @@ impl WorkspaceApp {
         Some(min + percent * (max - min))
     }
 
-    fn set_background_blur_preview_from_position(&mut self, x: f32, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn set_background_blur_preview_from_position(
+        &mut self,
+        x: f32,
+        cx: &mut Context<Self>,
+    ) {
         let Some(anchor) = self
             .select_anchors
             .get(&SelectAnchorId::SettingsAppearanceBackgroundBlurSlider)
@@ -1372,7 +1404,11 @@ impl WorkspaceApp {
         .detach();
     }
 
-    fn commit_background_blur_preview(&mut self, generation: u64, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn commit_background_blur_preview(
+        &mut self,
+        generation: u64,
+        cx: &mut Context<Self>,
+    ) {
         let Some(value) = self.settings_page.take_background_blur_preview(generation) else {
             return;
         };
@@ -1384,7 +1420,7 @@ impl WorkspaceApp {
     }
 }
 
-fn select_anchor_tracks_while_closed(anchor_id: SelectAnchorId) -> bool {
+pub(in crate::workspace) fn select_anchor_tracks_while_closed(anchor_id: SelectAnchorId) -> bool {
     // Browser/Radix selects can synchronously read their trigger rect on the
     // opening click. GPUI portals cannot, so modal select triggers keep a
     // closed-state anchor cache without notifying; that makes first-click open

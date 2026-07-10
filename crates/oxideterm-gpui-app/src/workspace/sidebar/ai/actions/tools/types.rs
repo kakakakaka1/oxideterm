@@ -1,63 +1,61 @@
 use std::collections::BTreeMap;
 
-use sha2::Digest as _;
-
-const AI_MAX_REQUIRED_TOOL_RETRIES: usize = 1;
-const AI_MAX_HARD_DENY_RETRIES: usize = 1;
-const AI_PSEUDO_TOOL_RETRY_TOOL_NAME: &str = "tool_use_disabled";
+pub(in crate::workspace) const AI_MAX_REQUIRED_TOOL_RETRIES: usize = 1;
+pub(in crate::workspace) const AI_MAX_HARD_DENY_RETRIES: usize = 1;
+pub(in crate::workspace) const AI_PSEUDO_TOOL_RETRY_TOOL_NAME: &str = "tool_use_disabled";
 
 #[derive(Clone)]
-struct AiOrchestratorRuntimeSnapshot {
-    targets: Vec<AiOrchestratorTarget>,
-    active_tab: Option<serde_json::Value>,
-    active_node: Option<serde_json::Value>,
-    active_session_id: Option<String>,
-    active_tab_id: Option<String>,
-    active_node_id: Option<String>,
-    memory: serde_json::Value,
-    health_state: serde_json::Value,
-    settings_state: serde_json::Value,
-    settings_summary: serde_json::Value,
-    node_router: NodeRouter,
-    sftp_transfer_manager: std::sync::Arc<SftpTransferManager>,
-    agent_fs: NodeAgentIdeFileSystem,
-    backend_runtime: std::sync::Arc<tokio::runtime::Runtime>,
-    rag_store: std::sync::Arc<oxideterm_ai::RagStore>,
-    ai_mcp_registry: oxideterm_ai::McpRegistry,
-    ai_acp_runtime_registry: oxideterm_ai::AcpRuntimeRegistry,
-    ai_key_store: oxideterm_ai::AiProviderKeyStore,
-    ai_providers: Vec<serde_json::Value>,
-    ai_embedding_config: Option<serde_json::Value>,
-    ai_context_window: usize,
-    runtime_epoch: String,
+pub(in crate::workspace) struct AiOrchestratorRuntimeSnapshot {
+    pub(in crate::workspace) targets: Vec<AiOrchestratorTarget>,
+    pub(in crate::workspace) active_tab: Option<serde_json::Value>,
+    pub(in crate::workspace) active_node: Option<serde_json::Value>,
+    pub(in crate::workspace) active_session_id: Option<String>,
+    pub(in crate::workspace) active_tab_id: Option<String>,
+    pub(in crate::workspace) active_node_id: Option<String>,
+    pub(in crate::workspace) memory: serde_json::Value,
+    pub(in crate::workspace) health_state: serde_json::Value,
+    pub(in crate::workspace) settings_state: serde_json::Value,
+    pub(in crate::workspace) settings_summary: serde_json::Value,
+    pub(in crate::workspace) node_router: NodeRouter,
+    pub(in crate::workspace) sftp_transfer_manager: std::sync::Arc<SftpTransferManager>,
+    pub(in crate::workspace) agent_fs: NodeAgentIdeFileSystem,
+    pub(in crate::workspace) backend_runtime: std::sync::Arc<tokio::runtime::Runtime>,
+    pub(in crate::workspace) rag_store: std::sync::Arc<oxideterm_ai::RagStore>,
+    pub(in crate::workspace) ai_mcp_registry: oxideterm_ai::McpRegistry,
+    pub(in crate::workspace) ai_acp_runtime_registry: oxideterm_ai::AcpRuntimeRegistry,
+    pub(in crate::workspace) ai_key_store: oxideterm_ai::AiProviderKeyStore,
+    pub(in crate::workspace) ai_providers: Vec<serde_json::Value>,
+    pub(in crate::workspace) ai_embedding_config: Option<serde_json::Value>,
+    pub(in crate::workspace) ai_context_window: usize,
+    pub(in crate::workspace) runtime_epoch: String,
 }
 
 #[derive(Clone, Debug)]
-struct AiOrchestratorTarget {
-    id: String,
-    kind: String,
-    label: String,
-    state: String,
-    capabilities: Vec<String>,
-    refs: BTreeMap<String, String>,
-    metadata: serde_json::Value,
-    terminal_buffer: Option<String>,
-    terminal_screen: Option<serde_json::Value>,
+pub(in crate::workspace) struct AiOrchestratorTarget {
+    pub(in crate::workspace) id: String,
+    pub(in crate::workspace) kind: String,
+    pub(in crate::workspace) label: String,
+    pub(in crate::workspace) state: String,
+    pub(in crate::workspace) capabilities: Vec<String>,
+    pub(in crate::workspace) refs: BTreeMap<String, String>,
+    pub(in crate::workspace) metadata: serde_json::Value,
+    pub(in crate::workspace) terminal_buffer: Option<String>,
+    pub(in crate::workspace) terminal_screen: Option<serde_json::Value>,
 }
 
 #[derive(Clone, Debug)]
-pub(super) struct AiExecutedToolResult {
-    tool_call_id: String,
-    tool_name: String,
-    success: bool,
-    output: String,
-    error: Option<String>,
-    duration_ms: u128,
-    envelope: serde_json::Value,
+pub(in crate::workspace) struct AiExecutedToolResult {
+    pub(in crate::workspace) tool_call_id: String,
+    pub(in crate::workspace) tool_name: String,
+    pub(in crate::workspace) success: bool,
+    pub(in crate::workspace) output: String,
+    pub(in crate::workspace) error: Option<String>,
+    pub(in crate::workspace) duration_ms: u128,
+    pub(in crate::workspace) envelope: serde_json::Value,
 }
 
 #[derive(Debug)]
-enum AiRemoteFileWriteError {
+pub(in crate::workspace) enum AiRemoteFileWriteError {
     ExpectedHashMismatch { expected: String, current: String },
     ExpectedFileMissing { path: String },
     ExistingFileNotText { path: String },
@@ -65,7 +63,7 @@ enum AiRemoteFileWriteError {
     Other(String),
 }
 
-pub(super) enum AiStreamDeliveryEvent {
+pub(in crate::workspace) enum AiStreamDeliveryEvent {
     Stream(AiStreamEvent),
     AcpClientEvent(oxideterm_ai::AcpClientEvent),
     AcpSessionStarted {

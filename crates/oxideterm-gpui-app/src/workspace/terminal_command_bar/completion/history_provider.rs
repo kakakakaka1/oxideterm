@@ -1,5 +1,7 @@
+use super::*;
+
 impl WorkspaceApp {
-    fn terminal_command_history_suggestions(
+    pub(super) fn terminal_command_history_suggestions(
         &self,
         input: &str,
         allow_empty_history: bool,

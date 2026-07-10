@@ -1,5 +1,6 @@
 [workspace]
 members = [
+  "crates/oxideterm-atomic-file",
   "crates/oxideterm-gpui-markdown",
   "crates/oxideterm-cli",
   "crates/oxideterm-rdp-helper",
@@ -54,6 +55,7 @@ members = [
   "crates/oxideterm-terminal-recording",
   "crates/oxideterm-terminal-encoding",
   "crates/oxideterm-terminal-graphics",
+  "crates/oxideterm-terminal-model",
   "crates/oxideterm-terminal-unicode",
   "crates/oxideterm-theme",
   "crates/oxideterm-trzsz",

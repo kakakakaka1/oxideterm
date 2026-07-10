@@ -1,5 +1,7 @@
+use super::*;
+
 impl WorkspaceApp {
-    pub(super) fn render_window_drag_region(
+    pub(in crate::workspace) fn render_window_drag_region(
         &self,
         element_id: impl Into<gpui::ElementId>,
         cx: &mut Context<Self>,
@@ -30,7 +32,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    pub(super) fn render_window_drag_content_region(
+    pub(in crate::workspace) fn render_window_drag_content_region(
         &self,
         element_id: impl Into<gpui::ElementId>,
         content: AnyElement,
@@ -63,7 +65,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    pub(super) fn render_title_bar(
+    pub(in crate::workspace) fn render_title_bar(
         &self,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -102,7 +104,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_client_titlebar_controls(
+    pub(in crate::workspace) fn render_client_titlebar_controls(
         &self,
         titlebar_bg: u32,
         text_color: u32,
@@ -138,7 +140,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn client_titlebar_button(
+    pub(in crate::workspace) fn client_titlebar_button(
         &self,
         glyph: &'static str,
         control_area: gpui::WindowControlArea,

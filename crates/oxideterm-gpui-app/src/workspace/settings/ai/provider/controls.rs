@@ -1,9 +1,11 @@
-const AI_PROVIDER_ACTION_BUTTON_H: f32 = 28.0; // Tauri provider card action h-7.
-const AI_PROVIDER_ACTION_BUTTON_PX: f32 = 8.0; // Tauri provider card action px-2.
-const AI_PROVIDER_REFRESH_TEXT_SIZE: f32 = 10.0; // Tauri refresh action uses compact 10px text.
+use super::*;
+
+pub(in crate::workspace) const AI_PROVIDER_ACTION_BUTTON_H: f32 = 28.0; // Tauri provider card action h-7.
+pub(in crate::workspace) const AI_PROVIDER_ACTION_BUTTON_PX: f32 = 8.0; // Tauri provider card action px-2.
+pub(in crate::workspace) const AI_PROVIDER_REFRESH_TEXT_SIZE: f32 = 10.0; // Tauri refresh action uses compact 10px text.
 
 impl WorkspaceApp {
-    fn ai_provider_type_badge(&self, provider_type: String) -> AnyElement {
+    pub(in crate::workspace) fn ai_provider_type_badge(&self, provider_type: String) -> AnyElement {
         div()
             .rounded(px(self.tokens.radii.sm))
             .bg(rgb(self.tokens.ui.bg_panel))
@@ -15,7 +17,12 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn ai_provider_badge(&self, label: String, color: u32, bg_alpha: u32) -> AnyElement {
+    pub(in crate::workspace) fn ai_provider_badge(
+        &self,
+        label: String,
+        color: u32,
+        bg_alpha: u32,
+    ) -> AnyElement {
         div()
             .rounded(px(self.tokens.radii.sm))
             .bg(rgba((color << 8) | bg_alpha))
@@ -28,7 +35,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn ai_provider_active_button(
+    pub(in crate::workspace) fn ai_provider_active_button(
         &self,
         provider: &AiProviderView,
         _active_provider: bool,
@@ -55,26 +62,26 @@ impl WorkspaceApp {
                 }
             })
             .child(self.i18n.t("settings_view.ai.set_active"))
-        .on_mouse_down(
-            MouseButton::Left,
-            cx.listener(move |this, _event, _window, cx| {
-                this.edit_settings(
-                    |settings| {
-                        ai_set_active_provider_selection(
-                            &mut settings.ai.active_provider_id,
-                            &mut settings.ai.active_model,
-                            &provider,
-                        );
-                    },
-                    cx,
-                );
-                cx.stop_propagation();
-            }),
-        )
-        .into_any_element()
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, _event, _window, cx| {
+                    this.edit_settings(
+                        |settings| {
+                            ai_set_active_provider_selection(
+                                &mut settings.ai.active_provider_id,
+                                &mut settings.ai.active_model,
+                                &provider,
+                            );
+                        },
+                        cx,
+                    );
+                    cx.stop_propagation();
+                }),
+            )
+            .into_any_element()
     }
 
-    fn ai_provider_enabled_toggle(
+    pub(in crate::workspace) fn ai_provider_enabled_toggle(
         &self,
         index: usize,
         enabled: bool,
@@ -97,7 +104,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn ai_provider_remove_button(
+    pub(in crate::workspace) fn ai_provider_remove_button(
         &self,
         index: usize,
         _name: String,
@@ -138,8 +145,7 @@ impl WorkspaceApp {
                         .get(index)
                         .and_then(|provider| ai_provider_string(provider, "name"))
                         .unwrap_or_else(|| _name.clone());
-                    this
-                        .settings_page
+                    this.settings_page
                         .request_ai_provider_remove(provider_id, provider_name);
                     this.reset_standard_confirm_focus();
                 }
@@ -150,7 +156,7 @@ impl WorkspaceApp {
         .into_any_element()
     }
 
-    fn ai_provider_expanded_toolbar(
+    pub(in crate::workspace) fn ai_provider_expanded_toolbar(
         &self,
         index: usize,
         provider: &AiProviderView,
@@ -193,13 +199,13 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn ai_provider_refresh_button(
+    pub(in crate::workspace) fn ai_provider_refresh_button(
         &self,
         index: usize,
         provider: &AiProviderView,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let refreshing = self.ai_model_refreshing.contains(&provider.id);
+        let refreshing = self.ai.models.refreshing.contains(&provider.id);
         let provider_for_refresh = provider.clone();
         let mut options = ToolbarButtonOptions::compact_text(
             ButtonVariant::Ghost,
@@ -229,7 +235,7 @@ impl WorkspaceApp {
         .into_any_element()
     }
 
-    fn ai_provider_fields(
+    pub(in crate::workspace) fn ai_provider_fields(
         &self,
         index: usize,
         provider: &AiProviderView,
@@ -281,7 +287,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn ai_provider_text_input_control(
+    pub(in crate::workspace) fn ai_provider_text_input_control(
         &self,
         input: SettingsInput,
         value: String,
@@ -327,11 +333,11 @@ impl WorkspaceApp {
                     cx.stop_propagation();
                 }),
             )
-            .on_mouse_move(
-                cx.listener(|this, event: &gpui::MouseMoveEvent, window, cx| {
+            .on_mouse_move(cx.listener(
+                |this, event: &gpui::MouseMoveEvent, window, cx| {
                     this.update_ime_selection_drag_from_mouse_move(event, window, cx);
-                }),
-            ),
+                },
+            )),
             move |anchor, _window, cx| {
                 let _ = workspace.update(cx, |this, cx| {
                     this.update_text_input_anchor(anchor, cx);
@@ -341,7 +347,7 @@ impl WorkspaceApp {
         .into_any_element()
     }
 
-    fn ai_provider_reasoning_select(
+    pub(in crate::workspace) fn ai_provider_reasoning_select(
         &self,
         index: usize,
         provider: &AiProviderView,
@@ -382,7 +388,11 @@ impl WorkspaceApp {
         )
     }
 
-    fn ai_provider_field(&self, label_key: &str, control: AnyElement) -> AnyElement {
+    pub(in crate::workspace) fn ai_provider_field(
+        &self,
+        label_key: &str,
+        control: AnyElement,
+    ) -> AnyElement {
         div()
             .min_w(px(0.0))
             .grid()
@@ -396,6 +406,4 @@ impl WorkspaceApp {
             .child(control)
             .into_any_element()
     }
-
-
 }

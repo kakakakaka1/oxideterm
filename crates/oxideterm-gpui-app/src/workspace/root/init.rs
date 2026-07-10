@@ -1,3 +1,5 @@
+use super::super::*;
+
 impl WorkspaceApp {
     const WORKSPACE_ASYNC_RUNTIME_WORKER_THREADS: usize = 2;
 
@@ -43,10 +45,6 @@ impl WorkspaceApp {
                 ForwardingRegistry::new_with_event_sender(forwarding_event_tx)
             }
         };
-        let ai_chat_store = None;
-        let ai_chat = oxideterm_ai::AiChatState::default();
-        let ai_chat_initialization_error = None;
-        let ai_rag_store = LazyAiRagStore::default();
         // Mirror Tauri's split between SessionTree runtime state and NodeRouter:
         // the router resolves capabilities from this shared node runtime store
         // instead of owning the node lifecycle itself.
@@ -58,16 +56,13 @@ impl WorkspaceApp {
         let (node_event_tx, node_event_rx) = std::sync::mpsc::channel();
         node_router.emitter().subscribe(node_event_tx.clone());
         let (reconnect_worker_tx, reconnect_worker_rx) = std::sync::mpsc::channel();
-        let (sftp_worker_tx, sftp_worker_rx) = std::sync::mpsc::channel();
+        let (sftp_worker_tx, mut sftp_worker_rx) = tokio::sync::mpsc::unbounded_channel();
         let (terminal_notice_tx, terminal_notice_rx) = std::sync::mpsc::channel();
         let (terminal_cwd_tx, terminal_cwd_rx) = std::sync::mpsc::channel();
         let (terminal_git_tx, terminal_git_rx) = std::sync::mpsc::channel();
         let (terminal_project_tx, terminal_project_rx) = std::sync::mpsc::channel();
         let (remote_desktop_worker_tx, remote_desktop_worker_rx) = std::sync::mpsc::channel();
         let (connection_trace_tx, connection_trace_rx) = std::sync::mpsc::channel();
-        let (native_plugin_confirm_tx, native_plugin_confirm_rx) = std::sync::mpsc::channel();
-        let (native_plugin_terminal_tx, native_plugin_terminal_rx) = std::sync::mpsc::channel();
-        let (native_plugin_sync_tx, native_plugin_sync_rx) = std::sync::mpsc::channel();
         let (profiler_update_tx, profiler_update_rx) = tokio::sync::mpsc::unbounded_channel();
         let sftp_transfer_manager = Arc::new(SftpTransferManager::new());
         sftp_transfer_manager.apply_settings(sftp_runtime_settings_from_settings(&settings));
@@ -99,18 +94,19 @@ impl WorkspaceApp {
             node_router.clone(),
             crate::workspace::ide::node_agent_mode_from_settings(&settings),
         );
-        let ai_key_store = oxideterm_ai::AiProviderKeyStore::new();
-        let ai_mcp_registry = oxideterm_ai::McpRegistry::new(ai_key_store.clone());
-        let ai_acp_runtime_registry = oxideterm_ai::AcpRuntimeRegistry::default();
         let cloud_sync_store = oxideterm_cloud_sync::state::CloudSyncStateStore::load(
             oxideterm_cloud_sync::state::default_cloud_sync_state_path(settings_store.path()),
         )?;
-        let cloud_sync_form =
-            CloudSyncFormDraft::from_settings(&cloud_sync_store.state().settings);
         let initial_vibrancy_mode = effective_vibrancy_mode(&settings, &render_policy);
         let initial_vibrancy_support = apply_window_vibrancy(window, initial_vibrancy_mode);
         let mut background_image_cache = BackgroundImageRenderCache::default();
         background_image_cache.set_byte_limit(render_policy.image_cache_bytes);
+        let ai = ai_state::AiWorkspaceState::new(
+            ai_agent_fs,
+            (settings.sidebar_ui.ai_sidebar_width as f32)
+                .clamp(AI_SIDEBAR_MIN_WIDTH, AI_SIDEBAR_MAX_WIDTH),
+            Some(current_window_size(window)),
+        );
         let settings_store_last_modified =
             crate::workspace::settings::settings_store_modified_time(settings_store.path());
         let connection_store_last_modified =
@@ -229,41 +225,14 @@ impl WorkspaceApp {
             )
             .measure_all(),
             detached_local_terminal_list_cache: RefCell::new(VirtualListSignatureCache::default()),
-            // Plugin Manager has the same browser-page structure as Settings:
-            // a small set of variable-height sections inside a scroll region.
-            plugin_manager_section_list_state: ListState::new(
-                PLUGIN_MANAGER_SECTION_LIST_ITEM_COUNT,
-                ListAlignment::Top,
-                TauriVirtualListSpec::new(
-                    px(PLUGIN_MANAGER_SECTION_LIST_ESTIMATED_HEIGHT),
-                    PLUGIN_MANAGER_SECTION_LIST_OVERSCAN,
-                )
-                .overdraw(),
-            )
-            .measure_all(),
-            plugin_manager_active_tab: plugin_manager::NativePluginManagerTab::Installed,
-            plugin_manager_install_url_draft: String::new(),
-            plugin_manager_install_checksum_draft: String::new(),
-            plugin_manager_registry_url_draft: String::new(),
-            plugin_manager_available_updates: Vec::new(),
-            plugin_manager_operation_status: plugin_manager::NativePluginManagerOperationStatus::Idle,
-            plugin_manager_pending_overwrite: None,
-            plugin_manager_delivery_rx: None,
-            plugin_manager_delivery_polling: false,
-            plugin_manager_expanded_plugin_ids: HashSet::new(),
-            active_native_plugin_sidebar_panel: None,
+            native_plugin_manager: plugin_manager::NativePluginManagerState::new(),
             split_drag: None,
             sidebar_resizing: false,
             sidebar_collapsed: settings.sidebar_ui.collapsed,
             sidebar_width: settings.sidebar_ui.width as f32,
-            ai_sidebar_resizing: false,
-            ai_sidebar_width: (settings.sidebar_ui.ai_sidebar_width as f32)
-                .clamp(AI_SIDEBAR_MIN_WIDTH, AI_SIDEBAR_MAX_WIDTH),
+            ai,
             active_context_sidebar_panel: ContextSidebarPanel::Assistant,
             active_context_sidebar_tool: ContextSidebarTool::Monitor,
-            ai_overlay_window_size: Some(current_window_size(window)),
-            ai_overlay_window_bounds_subscription: None,
-            knowledge_window_activation_subscription: None,
             needs_active_pane_focus: false,
             active_sidebar_section: SidebarSection::from_settings_key(
                 &settings.sidebar_ui.active_section,
@@ -307,141 +276,7 @@ impl WorkspaceApp {
             .measure_all(),
             settings_section_list_cache: RefCell::new(VirtualListSignatureCache::default()),
             settings_data_directory_confirm: None,
-            // Expanded context/reasoning override tables are per-provider model
-            // rows. Store ListState by provider id to preserve each table's
-            // measurements independently.
-            ai_context_model_list_states: RefCell::new(HashMap::new()),
-            ai_context_model_list_caches: RefCell::new(HashMap::new()),
-            ai_reasoning_model_list_states: RefCell::new(HashMap::new()),
-            ai_reasoning_model_list_caches: RefCell::new(HashMap::new()),
-            // Provider model chips keep Tauri's wrapped chip look, but the
-            // chip rows are virtualized per provider when users expand all
-            // models.
-            ai_provider_model_chip_list_states: RefCell::new(HashMap::new()),
-            ai_provider_model_chip_list_caches: RefCell::new(HashMap::new()),
-            // Provider cards stay visually grouped in one OxideSens section,
-            // but the card list itself is virtual. This avoids outer settings
-            // scroll jumps when a provider expands or collapses.
-            ai_provider_card_list_state: ListState::new(
-                AI_PROVIDER_CARD_LIST_INITIAL_ITEM_COUNT,
-                ListAlignment::Top,
-                TauriVirtualListSpec::new(
-                    px(AI_PROVIDER_CARD_LIST_ESTIMATED_HEIGHT),
-                    AI_PROVIDER_CARD_LIST_OVERSCAN,
-                )
-                .overdraw(),
-            )
-            .measure_all(),
-            ai_provider_card_list_cache: RefCell::new(VirtualListSignatureCache::default()),
-            // MCP server cards are part of OxideSens but grow with user config
-            // and live status/tool chips. Keep them out of ordinary flex trees.
-            ai_mcp_server_list_state: ListState::new(
-                AI_MCP_SERVER_LIST_INITIAL_ITEM_COUNT,
-                ListAlignment::Top,
-                TauriVirtualListSpec::new(
-                    px(AI_MCP_SERVER_LIST_ESTIMATED_HEIGHT),
-                    AI_MCP_SERVER_LIST_OVERSCAN,
-                )
-                .overdraw(),
-            )
-            .measure_all(),
-            ai_mcp_server_list_cache: RefCell::new(VirtualListSignatureCache::default()),
-            ai_model_selector_open: false,
-            ai_model_selector_scope: None,
-            ai_model_selector_focus_origin: None,
-            ai_model_selector_search_focused: false,
-            ai_model_selector_search_query: String::new(),
-            ai_model_selector_expanded_providers: HashSet::new(),
-            ai_model_selector_highlighted_model: None,
-            ai_model_selector_provider_online: HashMap::new(),
-            ai_model_selector_probe_generations: HashMap::new(),
-            ai_model_selector_status_signature: 0,
-            ai_chat,
-            ai_chat_list_state: tauri_virtual_list_state(
-                0,
-                ListAlignment::Top,
-                ai_chat_virtual_list_spec(),
-            ),
-            ai_chat_list_cache: RefCell::new(VirtualListSignatureCache::default()),
-            ai_markdown_cache: RefCell::new(AiMarkdownDocumentCache::default()),
-            ai_context_token_cache: RefCell::new(AiContextTokenBreakdownCache::default()),
-            ai_chat_store,
-            ai_chat_initialized: false,
-            ai_chat_initialization_error,
-            ai_inline_panel: AiInlinePanelState::default(),
-            ai_runtime_epoch: uuid::Uuid::new_v4().to_string(),
-            ai_command_record_sequence: 0,
-            ai_command_records: VecDeque::new(),
-            ai_tool_execution_records: VecDeque::new(),
-            ai_tool_result_facts: VecDeque::new(),
-            ai_cli_agent_sessions: HashMap::new(),
-            ai_conversation_list_open: false,
-            ai_chat_menu_open: false,
-            ai_safety_menu_open: false,
-            ai_safety_confirm_open: false,
-            ai_summarize_confirm_open: false,
-            ai_clear_all_confirm_open: false,
-            ai_delete_message_confirm: None,
             standard_confirm_focused_action: None,
-            ai_safety_bypass_conversations: HashSet::new(),
-            ai_chat_draft: String::new(),
-            ai_chat_input_focused: false,
-            ai_chat_footer_focus: None,
-            ai_editing_message_id: None,
-            ai_editing_message_draft: String::new(),
-            ai_editing_message_focused: false,
-            ai_thinking_expansion_state: HashMap::new(),
-            ai_tool_call_expansion_state: HashSet::new(),
-            ai_chat_autocomplete_index: 0,
-            ai_chat_autocomplete_suppressed: false,
-            ai_context_popover_open: false,
-            ai_model_switch_warning_percentage: None,
-            ai_context_trim_notice_count: None,
-            ai_context_trim_notice_sequence: 0,
-            ai_chat_include_context: false,
-            ai_chat_include_all_panes: false,
-            ai_chat_loading: false,
-            ai_chat_stream_generation: 0,
-            ai_chat_stream_task: None,
-            ai_chat_stream_rx: None,
-            ai_chat_stream_polling: false,
-            ai_pending_tool_approvals: HashMap::new(),
-            ai_agent_fs,
-            ai_mcp_registry,
-            ai_acp_runtime_registry,
-            ai_acp_agent_probe_pending: HashSet::new(),
-            ai_acp_agent_probe_tx: None,
-            ai_acp_agent_probe_rx: None,
-            ai_acp_agent_probe_polling: false,
-            ai_rag_store,
-            ai_mcp_add_dialog: None,
-            knowledge_reindex_cancel: None,
-            knowledge_reindex_rx: None,
-            knowledge_reindex_polling: false,
-            ai_compaction_rx: None,
-            ai_compaction_polling: false,
-            ai_compacting_conversations: HashSet::new(),
-            ai_compaction_notice: None,
-            ai_pending_chat_after_compaction: None,
-            next_ai_chat_sequence: 0,
-            ai_key_store,
-            ai_provider_key_status: HashMap::new(),
-            ai_provider_key_status_pending: HashSet::new(),
-            ai_provider_key_status_tx: None,
-            ai_provider_key_status_rx: None,
-            ai_provider_key_status_polling: false,
-            ai_model_refresh_generations: HashMap::new(),
-            ai_model_refreshing: HashSet::new(),
-            ai_model_refresh_tx: None,
-            ai_model_refresh_rx: None,
-            ai_model_refresh_polling: false,
-            ai_model_refresh_pending: 0,
-            next_ai_model_refresh_generation: 0,
-            next_ai_model_selector_probe_generation: 0,
-            ai_model_selector_probe_rx: None,
-            ai_model_selector_probe_tx: None,
-            ai_model_selector_probe_polling: false,
-            ai_model_selector_probe_pending: 0,
             select_anchors: HashMap::new(),
             text_input_anchors: HashMap::new(),
             selectable_text_values: HashMap::new(),
@@ -644,71 +479,8 @@ impl WorkspaceApp {
             connection_monitor_section_list_cache: RefCell::new(
                 VirtualListSignatureCache::default(),
             ),
-            cloud_sync_store,
-            cloud_sync_service: oxideterm_cloud_sync::operation::CloudSyncOperationService::new(),
-            cloud_sync_form,
-            // Cloud Sync is a variable-height browser page with optional preview
-            // and rollback sections; render it through the shared section list
-            // instead of rebuilding one scroll-sized flex tree.
-            cloud_sync_section_list_state: ListState::new(
-                CLOUD_SYNC_SECTION_LIST_INITIAL_ITEM_COUNT,
-                ListAlignment::Top,
-                TauriVirtualListSpec::new(
-                    px(CLOUD_SYNC_SECTION_LIST_ESTIMATED_HEIGHT),
-                    CLOUD_SYNC_SECTION_LIST_OVERSCAN,
-                )
-                .overdraw(),
-            ),
-            cloud_sync_section_list_cache: RefCell::new(VirtualListSignatureCache::default()),
-            cloud_sync_local_snapshot_cache: RefCell::new(None),
-            cloud_sync_upload_diff_cache: RefCell::new(None),
-            // Cloud Sync rollback backups/history are nested record lists inside
-            // the page sections; give each list its own state so they do not
-            // share measurements with the outer section list.
-            cloud_sync_rollback_backup_list_state: ListState::new(
-                CLOUD_SYNC_ROLLBACK_BACKUP_LIST_INITIAL_ITEM_COUNT,
-                ListAlignment::Top,
-                TauriVirtualListSpec::new(
-                    px(CLOUD_SYNC_ROLLBACK_BACKUP_LIST_ESTIMATED_HEIGHT),
-                    CLOUD_SYNC_ROLLBACK_BACKUP_LIST_OVERSCAN,
-                )
-                .overdraw(),
-            ),
-            cloud_sync_rollback_backup_list_cache: RefCell::new(
-                VirtualListSignatureCache::default(),
-            ),
-            cloud_sync_history_list_state: ListState::new(
-                CLOUD_SYNC_HISTORY_LIST_INITIAL_ITEM_COUNT,
-                ListAlignment::Top,
-                TauriVirtualListSpec::new(
-                    px(CLOUD_SYNC_HISTORY_LIST_ESTIMATED_HEIGHT),
-                    CLOUD_SYNC_HISTORY_LIST_OVERSCAN,
-                )
-                .overdraw(),
-            ),
-            cloud_sync_history_list_cache: RefCell::new(VirtualListSignatureCache::default()),
-            cloud_sync_open_select: None,
-            cloud_sync_focused_select: None,
-            cloud_sync_select_focus_origin: None,
-            cloud_sync_select_highlighted: None,
-            cloud_sync_confirm: None,
-            cloud_sync_confirm_focused_action: None,
-            cloud_sync_pending_preview: None,
-            cloud_sync_upload_preview: None,
-            cloud_sync_preview_selection: None,
-            cloud_sync_upload_selection: None,
-            cloud_sync_progress: None,
-            cloud_sync_rx: None,
-            cloud_sync_polling: false,
-            cloud_sync_active_action: None,
-            cloud_sync_auto_upload_generation: 0,
-            cloud_sync_dirty_refresh_scheduled: false,
-            cloud_sync_dirty_refresh_generation: 0,
-            cloud_sync_upload_after_current: None,
-            cloud_sync_pull_preview_after_current: false,
-            cloud_sync_active_tab: oxideterm_gpui_cloud_sync::CloudSyncTab::Overview,
+            cloud_sync: cloud_sync::CloudSyncWorkspaceState::new(cloud_sync_store),
             sftp_worker_tx,
-            sftp_worker_rx,
             forwarding_worker_tx,
             forwarding_worker_rx,
             forwarding_event_rx,
@@ -724,40 +496,7 @@ impl WorkspaceApp {
             connection_store,
             settings_store_last_modified,
             connection_store_last_modified,
-            plugin_registry,
-            plugin_runtime_host: Arc::new(tokio::sync::Mutex::new(
-                plugin_runtime::NativePluginRuntimeHost::default(),
-            )),
-            native_plugin_confirm_tx,
-            native_plugin_confirm_rx,
-            native_plugin_confirm: None,
-            native_plugin_confirm_polling: false,
-            native_plugin_terminal_tx,
-            native_plugin_terminal_rx,
-            native_plugin_terminal_ui_requests: VecDeque::new(),
-            native_plugin_terminal_polling: false,
-            native_plugin_sync_tx,
-            native_plugin_sync_rx,
-            native_plugin_sync_polling: false,
-            native_plugin_runtime_services_started: false,
-            native_plugin_layout_snapshot: serde_json::Value::Null,
-            native_plugin_layout_polling: false,
-            native_plugin_session_tree_snapshot: serde_json::Value::Null,
-            native_plugin_session_polling: false,
-            native_plugin_saved_forwards_snapshot: serde_json::Value::Null,
-            native_plugin_saved_forwards_polling: false,
-            native_plugin_transfer_snapshot: serde_json::Value::Null,
-            native_plugin_transfer_polling: false,
-            native_plugin_transfer_progress_last_emitted: None,
-            native_plugin_profiler_snapshot: serde_json::Value::Null,
-            native_plugin_profiler_polling: false,
-            native_plugin_profiler_last_emitted: None,
-            native_plugin_ide_snapshot: serde_json::Value::Null,
-            native_plugin_ide_polling: false,
-            native_plugin_ai_snapshot: serde_json::Value::Null,
-            native_plugin_ai_polling: false,
-            native_plugin_event_log_last_id: 0,
-            native_plugin_event_log_polling: false,
+            native_plugin_runtime: plugin_lifecycle::NativePluginRuntimeState::new(plugin_registry),
             session_manager: SessionManagerState::default(),
             remote_desktop_sessions: HashMap::new(),
             remote_desktop_worker_tx,
@@ -819,9 +558,7 @@ impl WorkspaceApp {
                 .overdraw(),
             )
             .measure_all(),
-            oxide_export_summary_line_list_cache: RefCell::new(
-                VirtualListSignatureCache::default(),
-            ),
+            oxide_export_summary_line_list_cache: RefCell::new(VirtualListSignatureCache::default()),
             // Import preview forward details are read-only rows inside the
             // .oxide dialog, so keep them on a dedicated ListState.
             oxide_import_forward_detail_list_state: ListState::new(
@@ -859,16 +596,31 @@ impl WorkspaceApp {
             workspace_tooltip_pending: None,
             workspace_tooltip_generation: 0,
         };
-        workspace.ai_overlay_window_bounds_subscription =
+        workspace.ai.chat.overlay_window_bounds_subscription =
             Some(cx.observe_window_bounds(window, |this, window, cx| {
                 this.update_ai_sidebar_overlay_for_window_bounds(window, cx);
             }));
-        workspace.knowledge_window_activation_subscription =
+        workspace.ai.knowledge.window_activation_subscription =
             Some(cx.observe_window_activation(window, |this, window, cx| {
                 if window.is_window_active() {
                     this.knowledge_sync_external_edit(false, cx);
                 }
             }));
+        cx.spawn(async move |weak, cx| {
+            // The receiver lives with the GPUI entity task, so every worker
+            // result crosses onto the UI thread exactly once without polling.
+            while let Some(result) = sftp_worker_rx.recv().await {
+                if weak
+                    .update(cx, |workspace, cx| {
+                        workspace.handle_sftp_worker_result(result, cx);
+                    })
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        })
+        .detach();
         if workspace.ai_sidebar_visible() {
             workspace.ensure_ai_chat_initialized();
             workspace.bootstrap_ai_mcp_registry();
@@ -888,7 +640,6 @@ impl WorkspaceApp {
                             workspace.poll_ssh_worker_results(window, cx);
                             workspace.poll_node_events(window, cx);
                             workspace.poll_reconnect_worker_results(window, cx);
-                            workspace.poll_sftp_worker_results(cx);
                             workspace.poll_launcher_worker_results(cx);
                             workspace.poll_graphics_worker_results(window, cx);
                             workspace.poll_connection_monitor_updates(true, cx);
@@ -913,7 +664,6 @@ impl WorkspaceApp {
                             workspace.maybe_refresh_connection_monitor(cx);
                             workspace.maybe_refresh_active_terminal_git(cx);
                             workspace.maybe_refresh_active_terminal_project(cx);
-                            workspace.maybe_start_sftp_remote_load(cx);
                             workspace.poll_forwarding_worker_results(cx);
                             workspace.poll_forwarding_events(cx);
                             workspace.sync_ssh_node_lifecycle(cx);
@@ -954,27 +704,6 @@ impl WorkspaceApp {
             }
         })
         .detach();
-        let sftp_window_handle = window.window_handle();
-        cx.spawn(async move |weak, cx| {
-            loop {
-                // Tauri fires nodeSftpListDir immediately from the SFTP path effect. Keep
-                // native SFTP navigation off the slower caret/lifecycle loop so folder
-                // changes do not wait for the 530ms workspace tick.
-                Timer::after(Duration::from_millis(60)).await;
-                if cx
-                    .update_window(sftp_window_handle, |_, _window, cx| {
-                        weak.update(cx, |workspace, cx| {
-                            workspace.poll_sftp_worker_results(cx);
-                            workspace.maybe_start_sftp_remote_load(cx);
-                        })
-                    })
-                    .is_err()
-                {
-                    break;
-                }
-            }
-        })
-        .detach();
         Ok(workspace)
     }
 
@@ -999,7 +728,7 @@ impl WorkspaceApp {
         self.terminal_preferences_for_background_key(key)
     }
 
-    fn terminal_preferences_for_background_key(
+    pub(in crate::workspace) fn terminal_preferences_for_background_key(
         &self,
         background_key: &str,
     ) -> TerminalUiPreferences {
@@ -1039,9 +768,7 @@ impl WorkspaceApp {
             selection_requires_shift: terminal.selection_requires_shift,
             free_type_cursor_positioning: terminal.free_type_cursor_positioning,
             bidi_enabled: terminal.unicode.bidi_enabled,
-            current_directory_awareness_enabled: terminal
-                .command_bar
-                .current_directory_awareness,
+            current_directory_awareness_enabled: terminal.command_bar.current_directory_awareness,
             command_marks_enabled: terminal.command_marks.enabled,
             command_marks_user_input_observed: terminal.command_marks.user_input_observed,
             command_marks_heuristic_detection: terminal.command_marks.heuristic_detection,
@@ -1062,7 +789,9 @@ impl WorkspaceApp {
                 copy: self.i18n.t("terminal.command_selection.copy"),
                 copy_title: self.i18n.t("terminal.command_selection.copy_title"),
                 copy_command: self.i18n.t("terminal.command_selection.copy_command"),
-                reconnect_transport: self.i18n.t("terminal.command_selection.reconnect_transport"),
+                reconnect_transport: self
+                    .i18n
+                    .t("terminal.command_selection.reconnect_transport"),
                 send_to_ai: self.i18n.t("terminal.command_selection.send_to_ai"),
                 fill_command_bar: self.i18n.t("terminal.command_selection.fill_command_bar"),
                 insert_selection_into_command: self
@@ -1205,7 +934,9 @@ impl WorkspaceApp {
                             HighlightRuleRenderMode::Underline => {
                                 TerminalHighlightRenderMode::Underline
                             }
-                            HighlightRuleRenderMode::Outline => TerminalHighlightRenderMode::Outline,
+                            HighlightRuleRenderMode::Outline => {
+                                TerminalHighlightRenderMode::Outline
+                            }
                         },
                         enabled: rule.enabled,
                         priority: rule.priority,
@@ -1217,7 +948,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn terminal_background_preferences(
+    pub(in crate::workspace) fn terminal_background_preferences(
         &self,
         background_key: &str,
     ) -> Option<TerminalBackgroundPreferences> {
@@ -1247,7 +978,9 @@ impl WorkspaceApp {
     }
 }
 
-fn ai_chat_initialization_error(error: &anyhow::Error) -> AiChatInitializationError {
+pub(in crate::workspace) fn ai_chat_initialization_error(
+    error: &anyhow::Error,
+) -> AiChatInitializationError {
     let message = error.to_string();
     if message.contains("Database already open") || message.contains("Cannot acquire lock") {
         return AiChatInitializationError {

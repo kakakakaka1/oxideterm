@@ -1,12 +1,22 @@
 // Copyright (C) 2026 OxideTerm contributors.
 // SPDX-License-Identifier: GPL-3.0-only
 
-use std::time::Duration;
+use std::{
+    collections::VecDeque,
+    sync::{Arc, Condvar, Mutex, MutexGuard},
+    time::Duration,
+};
+
+use tokio::sync::Notify;
 
 pub(crate) const LOCAL_PTY_READ_BUFFER_BYTES: usize = 8 * 1024;
 pub(crate) const LOCAL_MAX_LOCKED_PARSE_BYTES: usize = 64 * 1024;
 pub(crate) const MAGIC_DETECT_OVERLAP_BYTES: usize = 128;
 pub(crate) const UTF8_RESIDUAL_MAX_BYTES: usize = 4;
+
+// Keep enough transport output for several normal drains while placing a
+// deterministic ceiling on memory retained between a worker and its session.
+pub(crate) const TRANSPORT_OUTPUT_BACKLOG_BYTES: usize = 1024 * 1024;
 
 pub const NATIVE_INTERACTIVE_DRAIN_BYTES: usize = 32 * 1024;
 pub const NATIVE_NORMAL_DRAIN_BYTES: usize = 128 * 1024;
@@ -68,6 +78,226 @@ impl TerminalDrainReport {
         self.drain_duration += other.drain_duration;
         self.budget_exhausted |= other.budget_exhausted;
     }
+}
+
+struct QueuedOutput<T> {
+    value: T,
+    byte_len: usize,
+}
+
+struct ByteBoundedState<T> {
+    queue: VecDeque<QueuedOutput<T>>,
+    outstanding_bytes: usize,
+    sender_open: bool,
+    receiver_open: bool,
+}
+
+struct ByteBoundedInner<T> {
+    state: Mutex<ByteBoundedState<T>>,
+    blocking_space: Condvar,
+    async_space: Notify,
+    max_bytes: usize,
+}
+
+/// Sends worker events while charging data events against an exact byte limit.
+pub(crate) struct ByteBoundedSender<T> {
+    inner: Arc<ByteBoundedInner<T>>,
+}
+
+/// Receives worker events and exposes the bytes still retained by the channel.
+pub(crate) struct ByteBoundedReceiver<T> {
+    inner: Arc<ByteBoundedInner<T>>,
+}
+
+/// Keeps a data event's byte reservation alive while it waits in a local drain queue.
+pub(crate) struct ByteBoundedItem<T> {
+    value: Option<T>,
+    byte_len: usize,
+    inner: Arc<ByteBoundedInner<T>>,
+}
+
+pub(crate) fn byte_bounded_channel<T>(
+    max_bytes: usize,
+) -> (ByteBoundedSender<T>, ByteBoundedReceiver<T>) {
+    assert!(max_bytes > 0, "byte-bounded channels need a positive limit");
+    let inner = Arc::new(ByteBoundedInner {
+        state: Mutex::new(ByteBoundedState {
+            queue: VecDeque::new(),
+            outstanding_bytes: 0,
+            sender_open: true,
+            receiver_open: true,
+        }),
+        blocking_space: Condvar::new(),
+        async_space: Notify::new(),
+        max_bytes,
+    });
+    (
+        ByteBoundedSender {
+            inner: Arc::clone(&inner),
+        },
+        ByteBoundedReceiver { inner },
+    )
+}
+
+impl<T> ByteBoundedSender<T> {
+    /// Blocks a dedicated worker thread until this data event fits the byte budget.
+    pub(crate) fn send(&self, value: T, byte_len: usize) -> Result<(), T> {
+        if byte_len > self.inner.max_bytes {
+            return Err(value);
+        }
+
+        let mut value = Some(value);
+        let mut state = lock_state(&self.inner);
+        loop {
+            if !state.receiver_open {
+                return Err(value.take().expect("queued value must be present"));
+            }
+            if state.outstanding_bytes.saturating_add(byte_len) <= self.inner.max_bytes {
+                enqueue(
+                    &mut state,
+                    value.take().expect("queued value must be present"),
+                    byte_len,
+                );
+                return Ok(());
+            }
+            state = self
+                .inner
+                .blocking_space
+                .wait(state)
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+        }
+    }
+
+    /// Awaits byte capacity without blocking a Tokio runtime worker thread.
+    pub(crate) async fn send_async(&self, value: T, byte_len: usize) -> Result<(), T> {
+        if byte_len > self.inner.max_bytes {
+            return Err(value);
+        }
+
+        let mut value = Some(value);
+        loop {
+            // Notify stores one permit when the receiver frees space before
+            // this future starts waiting, which closes the check/wait race.
+            let space_available = self.inner.async_space.notified();
+            {
+                let mut state = lock_state(&self.inner);
+                if !state.receiver_open {
+                    return Err(value.take().expect("queued value must be present"));
+                }
+                if state.outstanding_bytes.saturating_add(byte_len) <= self.inner.max_bytes {
+                    enqueue(
+                        &mut state,
+                        value.take().expect("queued value must be present"),
+                        byte_len,
+                    );
+                    return Ok(());
+                }
+            }
+            space_available.await;
+        }
+    }
+
+    /// Control events bypass the data-byte limit so lifecycle state is never dropped.
+    pub(crate) fn send_control(&self, value: T) -> Result<(), T> {
+        let mut state = lock_state(&self.inner);
+        if !state.receiver_open {
+            return Err(value);
+        }
+        enqueue(&mut state, value, 0);
+        Ok(())
+    }
+}
+
+impl<T> Drop for ByteBoundedSender<T> {
+    fn drop(&mut self) {
+        let mut state = lock_state(&self.inner);
+        state.sender_open = false;
+    }
+}
+
+impl<T> ByteBoundedReceiver<T> {
+    pub(crate) fn try_recv(&self) -> Result<ByteBoundedItem<T>, crossbeam_channel::TryRecvError> {
+        let mut state = lock_state(&self.inner);
+        if let Some(queued) = state.queue.pop_front() {
+            return Ok(ByteBoundedItem {
+                value: Some(queued.value),
+                byte_len: queued.byte_len,
+                inner: Arc::clone(&self.inner),
+            });
+        }
+        if state.sender_open {
+            Err(crossbeam_channel::TryRecvError::Empty)
+        } else {
+            Err(crossbeam_channel::TryRecvError::Disconnected)
+        }
+    }
+
+    pub(crate) fn pending_bytes(&self) -> usize {
+        lock_state(&self.inner).outstanding_bytes
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        lock_state(&self.inner).queue.is_empty()
+    }
+
+    /// Wakes blocked producers and rejects future sends during session shutdown.
+    pub(crate) fn close(&self) {
+        let mut state = lock_state(&self.inner);
+        if !state.receiver_open {
+            return;
+        }
+        state.receiver_open = false;
+        let queued_bytes = state
+            .queue
+            .drain(..)
+            .map(|queued| queued.byte_len)
+            .sum::<usize>();
+        state.outstanding_bytes = state.outstanding_bytes.saturating_sub(queued_bytes);
+        drop(state);
+        self.inner.blocking_space.notify_all();
+        self.inner.async_space.notify_one();
+    }
+}
+
+impl<T> Drop for ByteBoundedReceiver<T> {
+    fn drop(&mut self) {
+        self.close();
+    }
+}
+
+impl<T> ByteBoundedItem<T> {
+    pub(crate) fn value(&self) -> &T {
+        self.value.as_ref().expect("received value must be present")
+    }
+
+    pub(crate) fn into_inner(mut self) -> T {
+        self.value.take().expect("received value must be present")
+    }
+}
+
+impl<T> Drop for ByteBoundedItem<T> {
+    fn drop(&mut self) {
+        if self.byte_len == 0 {
+            return;
+        }
+        let mut state = lock_state(&self.inner);
+        state.outstanding_bytes = state.outstanding_bytes.saturating_sub(self.byte_len);
+        drop(state);
+        self.inner.blocking_space.notify_one();
+        self.inner.async_space.notify_one();
+    }
+}
+
+fn enqueue<T>(state: &mut ByteBoundedState<T>, value: T, byte_len: usize) {
+    state.outstanding_bytes = state.outstanding_bytes.saturating_add(byte_len);
+    state.queue.push_back(QueuedOutput { value, byte_len });
+}
+
+fn lock_state<T>(inner: &ByteBoundedInner<T>) -> MutexGuard<'_, ByteBoundedState<T>> {
+    inner
+        .state
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 #[derive(Debug, Default)]
@@ -211,6 +441,11 @@ impl MagicScanWindow {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+        mpsc,
+    };
 
     #[test]
     fn utf8_guard_keeps_incomplete_tail() {
@@ -246,5 +481,120 @@ mod tests {
         assert!(scan.scan(b"abc::TRZSZ:").is_empty());
         assert_eq!(scan.scan(b"TRANSFER:R:1").len(), 1);
         assert!(scan.scan(b"ordinary output").is_empty());
+    }
+
+    #[test]
+    fn blocking_sender_stops_at_byte_limit_until_slow_consumer_drains() {
+        const LIMIT_BYTES: usize = 64 * 1024;
+        const CHUNK_BYTES: usize = 4 * 1024;
+        const CHUNK_COUNT: usize = 256;
+
+        let (sender, receiver) = byte_bounded_channel(LIMIT_BYTES);
+        let sent_chunks = Arc::new(AtomicUsize::new(0));
+        let producer_progress = Arc::clone(&sent_chunks);
+        let (finished_tx, finished_rx) = mpsc::channel();
+        let producer = std::thread::spawn(move || {
+            for _ in 0..CHUNK_COUNT {
+                sender.send(vec![0_u8; CHUNK_BYTES], CHUNK_BYTES).unwrap();
+                producer_progress.fetch_add(1, Ordering::Release);
+            }
+            finished_tx.send(()).unwrap();
+        });
+
+        let full_chunk_count = LIMIT_BYTES / CHUNK_BYTES;
+        let fill_deadline = std::time::Instant::now() + Duration::from_secs(1);
+        while sent_chunks.load(Ordering::Acquire) < full_chunk_count {
+            assert!(std::time::Instant::now() < fill_deadline);
+            std::thread::yield_now();
+        }
+
+        assert_eq!(receiver.pending_bytes(), LIMIT_BYTES);
+        assert!(finished_rx.recv_timeout(Duration::from_millis(50)).is_err());
+        assert_eq!(sent_chunks.load(Ordering::Acquire), full_chunk_count);
+
+        let mut received_chunks = 0;
+        while received_chunks < CHUNK_COUNT {
+            match receiver.try_recv() {
+                Ok(item) => {
+                    drop(item);
+                    received_chunks += 1;
+                    assert!(receiver.pending_bytes() <= LIMIT_BYTES);
+                }
+                Err(crossbeam_channel::TryRecvError::Empty) => std::thread::yield_now(),
+                Err(crossbeam_channel::TryRecvError::Disconnected) => {
+                    panic!("producer disconnected before all output was received")
+                }
+            }
+        }
+
+        finished_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        producer.join().unwrap();
+        assert_eq!(receiver.pending_bytes(), 0);
+    }
+
+    #[test]
+    fn closing_receiver_releases_blocked_sender() {
+        const LIMIT_BYTES: usize = 8;
+        let (sender, receiver) = byte_bounded_channel(LIMIT_BYTES);
+        sender.send(vec![1_u8; LIMIT_BYTES], LIMIT_BYTES).unwrap();
+        let (finished_tx, finished_rx) = mpsc::channel();
+        let blocked_sender = std::thread::spawn(move || {
+            let result = sender.send(vec![2_u8; LIMIT_BYTES], LIMIT_BYTES);
+            finished_tx.send(result.is_err()).unwrap();
+        });
+
+        assert!(finished_rx.recv_timeout(Duration::from_millis(50)).is_err());
+        receiver.close();
+
+        assert!(finished_rx.recv_timeout(Duration::from_secs(1)).unwrap());
+        blocked_sender.join().unwrap();
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn async_sender_resumes_and_control_event_survives_full_data_budget() {
+        #[derive(Debug, PartialEq, Eq)]
+        enum TestEvent {
+            Output(Vec<u8>),
+            Closed,
+        }
+
+        const LIMIT_BYTES: usize = 8;
+        let (sender, receiver) = byte_bounded_channel(LIMIT_BYTES);
+        sender
+            .send_async(TestEvent::Output(vec![1; LIMIT_BYTES]), LIMIT_BYTES)
+            .await
+            .unwrap();
+        sender.send_control(TestEvent::Closed).unwrap();
+
+        let mut blocked_send = tokio::spawn(async move {
+            sender
+                .send_async(TestEvent::Output(vec![2; LIMIT_BYTES]), LIMIT_BYTES)
+                .await
+        });
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), &mut blocked_send)
+                .await
+                .is_err()
+        );
+        assert_eq!(receiver.pending_bytes(), LIMIT_BYTES);
+
+        assert_eq!(
+            receiver.try_recv().unwrap().into_inner(),
+            TestEvent::Output(vec![1; LIMIT_BYTES])
+        );
+        assert_eq!(receiver.try_recv().unwrap().into_inner(), TestEvent::Closed);
+        assert!(
+            tokio::time::timeout(Duration::from_secs(1), &mut blocked_send)
+                .await
+                .unwrap()
+                .unwrap()
+                .is_ok()
+        );
+        assert_eq!(receiver.pending_bytes(), LIMIT_BYTES);
+        assert_eq!(
+            receiver.try_recv().unwrap().into_inner(),
+            TestEvent::Output(vec![2; LIMIT_BYTES])
+        );
+        assert_eq!(receiver.pending_bytes(), 0);
     }
 }

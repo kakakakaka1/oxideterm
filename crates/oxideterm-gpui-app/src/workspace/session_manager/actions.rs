@@ -1,5 +1,7 @@
+use super::*;
+
 impl WorkspaceApp {
-    fn filtered_session_connections(&self) -> Vec<ConnectionInfo> {
+    pub(super) fn filtered_session_connections(&self) -> Vec<ConnectionInfo> {
         let query = self.session_manager.search_query.trim().to_lowercase();
         let mut rows = self.connection_store.connection_infos();
         rows.retain(|conn| self.connection_matches_filter(conn));
@@ -29,7 +31,7 @@ impl WorkspaceApp {
         rows
     }
 
-    fn connection_matches_filter(&self, conn: &ConnectionInfo) -> bool {
+    pub(super) fn connection_matches_filter(&self, conn: &ConnectionInfo) -> bool {
         match self.session_manager.selected_group.as_deref() {
             None => true,
             Some(UNGROUPED_FILTER) => conn.group.is_none(),
@@ -40,7 +42,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn connection_count_for_group(&self, group: &str) -> usize {
+    pub(super) fn connection_count_for_group(&self, group: &str) -> usize {
         let connection_count = self
             .connection_store
             .connections()
@@ -94,7 +96,7 @@ impl WorkspaceApp {
         connection_count + serial_count + telnet_count + raw_tcp_count + raw_udp_count
     }
 
-    fn session_group_tree(&self) -> (Vec<String>, HashMap<String, Vec<String>>) {
+    pub(super) fn session_group_tree(&self) -> (Vec<String>, HashMap<String, Vec<String>>) {
         let mut paths = HashSet::new();
         for group in self.connection_store.groups() {
             add_group_path_segments(group, &mut paths);
@@ -139,7 +141,7 @@ impl WorkspaceApp {
         (roots, children)
     }
 
-    fn toggle_session_group_expanded(&mut self, group: &str) {
+    pub(super) fn toggle_session_group_expanded(&mut self, group: &str) {
         if self.session_manager.expanded_groups.contains(group) {
             self.session_manager.expanded_groups.remove(group);
         } else {
@@ -149,7 +151,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn connection_info_by_id(&self, id: &str) -> Option<ConnectionInfo> {
+    pub(super) fn connection_info_by_id(&self, id: &str) -> Option<ConnectionInfo> {
         self.connection_store
             .connection_infos()
             .into_iter()
@@ -160,7 +162,7 @@ impl WorkspaceApp {
         close_session_menu_state(&mut self.session_manager)
     }
 
-    fn toggle_session_view_mode_menu(&mut self) {
+    pub(super) fn toggle_session_view_mode_menu(&mut self) {
         let was_open = self.session_manager.view_mode_menu_open;
         self.close_session_row_menus();
         if !was_open {
@@ -170,7 +172,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn toggle_session_sort_menu(&mut self) {
+    pub(super) fn toggle_session_sort_menu(&mut self) {
         let was_open = self.session_manager.sort_menu_open;
         self.close_session_row_menus();
         if !was_open {
@@ -180,7 +182,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn set_session_sort_field(&mut self, field: SessionSortField) {
+    pub(super) fn set_session_sort_field(&mut self, field: SessionSortField) {
         if self.session_manager.sort_field == field {
             self.session_manager.sort_direction = self.session_manager.sort_direction.toggled();
         } else {
@@ -189,7 +191,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn toggle_connection_selection(&mut self, id: &str) {
+    pub(super) fn toggle_connection_selection(&mut self, id: &str) {
         if self.session_manager.selected_ids.contains(id) {
             self.session_manager.selected_ids.remove(id);
         } else {
@@ -197,7 +199,7 @@ impl WorkspaceApp {
         }
     }
 
-    pub(super) fn clear_session_selection_for_invisible_rows(&mut self) {
+    pub(in crate::workspace) fn clear_session_selection_for_invisible_rows(&mut self) {
         let visible_ids = self
             .filtered_session_connections()
             .into_iter()
@@ -208,7 +210,7 @@ impl WorkspaceApp {
             .retain(|id| visible_ids.contains(id));
     }
 
-    fn create_session_group(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn create_session_group(&mut self, cx: &mut Context<Self>) {
         let name = self.session_manager.new_group_name.trim().to_string();
         match self.connection_store.create_group(name.clone()) {
             Ok(()) => {
@@ -238,7 +240,7 @@ impl WorkspaceApp {
     }
 
     #[allow(dead_code)]
-    fn delete_connection(&mut self, id: &str, cx: &mut Context<Self>) {
+    pub(super) fn delete_connection(&mut self, id: &str, cx: &mut Context<Self>) {
         if let Err(error) = self.connection_store.delete(id) {
             self.session_manager.status = Some(error.to_string());
         } else {
@@ -258,7 +260,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn request_delete_connection(&mut self, id: &str, cx: &mut Context<Self>) {
+    pub(super) fn request_delete_connection(&mut self, id: &str, cx: &mut Context<Self>) {
         let Some(conn) = self.connection_info_by_id(id) else {
             return;
         };
@@ -272,7 +274,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn request_delete_serial_profile(&mut self, id: &str, cx: &mut Context<Self>) {
+    pub(super) fn request_delete_serial_profile(&mut self, id: &str, cx: &mut Context<Self>) {
         let Some(profile) = self
             .connection_store
             .serial_profiles()
@@ -290,7 +292,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn request_delete_telnet_profile(&mut self, id: &str, cx: &mut Context<Self>) {
+    pub(super) fn request_delete_telnet_profile(&mut self, id: &str, cx: &mut Context<Self>) {
         let Some(profile) = self
             .connection_store
             .telnet_profiles()
@@ -306,7 +308,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn request_delete_raw_tcp_profile(&mut self, id: &str, cx: &mut Context<Self>) {
+    pub(super) fn request_delete_raw_tcp_profile(&mut self, id: &str, cx: &mut Context<Self>) {
         let Some(profile) = self
             .connection_store
             .raw_tcp_profiles()
@@ -322,7 +324,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn request_delete_raw_udp_profile(&mut self, id: &str, cx: &mut Context<Self>) {
+    pub(super) fn request_delete_raw_udp_profile(&mut self, id: &str, cx: &mut Context<Self>) {
         let Some(profile) = self
             .connection_store
             .raw_udp_profiles()
@@ -338,7 +340,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn request_delete_selected_connections(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn request_delete_selected_connections(&mut self, cx: &mut Context<Self>) {
         let ids = self
             .session_manager
             .selected_ids
@@ -356,12 +358,12 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn cancel_session_manager_delete(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn cancel_session_manager_delete(&mut self, cx: &mut Context<Self>) {
         self.session_manager.delete_confirm = None;
         cx.notify();
     }
 
-    fn confirm_session_manager_delete(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn confirm_session_manager_delete(&mut self, cx: &mut Context<Self>) {
         let Some(confirm) = self.session_manager.delete_confirm.take() else {
             return;
         };
@@ -383,7 +385,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn delete_serial_profile(&mut self, id: &str, cx: &mut Context<Self>) {
+    pub(super) fn delete_serial_profile(&mut self, id: &str, cx: &mut Context<Self>) {
         match self.connection_store.delete_serial_profile(id) {
             Ok(true) => {
                 self.session_manager.status =
@@ -404,7 +406,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn delete_raw_tcp_profile(&mut self, id: &str, cx: &mut Context<Self>) {
+    pub(super) fn delete_raw_tcp_profile(&mut self, id: &str, cx: &mut Context<Self>) {
         match self.connection_store.delete_raw_tcp_profile(id) {
             Ok(true) => {
                 self.session_manager.status =
@@ -425,7 +427,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn delete_raw_udp_profile(&mut self, id: &str, cx: &mut Context<Self>) {
+    pub(super) fn delete_raw_udp_profile(&mut self, id: &str, cx: &mut Context<Self>) {
         match self.connection_store.delete_raw_udp_profile(id) {
             Ok(true) => {
                 self.session_manager.status =
@@ -446,10 +448,11 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn delete_telnet_profile(&mut self, id: &str, cx: &mut Context<Self>) {
+    pub(super) fn delete_telnet_profile(&mut self, id: &str, cx: &mut Context<Self>) {
         match self.connection_store.delete_telnet_profile(id) {
             Ok(true) => {
-                self.session_manager.status = Some(self.i18n.t("sessionManager.telnet_profiles.delete"));
+                self.session_manager.status =
+                    Some(self.i18n.t("sessionManager.telnet_profiles.delete"));
             }
             Ok(false) => {
                 self.session_manager.status =
@@ -465,7 +468,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn open_saved_raw_tcp_profile(
+    pub(super) fn open_saved_raw_tcp_profile(
         &mut self,
         id: &str,
         window: &mut Window,
@@ -496,7 +499,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn open_saved_raw_udp_profile(
+    pub(super) fn open_saved_raw_udp_profile(
         &mut self,
         id: &str,
         window: &mut Window,
@@ -527,7 +530,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn open_saved_serial_profile(
+    pub(super) fn open_saved_serial_profile(
         &mut self,
         id: &str,
         window: &mut Window,
@@ -565,7 +568,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn open_saved_telnet_profile(
+    pub(super) fn open_saved_telnet_profile(
         &mut self,
         id: &str,
         window: &mut Window,
@@ -598,7 +601,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn delete_connections_by_id(&mut self, ids: Vec<String>, cx: &mut Context<Self>) {
+    pub(super) fn delete_connections_by_id(&mut self, ids: Vec<String>, cx: &mut Context<Self>) {
         let mut deleted = 0;
         for id in ids {
             if self.connection_store.delete(&id).unwrap_or(false) {
@@ -621,7 +624,12 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn duplicate_connection(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn duplicate_connection(
+        &mut self,
+        id: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(conn) = self.connection_store.get(id).cloned() else {
             return;
         };
@@ -651,7 +659,12 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn test_connection(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn test_connection(
+        &mut self,
+        id: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(conn) = self.connection_store.get(id).cloned() else {
             self.session_manager.status = Some(self.i18n.t("sessionManager.toast.test_failed"));
             cx.notify();
@@ -678,7 +691,11 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn move_selected_connections(&mut self, group: Option<&str>, cx: &mut Context<Self>) {
+    pub(super) fn move_selected_connections(
+        &mut self,
+        group: Option<&str>,
+        cx: &mut Context<Self>,
+    ) {
         let ids = self
             .session_manager
             .selected_ids
@@ -703,7 +720,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn open_ssh_config_import(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn open_ssh_config_import(&mut self, cx: &mut Context<Self>) {
         let names = self
             .connection_store
             .connections()
@@ -729,7 +746,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn import_selected_ssh_hosts(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn import_selected_ssh_hosts(&mut self, cx: &mut Context<Self>) {
         let aliases = self
             .session_manager
             .selected_import_aliases
@@ -771,7 +788,7 @@ impl WorkspaceApp {
     }
 }
 
-fn close_session_menu_state(session_manager: &mut SessionManagerState) -> bool {
+pub(super) fn close_session_menu_state(session_manager: &mut SessionManagerState) -> bool {
     // SessionManager floating menus share one ContextMenu dismissal owner for
     // outside click, Esc, and guarded item activation.
     let changed = session_manager.view_mode_menu_open
@@ -783,7 +800,7 @@ fn close_session_menu_state(session_manager: &mut SessionManagerState) -> bool {
     changed
 }
 
-fn terminal_raw_tcp_config_from_profile(
+pub(super) fn terminal_raw_tcp_config_from_profile(
     profile: &oxideterm_connections::RawTcpProfile,
 ) -> oxideterm_terminal::RawTcpSessionConfig {
     // Raw TCP uses parallel persisted/runtime enums so the store can stay free
@@ -798,7 +815,7 @@ fn terminal_raw_tcp_config_from_profile(
     }
 }
 
-fn terminal_raw_udp_config_from_profile(
+pub(super) fn terminal_raw_udp_config_from_profile(
     profile: &oxideterm_connections::RawUdpProfile,
 ) -> oxideterm_terminal::RawUdpSessionConfig {
     // Raw UDP uses a bind/connect lifecycle, so persisted local bind settings
@@ -814,7 +831,7 @@ fn terminal_raw_udp_config_from_profile(
     }
 }
 
-fn terminal_raw_tcp_line_ending(
+pub(super) fn terminal_raw_tcp_line_ending(
     line_ending: &oxideterm_connections::RawTcpLineEnding,
 ) -> oxideterm_terminal::RawTcpLineEnding {
     match line_ending {
@@ -825,7 +842,7 @@ fn terminal_raw_tcp_line_ending(
     }
 }
 
-fn terminal_raw_tcp_display_mode(
+pub(super) fn terminal_raw_tcp_display_mode(
     display_mode: &oxideterm_connections::RawTcpDisplayMode,
 ) -> oxideterm_terminal::RawTcpDisplayMode {
     match display_mode {
@@ -839,7 +856,7 @@ fn terminal_raw_tcp_display_mode(
     }
 }
 
-fn terminal_raw_tcp_send_mode(
+pub(super) fn terminal_raw_tcp_send_mode(
     send_mode: &oxideterm_connections::RawTcpSendMode,
 ) -> oxideterm_terminal::RawTcpSendMode {
     match send_mode {
@@ -848,22 +865,18 @@ fn terminal_raw_tcp_send_mode(
     }
 }
 
-fn terminal_raw_udp_line_ending(
+pub(super) fn terminal_raw_udp_line_ending(
     line_ending: &oxideterm_connections::RawUdpLineEnding,
 ) -> oxideterm_terminal::RawUdpLineEnding {
     match line_ending {
         oxideterm_connections::RawUdpLineEnding::Lf => oxideterm_terminal::RawUdpLineEnding::Lf,
-        oxideterm_connections::RawUdpLineEnding::CrLf => {
-            oxideterm_terminal::RawUdpLineEnding::CrLf
-        }
+        oxideterm_connections::RawUdpLineEnding::CrLf => oxideterm_terminal::RawUdpLineEnding::CrLf,
         oxideterm_connections::RawUdpLineEnding::Cr => oxideterm_terminal::RawUdpLineEnding::Cr,
-        oxideterm_connections::RawUdpLineEnding::None => {
-            oxideterm_terminal::RawUdpLineEnding::None
-        }
+        oxideterm_connections::RawUdpLineEnding::None => oxideterm_terminal::RawUdpLineEnding::None,
     }
 }
 
-fn terminal_raw_udp_display_mode(
+pub(super) fn terminal_raw_udp_display_mode(
     display_mode: &oxideterm_connections::RawUdpDisplayMode,
 ) -> oxideterm_terminal::RawUdpDisplayMode {
     match display_mode {
@@ -877,7 +890,7 @@ fn terminal_raw_udp_display_mode(
     }
 }
 
-fn terminal_raw_udp_send_mode(
+pub(super) fn terminal_raw_udp_send_mode(
     send_mode: &oxideterm_connections::RawUdpSendMode,
 ) -> oxideterm_terminal::RawUdpSendMode {
     match send_mode {
@@ -886,7 +899,7 @@ fn terminal_raw_udp_send_mode(
     }
 }
 
-fn terminal_raw_tcp_tls_config(
+pub(super) fn terminal_raw_tcp_tls_config(
     profile: &oxideterm_connections::RawTcpProfile,
 ) -> oxideterm_terminal::RawTcpTlsConfig {
     if !matches!(
@@ -902,7 +915,7 @@ fn terminal_raw_tcp_tls_config(
     }
 }
 
-fn terminal_raw_tcp_tls_verification(
+pub(super) fn terminal_raw_tcp_tls_verification(
     verification: &oxideterm_connections::RawTcpTlsVerification,
 ) -> oxideterm_terminal::RawTcpTlsVerification {
     match verification {

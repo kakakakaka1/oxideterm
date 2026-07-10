@@ -1,4 +1,6 @@
-fn put_terminal_history_entry(
+use super::*;
+
+pub(super) fn put_terminal_history_entry(
     entries: &mut HashMap<String, TerminalHistoryEntry>,
     command: String,
     source: TerminalHistorySource,
@@ -31,7 +33,7 @@ fn put_terminal_history_entry(
         });
 }
 
-fn normalize_terminal_command_suggestions(
+pub(super) fn normalize_terminal_command_suggestions(
     suggestions: Vec<TerminalCommandSuggestion>,
 ) -> Vec<TerminalCommandSuggestion> {
     let mut by_key: HashMap<String, TerminalCommandSuggestion> = HashMap::new();
@@ -78,7 +80,7 @@ fn terminal_command_suggestion_kind_key(kind: TerminalCommandSuggestionKind) -> 
     }
 }
 
-fn terminal_command_risk_score_penalty(risk: Option<&'static str>) -> f64 {
+pub(super) fn terminal_command_risk_score_penalty(risk: Option<&'static str>) -> f64 {
     match risk {
         Some("high") => 900.0,
         Some("medium") => 250.0,

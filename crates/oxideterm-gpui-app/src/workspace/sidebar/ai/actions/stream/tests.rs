@@ -61,7 +61,11 @@ mod ai_turn_order_tests {
             tool_name: "run_command".to_string(),
             source_kind: "output".to_string(),
             text_hash: ai_tool_fact_hash(output_preview),
-            summary: output_preview.lines().next().unwrap_or_default().to_string(),
+            summary: output_preview
+                .lines()
+                .next()
+                .unwrap_or_default()
+                .to_string(),
             output_preview: output_preview.to_string(),
             created_at: 1,
             runtime_epoch: "epoch-1".to_string(),
@@ -107,7 +111,10 @@ mod ai_turn_order_tests {
 
         assert_eq!(trimmed, 1);
         assert_eq!(
-            history.iter().map(|message| message.id.as_str()).collect::<Vec<_>>(),
+            history
+                .iter()
+                .map(|message| message.id.as_str())
+                .collect::<Vec<_>>(),
             vec!["system", "assistant-1", "user-2"]
         );
     }
@@ -171,12 +178,18 @@ mod ai_turn_order_tests {
         let registry = oxideterm_ai::McpRegistry::new(oxideterm_ai::AiProviderKeyStore::new());
         let policy = oxideterm_ai::AiToolUsePolicy {
             enabled: true,
-            disabled_tools: vec!["list_mcp_resources".to_string(), "read_resource".to_string()],
+            disabled_tools: vec![
+                "list_mcp_resources".to_string(),
+                "read_resource".to_string(),
+            ],
             ..oxideterm_ai::AiToolUsePolicy::default()
         };
 
         let tools = ai_stream_tool_definitions(true, &policy, &registry);
-        let names = tools.iter().map(|tool| tool.name.as_str()).collect::<Vec<_>>();
+        let names = tools
+            .iter()
+            .map(|tool| tool.name.as_str())
+            .collect::<Vec<_>>();
 
         assert!(names.contains(&"read_resource"));
         assert!(names.contains(&"read_mcp_resource"));
@@ -297,12 +310,24 @@ mod ai_turn_order_tests {
                 "state.list".to_string(),
             ]
         );
-        assert_eq!(target.refs.get("nodeId").map(String::as_str), Some("node-1"));
-        assert_eq!(target.refs.get("sessionId").map(String::as_str), Some("sftp-1"));
-        assert_eq!(target.refs.get("connectionId").map(String::as_str), Some("conn-1"));
+        assert_eq!(
+            target.refs.get("nodeId").map(String::as_str),
+            Some("node-1")
+        );
+        assert_eq!(
+            target.refs.get("sessionId").map(String::as_str),
+            Some("sftp-1")
+        );
+        assert_eq!(
+            target.refs.get("connectionId").map(String::as_str),
+            Some("conn-1")
+        );
         assert!(!target.refs.contains_key("tabId"));
         assert_eq!(
-            target.metadata.get("host").and_then(serde_json::Value::as_str),
+            target
+                .metadata
+                .get("host")
+                .and_then(serde_json::Value::as_str),
             Some("example.com")
         );
     }
@@ -332,7 +357,10 @@ mod ai_turn_order_tests {
         assert_eq!(target.id, "ide-workspace:node-1");
         assert_eq!(target.kind, "ide-workspace");
         assert_eq!(target.label, "app");
-        assert_eq!(target.refs.get("nodeId").map(String::as_str), Some("node-1"));
+        assert_eq!(
+            target.refs.get("nodeId").map(String::as_str),
+            Some("node-1")
+        );
         assert_eq!(
             target.refs.get("connectionId").map(String::as_str),
             Some("conn-1")
@@ -342,11 +370,17 @@ mod ai_turn_order_tests {
             Some("editor-tab-1")
         );
         assert_eq!(
-            target.metadata.get("rootPath").and_then(serde_json::Value::as_str),
+            target
+                .metadata
+                .get("rootPath")
+                .and_then(serde_json::Value::as_str),
             Some("/srv/app")
         );
         assert_eq!(
-            target.metadata.get("activeTabId").and_then(serde_json::Value::as_str),
+            target
+                .metadata
+                .get("activeTabId")
+                .and_then(serde_json::Value::as_str),
             Some("editor-tab-1")
         );
     }
@@ -388,14 +422,20 @@ mod ai_turn_order_tests {
             target.refs.get("sessionId").map(String::as_str),
             Some("session-1")
         );
-        assert_eq!(target.refs.get("nodeId").map(String::as_str), Some("node-1"));
+        assert_eq!(
+            target.refs.get("nodeId").map(String::as_str),
+            Some("node-1")
+        );
         assert_eq!(
             target.refs.get("connectionId").map(String::as_str),
             Some("conn-1")
         );
         assert!(!target.refs.contains_key("tabId"));
         assert_eq!(
-            target.metadata.get("terminalType").and_then(serde_json::Value::as_str),
+            target
+                .metadata
+                .get("terminalType")
+                .and_then(serde_json::Value::as_str),
             Some("terminal")
         );
         assert!(target.metadata.get("paneId").is_none());
@@ -572,7 +612,11 @@ mod ai_turn_order_tests {
         assert_eq!(prompt.len(), 2);
         assert_eq!(prompt[0].role, AiChatRole::System);
         assert_eq!(prompt[1].role, AiChatRole::User);
-        assert!(prompt[1].content.contains("[Previous Summary]:  previous summary "));
+        assert!(
+            prompt[1]
+                .content
+                .contains("[Previous Summary]:  previous summary ")
+        );
         assert!(prompt[1].content.contains("User:  question "));
         assert!(prompt[1].content.contains("Assistant:  answer "));
         assert!(!prompt[1].content.contains("tool output"));
@@ -653,11 +697,15 @@ mod ai_turn_order_tests {
         ];
         let source_ref = ai_summary_source_transcript_ref(&compacted, "conv-1");
         assert_eq!(
-            source_ref.get("startEntryId").and_then(serde_json::Value::as_str),
+            source_ref
+                .get("startEntryId")
+                .and_then(serde_json::Value::as_str),
             Some("u-1")
         );
         assert_eq!(
-            source_ref.get("endEntryId").and_then(serde_json::Value::as_str),
+            source_ref
+                .get("endEntryId")
+                .and_then(serde_json::Value::as_str),
             Some("a-2")
         );
 
@@ -696,7 +744,10 @@ mod ai_turn_order_tests {
             .expect("compaction transcript lookup reference");
         let lookup_prompt = ai_build_transcript_lookup_prompt_reference(lookup_ref);
 
-        assert_eq!(history[0].content, "Previous conversation summary:\nsummary");
+        assert_eq!(
+            history[0].content,
+            "Previous conversation summary:\nsummary"
+        );
         assert!(lookup_prompt.contains("conversation=conv-1"));
         assert!(lookup_prompt.contains("start=u-1"));
         assert!(lookup_prompt.contains("end=a-2"));
@@ -711,11 +762,7 @@ mod ai_turn_order_tests {
             test_message("a-2", AiChatRole::Assistant, "answer".to_string()),
         ];
         let source_ref = ai_summary_source_transcript_ref(&summarized, "conv-1");
-        let mut summary = test_message(
-            "summary-1",
-            AiChatRole::Assistant,
-            "summary".to_string(),
-        );
+        let mut summary = test_message("summary-1", AiChatRole::Assistant, "summary".to_string());
         summary.transcript_ref = Some(serde_json::json!({
             "conversationId": "conv-1",
             "endEntryId": "transcript-summary-created-summary-1",
@@ -768,14 +815,22 @@ mod ai_turn_order_tests {
                 transcript_ref: None,
                 summary_ref: None,
                 branches: None,
-            suggestions: Vec::new(),
+                suggestions: Vec::new(),
             })
             .collect::<Vec<_>>();
 
         condense_ai_tool_messages(&mut history);
 
-        assert!(history[0].content.starts_with("[condensed] read_resource -> ok:"));
-        assert!(history[1].content.starts_with("[condensed] read_resource -> ok:"));
+        assert!(
+            history[0]
+                .content
+                .starts_with("[condensed] read_resource -> ok:")
+        );
+        assert!(
+            history[1]
+                .content
+                .starts_with("[condensed] read_resource -> ok:")
+        );
         assert!(!history[2].content.starts_with("[condensed]"));
     }
 
@@ -981,8 +1036,7 @@ mod ai_turn_order_tests {
             ),
         ]);
 
-        let filtered =
-            ai_tool_result_facts_for_message(&facts, "conversation-1", "assistant-1");
+        let filtered = ai_tool_result_facts_for_message(&facts, "conversation-1", "assistant-1");
 
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].fact_id, "current-tool.output");
@@ -1005,9 +1059,21 @@ mod ai_turn_order_tests {
         let facts = extract_ai_tool_result_facts(&record, Some(&result), 42);
 
         assert!(facts.iter().any(|fact| fact.fact_id == "tool-1.output"));
-        assert!(facts.iter().any(|fact| fact.fact_id == "tool-1.execution.exit_code"));
-        assert!(facts.iter().all(|fact| fact.text_hash.starts_with("sha256:")));
-        assert!(facts.iter().any(|fact| fact.output_preview.contains("468G")));
+        assert!(
+            facts
+                .iter()
+                .any(|fact| fact.fact_id == "tool-1.execution.exit_code")
+        );
+        assert!(
+            facts
+                .iter()
+                .all(|fact| fact.text_hash.starts_with("sha256:"))
+        );
+        assert!(
+            facts
+                .iter()
+                .any(|fact| fact.output_preview.contains("468G"))
+        );
     }
 
     #[test]
@@ -1194,10 +1260,17 @@ mod ai_turn_order_tests {
         let obligation = ai_classify_orchestrator_obligation("打开本地终端");
 
         assert_eq!(obligation.mode, AiOrchestratorObligationMode::Required);
-        assert!(obligation.candidate_tools.iter().any(|tool| tool == "open_app_surface"));
-        assert!(ai_orchestrator_obligation_prompt(&obligation)
-            .expect("prompt")
-            .contains("Required Tool Call"));
+        assert!(
+            obligation
+                .candidate_tools
+                .iter()
+                .any(|tool| tool == "open_app_surface")
+        );
+        assert!(
+            ai_orchestrator_obligation_prompt(&obligation)
+                .expect("prompt")
+                .contains("Required Tool Call")
+        );
         assert!(oxideterm_ai::ai_should_retry_required_tool_round(
             &obligation,
             "我已经打开了本地终端。"
@@ -1447,7 +1520,7 @@ mod ai_turn_order_tests {
                 transcript_ref: None,
                 summary_ref: None,
                 branches: None,
-            suggestions: Vec::new(),
+                suggestions: Vec::new(),
             },
             AiChatMessage {
                 id: "assistant-1".to_string(),
@@ -1475,7 +1548,7 @@ mod ai_turn_order_tests {
                 transcript_ref: None,
                 summary_ref: None,
                 branches: None,
-            suggestions: Vec::new(),
+                suggestions: Vec::new(),
             },
             AiChatMessage {
                 id: "tool-result-call-1".to_string(),
@@ -1493,7 +1566,7 @@ mod ai_turn_order_tests {
                 transcript_ref: None,
                 summary_ref: None,
                 branches: None,
-            suggestions: Vec::new(),
+                suggestions: Vec::new(),
             },
         ];
 
@@ -1556,7 +1629,7 @@ mod ai_turn_order_tests {
                 transcript_ref: None,
                 summary_ref: None,
                 branches: None,
-            suggestions: Vec::new(),
+                suggestions: Vec::new(),
             },
             AiChatMessage {
                 id: "stale-system".to_string(),
@@ -1574,7 +1647,7 @@ mod ai_turn_order_tests {
                 transcript_ref: None,
                 summary_ref: None,
                 branches: None,
-            suggestions: Vec::new(),
+                suggestions: Vec::new(),
             },
             AiChatMessage {
                 id: "anchor-1".to_string(),
@@ -1597,7 +1670,7 @@ mod ai_turn_order_tests {
                 transcript_ref: None,
                 summary_ref: None,
                 branches: None,
-            suggestions: Vec::new(),
+                suggestions: Vec::new(),
             },
             AiChatMessage {
                 id: "user-1".to_string(),
@@ -1615,7 +1688,7 @@ mod ai_turn_order_tests {
                 transcript_ref: None,
                 summary_ref: None,
                 branches: None,
-            suggestions: Vec::new(),
+                suggestions: Vec::new(),
             },
         ];
 
@@ -1734,10 +1807,7 @@ mod ai_turn_order_tests {
             .expect("turn parts");
         assert!(parts.iter().any(|part| {
             part.get("type").and_then(serde_json::Value::as_str) == Some("tool_result")
-                && part
-                    .get("toolCallId")
-                    .and_then(serde_json::Value::as_str)
-                    == Some("call-1")
+                && part.get("toolCallId").and_then(serde_json::Value::as_str) == Some("call-1")
         }));
         assert_eq!(
             conversation.messages[0]

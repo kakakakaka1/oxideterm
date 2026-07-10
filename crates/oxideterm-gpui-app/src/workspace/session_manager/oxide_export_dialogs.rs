@@ -1,3 +1,5 @@
+use super::*;
+
 impl WorkspaceApp {
     pub(in crate::workspace) fn render_oxide_export_dialog(
         &self,
@@ -111,7 +113,11 @@ impl WorkspaceApp {
                             ))
                             .child(self.render_oxide_security_notice(dialog, cx))
                             .when_some(dialog.progress_stage.clone(), |body, progress| {
-                                body.child(self.render_oxide_progress(progress, Some(dialog.embed_keys), cx))
+                                body.child(self.render_oxide_progress(
+                                    progress,
+                                    Some(dialog.embed_keys),
+                                    cx,
+                                ))
                             })
                             .when_some(dialog.result_summary.clone(), |body, result| {
                                 body.child(self.render_oxide_status_line(result, false, cx))
@@ -120,12 +126,12 @@ impl WorkspaceApp {
                                 body.child(self.render_oxide_error_banner(error, cx))
                             })
                             .child(self.render_oxide_export_footer(dialog, cx)),
-                    )
+                    ),
             )
             .into_any_element()
     }
 
-    fn render_oxide_export_credential_options(
+    pub(super) fn render_oxide_export_credential_options(
         &self,
         dialog: &OxideExportDialogState,
         cx: &mut Context<Self>,
@@ -163,8 +169,7 @@ impl WorkspaceApp {
                 ),
                 self.render_oxide_option_row(
                     self.i18n.t("export.include_key_passphrases"),
-                    self.i18n
-                        .t("export.include_key_passphrases_description"),
+                    self.i18n.t("export.include_key_passphrases_description"),
                     dialog.include_key_passphrases,
                     cx.listener(|this, _event, _window, cx| {
                         if let Some(dialog) = this.session_manager.oxide_export_dialog.as_mut() {
@@ -194,31 +199,36 @@ impl WorkspaceApp {
                     cx,
                 ),
                 div()
-                    .opacity(if dialog.include_managed_keys { 1.0 } else { 0.45 })
-                    .child(self.render_oxide_option_row(
-                        self.i18n.t("export.include_managed_key_passphrases"),
-                        self.i18n
-                            .t("export.include_managed_key_passphrases_description"),
-                        dialog.include_managed_key_passphrases,
-                        cx.listener(|this, _event, _window, cx| {
-                            if let Some(dialog) = this.session_manager.oxide_export_dialog.as_mut()
-                            {
-                                if dialog.include_managed_keys {
-                                    dialog.include_managed_key_passphrases =
-                                        !dialog.include_managed_key_passphrases;
+                    .opacity(if dialog.include_managed_keys {
+                        1.0
+                    } else {
+                        0.45
+                    })
+                    .child(
+                        self.render_oxide_option_row(
+                            self.i18n.t("export.include_managed_key_passphrases"),
+                            self.i18n
+                                .t("export.include_managed_key_passphrases_description"),
+                            dialog.include_managed_key_passphrases,
+                            cx.listener(|this, _event, _window, cx| {
+                                if let Some(dialog) =
+                                    this.session_manager.oxide_export_dialog.as_mut()
+                                {
+                                    if dialog.include_managed_keys {
+                                        dialog.include_managed_key_passphrases =
+                                            !dialog.include_managed_key_passphrases;
+                                    }
                                 }
-                            }
-                            this.refresh_oxide_export_preflight();
-                            cx.notify();
-                            cx.stop_propagation();
-                        }),
-                        cx,
-                    ))
+                                this.refresh_oxide_export_preflight();
+                                cx.notify();
+                                cx.stop_propagation();
+                            }),
+                            cx,
+                        ),
+                    )
                     .into_any_element(),
             ],
             cx,
         )
     }
-
-
 }

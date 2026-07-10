@@ -1,5 +1,7 @@
+use super::*;
+
 impl WorkspaceApp {
-    fn render_session_manager_button(
+    pub(super) fn render_session_manager_button(
         &self,
         icon: LucideIcon,
         label: String,
@@ -26,7 +28,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn render_toolbar_button(
+    pub(super) fn render_toolbar_button(
         &self,
         icon: LucideIcon,
         label: String,
@@ -60,7 +62,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn render_toolbar_link_icon(
+    pub(super) fn render_toolbar_link_icon(
         &self,
         icon: LucideIcon,
         label_key: &str,
@@ -109,7 +111,7 @@ impl WorkspaceApp {
         .into_any_element()
     }
 
-    pub(super) fn render_session_text_input(
+    pub(in crate::workspace) fn render_session_text_input(
         &self,
         target: SessionManagerInput,
         value: &str,
@@ -119,7 +121,7 @@ impl WorkspaceApp {
         self.render_session_text_input_with_options(target, value, placeholder, false, cx)
     }
 
-    fn render_session_text_input_with_options(
+    pub(super) fn render_session_text_input_with_options(
         &self,
         target: SessionManagerInput,
         value: &str,
@@ -241,7 +243,7 @@ impl WorkspaceApp {
                                     self.new_connection_caret_visible,
                                 ))
                             },
-                        )
+                        ),
                 )
                 .on_mouse_down(
                     MouseButton::Left,
@@ -250,7 +252,12 @@ impl WorkspaceApp {
                         this.ime_marked_text = None;
                         this.needs_active_pane_focus = false;
                         window.focus(&this.focus_handle);
-                        this.begin_ime_selection_from_mouse_down(WorkspaceImeTarget::SessionManager(target), event, window, cx);
+                        this.begin_ime_selection_from_mouse_down(
+                            WorkspaceImeTarget::SessionManager(target),
+                            event,
+                            window,
+                            cx,
+                        );
                         cx.stop_propagation();
                     }),
                 )
@@ -268,7 +275,7 @@ impl WorkspaceApp {
         .into_any_element()
     }
 
-    pub(super) fn render_session_password_input(
+    pub(in crate::workspace) fn render_session_password_input(
         &self,
         target: SessionManagerInput,
         value: &str,

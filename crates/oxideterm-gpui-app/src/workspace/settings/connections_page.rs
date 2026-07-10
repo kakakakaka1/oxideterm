@@ -1,8 +1,10 @@
-const CONNECTION_IMPORT_PANEL_MAX_WIDTH: f32 = 896.0; // Tauri ConnectionImportPanel max-w-4xl.
-const CONNECTION_IDLE_TIMEOUT_CONTROL_WIDTH: f32 = 320.0; // Keep the standalone idle-timeout select from expanding into side panels.
+use super::*;
+
+pub(in crate::workspace) const CONNECTION_IMPORT_PANEL_MAX_WIDTH: f32 = 896.0; // Tauri ConnectionImportPanel max-w-4xl.
+pub(in crate::workspace) const CONNECTION_IDLE_TIMEOUT_CONTROL_WIDTH: f32 = 320.0; // Keep the standalone idle-timeout select from expanding into side panels.
 
 impl WorkspaceApp {
-    fn settings_connections_section(
+    pub(in crate::workspace) fn settings_connections_section(
         &self,
         section_index: usize,
         cx: &mut Context<Self>,
@@ -34,7 +36,11 @@ impl WorkspaceApp {
         }
     }
 
-    fn settings_ssh_section(&self, section_index: usize, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn settings_ssh_section(
+        &self,
+        section_index: usize,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         if section_index != 0 {
             return div().into_any_element();
         }
@@ -67,9 +73,10 @@ impl WorkspaceApp {
                 "settings_view.ssh_keys.managed_description",
                 Some(self.managed_ssh_key_toolbar(cx)),
             ))
-            .when_some(self.settings_managed_key_status.clone(), |section, status| {
-                section.child(self.connection_status_row(status))
-            })
+            .when_some(
+                self.settings_managed_key_status.clone(),
+                |section, status| section.child(self.connection_status_row(status)),
+            )
             .child(if self.connection_store.managed_ssh_keys().is_empty() {
                 self.managed_ssh_keys_empty_state()
             } else {
@@ -78,7 +85,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn connection_defaults_section(
+    pub(in crate::workspace) fn connection_defaults_section(
         &self,
         settings: &PersistedSettings,
         cx: &mut Context<Self>,
@@ -105,7 +112,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn connection_labeled_input(
+    pub(in crate::workspace) fn connection_labeled_input(
         &self,
         label_key: &str,
         input: SettingsInput,
@@ -133,7 +140,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn connection_idle_timeout_control(
+    pub(in crate::workspace) fn connection_idle_timeout_control(
         &self,
         settings: &PersistedSettings,
         cx: &mut Context<Self>,
@@ -171,7 +178,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn ssh_config_import_section(
+    pub(in crate::workspace) fn ssh_config_import_section(
         &self,
         ssh_hosts: Vec<SshConfigHost>,
         cx: &mut Context<Self>,
@@ -194,11 +201,7 @@ impl WorkspaceApp {
                     .items_center()
                     .justify_between()
                     .mb(px(-6.0))
-                    .child(self.ssh_config_toggle_all_button(
-                        all_selected,
-                        importable_count,
-                        cx,
-                    ))
+                    .child(self.ssh_config_toggle_all_button(all_selected, importable_count, cx))
                     .when(selected_count > 0, |toolbar| {
                         toolbar.child(self.ssh_config_batch_import_button(selected_count, cx))
                     })
@@ -235,7 +238,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn connection_section(
+    pub(in crate::workspace) fn connection_section(
         &self,
         title_key: &str,
         description_key: &str,
@@ -270,7 +273,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn ssh_config_toggle_all_button(
+    pub(in crate::workspace) fn ssh_config_toggle_all_button(
         &self,
         all_selected: bool,
         importable_count: usize,
@@ -278,9 +281,11 @@ impl WorkspaceApp {
     ) -> AnyElement {
         let disabled = importable_count == 0;
         let label = if all_selected {
-            self.i18n.t("settings_view.connections.ssh_config.deselect_all")
+            self.i18n
+                .t("settings_view.connections.ssh_config.deselect_all")
         } else {
-            self.i18n.t("settings_view.connections.ssh_config.select_all")
+            self.i18n
+                .t("settings_view.connections.ssh_config.select_all")
         };
         div()
             .text_size(px(self.tokens.metrics.ui_text_xs))
@@ -301,7 +306,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn ssh_config_batch_import_button(
+    pub(in crate::workspace) fn ssh_config_batch_import_button(
         &self,
         selected_count: usize,
         cx: &mut Context<Self>,
@@ -344,10 +349,17 @@ impl WorkspaceApp {
         .into_any_element()
     }
 
-    fn ssh_config_host_row(&self, host: SshConfigHost, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn ssh_config_host_row(
+        &self,
+        host: SshConfigHost,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let theme = self.tokens.ui;
         let alias = host.alias.clone();
-        let checked = self.settings_page.settings_selected_ssh_hosts.contains(&alias);
+        let checked = self
+            .settings_page
+            .settings_selected_ssh_hosts
+            .contains(&alias);
         let disabled = host.already_imported;
         let detail = format!(
             "{}@{}:{}",
@@ -435,7 +447,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn ssh_config_import_button(
+    pub(in crate::workspace) fn ssh_config_import_button(
         &self,
         alias: String,
         disabled: bool,
@@ -475,7 +487,7 @@ impl WorkspaceApp {
         .into_any_element()
     }
 
-    fn ssh_config_checkbox(&self, checked: bool) -> AnyElement {
+    pub(in crate::workspace) fn ssh_config_checkbox(&self, checked: bool) -> AnyElement {
         div()
             .size(px(20.0))
             .flex_none()
@@ -500,7 +512,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn ssh_config_imported_badge(&self) -> AnyElement {
+    pub(in crate::workspace) fn ssh_config_imported_badge(&self) -> AnyElement {
         div()
             .px(px(6.0))
             .py(px(2.0))
@@ -515,7 +527,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn ssh_config_empty_state(&self) -> AnyElement {
+    pub(in crate::workspace) fn ssh_config_empty_state(&self) -> AnyElement {
         div()
             .w_full()
             .max_w(px(672.0))
@@ -535,7 +547,10 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn connection_importers_section(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn connection_importers_section(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let mut rows = vec![
             self.connection_import_source_picker(cx),
             self.connection_import_path_toolbar(cx),
@@ -557,7 +572,10 @@ impl WorkspaceApp {
         )
     }
 
-    fn connection_import_source_picker(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn connection_import_source_picker(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let selected_label =
             connection_import_source_label(self.settings_connection_import_source, &self.i18n);
         div()
@@ -572,19 +590,20 @@ impl WorkspaceApp {
                     .text_color(rgb(self.tokens.ui.text))
                     .child(self.i18n.t("settings_view.connections.importers.source")),
             )
-            .child(
-                self.settings_select_control(
-                    SettingsSelect::ConnectionImportSource,
-                    selected_label,
-                    false,
-                    None,
-                    cx,
-                ),
-            )
+            .child(self.settings_select_control(
+                SettingsSelect::ConnectionImportSource,
+                selected_label,
+                false,
+                None,
+                cx,
+            ))
             .into_any_element()
     }
 
-    fn connection_import_path_toolbar(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn connection_import_path_toolbar(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let has_paths = !self.settings_connection_import_paths.is_empty();
         div()
             .w_full()
@@ -594,16 +613,21 @@ impl WorkspaceApp {
             .flex_wrap()
             .gap(px(8.0))
             .child(self.connection_import_pick_files_button(cx))
-            .when(self.settings_connection_import_source != ConnectionImportSource::Termius, |row| {
-                row.child(self.connection_import_pick_directory_button(cx))
-            })
+            .when(
+                self.settings_connection_import_source != ConnectionImportSource::Termius,
+                |row| row.child(self.connection_import_pick_directory_button(cx)),
+            )
             .child(self.connection_import_preview_button(has_paths, cx))
             .into_any_element()
     }
 
-    fn connection_import_pick_files_button(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn connection_import_pick_files_button(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         self.workspace_toolbar_action_button(
-            self.i18n.t("settings_view.connections.importers.choose_files"),
+            self.i18n
+                .t("settings_view.connections.importers.choose_files"),
             Some(Self::render_lucide_icon(
                 LucideIcon::FolderInput,
                 16.0,
@@ -618,9 +642,13 @@ impl WorkspaceApp {
         .into_any_element()
     }
 
-    fn connection_import_pick_directory_button(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn connection_import_pick_directory_button(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         self.workspace_toolbar_action_button(
-            self.i18n.t("settings_view.connections.importers.choose_directory"),
+            self.i18n
+                .t("settings_view.connections.importers.choose_directory"),
             Some(Self::render_lucide_icon(
                 LucideIcon::FolderOpen,
                 16.0,
@@ -635,7 +663,7 @@ impl WorkspaceApp {
         .into_any_element()
     }
 
-    fn connection_import_preview_button(
+    pub(in crate::workspace) fn connection_import_preview_button(
         &self,
         has_paths: bool,
         cx: &mut Context<Self>,
@@ -668,7 +696,7 @@ impl WorkspaceApp {
         .into_any_element()
     }
 
-    fn connection_import_secondary_button_options(
+    pub(in crate::workspace) fn connection_import_secondary_button_options(
         &self,
         disabled: bool,
     ) -> ToolbarButtonOptions {
@@ -690,7 +718,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn connection_import_path_summary(&self) -> AnyElement {
+    pub(in crate::workspace) fn connection_import_path_summary(&self) -> AnyElement {
         let summary = if self.settings_connection_import_paths.is_empty() {
             self.i18n.t("settings_view.connections.importers.no_paths")
         } else {
@@ -705,12 +733,16 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn connection_import_preview_toolbar(
+    pub(in crate::workspace) fn connection_import_preview_toolbar(
         &self,
         preview: &ConnectionImportPreview,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let importable = preview.drafts.iter().filter(|draft| draft.importable).count();
+        let importable = preview
+            .drafts
+            .iter()
+            .filter(|draft| draft.importable)
+            .count();
         let all_selected = importable > 0
             && preview
                 .drafts
@@ -742,7 +774,8 @@ impl WorkspaceApp {
                         self.settings_text_input_control(
                             SettingsInput::ConnectionImportTargetGroup,
                             self.settings_connection_import_target_group.clone(),
-                            self.i18n.t("settings_view.connections.importers.target_group"),
+                            self.i18n
+                                .t("settings_view.connections.importers.target_group"),
                             192.0,
                             cx,
                         )
@@ -753,7 +786,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn connection_import_toggle_all_button(
+    pub(in crate::workspace) fn connection_import_toggle_all_button(
         &self,
         all_selected: bool,
         importable_count: usize,
@@ -761,9 +794,11 @@ impl WorkspaceApp {
     ) -> AnyElement {
         let disabled = importable_count == 0;
         let label = if all_selected {
-            self.i18n.t("settings_view.connections.importers.deselect_all")
+            self.i18n
+                .t("settings_view.connections.importers.deselect_all")
         } else {
-            self.i18n.t("settings_view.connections.importers.select_all")
+            self.i18n
+                .t("settings_view.connections.importers.select_all")
         };
         div()
             .text_size(px(self.tokens.metrics.ui_text_xs))
@@ -784,7 +819,10 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn connection_import_duplicate_strategy_picker(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn connection_import_duplicate_strategy_picker(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let selected_label = connection_import_duplicate_strategy_label(
             self.settings_connection_import_duplicate_strategy,
             &self.i18n,
@@ -805,7 +843,10 @@ impl WorkspaceApp {
         )
     }
 
-    fn connection_import_apply_button(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn connection_import_apply_button(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let selected_count = self.settings_selected_connection_import_drafts.len();
         let label = self
             .i18n
@@ -842,7 +883,7 @@ impl WorkspaceApp {
         .into_any_element()
     }
 
-    fn connection_import_preview_list(
+    pub(in crate::workspace) fn connection_import_preview_list(
         &self,
         preview: ConnectionImportPreview,
         cx: &mut Context<Self>,
@@ -883,7 +924,7 @@ impl WorkspaceApp {
         list.into_any_element()
     }
 
-    fn connection_import_preview_row(
+    pub(in crate::workspace) fn connection_import_preview_row(
         &self,
         draft: oxideterm_connections::ImportedConnectionDraft,
         cx: &mut Context<Self>,
@@ -988,7 +1029,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn connection_import_duplicate_badge(&self) -> AnyElement {
+    pub(in crate::workspace) fn connection_import_duplicate_badge(&self) -> AnyElement {
         div()
             .px(px(6.0))
             .py(px(2.0))
@@ -1000,7 +1041,10 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn ssh_key_row(&self, key: oxideterm_connections::SshKeyInfo) -> AnyElement {
+    pub(in crate::workspace) fn ssh_key_row(
+        &self,
+        key: oxideterm_connections::SshKeyInfo,
+    ) -> AnyElement {
         let theme = self.tokens.ui;
         div()
             .w_full()
@@ -1067,7 +1111,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn ssh_key_section_header(
+    pub(in crate::workspace) fn ssh_key_section_header(
         &self,
         title_key: &str,
         description_key: &str,
@@ -1104,7 +1148,10 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn managed_ssh_key_toolbar(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn managed_ssh_key_toolbar(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         div()
             .flex()
             .flex_row()
@@ -1144,14 +1191,18 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn managed_key_action_button(
+    pub(in crate::workspace) fn managed_key_action_button(
         &self,
         icon: LucideIcon,
         label_key: &'static str,
         variant: ButtonVariant,
         cx: &mut Context<Self>,
-        handler: impl Fn(&mut WorkspaceApp, &gpui::MouseDownEvent, &mut Window, &mut Context<WorkspaceApp>)
-        + 'static,
+        handler: impl Fn(
+            &mut WorkspaceApp,
+            &gpui::MouseDownEvent,
+            &mut Window,
+            &mut Context<WorkspaceApp>,
+        ) + 'static,
     ) -> AnyElement {
         self.workspace_toolbar_action_button(
             self.i18n.t(label_key),
@@ -1181,7 +1232,11 @@ impl WorkspaceApp {
         .into_any_element()
     }
 
-    fn managed_ssh_key_row(&self, key: ManagedSshKeyInfo, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn managed_ssh_key_row(
+        &self,
+        key: ManagedSshKeyInfo,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let theme = self.tokens.ui;
         let usage = self
             .connection_store
@@ -1282,7 +1337,11 @@ impl WorkspaceApp {
                             let key_id = key.id.clone();
                             let key_name = key.name.clone();
                             move |this, _event, _window, cx| {
-                                this.open_managed_key_rename_dialog(key_id.clone(), key_name.clone(), cx);
+                                this.open_managed_key_rename_dialog(
+                                    key_id.clone(),
+                                    key_name.clone(),
+                                    cx,
+                                );
                                 cx.stop_propagation();
                             }
                         },
@@ -1309,7 +1368,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn managed_ssh_keys_empty_state(&self) -> AnyElement {
+    pub(in crate::workspace) fn managed_ssh_keys_empty_state(&self) -> AnyElement {
         div()
             .w_full()
             .max_w(px(960.0))
@@ -1324,7 +1383,10 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn managed_key_origin_label(&self, origin: &ManagedSshKeyOrigin) -> String {
+    pub(in crate::workspace) fn managed_key_origin_label(
+        &self,
+        origin: &ManagedSshKeyOrigin,
+    ) -> String {
         match origin {
             ManagedSshKeyOrigin::ImportedFile => {
                 self.i18n.t("settings_view.ssh_keys.origin_imported_file")
@@ -1358,7 +1420,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn render_settings_managed_key_import_file_dialog(
+    pub(in crate::workspace) fn render_settings_managed_key_import_file_dialog(
         &self,
         cx: &mut Context<Self>,
     ) -> AnyElement {
@@ -1415,8 +1477,14 @@ impl WorkspaceApp {
         )
     }
 
-    fn render_settings_managed_key_paste_dialog(&self, cx: &mut Context<Self>) -> AnyElement {
-        let can_import = !self.settings_managed_key_paste_private_key.trim().is_empty();
+    pub(in crate::workspace) fn render_settings_managed_key_paste_dialog(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let can_import = !self
+            .settings_managed_key_paste_private_key
+            .trim()
+            .is_empty();
         self.settings_managed_key_dialog_frame(
             "modals.managed_key.paste.title",
             "modals.managed_key.paste.description",
@@ -1449,7 +1517,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn render_settings_managed_key_rename_dialog(
+    pub(in crate::workspace) fn render_settings_managed_key_rename_dialog(
         &self,
         key_id: String,
         cx: &mut Context<Self>,
@@ -1475,7 +1543,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn render_settings_managed_key_delete_dialog(
+    pub(in crate::workspace) fn render_settings_managed_key_delete_dialog(
         &self,
         key: ManagedSshKeyInfo,
         usage: ManagedSshKeyUsage,
@@ -1504,11 +1572,13 @@ impl WorkspaceApp {
         self.settings_managed_key_dialog_frame(
             "settings_view.ssh_keys.delete_title",
             "",
-            vec![div()
-                .text_size(px(self.tokens.metrics.ui_text_sm))
-                .text_color(rgb(self.tokens.ui.text_muted))
-                .child(description)
-                .into_any_element()],
+            vec![
+                div()
+                    .text_size(px(self.tokens.metrics.ui_text_sm))
+                    .text_color(rgb(self.tokens.ui.text_muted))
+                    .child(description)
+                    .into_any_element(),
+            ],
             self.i18n.t("settings_view.ssh_keys.delete"),
             can_delete,
             move |this, _event, _window, cx| {
@@ -1518,7 +1588,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn settings_managed_key_dialog_frame(
+    pub(in crate::workspace) fn settings_managed_key_dialog_frame(
         &self,
         title_key: &str,
         description_key: &str,
@@ -1588,7 +1658,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn settings_managed_key_input_field(
+    pub(in crate::workspace) fn settings_managed_key_input_field(
         &self,
         label_key: &str,
         input: SettingsInput,
@@ -1612,7 +1682,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn settings_managed_key_secret_input_field(
+    pub(in crate::workspace) fn settings_managed_key_secret_input_field(
         &self,
         label_key: &str,
         input: SettingsInput,
@@ -1636,7 +1706,10 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn settings_managed_key_private_key_textarea(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn settings_managed_key_private_key_textarea(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let input = SettingsInput::ManagedKeyPastePrivateKey;
         let focused = self.focused_settings_input == Some(input);
         let value = if focused {
@@ -1681,9 +1754,11 @@ impl WorkspaceApp {
                     cx.stop_propagation();
                 }),
             )
-            .on_mouse_move(cx.listener(|this, event: &gpui::MouseMoveEvent, window, cx| {
-                this.update_ime_selection_drag_from_mouse_move(event, window, cx);
-            }));
+            .on_mouse_move(
+                cx.listener(|this, event: &gpui::MouseMoveEvent, window, cx| {
+                    this.update_ime_selection_drag_from_mouse_move(event, window, cx);
+                }),
+            );
 
         if value.is_empty() {
             textarea = self.render_settings_multiline_textarea_lines(
@@ -1724,7 +1799,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn settings_managed_key_hint(&self, label_key: &str) -> AnyElement {
+    pub(in crate::workspace) fn settings_managed_key_hint(&self, label_key: &str) -> AnyElement {
         div()
             .text_size(px(self.tokens.metrics.ui_text_xs))
             .text_color(rgb(self.tokens.ui.text_muted))
@@ -1732,7 +1807,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn managed_key_dialog_button(
+    pub(in crate::workspace) fn managed_key_dialog_button(
         &self,
         label: String,
         variant: ButtonVariant,
@@ -1756,21 +1831,24 @@ impl WorkspaceApp {
         )
     }
 
-    fn open_managed_key_import_file_dialog(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn open_managed_key_import_file_dialog(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) {
         self.clear_managed_key_dialog_drafts();
         self.settings_managed_key_status = None;
         self.settings_managed_key_dialog = Some(SettingsManagedKeyDialog::ImportFile);
         cx.notify();
     }
 
-    fn open_managed_key_paste_dialog(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn open_managed_key_paste_dialog(&mut self, cx: &mut Context<Self>) {
         self.clear_managed_key_dialog_drafts();
         self.settings_managed_key_status = None;
         self.settings_managed_key_dialog = Some(SettingsManagedKeyDialog::Paste);
         cx.notify();
     }
 
-    fn open_managed_key_rename_dialog(
+    pub(in crate::workspace) fn open_managed_key_rename_dialog(
         &mut self,
         key_id: String,
         key_name: String,
@@ -1782,7 +1860,11 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn open_managed_key_delete_dialog(&mut self, key: ManagedSshKeyInfo, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn open_managed_key_delete_dialog(
+        &mut self,
+        key: ManagedSshKeyInfo,
+        cx: &mut Context<Self>,
+    ) {
         match self.connection_store.managed_ssh_key_usage(&key.id) {
             Ok(usage) => {
                 self.settings_managed_key_dialog =
@@ -1793,14 +1875,14 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn close_managed_key_dialog(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn close_managed_key_dialog(&mut self, cx: &mut Context<Self>) {
         self.settings_managed_key_dialog = None;
         self.clear_managed_key_dialog_drafts();
         self.clear_standard_confirm_focus();
         cx.notify();
     }
 
-    fn clear_managed_key_dialog_drafts(&mut self) {
+    pub(in crate::workspace) fn clear_managed_key_dialog_drafts(&mut self) {
         self.settings_managed_key_file_path.clear();
         self.settings_managed_key_file_name.clear();
         zeroize::Zeroize::zeroize(&mut self.settings_managed_key_file_passphrase);
@@ -1830,7 +1912,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn pick_managed_key_import_file(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn pick_managed_key_import_file(&mut self, cx: &mut Context<Self>) {
         let receiver = cx.prompt_for_paths(PathPromptOptions {
             files: true,
             directories: false,
@@ -1862,10 +1944,11 @@ impl WorkspaceApp {
         .detach();
     }
 
-    fn import_managed_key_from_file(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn import_managed_key_from_file(&mut self, cx: &mut Context<Self>) {
         let path = self.current_settings_managed_key_file_path();
         let name = self.optional_trimmed_string(&self.settings_managed_key_file_name);
-        let passphrase = self.optional_managed_key_secret(&self.settings_managed_key_file_passphrase);
+        let passphrase =
+            self.optional_managed_key_secret(&self.settings_managed_key_file_passphrase);
         match self
             .connection_store
             .create_managed_ssh_key_from_file(path.trim(), name, passphrase)
@@ -1885,10 +1968,11 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn import_managed_key_from_paste(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn import_managed_key_from_paste(&mut self, cx: &mut Context<Self>) {
         let private_key = self.current_settings_managed_key_private_key();
         let name = self.optional_trimmed_string(&self.settings_managed_key_paste_name);
-        let passphrase = self.optional_managed_key_secret(&self.settings_managed_key_paste_passphrase);
+        let passphrase =
+            self.optional_managed_key_secret(&self.settings_managed_key_paste_passphrase);
         // Transfer the pasted private key into SecretString before clearing UI drafts.
         let private_key_secret = SecretString::from(private_key);
         match self.connection_store.create_managed_ssh_key_from_text(
@@ -1911,7 +1995,11 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn rename_managed_key(&mut self, key_id: String, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn rename_managed_key(
+        &mut self,
+        key_id: String,
+        cx: &mut Context<Self>,
+    ) {
         let name = self.current_settings_managed_key_rename_name();
         match self
             .connection_store
@@ -1932,7 +2020,11 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn delete_managed_key(&mut self, key_id: String, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn delete_managed_key(
+        &mut self,
+        key_id: String,
+        cx: &mut Context<Self>,
+    ) {
         match self.connection_store.delete_managed_ssh_key(&key_id, false) {
             Ok(result) => {
                 self.settings_managed_key_status = Some(
@@ -1948,7 +2040,10 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn set_managed_key_action_error(&mut self, error: impl std::fmt::Display) {
+    pub(in crate::workspace) fn set_managed_key_action_error(
+        &mut self,
+        error: impl std::fmt::Display,
+    ) {
         self.settings_managed_key_status = Some(
             self.i18n
                 .t("settings_view.ssh_keys.action_failed")
@@ -1956,7 +2051,7 @@ impl WorkspaceApp {
         );
     }
 
-    fn current_settings_managed_key_file_path(&self) -> String {
+    pub(in crate::workspace) fn current_settings_managed_key_file_path(&self) -> String {
         if self.focused_settings_input == Some(SettingsInput::ManagedKeyFilePath) {
             self.settings_input_draft.clone()
         } else {
@@ -1964,7 +2059,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn current_settings_managed_key_private_key(&self) -> String {
+    pub(in crate::workspace) fn current_settings_managed_key_private_key(&self) -> String {
         if self.focused_settings_input == Some(SettingsInput::ManagedKeyPastePrivateKey) {
             self.settings_input_draft.clone()
         } else {
@@ -1972,7 +2067,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn current_settings_managed_key_rename_name(&self) -> String {
+    pub(in crate::workspace) fn current_settings_managed_key_rename_name(&self) -> String {
         if self.focused_settings_input == Some(SettingsInput::ManagedKeyRenameName) {
             self.settings_input_draft.clone()
         } else {
@@ -1980,17 +2075,20 @@ impl WorkspaceApp {
         }
     }
 
-    fn optional_trimmed_string(&self, value: &str) -> Option<String> {
+    pub(in crate::workspace) fn optional_trimmed_string(&self, value: &str) -> Option<String> {
         let trimmed = value.trim();
         (!trimmed.is_empty()).then(|| trimmed.to_string())
     }
 
-    fn optional_managed_key_secret(&self, value: &str) -> Option<SecretString> {
+    pub(in crate::workspace) fn optional_managed_key_secret(
+        &self,
+        value: &str,
+    ) -> Option<SecretString> {
         let trimmed = value.trim();
         (!trimmed.is_empty()).then(|| SecretString::from(trimmed.to_string()))
     }
 
-    fn ssh_keys_empty_state(&self) -> AnyElement {
+    pub(in crate::workspace) fn ssh_keys_empty_state(&self) -> AnyElement {
         div()
             .w_full()
             .rounded(px(self.tokens.radii.md))
@@ -2004,7 +2102,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn connection_status_row(&self, status: String) -> AnyElement {
+    pub(in crate::workspace) fn connection_status_row(&self, status: String) -> AnyElement {
         div()
             .rounded(px(self.tokens.radii.md))
             .border_1()
@@ -2018,12 +2116,16 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn toggle_settings_ssh_config_host(&mut self, alias: String, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn toggle_settings_ssh_config_host(
+        &mut self,
+        alias: String,
+        cx: &mut Context<Self>,
+    ) {
         self.settings_page.toggle_ssh_host_selection(alias);
         cx.notify();
     }
 
-    fn toggle_all_settings_ssh_config_hosts(
+    pub(in crate::workspace) fn toggle_all_settings_ssh_config_hosts(
         &mut self,
         all_selected: bool,
         cx: &mut Context<Self>,
@@ -2050,7 +2152,11 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn import_settings_ssh_host(&mut self, alias: String, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn import_settings_ssh_host(
+        &mut self,
+        alias: String,
+        cx: &mut Context<Self>,
+    ) {
         match import_ssh_config_alias(&mut self.connection_store, &alias) {
             Ok(true) => {
                 self.settings_page.remove_selected_ssh_host(&alias);
@@ -2079,9 +2185,13 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn import_selected_settings_ssh_hosts(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn import_selected_settings_ssh_hosts(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) {
         let aliases = self
-            .settings_page.settings_selected_ssh_hosts
+            .settings_page
+            .settings_selected_ssh_hosts
             .iter()
             .cloned()
             .collect::<Vec<_>>();
@@ -2129,7 +2239,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn set_connection_import_source(
+    pub(in crate::workspace) fn set_connection_import_source(
         &mut self,
         source: ConnectionImportSource,
         cx: &mut Context<Self>,
@@ -2144,9 +2254,13 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn pick_connection_import_paths(&mut self, directories: bool, cx: &mut Context<Self>) {
-        let multiple =
-            !directories && self.settings_connection_import_source != ConnectionImportSource::Termius;
+    pub(in crate::workspace) fn pick_connection_import_paths(
+        &mut self,
+        directories: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let multiple = !directories
+            && self.settings_connection_import_source != ConnectionImportSource::Termius;
         let prompt_key = if directories {
             "settings_view.connections.importers.choose_directory"
         } else {
@@ -2179,7 +2293,10 @@ impl WorkspaceApp {
         .detach();
     }
 
-    fn preview_settings_connection_import(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn preview_settings_connection_import(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) {
         if self.settings_connection_import_paths.is_empty() {
             return;
         }
@@ -2215,7 +2332,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn toggle_settings_connection_import_draft(
+    pub(in crate::workspace) fn toggle_settings_connection_import_draft(
         &mut self,
         draft_id: String,
         cx: &mut Context<Self>,
@@ -2230,7 +2347,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn toggle_all_settings_connection_import_drafts(
+    pub(in crate::workspace) fn toggle_all_settings_connection_import_drafts(
         &mut self,
         all_selected: bool,
         cx: &mut Context<Self>,
@@ -2248,7 +2365,10 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn apply_settings_connection_import(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn apply_settings_connection_import(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) {
         if self.settings_selected_connection_import_drafts.is_empty()
             || self.settings_connection_import_paths.is_empty()
         {
@@ -2296,11 +2416,13 @@ impl WorkspaceApp {
                             .replace("{{count}}", &result.errors.len().to_string()),
                     );
                 }
-                self.settings_page.set_connection_status(Some(if parts.is_empty() {
-                    self.i18n.t("settings_view.connections.importers.no_changes")
-                } else {
-                    parts.join(" · ")
-                }));
+                self.settings_page
+                    .set_connection_status(Some(if parts.is_empty() {
+                        self.i18n
+                            .t("settings_view.connections.importers.no_changes")
+                    } else {
+                        parts.join(" · ")
+                    }));
                 if result.imported > 0 {
                     self.queue_cloud_sync_dirty_refresh(cx);
                 }
@@ -2317,34 +2439,30 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn clear_connection_import_preview(&mut self) {
+    pub(in crate::workspace) fn clear_connection_import_preview(&mut self) {
         self.settings_connection_import_preview = None;
         self.settings_selected_connection_import_drafts.clear();
     }
-
 }
 
-fn connection_idle_timeout_options(i18n: &I18n) -> Vec<(i64, String)> {
+pub(in crate::workspace) fn connection_idle_timeout_options(i18n: &I18n) -> Vec<(i64, String)> {
     vec![
         (300, i18n.t("settings_view.connections.idle_timeout.5min")),
         (900, i18n.t("settings_view.connections.idle_timeout.15min")),
-        (
-            1800,
-            i18n.t("settings_view.connections.idle_timeout.30min"),
-        ),
+        (1800, i18n.t("settings_view.connections.idle_timeout.30min")),
         (3600, i18n.t("settings_view.connections.idle_timeout.1hr")),
         (0, i18n.t("settings_view.connections.idle_timeout.never")),
     ]
 }
 
-fn connection_idle_timeout_label(seconds: i64, i18n: &I18n) -> String {
+pub(in crate::workspace) fn connection_idle_timeout_label(seconds: i64, i18n: &I18n) -> String {
     connection_idle_timeout_options(i18n)
         .into_iter()
         .find_map(|(value, label)| (value == seconds).then_some(label))
         .unwrap_or_else(|| seconds.to_string())
 }
 
-fn import_ssh_config_alias(
+pub(in crate::workspace) fn import_ssh_config_alias(
     store: &mut oxideterm_connections::ConnectionStore,
     alias: &str,
 ) -> anyhow::Result<bool> {
@@ -2359,7 +2477,8 @@ fn import_ssh_config_alias(
     Ok(true)
 }
 
-fn connection_import_source_options() -> &'static [ConnectionImportSource] {
+pub(in crate::workspace) fn connection_import_source_options() -> &'static [ConnectionImportSource]
+{
     &[
         ConnectionImportSource::SecureCrt,
         ConnectionImportSource::Xshell,
@@ -2369,7 +2488,10 @@ fn connection_import_source_options() -> &'static [ConnectionImportSource] {
     ]
 }
 
-fn connection_import_source_label(source: ConnectionImportSource, i18n: &I18n) -> String {
+pub(in crate::workspace) fn connection_import_source_label(
+    source: ConnectionImportSource,
+    i18n: &I18n,
+) -> String {
     match source {
         ConnectionImportSource::SecureCrt => {
             i18n.t("settings_view.connections.importers.sources.securecrt")
@@ -2389,7 +2511,7 @@ fn connection_import_source_label(source: ConnectionImportSource, i18n: &I18n) -
     }
 }
 
-fn connection_import_duplicate_strategy_label(
+pub(in crate::workspace) fn connection_import_duplicate_strategy_label(
     strategy: ConnectionImportDuplicateStrategy,
     i18n: &I18n,
 ) -> String {
@@ -2403,7 +2525,10 @@ fn connection_import_duplicate_strategy_label(
     }
 }
 
-fn imported_auth_label(auth_type: ImportedConnectionAuthType, _i18n: &I18n) -> String {
+pub(in crate::workspace) fn imported_auth_label(
+    auth_type: ImportedConnectionAuthType,
+    _i18n: &I18n,
+) -> String {
     match auth_type {
         ImportedConnectionAuthType::Password => "password",
         ImportedConnectionAuthType::Key => "key",
@@ -2413,7 +2538,7 @@ fn imported_auth_label(auth_type: ImportedConnectionAuthType, _i18n: &I18n) -> S
     .to_string()
 }
 
-fn non_empty_trimmed(value: &str) -> Option<String> {
+pub(in crate::workspace) fn non_empty_trimmed(value: &str) -> Option<String> {
     let trimmed = value.trim();
     (!trimmed.is_empty()).then(|| trimmed.to_string())
 }

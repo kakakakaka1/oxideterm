@@ -1,12 +1,18 @@
+use super::*;
+
 impl WorkspaceApp {
-    fn render_knowledge_create_collection_dialog(
+    pub(in crate::workspace) fn render_knowledge_create_collection_dialog(
         &self,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
         if !self.settings_page.knowledge_create_dialog_open {
             return None;
         }
-        let can_create = !self.settings_page.knowledge_new_collection_name.trim().is_empty();
+        let can_create = !self
+            .settings_page
+            .knowledge_new_collection_name
+            .trim()
+            .is_empty();
         Some(
             dismissible_dialog_backdrop()
                 .on_mouse_down(
@@ -121,11 +127,18 @@ impl WorkspaceApp {
         )
     }
 
-    fn render_knowledge_new_document_dialog(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+    pub(in crate::workspace) fn render_knowledge_new_document_dialog(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
         if !self.settings_page.knowledge_new_document_dialog_open {
             return None;
         }
-        let can_create = !self.settings_page.knowledge_new_document_title.trim().is_empty();
+        let can_create = !self
+            .settings_page
+            .knowledge_new_document_title
+            .trim()
+            .is_empty();
         Some(
             dismissible_dialog_backdrop()
                 .on_mouse_down(
@@ -240,16 +253,18 @@ impl WorkspaceApp {
         )
     }
 
-    fn render_knowledge_delete_confirm_dialog(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+    pub(in crate::workspace) fn render_knowledge_delete_confirm_dialog(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
         let confirm = self.settings_page.knowledge_delete_confirm.as_ref()?;
         let message_key = match confirm.target {
-            KnowledgeDeleteTarget::Collection => "settings_view.knowledge.delete_collection_confirm",
+            KnowledgeDeleteTarget::Collection => {
+                "settings_view.knowledge.delete_collection_confirm"
+            }
             KnowledgeDeleteTarget::Document => "settings_view.knowledge.delete_document_confirm",
         };
-        let message = self
-            .i18n
-            .t(message_key)
-            .replace("{{name}}", &confirm.name);
+        let message = self.i18n.t(message_key).replace("{{name}}", &confirm.name);
         Some(
             dismissible_dialog_backdrop()
                 .on_mouse_down(
@@ -281,35 +296,30 @@ impl WorkspaceApp {
                         )
                         .child(
                             dialog_footer(&self.tokens)
-                                .child(
-                                    self.standard_footer_action_button(
-                                        self.i18n.t("common.actions.cancel"),
-                                        ButtonVariant::Outline,
-                                        ConfirmDialogAction::Cancel,
-                                        false,
-                                        |this, _event, _window, cx| {
-                                            this.settings_page.clear_knowledge_delete_confirm();
-                                            cx.notify();
-                                        },
-                                        cx,
-                                    ),
-                                )
-                                .child(
-                                    self.standard_footer_action_button(
-                                        self.i18n.t("common.delete"),
-                                        ButtonVariant::Destructive,
-                                        ConfirmDialogAction::Confirm,
-                                        false,
-                                        |this, _event, _window, cx| {
-                                            this.knowledge_confirm_delete(cx);
-                                        },
-                                        cx,
-                                    ),
-                                ),
+                                .child(self.standard_footer_action_button(
+                                    self.i18n.t("common.actions.cancel"),
+                                    ButtonVariant::Outline,
+                                    ConfirmDialogAction::Cancel,
+                                    false,
+                                    |this, _event, _window, cx| {
+                                        this.settings_page.clear_knowledge_delete_confirm();
+                                        cx.notify();
+                                    },
+                                    cx,
+                                ))
+                                .child(self.standard_footer_action_button(
+                                    self.i18n.t("common.delete"),
+                                    ButtonVariant::Destructive,
+                                    ConfirmDialogAction::Confirm,
+                                    false,
+                                    |this, _event, _window, cx| {
+                                        this.knowledge_confirm_delete(cx);
+                                    },
+                                    cx,
+                                )),
                         ),
                 )
                 .into_any_element(),
         )
     }
-
 }

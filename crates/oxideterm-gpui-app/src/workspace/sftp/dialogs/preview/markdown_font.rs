@@ -1,5 +1,11 @@
+use super::*;
+
 impl WorkspaceApp {
-    fn render_sftp_preview_markdown(&self, source: &str, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace::sftp) fn render_sftp_preview_markdown(
+        &self,
+        source: &str,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let mut opts = self.localized_markdown_options();
         if self.sftp_view.preview_pane == Some(SftpPane::Local)
             && let Some(source_path) = self.sftp_view.preview_path.as_deref()
@@ -25,7 +31,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_sftp_preview_font(
+    pub(in crate::workspace::sftp) fn render_sftp_preview_font(
         &self,
         path: &str,
         mime_type: &str,
@@ -230,7 +236,11 @@ impl WorkspaceApp {
             .child(
                 div()
                     .font_family(settings_ui_font_family(
-                        self.settings_store.settings().appearance.ui_font_family.as_str(),
+                        self.settings_store
+                            .settings()
+                            .appearance
+                            .ui_font_family
+                            .as_str(),
                     ))
                     .text_size(px(SFTP_TEXT_XS))
                     .text_color(rgb(theme.text_muted))
@@ -247,14 +257,18 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn sftp_preview_uses_virtual_text(&self) -> bool {
+    pub(in crate::workspace::sftp) fn sftp_preview_uses_virtual_text(&self) -> bool {
         matches!(
             self.sftp_view.preview_content.as_ref(),
             Some(PreviewContent::Text { .. })
         )
     }
 
-    fn render_sftp_preview_code(&self, source: &str, language: Option<&str>) -> AnyElement {
+    pub(in crate::workspace::sftp) fn render_sftp_preview_code(
+        &self,
+        source: &str,
+        language: Option<&str>,
+    ) -> AnyElement {
         let theme = self.tokens.ui;
         let opts = MarkdownOptions::from_theme(&self.tokens);
         let language = language
@@ -332,6 +346,5 @@ impl WorkspaceApp {
                 .on_scroll_wheel(|_, _, cx| cx.stop_propagation()),
             )
             .into_any_element()
-}
-
+    }
 }

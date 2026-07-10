@@ -544,7 +544,7 @@ impl WorkspaceApp {
     pub(super) fn browser_pointer_capture_owner(&self) -> Option<BrowserPointerCaptureOwner> {
         resolve_browser_pointer_capture_owner(BrowserPointerCaptureState {
             sidebar_resizing: self.sidebar_resizing,
-            ai_sidebar_resizing: self.ai_sidebar_resizing,
+            ai_sidebar_resizing: self.ai.chat.sidebar_resizing,
             pane_splitter_dragging: self.split_drag.is_some(),
             settings_slider_dragging: self.settings_slider_drag.is_some(),
             terminal_cast_seekbar_dragging: self.terminal_cast_seek_dragging,

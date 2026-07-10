@@ -1,5 +1,7 @@
+use super::*;
+
 #[derive(Clone)]
-struct ActiveSessionSidebarRow {
+pub(in crate::workspace) struct ActiveSessionSidebarRow {
     node_id: NodeId,
     parent_id: Option<NodeId>,
     node: WorkspaceSshNode,
@@ -10,7 +12,10 @@ struct ActiveSessionSidebarRow {
 }
 
 impl WorkspaceApp {
-    fn render_active_sessions_sidebar_content(&mut self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn render_active_sessions_sidebar_content(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         if self.active_session_sidebar_view_mode == ActiveSessionSidebarViewMode::Focus {
             return self.render_active_sessions_focus_sidebar_content(cx);
         }
@@ -41,7 +46,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_active_sessions_focus_sidebar_content(
+    pub(in crate::workspace) fn render_active_sessions_focus_sidebar_content(
         &mut self,
         cx: &mut Context<Self>,
     ) -> AnyElement {
@@ -81,22 +86,18 @@ impl WorkspaceApp {
                     .child(if visible_rows.is_empty() {
                         self.render_active_session_focus_empty(focused_node_id.as_ref(), cx)
                     } else {
-                        tauri_virtual_list(
-                            state,
-                            spec,
-                            move |index, _window, cx| {
-                                workspace.update(cx, |this, cx| {
-                                    this.render_active_session_focus_list_item(index, cx)
-                                })
-                            },
-                        )
+                        tauri_virtual_list(state, spec, move |index, _window, cx| {
+                            workspace.update(cx, |this, cx| {
+                                this.render_active_session_focus_list_item(index, cx)
+                            })
+                        })
                         .into_any_element()
                     }),
             )
             .into_any_element()
     }
 
-    fn active_session_sidebar_rows(&self) -> Vec<ActiveSessionSidebarRow> {
+    pub(in crate::workspace) fn active_session_sidebar_rows(&self) -> Vec<ActiveSessionSidebarRow> {
         let mut tree_nodes = self.node_router.flatten_tree();
         let flat_node_child_counts = tree_nodes
             .iter()
@@ -135,7 +136,7 @@ impl WorkspaceApp {
         rows
     }
 
-    fn sync_active_session_sidebar_list_state(
+    pub(in crate::workspace) fn sync_active_session_sidebar_list_state(
         &mut self,
         rows: &[ActiveSessionSidebarRow],
         view_mode: ActiveSessionSidebarViewMode,
@@ -153,7 +154,7 @@ impl WorkspaceApp {
         );
     }
 
-    fn active_session_sidebar_list_spec(
+    pub(in crate::workspace) fn active_session_sidebar_list_spec(
         &self,
         view_mode: ActiveSessionSidebarViewMode,
     ) -> TauriVirtualListSpec {
@@ -164,7 +165,7 @@ impl WorkspaceApp {
         TauriVirtualListSpec::new(px(estimated_height), ACTIVE_SESSION_SIDEBAR_LIST_OVERSCAN)
     }
 
-    fn render_active_session_sidebar_list_item(
+    pub(in crate::workspace) fn render_active_session_sidebar_list_item(
         &self,
         index: usize,
         cx: &mut Context<Self>,
@@ -185,7 +186,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn active_session_sidebar_row_signature(
+    pub(in crate::workspace) fn active_session_sidebar_row_signature(
         &self,
         row: &ActiveSessionSidebarRow,
         view_mode: ActiveSessionSidebarViewMode,
@@ -205,13 +206,16 @@ impl WorkspaceApp {
         row.depth.hash(&mut hasher);
         row.is_last.hash(&mut hasher);
         row.has_children.hash(&mut hasher);
-        self.expanded_ssh_nodes.contains(&row.node_id).hash(&mut hasher);
-        self.has_active_reconnect_job(&row.node_id).hash(&mut hasher);
+        self.expanded_ssh_nodes
+            .contains(&row.node_id)
+            .hash(&mut hasher);
+        self.has_active_reconnect_job(&row.node_id)
+            .hash(&mut hasher);
         (self.active_ssh_node_id.as_ref() == Some(&row.node_id)).hash(&mut hasher);
         hasher.finish()
     }
 
-    fn effective_active_session_focus_node_id(
+    pub(in crate::workspace) fn effective_active_session_focus_node_id(
         &self,
         rows: &[ActiveSessionSidebarRow],
     ) -> Option<NodeId> {
@@ -221,7 +225,7 @@ impl WorkspaceApp {
             .then(|| focused_node_id.clone())
     }
 
-    fn active_session_focus_rows(
+    pub(in crate::workspace) fn active_session_focus_rows(
         &self,
         rows: &[ActiveSessionSidebarRow],
         focused_node_id: Option<&NodeId>,
@@ -235,7 +239,7 @@ impl WorkspaceApp {
             .collect()
     }
 
-    fn active_session_breadcrumb_rows(
+    pub(in crate::workspace) fn active_session_breadcrumb_rows(
         &self,
         rows: &[ActiveSessionSidebarRow],
         focused_node_id: Option<&NodeId>,
@@ -257,7 +261,10 @@ impl WorkspaceApp {
         path
     }
 
-    pub(super) fn toggle_active_session_sidebar_view(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn toggle_active_session_sidebar_view(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) {
         self.active_session_sidebar_view_mode = match self.active_session_sidebar_view_mode {
             ActiveSessionSidebarViewMode::Tree => ActiveSessionSidebarViewMode::Focus,
             ActiveSessionSidebarViewMode::Focus => ActiveSessionSidebarViewMode::Tree,
@@ -277,7 +284,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn render_active_session_focus_breadcrumb(
+    pub(in crate::workspace) fn render_active_session_focus_breadcrumb(
         &self,
         rows: &[ActiveSessionSidebarRow],
         focused_node_id: Option<&NodeId>,
@@ -322,7 +329,11 @@ impl WorkspaceApp {
                 .text_color(rgb(root_color))
                 .cursor_pointer()
                 .hover(move |button| button.bg(rgb(theme.bg_hover)))
-                .child(Self::render_lucide_icon(LucideIcon::Home, 14.0, rgb(root_color)))
+                .child(Self::render_lucide_icon(
+                    LucideIcon::Home,
+                    14.0,
+                    rgb(root_color),
+                ))
                 .when(root_active, |button| {
                     button.child(self.render_display_text_with_role(
                         SelectableTextRole::PlainDocument,
@@ -405,7 +416,7 @@ impl WorkspaceApp {
         breadcrumb.into_any_element()
     }
 
-    fn render_active_session_focus_location_header(
+    pub(in crate::workspace) fn render_active_session_focus_location_header(
         &self,
         rows: &[ActiveSessionSidebarRow],
         focused_node_id: Option<&NodeId>,
@@ -413,8 +424,8 @@ impl WorkspaceApp {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = self.tokens.ui;
-        let focused_row = focused_node_id
-            .and_then(|node_id| rows.iter().find(|row| row.node_id == *node_id));
+        let focused_row =
+            focused_node_id.and_then(|node_id| rows.iter().find(|row| row.node_id == *node_id));
         let title = focused_row
             .map(|row| row.node_view.title.clone())
             .unwrap_or_else(|| self.i18n.t("sessions.focused_list.all_servers"));
@@ -445,7 +456,11 @@ impl WorkspaceApp {
             .flex_row()
             .items_center()
             .gap(px(8.0))
-            .child(if focused_node_id.is_some() { "📍" } else { "🏠" })
+            .child(if focused_node_id.is_some() {
+                "📍"
+            } else {
+                "🏠"
+            })
             .child(
                 div()
                     .min_w(px(0.0))
@@ -472,7 +487,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_active_session_focus_empty(
+    pub(in crate::workspace) fn render_active_session_focus_empty(
         &self,
         focused_node_id: Option<&NodeId>,
         cx: &mut Context<Self>,
@@ -498,15 +513,11 @@ impl WorkspaceApp {
             .px_4()
             .text_center()
             .text_color(rgb(theme.text_muted))
-            .child(
-                div()
-                    .mb_2()
-                    .child(Self::render_lucide_icon(
-                        LucideIcon::Server,
-                        SESSION_FOCUS_EMPTY_ICON_SIZE,
-                        rgba((theme.text_muted << 8) | SESSION_FOCUS_EMPTY_ICON_ALPHA),
-                    )),
-            )
+            .child(div().mb_2().child(Self::render_lucide_icon(
+                LucideIcon::Server,
+                SESSION_FOCUS_EMPTY_ICON_SIZE,
+                rgba((theme.text_muted << 8) | SESSION_FOCUS_EMPTY_ICON_ALPHA),
+            )))
             .child(
                 div()
                     .text_size(px(SESSION_FOCUS_EMPTY_TITLE_TEXT_SIZE))
@@ -541,7 +552,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_active_session_focus_list_item(
+    pub(in crate::workspace) fn render_active_session_focus_list_item(
         &self,
         index: usize,
         cx: &mut Context<Self>,
@@ -558,7 +569,7 @@ impl WorkspaceApp {
         self.render_active_session_focus_node(row, cx)
     }
 
-    fn render_active_session_focus_node(
+    pub(in crate::workspace) fn render_active_session_focus_node(
         &self,
         row: ActiveSessionSidebarRow,
         cx: &mut Context<Self>,
@@ -757,11 +768,7 @@ impl WorkspaceApp {
                     .gap(px(4.0))
                     .children(row.node_view.terminal_ids.iter().enumerate().map(
                         |(index, session_id)| {
-                            self.render_active_session_focus_terminal(
-                                *session_id,
-                                index + 1,
-                                cx,
-                            )
+                            self.render_active_session_focus_terminal(*session_id, index + 1, cx)
                         },
                     )),
             );
@@ -781,7 +788,7 @@ impl WorkspaceApp {
         card.into_any_element()
     }
 
-    fn render_active_session_focus_terminal(
+    pub(in crate::workspace) fn render_active_session_focus_terminal(
         &self,
         session_id: TerminalSessionId,
         index: usize,
@@ -789,7 +796,11 @@ impl WorkspaceApp {
     ) -> AnyElement {
         let theme = self.tokens.ui;
         let active = self.active_terminal_session_id() == Some(session_id);
-        let text_color = if active { theme.accent } else { theme.text_muted };
+        let text_color = if active {
+            theme.accent
+        } else {
+            theme.text_muted
+        };
         let text = self
             .i18n
             .t("sessions.focused_list.terminal")
@@ -841,7 +852,11 @@ impl WorkspaceApp {
                     .items_center()
                     .justify_center()
                     .rounded(px(self.tokens.radii.md))
-                    .child(Self::render_lucide_icon(LucideIcon::X, 12.0, rgb(text_color)))
+                    .child(Self::render_lucide_icon(
+                        LucideIcon::X,
+                        12.0,
+                        rgb(text_color),
+                    ))
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(move |this, _event, window, cx| {
@@ -860,7 +875,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_active_session_focus_actions(
+    pub(in crate::workspace) fn render_active_session_focus_actions(
         &self,
         row: &ActiveSessionSidebarRow,
         cx: &mut Context<Self>,
@@ -913,7 +928,7 @@ impl WorkspaceApp {
         ]
     }
 
-    fn render_active_session_focus_action_chip(
+    pub(in crate::workspace) fn render_active_session_focus_action_chip(
         &self,
         icon: LucideIcon,
         label: String,
@@ -933,9 +948,7 @@ impl WorkspaceApp {
             .text_color(rgb(theme.accent))
             .bg(rgba((theme.accent << 8) | SESSION_FOCUS_ACTION_BG_ALPHA))
             .hover(move |chip| {
-                chip.bg(rgba(
-                    (theme.accent << 8) | SESSION_FOCUS_ACTION_HOVER_ALPHA,
-                ))
+                chip.bg(rgba((theme.accent << 8) | SESSION_FOCUS_ACTION_HOVER_ALPHA))
             })
             .child(Self::render_lucide_icon(icon, 12.0, rgb(theme.accent)))
             .child(label)
@@ -943,7 +956,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_active_session_node(
+    pub(in crate::workspace) fn render_active_session_node(
         &self,
         node_id: NodeId,
         node: WorkspaceSshNode,
@@ -1215,14 +1228,8 @@ impl WorkspaceApp {
             }
         }
 
-        let header = self.render_session_node_header(
-            node_id,
-            node_view,
-            expanded,
-            selected,
-            status,
-            cx,
-        );
+        let header =
+            self.render_session_node_header(node_id, node_view, expanded, selected, status, cx);
         let header = if node_depth == 0 {
             header
         } else {
@@ -1238,7 +1245,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn can_save_runtime_node_as_connection(
+    pub(in crate::workspace) fn can_save_runtime_node_as_connection(
         &self,
         node_id: &NodeId,
         node: &WorkspaceSshNode,
@@ -1252,10 +1259,13 @@ impl WorkspaceApp {
         // ManualPreset/Restored are already saved-connection materializations,
         // while AutoRoute is derived topology. Only live drill-down nodes and
         // genuinely unsaved direct nodes should expose "Save as connection".
-        matches!(snapshot.origin, NodeOrigin::DrillDown { .. } | NodeOrigin::Direct)
+        matches!(
+            snapshot.origin,
+            NodeOrigin::DrillDown { .. } | NodeOrigin::Direct
+        )
     }
 
-    fn render_session_node_header(
+    pub(in crate::workspace) fn render_session_node_header(
         &self,
         node_id: NodeId,
         node: ActiveSessionNode,
@@ -1394,7 +1404,10 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_session_status_dot(&self, status: SessionStatusStyle) -> AnyElement {
+    pub(in crate::workspace) fn render_session_status_dot(
+        &self,
+        status: SessionStatusStyle,
+    ) -> AnyElement {
         div()
             .ml_2()
             .size(px(if status.ring { 12.0 } else { 8.0 }))
@@ -1411,7 +1424,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_session_terminal_item(
+    pub(in crate::workspace) fn render_session_terminal_item(
         &self,
         depth: usize,
         line_stops_here: bool,
@@ -1530,7 +1543,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn render_session_action_item(
+    pub(in crate::workspace) fn render_session_action_item(
         &self,
         depth: usize,
         line_stops_here: bool,
@@ -1588,7 +1601,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn render_session_tree_child(
+    pub(in crate::workspace) fn render_session_tree_child(
         &self,
         depth: usize,
         line_stops_here: bool,
@@ -1603,7 +1616,10 @@ impl WorkspaceApp {
         )
     }
 
-    fn session_node_status(&self, status: ActiveSessionStatus) -> SessionStatusStyle {
+    pub(in crate::workspace) fn session_node_status(
+        &self,
+        status: ActiveSessionStatus,
+    ) -> SessionStatusStyle {
         match status {
             ActiveSessionStatus::Connecting => SessionStatusStyle {
                 icon: LucideIcon::LoaderCircle,

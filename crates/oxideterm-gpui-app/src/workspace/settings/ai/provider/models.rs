@@ -1,5 +1,7 @@
+use super::*;
+
 impl WorkspaceApp {
-    fn ai_provider_models(
+    pub(in crate::workspace) fn ai_provider_models(
         &self,
         index: usize,
         provider: &AiProviderView,
@@ -8,53 +10,65 @@ impl WorkspaceApp {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let provider_id = provider.id.clone();
-        let models_expanded = self.settings_page.expanded_ai_provider_models.contains(&provider.id);
-        let mut body = div().w_full().min_w(px(0.0)).flex().flex_col().gap(px(6.0)).child(
-            div()
-                .w_full()
-                .min_w(px(0.0))
-                .flex()
-                .items_center()
-                .justify_between()
-                .px(px(16.0))
-                .child(
-                    div()
-                        .text_size(px(self.tokens.metrics.ui_text_xs))
-                        .text_color(rgb(self.tokens.ui.text_muted))
-                        .child(format!(
-                            "{} ({})",
-                            self.i18n.t("settings_view.ai.available_models"),
-                            provider.models.len()
-                        )),
-                )
-                .when(provider.models.len() > AI_PROVIDER_VISIBLE_MODEL_LIMIT, |row| {
-                    row.child(
+        let models_expanded = self
+            .settings_page
+            .expanded_ai_provider_models
+            .contains(&provider.id);
+        let mut body = div()
+            .w_full()
+            .min_w(px(0.0))
+            .flex()
+            .flex_col()
+            .gap(px(6.0))
+            .child(
+                div()
+                    .w_full()
+                    .min_w(px(0.0))
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .px(px(16.0))
+                    .child(
                         div()
-                            .text_size(px(10.0))
-                            .text_color(rgb(self.tokens.ui.accent))
-                            .cursor_pointer()
-                            .child(if models_expanded {
-                                self.i18n.t("settings_view.ai.show_fewer_models")
-                            } else {
-                                self.i18n_count(
-                                    "settings_view.ai.show_all_models",
-                                    provider.models.len(),
-                                )
-                            })
-                            .on_mouse_down(
-                                MouseButton::Left,
-                                cx.listener(move |this, _event, _window, cx| {
-                                    toggle_string_set(
-                                        &mut this.settings_page.expanded_ai_provider_models,
-                                        &provider_id,
-                                    );
-                                    cx.stop_propagation();
-                                    cx.notify();
-                                }),
-                            ),
+                            .text_size(px(self.tokens.metrics.ui_text_xs))
+                            .text_color(rgb(self.tokens.ui.text_muted))
+                            .child(format!(
+                                "{} ({})",
+                                self.i18n.t("settings_view.ai.available_models"),
+                                provider.models.len()
+                            )),
                     )
-                }),
-        );
+                    .when(
+                        provider.models.len() > AI_PROVIDER_VISIBLE_MODEL_LIMIT,
+                        |row| {
+                            row.child(
+                                div()
+                                    .text_size(px(10.0))
+                                    .text_color(rgb(self.tokens.ui.accent))
+                                    .cursor_pointer()
+                                    .child(if models_expanded {
+                                        self.i18n.t("settings_view.ai.show_fewer_models")
+                                    } else {
+                                        self.i18n_count(
+                                            "settings_view.ai.show_all_models",
+                                            provider.models.len(),
+                                        )
+                                    })
+                                    .on_mouse_down(
+                                        MouseButton::Left,
+                                        cx.listener(move |this, _event, _window, cx| {
+                                            toggle_string_set(
+                                                &mut this.settings_page.expanded_ai_provider_models,
+                                                &provider_id,
+                                            );
+                                            cx.stop_propagation();
+                                            cx.notify();
+                                        }),
+                                    ),
+                            )
+                        },
+                    ),
+            );
 
         if visible_model_count > 0 {
             let chip_rows = ai_provider_model_chip_rows(
@@ -64,7 +78,9 @@ impl WorkspaceApp {
             );
             self.sync_ai_provider_model_chip_list_state(&provider.id, &chip_rows, hidden_count);
             let state = self
-                .ai_provider_model_chip_list_states
+                .ai
+                .models
+                .provider_model_chip_list_states
                 .borrow()
                 .get(&provider.id)
                 .cloned()
@@ -109,7 +125,7 @@ impl WorkspaceApp {
         body.into_any_element()
     }
 
-    fn sync_ai_provider_model_chip_list_state(
+    pub(in crate::workspace) fn sync_ai_provider_model_chip_list_state(
         &self,
         provider_id: &str,
         rows: &[Vec<AiProviderModelChipItem>],
@@ -135,7 +151,7 @@ impl WorkspaceApp {
             })
             .collect::<Vec<_>>();
         let state = {
-            let mut states = self.ai_provider_model_chip_list_states.borrow_mut();
+            let mut states = self.ai.models.provider_model_chip_list_states.borrow_mut();
             states
                 .entry(provider_id.to_string())
                 .or_insert_with(|| {
@@ -149,7 +165,7 @@ impl WorkspaceApp {
                 .clone()
         };
         {
-            let mut caches = self.ai_provider_model_chip_list_caches.borrow_mut();
+            let mut caches = self.ai.models.provider_model_chip_list_caches.borrow_mut();
             let cache = caches.entry(provider_id.to_string()).or_default();
             sync_tauri_variable_list_state_by_signatures(
                 &state,
@@ -161,14 +177,14 @@ impl WorkspaceApp {
         }
     }
 
-    fn ai_provider_model_chip_list_spec(&self) -> TauriVirtualListSpec {
+    pub(in crate::workspace) fn ai_provider_model_chip_list_spec(&self) -> TauriVirtualListSpec {
         TauriVirtualListSpec::new(
             px(AI_PROVIDER_MODEL_CHIP_ROW_ESTIMATED_HEIGHT),
             AI_PROVIDER_MODEL_CHIP_ROW_OVERSCAN,
         )
     }
 
-    fn ai_provider_model_chip_row(
+    pub(in crate::workspace) fn ai_provider_model_chip_row(
         &self,
         provider_index: usize,
         row_index: usize,
@@ -181,7 +197,10 @@ impl WorkspaceApp {
         else {
             return div().into_any_element();
         };
-        let models_expanded = self.settings_page.expanded_ai_provider_models.contains(&provider.id);
+        let models_expanded = self
+            .settings_page
+            .expanded_ai_provider_models
+            .contains(&provider.id);
         let visible_model_count = if models_expanded {
             provider.models.len()
         } else {
@@ -196,7 +215,12 @@ impl WorkspaceApp {
             return div().into_any_element();
         };
         let is_last_row = row_index + 1 == rows.len();
-        let mut chips = div().w_full().min_w(px(0.0)).flex().flex_wrap().gap(px(4.0));
+        let mut chips = div()
+            .w_full()
+            .min_w(px(0.0))
+            .flex()
+            .flex_wrap()
+            .gap(px(4.0));
         for item in row {
             chips = chips.child(self.ai_provider_model_chip(
                 provider_index,
@@ -218,7 +242,7 @@ impl WorkspaceApp {
         chips.into_any_element()
     }
 
-    fn ai_provider_model_chip(
+    pub(in crate::workspace) fn ai_provider_model_chip(
         &self,
         index: usize,
         model: String,
@@ -275,7 +299,4 @@ impl WorkspaceApp {
     pub(in crate::workspace) fn ai_provider_has_key(&self, provider_id: &str) -> bool {
         self.ai_provider_has_key_cached(provider_id)
     }
-
-
-
 }

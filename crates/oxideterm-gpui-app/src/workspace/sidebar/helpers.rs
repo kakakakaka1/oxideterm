@@ -1,4 +1,8 @@
-fn active_session_readiness(readiness: &NodeReadiness) -> ActiveSessionReadiness {
+use super::*;
+
+pub(in crate::workspace) fn active_session_readiness(
+    readiness: &NodeReadiness,
+) -> ActiveSessionReadiness {
     match readiness {
         NodeReadiness::Ready => ActiveSessionReadiness::Ready,
         NodeReadiness::Connecting => ActiveSessionReadiness::Connecting,
@@ -7,7 +11,7 @@ fn active_session_readiness(readiness: &NodeReadiness) -> ActiveSessionReadiness
     }
 }
 
-fn titlebar_button_hover(background: u32) -> u32 {
+pub(in crate::workspace) fn titlebar_button_hover(background: u32) -> u32 {
     if relative_luminance(background) > 0.45 {
         mix_rgb(background, 0x000000, 0.10)
     } else {
@@ -15,7 +19,7 @@ fn titlebar_button_hover(background: u32) -> u32 {
     }
 }
 
-fn readable_color(background: u32, preferred: u32, fallback: u32) -> u32 {
+pub(in crate::workspace) fn readable_color(background: u32, preferred: u32, fallback: u32) -> u32 {
     if contrast_ratio(background, preferred) >= 3.0 {
         preferred
     } else {
@@ -23,7 +27,7 @@ fn readable_color(background: u32, preferred: u32, fallback: u32) -> u32 {
     }
 }
 
-fn mix_rgb(a: u32, b: u32, amount: f32) -> u32 {
+pub(in crate::workspace) fn mix_rgb(a: u32, b: u32, amount: f32) -> u32 {
     let amount = amount.clamp(0.0, 1.0);
     let mix = |shift: u32| {
         let left = ((a >> shift) & 0xffu32) as f32;
@@ -33,14 +37,14 @@ fn mix_rgb(a: u32, b: u32, amount: f32) -> u32 {
     (mix(16) << 16) | (mix(8) << 8) | mix(0)
 }
 
-fn contrast_ratio(a: u32, b: u32) -> f32 {
+pub(in crate::workspace) fn contrast_ratio(a: u32, b: u32) -> f32 {
     let l1 = relative_luminance(a);
     let l2 = relative_luminance(b);
     let (light, dark) = if l1 > l2 { (l1, l2) } else { (l2, l1) };
     (light + 0.05) / (dark + 0.05)
 }
 
-fn relative_luminance(color: u32) -> f32 {
+pub(in crate::workspace) fn relative_luminance(color: u32) -> f32 {
     let channel = |shift: u32| {
         let value = ((color >> shift) & 0xffu32) as f32 / 255.0;
         if value <= 0.03928 {

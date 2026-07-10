@@ -5,6 +5,6 @@ license.workspace = true
 version.workspace = true
 
 [dependencies]
-oxideterm-terminal = { path = "../oxideterm-terminal" }
+oxideterm-terminal-model = { path = "../oxideterm-terminal-model" }
 unicode-bidi.workspace = true
 unicode-segmentation.workspace = true

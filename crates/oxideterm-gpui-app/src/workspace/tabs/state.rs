@@ -1,66 +1,67 @@
+use super::*;
+
 impl WorkspaceApp {
-    pub(super) fn alloc_tab_id(&mut self) -> TabId {
+    pub(in crate::workspace) fn alloc_tab_id(&mut self) -> TabId {
         let id = TabId(self.next_tab_id);
         self.next_tab_id += 1;
         id
     }
 
-    pub(super) fn alloc_pane_id(&mut self) -> PaneId {
+    pub(in crate::workspace) fn alloc_pane_id(&mut self) -> PaneId {
         let id = PaneId(self.next_pane_id);
         self.next_pane_id += 1;
         id
     }
 
-    pub(super) fn alloc_session_id(&mut self) -> TerminalSessionId {
+    pub(in crate::workspace) fn alloc_session_id(&mut self) -> TerminalSessionId {
         let id = TerminalSessionId(self.next_session_id);
         self.next_session_id += 1;
         id
     }
 
-    pub(super) fn active_tab_index(&self) -> Option<usize> {
+    pub(in crate::workspace) fn active_tab_index(&self) -> Option<usize> {
         let active = self.main_window_tabs.active_tab_id?;
         self.tabs.iter().position(|tab| tab.id == active)
     }
 
-    pub(super) fn tab_index_by_id(&self, tab_id: TabId) -> Option<usize> {
+    pub(in crate::workspace) fn tab_index_by_id(&self, tab_id: TabId) -> Option<usize> {
         self.tabs.iter().position(|tab| tab.id == tab_id)
     }
 
-    pub(super) fn tab_by_id(&self, tab_id: TabId) -> Option<&Tab> {
+    pub(in crate::workspace) fn tab_by_id(&self, tab_id: TabId) -> Option<&Tab> {
         self.tab_index_by_id(tab_id)
             .and_then(|index| self.tabs.get(index))
     }
 
-    pub(super) fn tab_mut_by_id(&mut self, tab_id: TabId) -> Option<&mut Tab> {
+    pub(in crate::workspace) fn tab_mut_by_id(&mut self, tab_id: TabId) -> Option<&mut Tab> {
         let index = self.tab_index_by_id(tab_id)?;
         self.tabs.get_mut(index)
     }
 
-    pub(super) fn active_tab(&self) -> Option<&Tab> {
+    pub(in crate::workspace) fn active_tab(&self) -> Option<&Tab> {
         self.active_tab_index()
             .and_then(|index| self.tabs.get(index))
     }
 
-    pub(super) fn active_tab_mut(&mut self) -> Option<&mut Tab> {
+    pub(in crate::workspace) fn active_tab_mut(&mut self) -> Option<&mut Tab> {
         let index = self.active_tab_index()?;
         self.tabs.get_mut(index)
     }
 
-    pub(super) fn active_pane_id(&self) -> Option<PaneId> {
+    pub(in crate::workspace) fn active_pane_id(&self) -> Option<PaneId> {
         self.active_tab().and_then(|tab| tab.active_pane_id)
     }
 
-    pub(super) fn active_pane(&self) -> Option<gpui::Entity<TerminalPane>> {
+    pub(in crate::workspace) fn active_pane(&self) -> Option<gpui::Entity<TerminalPane>> {
         self.active_pane_id()
             .and_then(|pane_id| self.panes.get(&pane_id).cloned())
     }
 
-    pub(super) fn active_terminal_session_id(&self) -> Option<TerminalSessionId> {
+    pub(in crate::workspace) fn active_terminal_session_id(&self) -> Option<TerminalSessionId> {
         let tab = self.active_tab()?;
         let pane_id = tab.active_pane_id?;
         tab.root_pane
             .as_ref()
             .and_then(|root| root.session_id_for_pane(pane_id))
     }
-
 }

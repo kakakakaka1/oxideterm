@@ -20,7 +20,7 @@ pub struct TelnetSession {
     term: Arc<FairMutex<Term<LocalEventListener>>>,
     parser: Processor,
     event_rx: Receiver<AlacEvent>,
-    worker_rx: Receiver<TelnetWorkerEvent>,
+    worker_rx: crate::backpressure::ByteBoundedReceiver<TelnetWorkerEvent>,
     pending_events: Vec<TerminalEvent>,
     resize: TerminalResize,
     lifecycle: TerminalLifecycle,
@@ -30,8 +30,7 @@ pub struct TelnetSession {
     graphics_ingress: GraphicsIngress,
     graphics: TerminalGraphicsState,
     graphics_alt_screen_active: bool,
-    output_queue: VecDeque<Vec<u8>>,
-    output_queue_bytes: usize,
+    output_queue: VecDeque<crate::backpressure::ByteBoundedItem<TelnetWorkerEvent>>,
     magic_scan: MagicScanWindow,
     encoding: TerminalEncoding,
     output_decoder: TerminalOutputDecoder,
@@ -225,7 +224,9 @@ impl TelnetSession {
             cell_height: resize.cell_height,
         };
         let (event_tx, event_rx) = unbounded();
-        let (worker_tx, worker_rx) = unbounded();
+        let (worker_tx, worker_rx) = crate::backpressure::byte_bounded_channel(
+            crate::backpressure::TRANSPORT_OUTPUT_BACKLOG_BYTES,
+        );
         let (command_tx, command_rx) = tokio::sync::mpsc::channel(256);
         let listener = LocalEventListener { tx: event_tx };
 
@@ -248,7 +249,7 @@ impl TelnetSession {
                 worker_tx,
             ));
         } else {
-            let _ = worker_tx.send(TelnetWorkerEvent::Failed(
+            let _ = worker_tx.send_control(TelnetWorkerEvent::Failed(
                 "failed to initialize Telnet runtime".to_string(),
             ));
         }
@@ -269,7 +270,6 @@ impl TelnetSession {
             graphics: TerminalGraphicsState::default(),
             graphics_alt_screen_active: false,
             output_queue: VecDeque::new(),
-            output_queue_bytes: 0,
             magic_scan: MagicScanWindow::default(),
             encoding,
             output_decoder: TerminalOutputDecoder::new(encoding),
@@ -293,12 +293,15 @@ impl TelnetSession {
             if report.drained_bytes >= budget.max_bytes
                 || report.events_drained >= budget.max_events
             {
-                report.budget_exhausted = !self.output_queue.is_empty();
+                report.budget_exhausted =
+                    !self.output_queue.is_empty() || !self.worker_rx.is_empty();
                 break;
             }
 
-            if let Some(bytes) = self.output_queue.pop_front() {
-                self.output_queue_bytes = self.output_queue_bytes.saturating_sub(bytes.len());
+            if let Some(event) = self.output_queue.pop_front() {
+                let TelnetWorkerEvent::Output(bytes) = event.into_inner() else {
+                    unreachable!("only output events enter the local drain queue");
+                };
                 report.drained_bytes = report.drained_bytes.saturating_add(bytes.len());
                 report.events_drained += 1;
                 self.feed_transport_output(&bytes);
@@ -306,48 +309,8 @@ impl TelnetSession {
                 continue;
             }
 
-            match self.worker_rx.try_recv() {
-                Ok(TelnetWorkerEvent::Connected) => {
-                    self.title = Some(self.title_text());
-                    self.pending_events
-                        .push(TerminalEvent::TitleChanged(self.title_text()));
-                    report.events_drained += 1;
-                    report.mark_changed();
-                }
-                Ok(TelnetWorkerEvent::Output(bytes)) => {
-                    if report.drained_bytes > 0
-                        && report.drained_bytes.saturating_add(bytes.len()) > budget.max_bytes
-                    {
-                        self.output_queue_bytes =
-                            self.output_queue_bytes.saturating_add(bytes.len());
-                        self.output_queue.push_back(bytes);
-                        report.budget_exhausted = true;
-                        break;
-                    }
-                    report.drained_bytes = report.drained_bytes.saturating_add(bytes.len());
-                    report.events_drained += 1;
-                    self.feed_transport_output(&bytes);
-                    report.mark_changed();
-                }
-                Ok(TelnetWorkerEvent::Failed(error)) => {
-                    self.lifecycle = TerminalLifecycle::Exited(None);
-                    self.feed_utf8_terminal_output(
-                        format!("\r\nTelnet connection failed: {error}\r\n").as_bytes(),
-                    );
-                    self.pending_events.push(TerminalEvent::ChildExited(None));
-                    report.events_drained += 1;
-                    report.mark_changed();
-                    break;
-                }
-                Ok(TelnetWorkerEvent::Closed) => {
-                    if self.lifecycle.is_running() {
-                        self.lifecycle = TerminalLifecycle::Exited(None);
-                        self.pending_events.push(TerminalEvent::ChildExited(None));
-                        report.mark_changed();
-                    }
-                    report.events_drained += 1;
-                    break;
-                }
+            let event = match self.worker_rx.try_recv() {
+                Ok(event) => event,
                 Err(crossbeam_channel::TryRecvError::Empty) => break,
                 Err(crossbeam_channel::TryRecvError::Disconnected) => {
                     if self.lifecycle.is_running() {
@@ -357,9 +320,52 @@ impl TelnetSession {
                     }
                     break;
                 }
+            };
+            if let TelnetWorkerEvent::Output(bytes) = event.value()
+                && report.drained_bytes > 0
+                && report.drained_bytes.saturating_add(bytes.len()) > budget.max_bytes
+            {
+                self.output_queue.push_back(event);
+                report.budget_exhausted = true;
+                break;
+            }
+
+            match event.into_inner() {
+                TelnetWorkerEvent::Connected => {
+                    self.title = Some(self.title_text());
+                    self.pending_events
+                        .push(TerminalEvent::TitleChanged(self.title_text()));
+                    report.events_drained += 1;
+                    report.mark_changed();
+                }
+                TelnetWorkerEvent::Output(bytes) => {
+                    report.drained_bytes = report.drained_bytes.saturating_add(bytes.len());
+                    report.events_drained += 1;
+                    self.feed_transport_output(&bytes);
+                    report.mark_changed();
+                }
+                TelnetWorkerEvent::Failed(error) => {
+                    self.lifecycle = TerminalLifecycle::Exited(None);
+                    self.feed_utf8_terminal_output(
+                        format!("\r\nTelnet connection failed: {error}\r\n").as_bytes(),
+                    );
+                    self.pending_events.push(TerminalEvent::ChildExited(None));
+                    report.events_drained += 1;
+                    report.mark_changed();
+                    break;
+                }
+                TelnetWorkerEvent::Closed => {
+                    if self.lifecycle.is_running() {
+                        self.lifecycle = TerminalLifecycle::Exited(None);
+                        self.pending_events.push(TerminalEvent::ChildExited(None));
+                        report.mark_changed();
+                    }
+                    report.events_drained += 1;
+                    break;
+                }
             }
         }
-        report.pending_bytes = self.output_queue_bytes;
+        report.pending_bytes = self.worker_rx.pending_bytes();
         report.drain_duration = started.elapsed();
         report
     }
@@ -815,7 +821,7 @@ async fn run_telnet_worker(
     config: TelnetSessionConfig,
     initial_resize: TerminalResize,
     mut command_rx: tokio::sync::mpsc::Receiver<TelnetCommand>,
-    worker_tx: crossbeam_channel::Sender<TelnetWorkerEvent>,
+    worker_tx: crate::backpressure::ByteBoundedSender<TelnetWorkerEvent>,
 ) {
     let endpoint = (config.host.as_str(), config.port);
     let stream = match tokio::time::timeout(
@@ -826,11 +832,11 @@ async fn run_telnet_worker(
     {
         Ok(Ok(stream)) => stream,
         Ok(Err(error)) => {
-            let _ = worker_tx.send(TelnetWorkerEvent::Failed(error.to_string()));
+            let _ = worker_tx.send_control(TelnetWorkerEvent::Failed(error.to_string()));
             return;
         }
         Err(_) => {
-            let _ = worker_tx.send(TelnetWorkerEvent::Failed(format!(
+            let _ = worker_tx.send_control(TelnetWorkerEvent::Failed(format!(
                 "timed out connecting to {}",
                 config.endpoint_label()
             )));
@@ -838,7 +844,7 @@ async fn run_telnet_worker(
         }
     };
 
-    let _ = worker_tx.send(TelnetWorkerEvent::Connected);
+    let _ = worker_tx.send_control(TelnetWorkerEvent::Connected);
     let (mut reader, mut writer) = stream.into_split();
     let mut codec = TelnetCodec::new(initial_resize.cols as u16, initial_resize.rows as u16);
     let mut buffer = vec![0_u8; 8192];
@@ -847,25 +853,30 @@ async fn run_telnet_worker(
             read_result = reader.read(&mut buffer) => {
                 match read_result {
                     Ok(0) => {
-                        let _ = worker_tx.send(TelnetWorkerEvent::Closed);
+                        let _ = worker_tx.send_control(TelnetWorkerEvent::Closed);
                         break;
                     }
                     Ok(read_count) => {
                         let (data, responses) = codec.filter_server_bytes(&buffer[..read_count]);
                         for response in responses {
                             if writer.write_all(&response).await.is_err() {
-                                let _ = worker_tx.send(TelnetWorkerEvent::Closed);
+                                let _ = worker_tx.send_control(TelnetWorkerEvent::Closed);
                                 return;
                             }
                         }
-                        if !data.is_empty()
-                            && worker_tx.send(TelnetWorkerEvent::Output(data)).is_err()
-                        {
-                            break;
+                        if !data.is_empty() {
+                            let data_len = data.len();
+                            if worker_tx
+                                .send_async(TelnetWorkerEvent::Output(data), data_len)
+                                .await
+                                .is_err()
+                            {
+                                break;
+                            }
                         }
                     }
                     Err(error) => {
-                        let _ = worker_tx.send(TelnetWorkerEvent::Failed(error.to_string()));
+                        let _ = worker_tx.send_control(TelnetWorkerEvent::Failed(error.to_string()));
                         break;
                     }
                 }
@@ -875,20 +886,20 @@ async fn run_telnet_worker(
                     Some(TelnetCommand::Data(bytes)) => {
                         let encoded = codec.encode_client_data(&bytes);
                         if writer.write_all(&encoded).await.is_err() {
-                            let _ = worker_tx.send(TelnetWorkerEvent::Closed);
+                            let _ = worker_tx.send_control(TelnetWorkerEvent::Closed);
                             break;
                         }
                     }
                     Some(TelnetCommand::Resize { cols, rows }) => {
                         codec.set_window_size(cols, rows);
                         if writer.write_all(&codec.naws_message()).await.is_err() {
-                            let _ = worker_tx.send(TelnetWorkerEvent::Closed);
+                            let _ = worker_tx.send_control(TelnetWorkerEvent::Closed);
                             break;
                         }
                     }
                     Some(TelnetCommand::Close) | None => {
                         let _ = writer.shutdown().await;
-                        let _ = worker_tx.send(TelnetWorkerEvent::Closed);
+                        let _ = worker_tx.send_control(TelnetWorkerEvent::Closed);
                         break;
                     }
                 }

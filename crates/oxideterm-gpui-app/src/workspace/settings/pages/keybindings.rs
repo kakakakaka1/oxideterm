@@ -1,19 +1,21 @@
+use super::*;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum KeybindingToolbarAction {
+pub(in crate::workspace) enum KeybindingToolbarAction {
     Import,
     Export,
     ResetAll,
 }
 
-const KEYBINDING_SCOPE_FILTER_HEIGHT: f32 = 32.0; // Tauri KeybindingEditorSection scope Button h-8
-const KEYBINDING_SCOPE_FILTER_PADDING_X: f32 = 12.0; // Tauri px-3
-const KEYBINDING_BG_ACTIVE_ELEVATED_ALPHA: u32 = 0x73; // Tauri [data-bg-active] --color-theme-bg-elevated: 45%.
-const KEYBINDING_BG_ACTIVE_BORDER_ALPHA: u32 = 0xbf; // Tauri [data-bg-active] --color-theme-border: 75%.
-const KEYBINDING_HEADER_BG_ALPHA: u32 = 0x80; // Tauri bg-theme-bg-elevated/50.
-const KEYBINDING_ROW_DIVIDER_ALPHA: u32 = 0x4d; // Tauri divide-theme-border/30.
-const KEYBINDING_KBD_BORDER_ALPHA: u32 = 0x80; // Tauri border-theme-border/50.
+pub(in crate::workspace) const KEYBINDING_SCOPE_FILTER_HEIGHT: f32 = 32.0; // Tauri KeybindingEditorSection scope Button h-8
+pub(in crate::workspace) const KEYBINDING_SCOPE_FILTER_PADDING_X: f32 = 12.0; // Tauri px-3
+pub(in crate::workspace) const KEYBINDING_BG_ACTIVE_ELEVATED_ALPHA: u32 = 0x73; // Tauri [data-bg-active] --color-theme-bg-elevated: 45%.
+pub(in crate::workspace) const KEYBINDING_BG_ACTIVE_BORDER_ALPHA: u32 = 0xbf; // Tauri [data-bg-active] --color-theme-border: 75%.
+pub(in crate::workspace) const KEYBINDING_HEADER_BG_ALPHA: u32 = 0x80; // Tauri bg-theme-bg-elevated/50.
+pub(in crate::workspace) const KEYBINDING_ROW_DIVIDER_ALPHA: u32 = 0x4d; // Tauri divide-theme-border/30.
+pub(in crate::workspace) const KEYBINDING_KBD_BORDER_ALPHA: u32 = 0x80; // Tauri border-theme-border/50.
 
-fn settings_keybinding_scope_matches(
+pub(in crate::workspace) fn settings_keybinding_scope_matches(
     filter: SettingsKeybindingScopeFilter,
     scope: crate::keybindings::ActionScope,
 ) -> bool {
@@ -24,14 +26,12 @@ fn settings_keybinding_scope_matches(
             scope == crate::keybindings::ActionScope::Terminal
         }
         SettingsKeybindingScopeFilter::Split => scope == crate::keybindings::ActionScope::Split,
-        SettingsKeybindingScopeFilter::Palette => {
-            scope == crate::keybindings::ActionScope::Palette
-        }
+        SettingsKeybindingScopeFilter::Palette => scope == crate::keybindings::ActionScope::Palette,
     }
 }
 
 impl KeybindingToolbarAction {
-    fn label_key(self) -> &'static str {
+    pub(in crate::workspace) fn label_key(self) -> &'static str {
         match self {
             Self::Import => "settings_view.keybindings.import",
             Self::Export => "settings_view.keybindings.export",
@@ -39,7 +39,7 @@ impl KeybindingToolbarAction {
         }
     }
 
-    fn icon(self) -> LucideIcon {
+    pub(in crate::workspace) fn icon(self) -> LucideIcon {
         match self {
             Self::Import => LucideIcon::Upload,
             Self::Export => LucideIcon::Download,
@@ -47,13 +47,13 @@ impl KeybindingToolbarAction {
         }
     }
 
-    fn destructive(self) -> bool {
+    pub(in crate::workspace) fn destructive(self) -> bool {
         matches!(self, Self::ResetAll)
     }
 }
 
 impl WorkspaceApp {
-    fn keybinding_surface_border(&self) -> gpui::Rgba {
+    pub(in crate::workspace) fn keybinding_surface_border(&self) -> gpui::Rgba {
         oxideterm_gpui_ui::color_for_background(
             self.tokens.ui.border,
             self.settings_background_active(),
@@ -61,7 +61,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn keybinding_row_divider(&self) -> gpui::Rgba {
+    pub(in crate::workspace) fn keybinding_row_divider(&self) -> gpui::Rgba {
         // Tauri composes divide-theme-border/30 with the [data-bg-active]
         // border variable, so the slash opacity must scale after the 75% mix.
         oxideterm_gpui_ui::color_with_background_scaled_alpha(
@@ -72,7 +72,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn keybinding_header_background(&self) -> gpui::Rgba {
+    pub(in crate::workspace) fn keybinding_header_background(&self) -> gpui::Rgba {
         // Source: KeybindingEditorSection `bg-theme-bg-elevated/50`, whose
         // theme variable becomes 45% opaque under [data-bg-active].
         oxideterm_gpui_ui::color_with_background_scaled_alpha(
@@ -83,7 +83,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn keybinding_hover_background(&self) -> gpui::Rgba {
+    pub(in crate::workspace) fn keybinding_hover_background(&self) -> gpui::Rgba {
         oxideterm_gpui_ui::color_for_background(
             self.tokens.ui.bg_hover,
             self.settings_background_active(),
@@ -91,7 +91,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn settings_keybindings_section(
+    pub(in crate::workspace) fn settings_keybindings_section(
         &self,
         section_index: usize,
         cx: &mut Context<Self>,
@@ -103,7 +103,11 @@ impl WorkspaceApp {
         }
 
         let side = crate::keybindings::KeybindingSide::current();
-        let query = self.settings_page.keybinding_search_query.trim().to_lowercase();
+        let query = self
+            .settings_page
+            .keybinding_search_query
+            .trim()
+            .to_lowercase();
         let mut visible_index = 0;
         for scope in [
             crate::keybindings::ActionScope::Global,
@@ -143,7 +147,11 @@ impl WorkspaceApp {
         div().into_any_element()
     }
 
-    fn keybinding_toolbar(&self, modified: usize, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn keybinding_toolbar(
+        &self,
+        modified: usize,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         div()
             .w_full()
             .min_w(px(0.0))
@@ -172,18 +180,21 @@ impl WorkspaceApp {
                         false,
                         cx,
                     ))
-                    .when(modified > 0, |toolbar| toolbar.child(
-                        self.keybinding_toolbar_button(
+                    .when(modified > 0, |toolbar| {
+                        toolbar.child(self.keybinding_toolbar_button(
                             KeybindingToolbarAction::ResetAll,
                             modified == 0,
                             cx,
-                        ),
-                    )),
+                        ))
+                    }),
             )
             .into_any_element()
     }
 
-    fn keybinding_search_input(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn keybinding_search_input(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let focused = self.focused_settings_input == Some(SettingsInput::KeybindingSearch);
         let value = if focused {
             self.settings_input_draft.as_str()
@@ -236,11 +247,11 @@ impl WorkspaceApp {
                     cx.stop_propagation();
                 }),
             )
-            .on_mouse_move(
-                cx.listener(|this, event: &gpui::MouseMoveEvent, window, cx| {
+            .on_mouse_move(cx.listener(
+                |this, event: &gpui::MouseMoveEvent, window, cx| {
                     this.update_ime_selection_drag_from_mouse_move(event, window, cx);
-                }),
-            ),
+                },
+            )),
             move |anchor, _window, cx| {
                 let _ = workspace.update(cx, |this, cx| {
                     this.update_text_input_anchor(anchor, cx);
@@ -250,7 +261,10 @@ impl WorkspaceApp {
         .into_any_element()
     }
 
-    fn keybinding_scope_filter(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn keybinding_scope_filter(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let mut row = div().flex().items_center().gap(px(4.0));
         for filter in SettingsKeybindingScopeFilter::all().iter().copied() {
             let active = self.settings_page.keybinding_scope_filter == filter;
@@ -259,7 +273,7 @@ impl WorkspaceApp {
         row.into_any_element()
     }
 
-    fn keybinding_scope_filter_button(
+    pub(in crate::workspace) fn keybinding_scope_filter_button(
         &self,
         filter: SettingsKeybindingScopeFilter,
         active: bool,
@@ -294,7 +308,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn keybinding_toolbar_button(
+    pub(in crate::workspace) fn keybinding_toolbar_button(
         &self,
         action: KeybindingToolbarAction,
         disabled: bool,
@@ -350,7 +364,7 @@ impl WorkspaceApp {
         .into_any_element()
     }
 
-    fn keybinding_no_results(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn keybinding_no_results(&self, cx: &mut Context<Self>) -> AnyElement {
         div()
             .w_full()
             .py(px(44.0))
@@ -370,7 +384,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn keybinding_scope_table(
+    pub(in crate::workspace) fn keybinding_scope_table(
         &self,
         scope: crate::keybindings::ActionScope,
         definitions: &[&crate::keybindings::ActionDefinition],
@@ -442,7 +456,7 @@ impl WorkspaceApp {
         table.into_any_element()
     }
 
-    fn keybinding_action_row(
+    pub(in crate::workspace) fn keybinding_action_row(
         &self,
         definition: &crate::keybindings::ActionDefinition,
         side: crate::keybindings::KeybindingSide,
@@ -456,7 +470,8 @@ impl WorkspaceApp {
         let default = definition.default_combo(side);
         let modified = current != *default;
         let recording = self
-            .settings_page.keybinding_recording_action_id
+            .settings_page
+            .keybinding_recording_action_id
             .as_deref()
             .is_some_and(|id| id == definition.id);
         let action_id = definition.id.to_string();
@@ -481,8 +496,7 @@ impl WorkspaceApp {
             // Avoid a final border inside the rounded bottom because GPUI's
             // rounded overflow can otherwise expose the line outside the mask.
             .when(!is_last, |row| {
-                row.border_b_1()
-                    .border_color(self.keybinding_row_divider())
+                row.border_b_1().border_color(self.keybinding_row_divider())
             })
             .when(is_last, |row| {
                 row.rounded_b(px(rounded_shell_child_radius(self.tokens.radii.lg)))
@@ -510,7 +524,9 @@ impl WorkspaceApp {
                                 cx,
                             )),
                     )
-                    .when(modified, |label| label.child(self.keybinding_modified_badge(cx))),
+                    .when(modified, |label| {
+                        label.child(self.keybinding_modified_badge(cx))
+                    }),
             )
             .child(
                 div()
@@ -541,9 +557,9 @@ impl WorkspaceApp {
                                     .on_mouse_down(
                                         MouseButton::Left,
                                         cx.listener(move |this, _event, _window, cx| {
-                                            this
-                                                .settings_page
-                                                .start_keybinding_recording(record_action_id.clone());
+                                            this.settings_page.start_keybinding_recording(
+                                                record_action_id.clone(),
+                                            );
                                             this.keybinding_recording_combo = None;
                                             this.keybinding_recording_footer_focus = None;
                                             cx.stop_propagation();
@@ -576,7 +592,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn keybinding_recording_cell(
+    pub(in crate::workspace) fn keybinding_recording_cell(
         &self,
         conflicts: &[String],
         side: crate::keybindings::KeybindingSide,
@@ -595,9 +611,11 @@ impl WorkspaceApp {
                     .items_end()
                     .gap(px(4.0))
                     .child(match combo {
-                        Some(combo) => {
-                            self.keybinding_kbd_badge(&crate::keybindings::format_combo(combo), true, cx)
-                        }
+                        Some(combo) => self.keybinding_kbd_badge(
+                            &crate::keybindings::format_combo(combo),
+                            true,
+                            cx,
+                        ),
                         None => div()
                             .text_size(px(self.tokens.metrics.ui_text_xs))
                             .italic()
@@ -636,23 +654,24 @@ impl WorkspaceApp {
                 } else {
                     "settings_view.keybindings.override_anyway"
                 };
-                cell.child(
-                    self.keybinding_recording_confirm_button(
-                        if conflicts.is_empty() {
-                            label_key.to_string()
-                        } else {
-                            self.i18n.t(label_key)
-                        },
-                        conflicts.is_empty(),
-                        cx,
-                    )
-                )
+                cell.child(self.keybinding_recording_confirm_button(
+                    if conflicts.is_empty() {
+                        label_key.to_string()
+                    } else {
+                        self.i18n.t(label_key)
+                    },
+                    conflicts.is_empty(),
+                    cx,
+                ))
             })
             .child(self.keybinding_recording_cancel_button(cx))
             .into_any_element()
     }
 
-    fn keybinding_modified_badge(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn keybinding_modified_badge(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         div()
             .flex_none()
             .rounded(px(self.tokens.radii.sm))
@@ -673,7 +692,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn keybinding_kbd_badge(
+    pub(in crate::workspace) fn keybinding_kbd_badge(
         &self,
         value: &str,
         accent: bool,
@@ -725,7 +744,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn keybinding_recording_confirm_button(
+    pub(in crate::workspace) fn keybinding_recording_confirm_button(
         &self,
         label: String,
         is_clean_combo: bool,
@@ -768,7 +787,10 @@ impl WorkspaceApp {
         .into_any_element()
     }
 
-    fn keybinding_recording_cancel_button(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn keybinding_recording_cancel_button(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         self.workspace_icon_action_button(
             LucideIcon::X,
             14.0,
@@ -792,7 +814,7 @@ impl WorkspaceApp {
         .into_any_element()
     }
 
-    fn keybinding_conflict_text(
+    pub(in crate::workspace) fn keybinding_conflict_text(
         &self,
         conflicts: &[String],
         side: crate::keybindings::KeybindingSide,
@@ -814,7 +836,10 @@ impl WorkspaceApp {
             )
     }
 
-    fn render_keybinding_reset_all_confirm_dialog(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn render_keybinding_reset_all_confirm_dialog(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         confirm_dialog_with_focus(
             &self.tokens,
             ConfirmDialogView {
@@ -854,18 +879,19 @@ impl WorkspaceApp {
             },
             self.standard_confirm_focus(),
             cx.listener(|this, _event, _window, cx| {
-                this.settings_page.set_keybinding_reset_all_confirm_open(false);
+                this.settings_page
+                    .set_keybinding_reset_all_confirm_open(false);
                 this.clear_standard_confirm_focus();
                 cx.stop_propagation();
                 cx.notify();
             }),
             cx.listener(|this, _event, window, cx| {
-                this.settings_page.set_keybinding_reset_all_confirm_open(false);
+                this.settings_page
+                    .set_keybinding_reset_all_confirm_open(false);
                 this.clear_standard_confirm_focus();
                 this.reset_all_keybindings(window, cx);
                 cx.stop_propagation();
             }),
         )
     }
-
 }

@@ -3,13 +3,13 @@
 
 use std::{
     collections::{HashMap, HashSet},
-    ffi::OsString,
-    fs::{self, OpenOptions},
-    io::{self, Write},
+    fs, io,
     path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
     time::{SystemTime, UNIX_EPOCH},
 };
+
+use oxideterm_atomic_file::{durable_remove, durable_write_with_before_replace};
 
 use crate::model::{
     QUICK_COMMANDS_SCHEMA_VERSION, QuickCommand, QuickCommandCategory, QuickCommandIcon,
@@ -18,17 +18,15 @@ use crate::model::{
 
 const QUICK_COMMANDS_FILENAME: &str = "quick-commands.json";
 const MAX_QUICK_COMMANDS_FILE_BYTES: u64 = 512 * 1024;
-const MAX_CATEGORIES: usize = 100;
+pub const MAX_CATEGORIES: usize = 100;
 const MAX_COMMANDS: usize = 1000;
 const MAX_ID_LEN: usize = 128;
 const MAX_NAME_LEN: usize = 160;
 const MAX_COMMAND_LEN: usize = 4096;
 const MAX_DESCRIPTION_LEN: usize = 1024;
 const MAX_HOST_PATTERN_LEN: usize = 256;
-const MAX_ATOMIC_TEMP_ATTEMPTS: usize = 128;
 const BUILTIN_CATEGORY_IDS: &[&str] = &["system", "network", "files", "docker", "custom"];
 static QUICK_COMMAND_ID_COUNTER: AtomicU64 = AtomicU64::new(0);
-static ATOMIC_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[cfg(test)]
 thread_local! {
@@ -192,68 +190,12 @@ fn save_snapshot_to_path(path: &Path, snapshot: &QuickCommandsSnapshot) -> Resul
 }
 
 fn atomic_write_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    let parent = path
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."));
-    fs::create_dir_all(parent)?;
-    let file_name = path.file_name().ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "atomic write path has no file name",
-        )
-    })?;
-    let (temp_path, mut temp_file) = (0..MAX_ATOMIC_TEMP_ATTEMPTS)
-        .find_map(|_| {
-            let sequence = ATOMIC_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-            let mut temp_name = OsString::from(".");
-            temp_name.push(file_name);
-            temp_name.push(format!(".{}.{sequence}.tmp", std::process::id()));
-            let temp_path = parent.join(temp_name);
-            match OpenOptions::new()
-                .create_new(true)
-                .write(true)
-                .open(&temp_path)
-            {
-                Ok(file) => Some(Ok((temp_path, file))),
-                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => None,
-                Err(error) => Some(Err(error)),
-            }
-        })
-        .transpose()?
-        .ok_or_else(|| {
-            io::Error::new(io::ErrorKind::AlreadyExists, "atomic temp path exhausted")
-        })?;
-
-    // The destination changes only after the complete temporary file reaches durable storage.
-    let write_result = (|| {
-        temp_file.write_all(bytes)?;
-        temp_file.flush()?;
-        temp_file.sync_all()?;
-        drop(temp_file);
-        fail_before_atomic_replace_for_tests()?;
-        atomic_replace_file(&temp_path, path)?;
-        sync_parent_directory(parent)
-    })();
-    if write_result.is_err() {
-        let _ = fs::remove_file(&temp_path);
-    }
-    write_result
+    durable_write_with_before_replace(path, bytes, fail_before_atomic_replace_for_tests)
 }
 
 fn remove_file_if_present(path: &Path) -> io::Result<()> {
     fail_before_checkpoint_removal_for_tests()?;
-    match fs::remove_file(path) {
-        Ok(()) => {
-            let parent = path
-                .parent()
-                .filter(|parent| !parent.as_os_str().is_empty())
-                .unwrap_or_else(|| Path::new("."));
-            sync_parent_directory(parent)
-        }
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(error),
-    }
+    durable_remove(path)
 }
 
 #[cfg(test)]
@@ -298,58 +240,6 @@ fn inject_atomic_replace_failure() {
 #[cfg(test)]
 fn inject_checkpoint_removal_failure() {
     FAIL_NEXT_CHECKPOINT_REMOVAL.with(|fail| fail.set(true));
-}
-
-#[cfg(not(windows))]
-fn atomic_replace_file(source: &Path, destination: &Path) -> io::Result<()> {
-    fs::rename(source, destination)
-}
-
-#[cfg(windows)]
-fn atomic_replace_file(source: &Path, destination: &Path) -> io::Result<()> {
-    use std::os::windows::ffi::OsStrExt;
-
-    const MOVEFILE_REPLACE_EXISTING: u32 = 0x1;
-    const MOVEFILE_WRITE_THROUGH: u32 = 0x8;
-
-    #[link(name = "Kernel32")]
-    unsafe extern "system" {
-        fn MoveFileExW(existing: *const u16, replacement: *const u16, flags: u32) -> i32;
-    }
-
-    let source = source
-        .as_os_str()
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect::<Vec<_>>();
-    let destination = destination
-        .as_os_str()
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect::<Vec<_>>();
-    let replaced = unsafe {
-        MoveFileExW(
-            source.as_ptr(),
-            destination.as_ptr(),
-            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
-        )
-    };
-    if replaced == 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
-}
-
-#[cfg(unix)]
-fn sync_parent_directory(parent: &Path) -> io::Result<()> {
-    fs::File::open(parent)?.sync_all()
-}
-
-#[cfg(not(unix))]
-fn sync_parent_directory(_parent: &Path) -> io::Result<()> {
-    // MoveFileExW uses WRITE_THROUGH on Windows, which flushes the replacement operation.
-    Ok(())
 }
 
 struct MergeResult {
@@ -510,7 +400,7 @@ fn merge_snapshot(
     }
 }
 
-fn is_builtin_category_id(id: &str) -> bool {
+pub fn is_builtin_category_id(id: &str) -> bool {
     BUILTIN_CATEGORY_IDS.contains(&id)
 }
 
@@ -746,14 +636,14 @@ fn quick_command(
     }
 }
 
-fn now_ms() -> u64 {
+pub fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis() as u64)
         .unwrap_or(0)
 }
 
-fn new_quick_command_id() -> String {
+pub fn new_quick_command_id() -> String {
     format!(
         "qc-{}-{}",
         now_ms(),
@@ -761,7 +651,7 @@ fn new_quick_command_id() -> String {
     )
 }
 
-fn new_quick_category_id() -> String {
+pub fn new_quick_category_id() -> String {
     format!(
         "qcg-{}-{}",
         now_ms(),

@@ -1,21 +1,23 @@
+use super::*;
+
 #[derive(Clone)]
-struct TerminalHistoryEntry {
-    command: String,
-    source: TerminalHistorySource,
-    last_used_at: i64,
-    uses: usize,
-    sequence: usize,
+pub(super) struct TerminalHistoryEntry {
+    pub(super) command: String,
+    pub(super) source: TerminalHistorySource,
+    pub(super) last_used_at: i64,
+    pub(super) uses: usize,
+    pub(super) sequence: usize,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum TerminalHistorySource {
+pub(super) enum TerminalHistorySource {
     Runtime,
     LocalHistory,
     AiLedger,
 }
 
 impl TerminalHistorySource {
-    fn label_key(self) -> &'static str {
+    pub(super) fn label_key(self) -> &'static str {
         match self {
             Self::Runtime => "terminal.command_bar.source_runtime",
             // Tauri's command-bar history provider preserves these underlying
@@ -27,33 +29,33 @@ impl TerminalHistorySource {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum TerminalCommandContextType {
+pub(super) enum TerminalCommandContextType {
     Terminal,
     LocalTerminal,
 }
 
 #[derive(Clone, Debug)]
-struct TerminalCommandContext {
-    pane_id: Option<PaneId>,
-    session_id: Option<TerminalSessionId>,
-    tab_id: Option<TabId>,
-    terminal_type: TerminalCommandContextType,
-    node_id: Option<NodeId>,
-    cwd: Option<String>,
-    cwd_host: Option<String>,
-    target_label: String,
+pub(super) struct TerminalCommandContext {
+    pub(super) pane_id: Option<PaneId>,
+    pub(super) session_id: Option<TerminalSessionId>,
+    pub(super) tab_id: Option<TabId>,
+    pub(super) terminal_type: TerminalCommandContextType,
+    pub(super) node_id: Option<NodeId>,
+    pub(super) cwd: Option<String>,
+    pub(super) cwd_host: Option<String>,
+    pub(super) target_label: String,
 }
 
 impl TerminalCommandContext {
-    fn is_local_terminal(&self) -> bool {
+    pub(super) fn is_local_terminal(&self) -> bool {
         self.terminal_type == TerminalCommandContextType::LocalTerminal
     }
 
-    fn is_remote_terminal(&self) -> bool {
+    pub(super) fn is_remote_terminal(&self) -> bool {
         self.terminal_type == TerminalCommandContextType::Terminal
     }
 
-    fn provider_scope_id(&self) -> String {
+    pub(super) fn provider_scope_id(&self) -> String {
         self.node_id
             .as_ref()
             .map(|node_id| node_id.0.clone())
@@ -63,7 +65,7 @@ impl TerminalCommandContext {
             .unwrap_or_default()
     }
 
-    fn target_fields(&self) -> Vec<String> {
+    pub(super) fn target_fields(&self) -> Vec<String> {
         let mut fields = vec![self.target_label.clone()];
         if let Some(cwd_host) = &self.cwd_host {
             fields.push(cwd_host.clone());
@@ -79,7 +81,7 @@ impl TerminalCommandContext {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
-enum TerminalFigArgType {
+pub(super) enum TerminalFigArgType {
     #[serde(alias = "none")]
     None,
     Path,
@@ -96,73 +98,74 @@ impl Default for TerminalFigArgType {
 }
 
 #[derive(Clone)]
-struct TerminalFigOptionSpec {
-    name: String,
-    description: Option<String>,
-    args: TerminalFigArgType,
+pub(super) struct TerminalFigOptionSpec {
+    pub(super) name: String,
+    pub(super) description: Option<String>,
+    pub(super) args: TerminalFigArgType,
 }
 
 #[derive(Clone)]
-struct TerminalFigSubcommandSpec {
-    name: String,
-    description: Option<String>,
-    options: Vec<TerminalFigOptionSpec>,
-    args: TerminalFigArgType,
+pub(super) struct TerminalFigSubcommandSpec {
+    pub(super) name: String,
+    pub(super) description: Option<String>,
+    pub(super) options: Vec<TerminalFigOptionSpec>,
+    pub(super) args: TerminalFigArgType,
 }
 
 #[derive(Clone)]
 pub(in crate::workspace) struct TerminalFigSpec {
-    name: String,
-    description: String,
-    subcommands: Vec<TerminalFigSubcommandSpec>,
-    options: Vec<TerminalFigOptionSpec>,
-    args: TerminalFigArgType,
+    pub(super) name: String,
+    pub(super) description: String,
+    pub(super) subcommands: Vec<TerminalFigSubcommandSpec>,
+    pub(super) options: Vec<TerminalFigOptionSpec>,
+    pub(super) args: TerminalFigArgType,
 }
 
 #[derive(Clone, Debug)]
-struct TerminalShellToken {
-    value: String,
-    start: usize,
-    end: usize,
-    quote: Option<char>,
+pub(super) struct TerminalShellToken {
+    pub(super) value: String,
+    pub(super) start: usize,
+    pub(super) end: usize,
+    pub(super) quote: Option<char>,
 }
 
 #[derive(Clone, Debug)]
-struct TerminalShellParseResult {
-    reliable: bool,
-    tokens: Vec<TerminalShellToken>,
-    current_token: TerminalShellToken,
-    current_token_index: isize,
-    command_name: Option<String>,
+pub(super) struct TerminalShellParseResult {
+    pub(super) reliable: bool,
+    pub(super) tokens: Vec<TerminalShellToken>,
+    pub(super) current_token: TerminalShellToken,
+    pub(super) current_token_index: isize,
+    pub(super) command_name: Option<String>,
 }
 
-struct TerminalPathParts {
-    directory: String,
-    query: String,
-    display_prefix: String,
+pub(super) struct TerminalPathParts {
+    pub(super) directory: String,
+    pub(super) query: String,
+    pub(super) display_prefix: String,
 }
 
 #[derive(Clone)]
-struct TerminalPathEntry {
-    name: String,
-    path: String,
-    is_directory: bool,
+pub(super) struct TerminalPathEntry {
+    pub(super) name: String,
+    pub(super) path: String,
+    pub(super) is_directory: bool,
 }
 
-struct TerminalPathCacheEntry {
-    created_at: std::time::Instant,
-    entries: Vec<TerminalPathEntry>,
+pub(super) struct TerminalPathCacheEntry {
+    pub(super) created_at: std::time::Instant,
+    pub(super) entries: Vec<TerminalPathEntry>,
 }
 
 #[derive(Default)]
-struct TerminalPathCompletionCache {
-    entries: HashMap<String, TerminalPathCacheEntry>,
-    pending: HashSet<String>,
+pub(super) struct TerminalPathCompletionCache {
+    pub(super) entries: HashMap<String, TerminalPathCacheEntry>,
+    pub(super) pending: HashSet<String>,
 }
 
 #[cfg(test)]
 mod terminal_command_context_tests {
-    use super::*;
+    use super::{TerminalCommandContext, TerminalCommandContextType};
+    use crate::workspace::{NodeId, PaneId, TabId, TerminalSessionId};
 
     fn context() -> TerminalCommandContext {
         TerminalCommandContext {

@@ -1,7 +1,9 @@
+use super::*;
+
 use sha2::{Digest, Sha256};
 
-const CLI_COMPANION_COMMAND_NAME: &str = "oxideterm";
-const CLI_COMPANION_RESOURCE_DIR: &str = "cli-bin";
+pub(in crate::workspace) const CLI_COMPANION_COMMAND_NAME: &str = "oxideterm";
+pub(in crate::workspace) const CLI_COMPANION_RESOURCE_DIR: &str = "cli-bin";
 
 impl WorkspaceApp {
     pub(in crate::workspace) fn refresh_cli_companion_status(&mut self, cx: &mut Context<Self>) {
@@ -29,7 +31,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn install_cli_companion(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn install_cli_companion(&mut self, cx: &mut Context<Self>) {
         if self.settings_page.cli_companion_loading {
             return;
         }
@@ -61,7 +63,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn uninstall_cli_companion(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn uninstall_cli_companion(&mut self, cx: &mut Context<Self>) {
         if self.settings_page.cli_companion_loading {
             return;
         }
@@ -93,7 +95,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn cli_companion_action_button(
+    pub(in crate::workspace) fn cli_companion_action_button(
         &self,
         label: String,
         icon: LucideIcon,
@@ -125,12 +127,14 @@ impl WorkspaceApp {
     }
 }
 
-fn cli_companion_status() -> Result<CliCompanionStatus, String> {
+pub(in crate::workspace) fn cli_companion_status() -> Result<CliCompanionStatus, String> {
     let bundle_path = find_bundled_cli();
     let install_path = cli_install_path();
     let installed = cli_path_present(&install_path);
     let matches_bundled = match (bundle_path.as_ref(), installed) {
-        (Some(bundle_path), true) => Some(installed_cli_matches_bundle(&install_path, bundle_path)?),
+        (Some(bundle_path), true) => {
+            Some(installed_cli_matches_bundle(&install_path, bundle_path)?)
+        }
         _ => None,
     };
 
@@ -145,9 +149,9 @@ fn cli_companion_status() -> Result<CliCompanionStatus, String> {
     })
 }
 
-fn cli_companion_install() -> Result<(), String> {
-    let bundle_path = find_bundled_cli()
-        .ok_or_else(|| "CLI binary is not included in this build".to_string())?;
+pub(in crate::workspace) fn cli_companion_install() -> Result<(), String> {
+    let bundle_path =
+        find_bundled_cli().ok_or_else(|| "CLI binary is not included in this build".to_string())?;
     let target = cli_install_path();
 
     if let Some(parent) = target.parent() {
@@ -174,7 +178,7 @@ fn cli_companion_install() -> Result<(), String> {
     Ok(())
 }
 
-fn cli_companion_uninstall() -> Result<(), String> {
+pub(in crate::workspace) fn cli_companion_uninstall() -> Result<(), String> {
     let target = cli_install_path();
     if !target.exists() && target.symlink_metadata().is_err() {
         return Ok(());
@@ -183,11 +187,11 @@ fn cli_companion_uninstall() -> Result<(), String> {
         .map_err(|error| format!("failed to remove {}: {error}", target.display()))
 }
 
-fn cli_path_present(path: &std::path::Path) -> bool {
+pub(in crate::workspace) fn cli_path_present(path: &std::path::Path) -> bool {
     path.symlink_metadata().is_ok()
 }
 
-fn installed_cli_matches_bundle(
+pub(in crate::workspace) fn installed_cli_matches_bundle(
     install_path: &std::path::Path,
     bundle_path: &std::path::Path,
 ) -> Result<bool, String> {
@@ -208,7 +212,7 @@ fn installed_cli_matches_bundle(
     Ok(file_sha256(install_path)? == file_sha256(bundle_path)?)
 }
 
-fn file_sha256(path: &std::path::Path) -> Result<[u8; 32], String> {
+pub(in crate::workspace) fn file_sha256(path: &std::path::Path) -> Result<[u8; 32], String> {
     let mut file = std::fs::File::open(path)
         .map_err(|error| format!("failed to open {}: {error}", path.display()))?;
     let mut hasher = Sha256::new();
@@ -226,7 +230,7 @@ fn file_sha256(path: &std::path::Path) -> Result<[u8; 32], String> {
     Ok(hasher.finalize().into())
 }
 
-fn find_bundled_cli() -> Option<std::path::PathBuf> {
+pub(in crate::workspace) fn find_bundled_cli() -> Option<std::path::PathBuf> {
     if let Some(path) = std::env::var_os("OXIDETERM_CLI_BIN").map(std::path::PathBuf::from) {
         if path.exists() {
             return Some(path);
@@ -253,13 +257,17 @@ fn find_bundled_cli() -> Option<std::path::PathBuf> {
     None
 }
 
-fn cli_resource_dirs() -> Vec<std::path::PathBuf> {
+pub(in crate::workspace) fn cli_resource_dirs() -> Vec<std::path::PathBuf> {
     let mut dirs = Vec::new();
     if let Ok(exe) = std::env::current_exe()
         && let Some(exe_dir) = exe.parent()
     {
         // Native bundles mirror Tauri resources under Contents/Resources on macOS.
-        dirs.push(exe_dir.join("../Resources").join(CLI_COMPANION_RESOURCE_DIR));
+        dirs.push(
+            exe_dir
+                .join("../Resources")
+                .join(CLI_COMPANION_RESOURCE_DIR),
+        );
         dirs.push(exe_dir.join("resources").join(CLI_COMPANION_RESOURCE_DIR));
         dirs.push(exe_dir.join(CLI_COMPANION_RESOURCE_DIR));
     }
@@ -274,7 +282,7 @@ fn cli_resource_dirs() -> Vec<std::path::PathBuf> {
     dirs
 }
 
-fn find_first_cli_binary_in_dir(
+pub(in crate::workspace) fn find_first_cli_binary_in_dir(
     dir: &std::path::Path,
     binary_name: &str,
 ) -> Option<std::path::PathBuf> {
@@ -291,7 +299,7 @@ fn find_first_cli_binary_in_dir(
     None
 }
 
-fn cli_install_path() -> std::path::PathBuf {
+pub(in crate::workspace) fn cli_install_path() -> std::path::PathBuf {
     #[cfg(unix)]
     {
         if let Some(home) = std::env::var_os("HOME") {
@@ -316,7 +324,7 @@ fn cli_install_path() -> std::path::PathBuf {
     }
 }
 
-fn cli_binary_name() -> String {
+pub(in crate::workspace) fn cli_binary_name() -> String {
     #[cfg(windows)]
     {
         format!("{CLI_COMPANION_COMMAND_NAME}.exe")
@@ -327,7 +335,7 @@ fn cli_binary_name() -> String {
     }
 }
 
-fn host_target_triple() -> &'static str {
+pub(in crate::workspace) fn host_target_triple() -> &'static str {
     match (std::env::consts::OS, std::env::consts::ARCH) {
         ("macos", "aarch64") => "aarch64-apple-darwin",
         ("macos", "x86_64") => "x86_64-apple-darwin",
@@ -343,7 +351,7 @@ fn host_target_triple() -> &'static str {
 mod cli_companion_tests {
     use super::{cli_path_present, installed_cli_matches_bundle};
 
-    fn temp_test_dir(name: &str) -> std::path::PathBuf {
+    pub(in crate::workspace) fn temp_test_dir(name: &str) -> std::path::PathBuf {
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -357,7 +365,7 @@ mod cli_companion_tests {
     }
 
     #[test]
-    fn identical_cli_files_match_bundled_copy() {
+    pub(in crate::workspace) fn identical_cli_files_match_bundled_copy() {
         let temp_dir = temp_test_dir("identical");
         let installed_path = temp_dir.join("installed-oxideterm");
         let bundled_path = temp_dir.join("bundled-oxideterm");
@@ -370,7 +378,7 @@ mod cli_companion_tests {
     }
 
     #[test]
-    fn different_cli_files_require_reinstall() {
+    pub(in crate::workspace) fn different_cli_files_require_reinstall() {
         let temp_dir = temp_test_dir("different");
         let installed_path = temp_dir.join("installed-oxideterm");
         let bundled_path = temp_dir.join("bundled-oxideterm");
@@ -384,7 +392,7 @@ mod cli_companion_tests {
 
     #[cfg(unix)]
     #[test]
-    fn broken_symlink_is_installed_but_requires_reinstall() {
+    pub(in crate::workspace) fn broken_symlink_is_installed_but_requires_reinstall() {
         let temp_dir = temp_test_dir("broken-link");
         let bundled_path = temp_dir.join("bundled-oxideterm");
         let broken_target = temp_dir.join("missing-oxideterm");

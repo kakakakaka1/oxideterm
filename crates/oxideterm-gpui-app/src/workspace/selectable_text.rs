@@ -132,7 +132,7 @@ impl WorkspaceApp {
     fn apply_selectable_text_autoscroll(&mut self, position: Point<Pixels>) -> bool {
         let mut scrolled = false;
         if let Some(delta) = self.selectable_text_ai_chat_autoscroll_delta(position) {
-            self.ai_chat_list_state.scroll_by(px(delta));
+            self.ai.chat.message_list_state.scroll_by(px(delta));
             scrolled = true;
         }
         let handles = self
@@ -151,7 +151,7 @@ impl WorkspaceApp {
         if !self.ai_sidebar_visible() {
             return None;
         }
-        let bounds = self.ai_chat_list_state.viewport_bounds();
+        let bounds = self.ai.chat.message_list_state.viewport_bounds();
         if bounds.size.height <= px(1.0) || bounds.size.width <= px(1.0) {
             return None;
         }

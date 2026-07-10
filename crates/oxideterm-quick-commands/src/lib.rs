@@ -10,11 +10,12 @@ pub mod model;
 pub mod store;
 
 pub use model::{
-    QuickCommand, QuickCommandCategory, QuickCommandIcon, QuickCommandImportResult,
-    QuickCommandImportStrategy, QuickCommandsSnapshot,
+    QUICK_COMMANDS_SCHEMA_VERSION, QuickCommand, QuickCommandCategory, QuickCommandIcon,
+    QuickCommandImportResult, QuickCommandImportStrategy, QuickCommandsSnapshot,
 };
 pub use store::{
-    QuickCommandsCheckpoint, apply_snapshot_json, capture_checkpoint,
-    default_quick_command_categories, default_quick_commands, export_snapshot_json, load_snapshot,
+    MAX_CATEGORIES, QuickCommandsCheckpoint, apply_snapshot_json, capture_checkpoint,
+    default_quick_command_categories, default_quick_commands, export_snapshot_json,
+    is_builtin_category_id, load_snapshot, new_quick_category_id, new_quick_command_id, now_ms,
     quick_commands_path, restore_checkpoint, save_snapshot,
 };

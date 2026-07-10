@@ -1,5 +1,11 @@
+use super::*;
+
 impl WorkspaceApp {
-    fn render_sftp_preview_body(&self, _has_background: bool, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace::sftp) fn render_sftp_preview_body(
+        &self,
+        _has_background: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let theme = self.tokens.ui;
         let body = if self.sftp_view.preview_loading {
             self.render_sftp_preview_text(self.i18n.t("sftp.preview.loading"))
@@ -34,7 +40,11 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_sftp_editor_body(&self, _has_background: bool, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace::sftp) fn render_sftp_editor_body(
+        &self,
+        _has_background: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let theme = self.tokens.ui;
         let language = self
             .sftp_view
@@ -133,7 +143,7 @@ impl WorkspaceApp {
                                 cx,
                             )),
                     )
-                .child(self.render_sftp_editor_status(status, cx)),
+                    .child(self.render_sftp_editor_status(status, cx)),
             )
             .into_any_element()
     }
@@ -188,9 +198,7 @@ impl WorkspaceApp {
                             .text_size(px(SFTP_TEXT_XS))
                             .text_color(rgb(SFTP_ORANGE))
                             .hover(|style| {
-                                style.bg(rgba(
-                                    (SFTP_ORANGE << 8) | SFTP_EDITOR_RETRY_HOVER_ALPHA,
-                                ))
+                                style.bg(rgba((SFTP_ORANGE << 8) | SFTP_EDITOR_RETRY_HOVER_ALPHA))
                             })
                             .on_mouse_down(
                                 MouseButton::Left,
@@ -229,7 +237,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn render_sftp_preview_text(&self, text: String) -> AnyElement {
+    pub(in crate::workspace::sftp) fn render_sftp_preview_text(&self, text: String) -> AnyElement {
         div()
             .font_family(settings_mono_font_family(self.settings_store.settings()))
             .text_size(px(SFTP_TEXT_XS))

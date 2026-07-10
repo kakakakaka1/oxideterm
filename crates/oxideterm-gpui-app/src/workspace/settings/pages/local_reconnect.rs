@@ -1,5 +1,11 @@
+use super::*;
+
 impl WorkspaceApp {
-    fn settings_local_section(&self, section_index: usize, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn settings_local_section(
+        &self,
+        section_index: usize,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let settings = self.settings_store.settings();
         match section_index {
             0 => {
@@ -47,9 +53,9 @@ impl WorkspaceApp {
                     ),
                 );
                 self.settings_card(
-                "settings_view.local_terminal.shell",
-                "settings_view.local_terminal.default_shell_hint",
-                shell_rows,
+                    "settings_view.local_terminal.shell",
+                    "settings_view.local_terminal.default_shell_hint",
+                    shell_rows,
                 )
             }
             1 => self.settings_card(
@@ -87,8 +93,7 @@ impl WorkspaceApp {
                                     .text_color(rgb(self.tokens.ui.info))
                                     .child(format!(
                                         "💡 {}",
-                                        self.i18n
-                                            .t("settings_view.local_terminal.oh_my_posh_note")
+                                        self.i18n.t("settings_view.local_terminal.oh_my_posh_note")
                                     )),
                             )
                             .into_any_element(),
@@ -115,9 +120,9 @@ impl WorkspaceApp {
                     );
                 }
                 self.settings_card(
-                "settings_view.local_terminal.oh_my_posh",
-                "settings_view.local_terminal.oh_my_posh_note",
-                oh_my_posh_rows,
+                    "settings_view.local_terminal.oh_my_posh",
+                    "settings_view.local_terminal.oh_my_posh_note",
+                    oh_my_posh_rows,
                 )
             }
             4 => {
@@ -132,19 +137,19 @@ impl WorkspaceApp {
                     "Ctrl+Shift+T"
                 };
                 self.settings_card(
-                "settings_view.local_terminal.shortcuts",
-                "settings_view.local_terminal.custom_env_hint",
-                vec![
-                    self.local_shortcut_row(
-                        "settings_view.local_terminal.new_default_shell",
-                        shortcut_default,
-                    ),
-                    self.card_separator(),
-                    self.local_shortcut_row(
-                        "settings_view.local_terminal.new_shell_launcher",
-                        shortcut_launcher,
-                    ),
-                ],
+                    "settings_view.local_terminal.shortcuts",
+                    "settings_view.local_terminal.custom_env_hint",
+                    vec![
+                        self.local_shortcut_row(
+                            "settings_view.local_terminal.new_default_shell",
+                            shortcut_default,
+                        ),
+                        self.card_separator(),
+                        self.local_shortcut_row(
+                            "settings_view.local_terminal.new_shell_launcher",
+                            shortcut_launcher,
+                        ),
+                    ],
                 )
             }
             5 => {
@@ -170,16 +175,19 @@ impl WorkspaceApp {
                         .collect()
                 };
                 self.settings_card(
-                "settings_view.local_terminal.available_shells",
-                "settings_view.local_terminal.select_shell",
-                shell_list,
+                    "settings_view.local_terminal.available_shells",
+                    "settings_view.local_terminal.select_shell",
+                    shell_list,
                 )
             }
             _ => div().into_any_element(),
         }
     }
 
-    fn local_privilege_credentials_card(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn local_privilege_credentials_card(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let theme = self.tokens.ui;
         let credential_count = self
             .connection_store
@@ -223,7 +231,10 @@ impl WorkspaceApp {
                             .mt(px(4.0))
                             .text_size(px(self.tokens.metrics.ui_text_xs))
                             .text_color(rgb(theme.text_muted))
-                            .child(self.i18n.t("settings_view.privilege_credentials.description")),
+                            .child(
+                                self.i18n
+                                    .t("settings_view.privilege_credentials.description"),
+                            ),
                     ),
             )
             .child(
@@ -244,7 +255,11 @@ impl WorkspaceApp {
                     cx.listener(move |this, _event, window, cx| {
                         // Local terminal settings intentionally delegate
                         // credential editing to the unified privilege surface.
-                        this.open_privilege_credentials_settings(Some(scope_id.clone()), window, cx);
+                        this.open_privilege_credentials_settings(
+                            Some(scope_id.clone()),
+                            window,
+                            cx,
+                        );
                         cx.stop_propagation();
                     }),
                 ),
@@ -257,7 +272,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn settings_reconnect_section(
+    pub(in crate::workspace) fn settings_reconnect_section(
         &self,
         section_index: usize,
         cx: &mut Context<Self>,
@@ -327,9 +342,7 @@ impl WorkspaceApp {
                         .border_1()
                         .border_color(rgba((self.tokens.ui.border << 8) | 0x80))
                         .bg(self.settings_panel_background(self.tokens.ui.bg_card))
-                        .shadow(oxideterm_gpui_ui::tauri_card_shadow(
-                            self.tokens.ui.bg_card,
-                        ))
+                        .shadow(oxideterm_gpui_ui::tauri_card_shadow(self.tokens.ui.bg_card))
                         .text_size(px(self.tokens.metrics.ui_text_xs))
                         .text_color(rgb(self.tokens.ui.text_muted))
                         .child(self.i18n.t("settings_view.reconnect.formula_hint")),
@@ -339,7 +352,11 @@ impl WorkspaceApp {
         }
     }
 
-    fn reconnect_enabled_row(&self, checked: bool, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn reconnect_enabled_row(
+        &self,
+        checked: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         div()
             .w_full()
             .max_w(px(SETTINGS_RECONNECT_MAX_WIDTH))
@@ -381,7 +398,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn reconnect_select_field(
+    pub(in crate::workspace) fn reconnect_select_field(
         &self,
         label_key: &str,
         hint_key: &str,
@@ -427,5 +444,4 @@ impl WorkspaceApp {
             })
             .into_any_element()
     }
-
 }

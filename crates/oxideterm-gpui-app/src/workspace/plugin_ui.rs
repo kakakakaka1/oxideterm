@@ -22,7 +22,8 @@ impl WorkspaceApp {
     ) -> Result<(), String> {
         self.bootstrap_native_plugin_runtime(cx);
         let contribution = self
-            .plugin_registry
+            .native_plugin_runtime
+            .registry
             .contributions()
             .tab_contribution(plugin_id, tab_id)
             .ok_or_else(|| format!("Plugin tab \"{plugin_id}:{tab_id}\" is not declared"))?;
@@ -67,11 +68,13 @@ impl WorkspaceApp {
         self.bootstrap_native_plugin_runtime(cx);
         let theme = self.tokens.ui;
         let contribution = self
-            .plugin_registry
+            .native_plugin_runtime
+            .registry
             .contributions()
             .tab_contribution(plugin_id, tab_id);
         let runtime_view = self
-            .plugin_registry
+            .native_plugin_runtime
+            .registry
             .contributions()
             .runtime_tab_view(plugin_id, tab_id);
         let title = runtime_view
@@ -130,11 +133,12 @@ impl WorkspaceApp {
     ) -> AnyElement {
         self.bootstrap_native_plugin_runtime(cx);
         let theme = self.tokens.ui;
-        let Some(selection) = self.active_native_plugin_sidebar_panel.as_ref() else {
+        let Some(selection) = self.native_plugin_manager.active_sidebar_panel.as_ref() else {
             return self.render_plugin_sidebar_placeholder();
         };
         let panels = self
-            .plugin_registry
+            .native_plugin_runtime
+            .registry
             .contributions()
             .runtime_sidebar_panels();
         let Some(panel) = panels.iter().find(|panel| {

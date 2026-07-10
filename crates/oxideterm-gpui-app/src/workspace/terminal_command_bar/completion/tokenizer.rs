@@ -1,4 +1,9 @@
-fn tokenize_terminal_command_line(input: &str, cursor_index: usize) -> TerminalShellParseResult {
+use super::*;
+
+pub(super) fn tokenize_terminal_command_line(
+    input: &str,
+    cursor_index: usize,
+) -> TerminalShellParseResult {
     let cursor = cursor_index.min(input.len());
     let mut tokens = Vec::new();
     let mut token_start: Option<usize> = None;

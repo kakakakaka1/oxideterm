@@ -6988,6 +6988,7 @@ dependencies = [
  "keyring",
  "objc2",
  "objc2-foundation",
+ "oxideterm-atomic-file",
  "oxideterm-portable-runtime",
  "parking_lot",
  "redb",
@@ -7007,6 +7008,13 @@ dependencies = [
  "whoami",
  "zeroize",
  "zstd",
+]
+
+[[package]]
+name = "oxideterm-atomic-file"
+version = "2.0.0-gpui-preview.15"
+dependencies = [
+ "tempfile",
 ]
 
 [[package]]
@@ -7044,6 +7052,7 @@ dependencies = [
  "chrono",
  "hmac 0.12.1",
  "keyring",
+ "oxideterm-atomic-file",
  "oxideterm-connections",
  "oxideterm-forwarding",
  "oxideterm-portable-runtime",
@@ -7085,6 +7094,7 @@ dependencies = [
  "keyring",
  "objc2",
  "objc2-foundation",
+ "oxideterm-atomic-file",
  "oxideterm-portable-runtime",
  "rand 0.10.1",
  "rand 0.8.6",
@@ -7178,6 +7188,7 @@ version = "2.0.0-gpui-preview.15"
 dependencies = [
  "chrono",
  "dashmap",
+ "oxideterm-atomic-file",
  "oxideterm-backend-classification",
  "oxideterm-ssh",
  "oxideterm-x11-forwarding",
@@ -7237,7 +7248,6 @@ dependencies = [
  "oxideterm-local-files",
  "oxideterm-notification-center",
  "oxideterm-plugin-host-api",
- "oxideterm-plugin-manifest",
  "oxideterm-plugin-protocol",
  "oxideterm-plugin-registry",
  "oxideterm-portable-runtime",
@@ -7493,8 +7503,8 @@ dependencies = [
  "oxideterm-connection-monitor",
  "oxideterm-connections",
  "oxideterm-forwarding",
- "oxideterm-gpui-ide",
  "oxideterm-i18n",
+ "oxideterm-ide-core",
  "oxideterm-plugin-manifest",
  "oxideterm-plugin-protocol",
  "oxideterm-plugin-registry",
@@ -7564,6 +7574,7 @@ dependencies = [
  "base64",
  "chacha20poly1305",
  "fs2",
+ "oxideterm-atomic-file",
  "parking_lot",
  "rand 0.8.6",
  "rmp-serde",
@@ -7580,7 +7591,6 @@ version = "2.0.0-gpui-preview.15"
 dependencies = [
  "chardetng",
  "encoding_rs",
- "gpui",
  "image",
  "memmap2",
  "mime_guess",
@@ -7597,6 +7607,7 @@ dependencies = [
 name = "oxideterm-quick-commands"
 version = "2.0.0-gpui-preview.15"
 dependencies = [
+ "oxideterm-atomic-file",
  "serde",
  "serde_json",
 ]
@@ -7653,6 +7664,7 @@ name = "oxideterm-settings"
 version = "2.0.0-gpui-preview.15"
 dependencies = [
  "anyhow",
+ "oxideterm-atomic-file",
  "oxideterm-portable-runtime",
  "oxideterm-render-policy",
  "serde",
@@ -7744,6 +7756,7 @@ dependencies = [
  "oxideterm-ssh",
  "oxideterm-terminal-encoding",
  "oxideterm-terminal-graphics",
+ "oxideterm-terminal-model",
  "oxideterm-trzsz",
  "polling",
  "serialport",
@@ -7772,6 +7785,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxideterm-terminal-model"
+version = "2.0.0-gpui-preview.15"
+
+[[package]]
 name = "oxideterm-terminal-recording"
 version = "2.0.0-gpui-preview.15"
 dependencies = [
@@ -7782,7 +7799,7 @@ dependencies = [
 name = "oxideterm-terminal-unicode"
 version = "2.0.0-gpui-preview.15"
 dependencies = [
- "oxideterm-terminal",
+ "oxideterm-terminal-model",
  "unicode-bidi",
  "unicode-segmentation",
 ]

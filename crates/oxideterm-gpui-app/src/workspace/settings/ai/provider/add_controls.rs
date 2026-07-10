@@ -1,5 +1,10 @@
+use super::*;
+
 impl WorkspaceApp {
-    fn ai_provider_add_controls(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn ai_provider_add_controls(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let selected = ai_provider_template_by_type(&self.settings_page.ai_new_provider_type);
         let provider_template_select = self.settings_select_control(
             SettingsSelect::AiProviderTemplate,
@@ -48,10 +53,8 @@ impl WorkspaceApp {
                     cx.listener(|this, _event, _window, cx| {
                         this.add_ai_provider_from_selected_template(cx);
                     }),
-                )
+                ),
             )
             .into_any_element()
     }
-
-
 }

@@ -1,3 +1,5 @@
+use super::*;
+
 impl WorkspaceApp {
     pub(in crate::workspace) fn render_new_connection_select_overlay(
         &self,
@@ -27,36 +29,32 @@ impl WorkspaceApp {
                     .map(|form| form.group.as_str())
                     .unwrap_or_default();
                 let ungrouped_label = self.connection_form_ungrouped_label();
-                popup = popup.child(
-                    select_option_action(
-                        select_option(
-                            &self.tokens,
-                            ungrouped_label.clone(),
-                            self.connection_form_group_is_ungrouped(current_group),
-                        ),
-                        false,
-                        false,
-                        cx.listener(move |this, _event, _window, cx| {
-                            this.set_new_connection_group(ungrouped_label.clone(), cx);
-                            cx.stop_propagation();
-                        }),
+                popup = popup.child(select_option_action(
+                    select_option(
+                        &self.tokens,
+                        ungrouped_label.clone(),
+                        self.connection_form_group_is_ungrouped(current_group),
                     ),
-                );
+                    false,
+                    false,
+                    cx.listener(move |this, _event, _window, cx| {
+                        this.set_new_connection_group(ungrouped_label.clone(), cx);
+                        cx.stop_propagation();
+                    }),
+                ));
 
                 let groups = self.connection_form_group_options(current_group);
                 for group in groups.iter().cloned() {
                     let selected = group == current_group;
-                    popup = popup.child(
-                        select_option_action(
-                            select_option(&self.tokens, group.clone(), selected),
-                            false,
-                            false,
-                            cx.listener(move |this, _event, _window, cx| {
-                                this.set_new_connection_group(group.clone(), cx);
-                                cx.stop_propagation();
-                            }),
-                        ),
-                    );
+                    popup = popup.child(select_option_action(
+                        select_option(&self.tokens, group.clone(), selected),
+                        false,
+                        false,
+                        cx.listener(move |this, _event, _window, cx| {
+                            this.set_new_connection_group(group.clone(), cx);
+                            cx.stop_propagation();
+                        }),
+                    ));
                 }
                 if groups.is_empty() {
                     popup = popup.child(
@@ -82,21 +80,19 @@ impl WorkspaceApp {
                     .and_then(|form| form.jump_server_form.as_ref())
                     .map(|jump_form| jump_form.saved_connection_id.as_str())
                     .unwrap_or_default();
-                popup = popup.child(
-                    select_option_action(
-                        select_option(
-                            &self.tokens,
-                            self.i18n.t("ssh.form.proxy_jump_saved_connection_custom"),
-                            selected_connection_id.is_empty(),
-                        ),
-                        false,
-                        false,
-                        cx.listener(|this, _event, _window, cx| {
-                            this.clear_new_connection_jump_saved_connection(cx);
-                            cx.stop_propagation();
-                        }),
+                popup = popup.child(select_option_action(
+                    select_option(
+                        &self.tokens,
+                        self.i18n.t("ssh.form.proxy_jump_saved_connection_custom"),
+                        selected_connection_id.is_empty(),
                     ),
-                );
+                    false,
+                    false,
+                    cx.listener(|this, _event, _window, cx| {
+                        this.clear_new_connection_jump_saved_connection(cx);
+                        cx.stop_propagation();
+                    }),
+                ));
                 for connection in self.connection_store.connection_infos() {
                     let selected = connection.id == selected_connection_id;
                     let connection_id = connection.id.clone();
@@ -104,27 +100,23 @@ impl WorkspaceApp {
                         "{} · {}@{}:{}",
                         connection.name, connection.username, connection.host, connection.port
                     );
-                    popup = popup.child(
-                        select_option_action(
-                            select_option(&self.tokens, label, selected),
-                            false,
-                            false,
-                            cx.listener(move |this, _event, _window, cx| {
-                                this.set_new_connection_jump_saved_connection(
-                                    connection_id.clone(),
-                                    cx,
-                                );
-                                cx.stop_propagation();
-                            }),
-                        ),
-                    );
+                    popup = popup.child(select_option_action(
+                        select_option(&self.tokens, label, selected),
+                        false,
+                        false,
+                        cx.listener(move |this, _event, _window, cx| {
+                            this.set_new_connection_jump_saved_connection(
+                                connection_id.clone(),
+                                cx,
+                            );
+                            cx.stop_propagation();
+                        }),
+                    ));
                 }
             }
             NewConnectionSelect::KeyAuthSource | NewConnectionSelect::JumpKeyAuthSource => {
                 let context = match select_id {
-                    NewConnectionSelect::KeyAuthSource => {
-                        self.current_main_auth_selector_context()
-                    }
+                    NewConnectionSelect::KeyAuthSource => self.current_main_auth_selector_context(),
                     NewConnectionSelect::JumpKeyAuthSource => AuthSelectorContext::Jump,
                     _ => unreachable!("matched only key auth source selects"),
                 };
@@ -143,17 +135,15 @@ impl WorkspaceApp {
                 let active_source = Self::normalized_key_source_for_context(active_tab, context);
                 for source in Self::key_auth_source_choices(context).iter().copied() {
                     let label = self.key_auth_source_label(source);
-                    popup = popup.child(
-                        select_option_action(
-                            select_option(&self.tokens, label, source == active_source),
-                            false,
-                            false,
-                            cx.listener(move |this, _event, _window, cx| {
-                                this.set_new_connection_key_auth_source(select_id, source, cx);
-                                cx.stop_propagation();
-                            }),
-                        ),
-                    );
+                    popup = popup.child(select_option_action(
+                        select_option(&self.tokens, label, source == active_source),
+                        false,
+                        false,
+                        cx.listener(move |this, _event, _window, cx| {
+                            this.set_new_connection_key_auth_source(select_id, source, cx);
+                            cx.stop_propagation();
+                        }),
+                    ));
                 }
             }
             NewConnectionSelect::ManagedKey | NewConnectionSelect::JumpManagedKey => {
@@ -173,17 +163,15 @@ impl WorkspaceApp {
                     let selected = key.id == current_key_id;
                     let key_id = key.id.clone();
                     let label = format!("{} · {}", key.name, key.fingerprint);
-                    popup = popup.child(
-                        select_option_action(
-                            select_option(&self.tokens, label, selected),
-                            false,
-                            false,
-                            cx.listener(move |this, _event, _window, cx| {
-                                this.set_new_connection_managed_key(select_id, key_id.clone(), cx);
-                                cx.stop_propagation();
-                            }),
-                        ),
-                    );
+                    popup = popup.child(select_option_action(
+                        select_option(&self.tokens, label, selected),
+                        false,
+                        false,
+                        cx.listener(move |this, _event, _window, cx| {
+                            this.set_new_connection_managed_key(select_id, key_id.clone(), cx);
+                            cx.stop_propagation();
+                        }),
+                    ));
                 }
             }
             NewConnectionSelect::UpstreamProxyPolicy => {
@@ -206,17 +194,15 @@ impl WorkspaceApp {
                         "modals.upstream_proxy.custom",
                     ),
                 ] {
-                    popup = popup.child(
-                        select_option_action(
-                            select_option(&self.tokens, self.i18n.t(label_key), policy == selected),
-                            false,
-                            false,
-                            cx.listener(move |this, _event, _window, cx| {
-                                this.set_new_connection_upstream_proxy_policy(policy, cx);
-                                cx.stop_propagation();
-                            }),
-                        ),
-                    );
+                    popup = popup.child(select_option_action(
+                        select_option(&self.tokens, self.i18n.t(label_key), policy == selected),
+                        false,
+                        false,
+                        cx.listener(move |this, _event, _window, cx| {
+                            this.set_new_connection_upstream_proxy_policy(policy, cx);
+                            cx.stop_propagation();
+                        }),
+                    ));
                 }
             }
             NewConnectionSelect::UpstreamProxyProtocol => {
@@ -235,17 +221,15 @@ impl WorkspaceApp {
                         "settings_view.network.protocol_http_connect",
                     ),
                 ] {
-                    popup = popup.child(
-                        select_option_action(
-                            select_option(&self.tokens, self.i18n.t(label_key), protocol == selected),
-                            false,
-                            false,
-                            cx.listener(move |this, _event, _window, cx| {
-                                this.set_new_connection_upstream_proxy_protocol(protocol, cx);
-                                cx.stop_propagation();
-                            }),
-                        ),
-                    );
+                    popup = popup.child(select_option_action(
+                        select_option(&self.tokens, self.i18n.t(label_key), protocol == selected),
+                        false,
+                        false,
+                        cx.listener(move |this, _event, _window, cx| {
+                            this.set_new_connection_upstream_proxy_protocol(protocol, cx);
+                            cx.stop_propagation();
+                        }),
+                    ));
                 }
             }
             NewConnectionSelect::UpstreamProxyAuth => {
@@ -264,17 +248,15 @@ impl WorkspaceApp {
                         "settings_view.network.auth_password",
                     ),
                 ] {
-                    popup = popup.child(
-                        select_option_action(
-                            select_option(&self.tokens, self.i18n.t(label_key), auth == selected),
-                            false,
-                            false,
-                            cx.listener(move |this, _event, _window, cx| {
-                                this.set_new_connection_upstream_proxy_auth(auth, cx);
-                                cx.stop_propagation();
-                            }),
-                        ),
-                    );
+                    popup = popup.child(select_option_action(
+                        select_option(&self.tokens, self.i18n.t(label_key), auth == selected),
+                        false,
+                        false,
+                        cx.listener(move |this, _event, _window, cx| {
+                            this.set_new_connection_upstream_proxy_auth(auth, cx);
+                            cx.stop_propagation();
+                        }),
+                    ));
                 }
             }
             NewConnectionSelect::SerialPort => {
@@ -291,17 +273,15 @@ impl WorkspaceApp {
                 for port in ports {
                     let selected = port.port_path == selected_port;
                     let port_path = port.port_path.clone();
-                    popup = popup.child(
-                        select_option_action(
-                            select_option(&self.tokens, serial_port_display_label(&port), selected),
-                            false,
-                            false,
-                            cx.listener(move |this, _event, _window, cx| {
-                                this.set_new_connection_serial_port(port_path.clone(), cx);
-                                cx.stop_propagation();
-                            }),
-                        ),
-                    );
+                    popup = popup.child(select_option_action(
+                        select_option(&self.tokens, serial_port_display_label(&port), selected),
+                        false,
+                        false,
+                        cx.listener(move |this, _event, _window, cx| {
+                            this.set_new_connection_serial_port(port_path.clone(), cx);
+                            cx.stop_propagation();
+                        }),
+                    ));
                 }
             }
             NewConnectionSelect::SerialDataBits | NewConnectionSelect::SerialStopBits => {
@@ -315,22 +295,22 @@ impl WorkspaceApp {
                     })
                     .unwrap_or_default();
                 let choices: &[(u8, &str)] = match select_id {
-                    NewConnectionSelect::SerialDataBits => &[(5, "5"), (6, "6"), (7, "7"), (8, "8")],
+                    NewConnectionSelect::SerialDataBits => {
+                        &[(5, "5"), (6, "6"), (7, "7"), (8, "8")]
+                    }
                     NewConnectionSelect::SerialStopBits => &[(1, "1"), (2, "2")],
                     _ => &[],
                 };
                 for (value, label) in choices.iter().copied() {
-                    popup = popup.child(
-                        select_option_action(
-                            select_option(&self.tokens, label.to_string(), value == selected),
-                            false,
-                            false,
-                            cx.listener(move |this, _event, _window, cx| {
-                                this.set_new_connection_serial_u8(select_id, value, cx);
-                                cx.stop_propagation();
-                            }),
-                        ),
-                    );
+                    popup = popup.child(select_option_action(
+                        select_option(&self.tokens, label.to_string(), value == selected),
+                        false,
+                        false,
+                        cx.listener(move |this, _event, _window, cx| {
+                            this.set_new_connection_serial_u8(select_id, value, cx);
+                            cx.stop_propagation();
+                        }),
+                    ));
                 }
             }
             NewConnectionSelect::SerialParity => {
@@ -344,17 +324,19 @@ impl WorkspaceApp {
                     oxideterm_terminal::SerialParity::Odd,
                     oxideterm_terminal::SerialParity::Even,
                 ] {
-                    popup = popup.child(
-                        select_option_action(
-                            select_option(&self.tokens, self.serial_parity_label(parity), parity == selected),
-                            false,
-                            false,
-                            cx.listener(move |this, _event, _window, cx| {
-                                this.set_new_connection_serial_parity(parity, cx);
-                                cx.stop_propagation();
-                            }),
+                    popup = popup.child(select_option_action(
+                        select_option(
+                            &self.tokens,
+                            self.serial_parity_label(parity),
+                            parity == selected,
                         ),
-                    );
+                        false,
+                        false,
+                        cx.listener(move |this, _event, _window, cx| {
+                            this.set_new_connection_serial_parity(parity, cx);
+                            cx.stop_propagation();
+                        }),
+                    ));
                 }
             }
             NewConnectionSelect::SerialFlowControl => {
@@ -368,17 +350,19 @@ impl WorkspaceApp {
                     oxideterm_terminal::SerialFlowControl::Software,
                     oxideterm_terminal::SerialFlowControl::Hardware,
                 ] {
-                    popup = popup.child(
-                        select_option_action(
-                            select_option(&self.tokens, self.serial_flow_control_label(flow), flow == selected),
-                            false,
-                            false,
-                            cx.listener(move |this, _event, _window, cx| {
-                                this.set_new_connection_serial_flow_control(flow, cx);
-                                cx.stop_propagation();
-                            }),
+                    popup = popup.child(select_option_action(
+                        select_option(
+                            &self.tokens,
+                            self.serial_flow_control_label(flow),
+                            flow == selected,
                         ),
-                    );
+                        false,
+                        false,
+                        cx.listener(move |this, _event, _window, cx| {
+                            this.set_new_connection_serial_flow_control(flow, cx);
+                            cx.stop_propagation();
+                        }),
+                    ));
                 }
             }
             NewConnectionSelect::RawTcpLineEnding => {
@@ -395,17 +379,15 @@ impl WorkspaceApp {
                 ] {
                     let label = self.raw_tcp_line_ending_label(&line_ending);
                     let option = line_ending.clone();
-                    popup = popup.child(
-                        select_option_action(
-                            select_option(&self.tokens, label, line_ending == selected),
-                            false,
-                            false,
-                            cx.listener(move |this, _event, _window, cx| {
-                                this.set_new_connection_raw_tcp_line_ending(option.clone(), cx);
-                                cx.stop_propagation();
-                            }),
-                        ),
-                    );
+                    popup = popup.child(select_option_action(
+                        select_option(&self.tokens, label, line_ending == selected),
+                        false,
+                        false,
+                        cx.listener(move |this, _event, _window, cx| {
+                            this.set_new_connection_raw_tcp_line_ending(option.clone(), cx);
+                            cx.stop_propagation();
+                        }),
+                    ));
                 }
             }
             NewConnectionSelect::RawTcpDisplayMode => {
@@ -421,17 +403,15 @@ impl WorkspaceApp {
                 ] {
                     let label = self.raw_tcp_display_mode_label(&display_mode);
                     let option = display_mode.clone();
-                    popup = popup.child(
-                        select_option_action(
-                            select_option(&self.tokens, label, display_mode == selected),
-                            false,
-                            false,
-                            cx.listener(move |this, _event, _window, cx| {
-                                this.set_new_connection_raw_tcp_display_mode(option.clone(), cx);
-                                cx.stop_propagation();
-                            }),
-                        ),
-                    );
+                    popup = popup.child(select_option_action(
+                        select_option(&self.tokens, label, display_mode == selected),
+                        false,
+                        false,
+                        cx.listener(move |this, _event, _window, cx| {
+                            this.set_new_connection_raw_tcp_display_mode(option.clone(), cx);
+                            cx.stop_propagation();
+                        }),
+                    ));
                 }
             }
             NewConnectionSelect::RawTcpSendMode => {
@@ -446,17 +426,15 @@ impl WorkspaceApp {
                 ] {
                     let label = self.raw_tcp_send_mode_label(&send_mode);
                     let option = send_mode.clone();
-                    popup = popup.child(
-                        select_option_action(
-                            select_option(&self.tokens, label, send_mode == selected),
-                            false,
-                            false,
-                            cx.listener(move |this, _event, _window, cx| {
-                                this.set_new_connection_raw_tcp_send_mode(option.clone(), cx);
-                                cx.stop_propagation();
-                            }),
-                        ),
-                    );
+                    popup = popup.child(select_option_action(
+                        select_option(&self.tokens, label, send_mode == selected),
+                        false,
+                        false,
+                        cx.listener(move |this, _event, _window, cx| {
+                            this.set_new_connection_raw_tcp_send_mode(option.clone(), cx);
+                            cx.stop_propagation();
+                        }),
+                    ));
                 }
             }
             NewConnectionSelect::RawUdpLineEnding => {
@@ -473,17 +451,15 @@ impl WorkspaceApp {
                 ] {
                     let label = self.raw_udp_line_ending_label(&line_ending);
                     let option = line_ending.clone();
-                    popup = popup.child(
-                        select_option_action(
-                            select_option(&self.tokens, label, line_ending == selected),
-                            false,
-                            false,
-                            cx.listener(move |this, _event, _window, cx| {
-                                this.set_new_connection_raw_udp_line_ending(option.clone(), cx);
-                                cx.stop_propagation();
-                            }),
-                        ),
-                    );
+                    popup = popup.child(select_option_action(
+                        select_option(&self.tokens, label, line_ending == selected),
+                        false,
+                        false,
+                        cx.listener(move |this, _event, _window, cx| {
+                            this.set_new_connection_raw_udp_line_ending(option.clone(), cx);
+                            cx.stop_propagation();
+                        }),
+                    ));
                 }
             }
             NewConnectionSelect::RawUdpDisplayMode => {
@@ -499,17 +475,15 @@ impl WorkspaceApp {
                 ] {
                     let label = self.raw_udp_display_mode_label(&display_mode);
                     let option = display_mode.clone();
-                    popup = popup.child(
-                        select_option_action(
-                            select_option(&self.tokens, label, display_mode == selected),
-                            false,
-                            false,
-                            cx.listener(move |this, _event, _window, cx| {
-                                this.set_new_connection_raw_udp_display_mode(option.clone(), cx);
-                                cx.stop_propagation();
-                            }),
-                        ),
-                    );
+                    popup = popup.child(select_option_action(
+                        select_option(&self.tokens, label, display_mode == selected),
+                        false,
+                        false,
+                        cx.listener(move |this, _event, _window, cx| {
+                            this.set_new_connection_raw_udp_display_mode(option.clone(), cx);
+                            cx.stop_propagation();
+                        }),
+                    ));
                 }
             }
             NewConnectionSelect::RawUdpSendMode => {
@@ -524,17 +498,15 @@ impl WorkspaceApp {
                 ] {
                     let label = self.raw_udp_send_mode_label(&send_mode);
                     let option = send_mode.clone();
-                    popup = popup.child(
-                        select_option_action(
-                            select_option(&self.tokens, label, send_mode == selected),
-                            false,
-                            false,
-                            cx.listener(move |this, _event, _window, cx| {
-                                this.set_new_connection_raw_udp_send_mode(option.clone(), cx);
-                                cx.stop_propagation();
-                            }),
-                        ),
-                    );
+                    popup = popup.child(select_option_action(
+                        select_option(&self.tokens, label, send_mode == selected),
+                        false,
+                        false,
+                        cx.listener(move |this, _event, _window, cx| {
+                            this.set_new_connection_raw_udp_send_mode(option.clone(), cx);
+                            cx.stop_propagation();
+                        }),
+                    ));
                 }
             }
             NewConnectionSelect::RawTcpTlsMode => {
@@ -549,17 +521,15 @@ impl WorkspaceApp {
                 ] {
                     let label = self.raw_tcp_tls_mode_label(&tls_mode);
                     let option = tls_mode.clone();
-                    popup = popup.child(
-                        select_option_action(
-                            select_option(&self.tokens, label, tls_mode == selected),
-                            false,
-                            false,
-                            cx.listener(move |this, _event, _window, cx| {
-                                this.set_new_connection_raw_tcp_tls_mode(option.clone(), cx);
-                                cx.stop_propagation();
-                            }),
-                        ),
-                    );
+                    popup = popup.child(select_option_action(
+                        select_option(&self.tokens, label, tls_mode == selected),
+                        false,
+                        false,
+                        cx.listener(move |this, _event, _window, cx| {
+                            this.set_new_connection_raw_tcp_tls_mode(option.clone(), cx);
+                            cx.stop_propagation();
+                        }),
+                    ));
                 }
             }
             NewConnectionSelect::RawTcpTlsVerification => {
@@ -574,17 +544,15 @@ impl WorkspaceApp {
                 ] {
                     let label = self.raw_tcp_tls_verification_label(&verification);
                     let option = verification.clone();
-                    popup = popup.child(
-                        select_option_action(
-                            select_option(&self.tokens, label, verification == selected),
-                            false,
-                            false,
-                            cx.listener(move |this, _event, _window, cx| {
-                                this.set_new_connection_raw_tcp_tls_verification(option.clone(), cx);
-                                cx.stop_propagation();
-                            }),
-                        ),
-                    );
+                    popup = popup.child(select_option_action(
+                        select_option(&self.tokens, label, verification == selected),
+                        false,
+                        false,
+                        cx.listener(move |this, _event, _window, cx| {
+                            this.set_new_connection_raw_tcp_tls_verification(option.clone(), cx);
+                            cx.stop_propagation();
+                        }),
+                    ));
                 }
             }
         }
@@ -667,214 +635,208 @@ impl WorkspaceApp {
             )
             .child(
                 modal_container(&self.tokens)
-                .w(px(TAURI_JUMP_MODAL_WIDTH))
-                .max_h(px(modal_max_height))
-                .flex()
-                .flex_col()
-                .on_mouse_down(MouseButton::Left, |_event, _window, cx| {
-                    cx.stop_propagation();
-                })
-                .child(modal_header(
-                    &self.tokens,
-                    self.i18n.t("ssh.form.proxy_jump_title"),
-                    String::new(),
-                ))
-                .child(
-                    modal_body(&self.tokens)
-                        .id("new-connection-jump-server-body-scroll")
-                        .flex_1()
-                        .min_h(px(0.0))
-                        .selectable_overflow_y_scroll(
-                            &self.selectable_text_scroll_handle(
+                    .w(px(TAURI_JUMP_MODAL_WIDTH))
+                    .max_h(px(modal_max_height))
+                    .flex()
+                    .flex_col()
+                    .on_mouse_down(MouseButton::Left, |_event, _window, cx| {
+                        cx.stop_propagation();
+                    })
+                    .child(modal_header(
+                        &self.tokens,
+                        self.i18n.t("ssh.form.proxy_jump_title"),
+                        String::new(),
+                    ))
+                    .child(
+                        modal_body(&self.tokens)
+                            .id("new-connection-jump-server-body-scroll")
+                            .flex_1()
+                            .min_h(px(0.0))
+                            .selectable_overflow_y_scroll(&self.selectable_text_scroll_handle(
                                 "new-connection-jump-server-body-scroll",
-                            ),
-                        )
-                        .on_scroll_wheel(cx.listener(|this, _event, _window, cx| {
-                            // Keep native anchored selects aligned with Tauri/Radix:
-                            // scrolling the modal body closes popup content tied to a moved trigger.
-                            let had_open_select =
+                            ))
+                            .on_scroll_wheel(cx.listener(|this, _event, _window, cx| {
+                                // Keep native anchored selects aligned with Tauri/Radix:
+                                // scrolling the modal body closes popup content tied to a moved trigger.
+                                let had_open_select =
                                 browser_behavior::close_browser_trigger_select_on_container_scroll(
                                     &mut this.open_new_connection_select,
                                     &mut this.new_connection_select_focus_origin,
                                 );
-                            this.clear_new_connection_select_anchor();
-                            if had_open_select {
-                                cx.notify();
-                            }
-                        }))
-                        .flex()
-                        .flex_col()
-                        .gap_4()
-                        .child(self.render_jump_saved_connection_select(
-                            &jump_form.saved_connection_id,
-                            cx,
-                        ))
-                        .child(self.render_connection_hint(
-                            if self.connection_store.connection_infos().is_empty() {
-                                self.i18n.t("ssh.form.proxy_jump_saved_connection_empty")
-                            } else {
-                                self.i18n.t("ssh.form.proxy_jump_saved_connection_hint")
-                            },
-                        ))
-                        .child(
-                            div()
-                                .flex()
-                                .gap_4()
-                                .child(div().flex_1().child(self.render_connection_field(
-                                    self.i18n.t("ssh.form.proxy_jump_host"),
-                                    &jump_form.host,
-                                    self.i18n.t("ssh.form.proxy_jump_host_placeholder"),
-                                    NewConnectionField::JumpHost,
-                                    false,
-                                    cx,
-                                )))
-                                .child(div().w(px(self.tokens.metrics.form_port_width)).child(
-                                    self.render_connection_field(
-                                        self.i18n.t("ssh.form.proxy_jump_port"),
-                                        &jump_form.port,
-                                        "22".to_string(),
-                                        NewConnectionField::JumpPort,
+                                this.clear_new_connection_select_anchor();
+                                if had_open_select {
+                                    cx.notify();
+                                }
+                            }))
+                            .flex()
+                            .flex_col()
+                            .gap_4()
+                            .child(self.render_jump_saved_connection_select(
+                                &jump_form.saved_connection_id,
+                                cx,
+                            ))
+                            .child(self.render_connection_hint(
+                                if self.connection_store.connection_infos().is_empty() {
+                                    self.i18n.t("ssh.form.proxy_jump_saved_connection_empty")
+                                } else {
+                                    self.i18n.t("ssh.form.proxy_jump_saved_connection_hint")
+                                },
+                            ))
+                            .child(
+                                div()
+                                    .flex()
+                                    .gap_4()
+                                    .child(div().flex_1().child(self.render_connection_field(
+                                        self.i18n.t("ssh.form.proxy_jump_host"),
+                                        &jump_form.host,
+                                        self.i18n.t("ssh.form.proxy_jump_host_placeholder"),
+                                        NewConnectionField::JumpHost,
                                         false,
                                         cx,
-                                    ),
-                                )),
-                        )
-                        .child(self.render_connection_field(
-                            self.i18n.t("ssh.form.proxy_jump_username"),
-                            &jump_form.username,
-                            self.i18n.t("ssh.form.proxy_jump_username_placeholder"),
-                            NewConnectionField::JumpUsername,
-                            false,
-                            cx,
-                        ))
-                        .child(
-                            self.render_connection_hint(
-                                self.i18n.t("ssh.form.proxy_jump_kbi_hint"),
-                            ),
-                        )
-                        .child(self.render_auth_selector(
-                            jump_form.auth_tab,
-                            AuthSelectorContext::Jump,
-                            true,
-                            cx,
-                        ))
-                        .when(jump_form.auth_tab == SshAuthTab::DefaultKey, |content| {
-                            content.child(
-                                self.render_connection_hint(
-                                    self.i18n.t("ssh.form.default_key_desc"),
-                                ),
+                                    )))
+                                    .child(div().w(px(self.tokens.metrics.form_port_width)).child(
+                                        self.render_connection_field(
+                                            self.i18n.t("ssh.form.proxy_jump_port"),
+                                            &jump_form.port,
+                                            "22".to_string(),
+                                            NewConnectionField::JumpPort,
+                                            false,
+                                            cx,
+                                        ),
+                                    )),
                             )
-                        })
-                        .when(jump_form.auth_tab == SshAuthTab::SshKey, |content| {
-                            content
-                                .child(self.render_connection_field_with_browse(
-                                    self.i18n.t("ssh.form.proxy_jump_key_path"),
-                                    &jump_form.key_path,
-                                    self.i18n.t("ssh.form.proxy_jump_key_path_placeholder"),
-                                    NewConnectionField::JumpKeyPath,
-                                    cx,
-                                ))
-                                .child(self.render_connection_field(
-                                    self.i18n.t("ssh.form.passphrase"),
-                                    &jump_form.passphrase,
-                                    String::new(),
-                                    NewConnectionField::JumpPassphrase,
-                                    true,
-                                    cx,
-                                ))
-                        })
-                        .when(jump_form.auth_tab == SshAuthTab::ManagedKey, |content| {
-                            content
-                                .child(self.render_managed_key_select(
-                                    self.i18n.t("ssh.form.managed_key"),
-                                    &jump_form.managed_key_id,
-                                    true,
-                                    cx,
-                                ))
-                                .child(self.render_connection_field(
-                                    self.i18n.t("ssh.form.passphrase"),
-                                    &jump_form.passphrase,
-                                    self.i18n.t("ssh.form.passphrase_placeholder"),
-                                    NewConnectionField::JumpPassphrase,
-                                    true,
-                                    cx,
-                                ))
-                                .child(self.render_connection_hint(
-                                    self.i18n.t("ssh.form.managed_key_hint"),
-                                ))
-                        })
-                        .when(jump_form.auth_tab == SshAuthTab::Certificate, |content| {
-                            content
-                                .child(self.render_connection_field_with_browse(
-                                    self.i18n.t("ssh.form.private_key"),
-                                    &jump_form.key_path,
-                                    self.i18n.t("ssh.form.proxy_jump_key_path_placeholder"),
-                                    NewConnectionField::JumpKeyPath,
-                                    cx,
-                                ))
-                                .child(self.render_connection_field_with_browse(
-                                    self.i18n.t("ssh.form.certificate"),
-                                    &jump_form.cert_path,
-                                    "~/.ssh/id_ed25519-cert.pub".to_string(),
-                                    NewConnectionField::JumpCertPath,
-                                    cx,
-                                ))
-                                .child(self.render_connection_field(
-                                    self.i18n.t("ssh.form.passphrase"),
-                                    &jump_form.passphrase,
-                                    String::new(),
-                                    NewConnectionField::JumpPassphrase,
-                                    true,
-                                    cx,
-                                ))
-                        })
-                        .when(jump_form.auth_tab == SshAuthTab::Password, |content| {
-                            content.child(self.render_connection_field(
-                                self.i18n.t("ssh.form.password"),
-                                &jump_form.password,
-                                String::new(),
-                                NewConnectionField::JumpPassword,
+                            .child(self.render_connection_field(
+                                self.i18n.t("ssh.form.proxy_jump_username"),
+                                &jump_form.username,
+                                self.i18n.t("ssh.form.proxy_jump_username_placeholder"),
+                                NewConnectionField::JumpUsername,
+                                false,
+                                cx,
+                            ))
+                            .child(self.render_connection_hint(
+                                self.i18n.t("ssh.form.proxy_jump_kbi_hint"),
+                            ))
+                            .child(self.render_auth_selector(
+                                jump_form.auth_tab,
+                                AuthSelectorContext::Jump,
                                 true,
                                 cx,
                             ))
-                        })
-                        .when(jump_form.auth_tab == SshAuthTab::Agent, |content| {
-                            content.child(self.render_connection_hint(
-                                self.i18n.t("ssh.form.proxy_jump_agent_desc"),
+                            .when(jump_form.auth_tab == SshAuthTab::DefaultKey, |content| {
+                                content.child(self.render_connection_hint(
+                                    self.i18n.t("ssh.form.default_key_desc"),
+                                ))
+                            })
+                            .when(jump_form.auth_tab == SshAuthTab::SshKey, |content| {
+                                content
+                                    .child(self.render_connection_field_with_browse(
+                                        self.i18n.t("ssh.form.proxy_jump_key_path"),
+                                        &jump_form.key_path,
+                                        self.i18n.t("ssh.form.proxy_jump_key_path_placeholder"),
+                                        NewConnectionField::JumpKeyPath,
+                                        cx,
+                                    ))
+                                    .child(self.render_connection_field(
+                                        self.i18n.t("ssh.form.passphrase"),
+                                        &jump_form.passphrase,
+                                        String::new(),
+                                        NewConnectionField::JumpPassphrase,
+                                        true,
+                                        cx,
+                                    ))
+                            })
+                            .when(jump_form.auth_tab == SshAuthTab::ManagedKey, |content| {
+                                content
+                                    .child(self.render_managed_key_select(
+                                        self.i18n.t("ssh.form.managed_key"),
+                                        &jump_form.managed_key_id,
+                                        true,
+                                        cx,
+                                    ))
+                                    .child(self.render_connection_field(
+                                        self.i18n.t("ssh.form.passphrase"),
+                                        &jump_form.passphrase,
+                                        self.i18n.t("ssh.form.passphrase_placeholder"),
+                                        NewConnectionField::JumpPassphrase,
+                                        true,
+                                        cx,
+                                    ))
+                                    .child(self.render_connection_hint(
+                                        self.i18n.t("ssh.form.managed_key_hint"),
+                                    ))
+                            })
+                            .when(jump_form.auth_tab == SshAuthTab::Certificate, |content| {
+                                content
+                                    .child(self.render_connection_field_with_browse(
+                                        self.i18n.t("ssh.form.private_key"),
+                                        &jump_form.key_path,
+                                        self.i18n.t("ssh.form.proxy_jump_key_path_placeholder"),
+                                        NewConnectionField::JumpKeyPath,
+                                        cx,
+                                    ))
+                                    .child(self.render_connection_field_with_browse(
+                                        self.i18n.t("ssh.form.certificate"),
+                                        &jump_form.cert_path,
+                                        "~/.ssh/id_ed25519-cert.pub".to_string(),
+                                        NewConnectionField::JumpCertPath,
+                                        cx,
+                                    ))
+                                    .child(self.render_connection_field(
+                                        self.i18n.t("ssh.form.passphrase"),
+                                        &jump_form.passphrase,
+                                        String::new(),
+                                        NewConnectionField::JumpPassphrase,
+                                        true,
+                                        cx,
+                                    ))
+                            })
+                            .when(jump_form.auth_tab == SshAuthTab::Password, |content| {
+                                content.child(self.render_connection_field(
+                                    self.i18n.t("ssh.form.password"),
+                                    &jump_form.password,
+                                    String::new(),
+                                    NewConnectionField::JumpPassword,
+                                    true,
+                                    cx,
+                                ))
+                            })
+                            .when(jump_form.auth_tab == SshAuthTab::Agent, |content| {
+                                content.child(self.render_connection_hint(
+                                    self.i18n.t("ssh.form.proxy_jump_agent_desc"),
+                                ))
+                            })
+                            .child(self.render_connection_checkbox(
+                                self.i18n.t("ssh.form.agent_forwarding"),
+                                jump_form.agent_forwarding,
+                                |form| {
+                                    if let Some(jump_form) = form.jump_server_form.as_mut() {
+                                        jump_form.agent_forwarding = !jump_form.agent_forwarding;
+                                    }
+                                },
+                                cx,
                             ))
-                        })
-                        .child(self.render_connection_checkbox(
-                            self.i18n.t("ssh.form.agent_forwarding"),
-                            jump_form.agent_forwarding,
-                            |form| {
-                                if let Some(jump_form) = form.jump_server_form.as_mut() {
-                                    jump_form.agent_forwarding = !jump_form.agent_forwarding;
-                                }
-                            },
-                            cx,
-                        ))
-                        .child(self.render_connection_checkbox(
-                            self.i18n.t("ssh.form.legacy_ssh_compatibility"),
-                            jump_form.legacy_ssh_compatibility,
-                            |form| {
-                                if let Some(jump_form) = form.jump_server_form.as_mut() {
-                                    jump_form.legacy_ssh_compatibility =
-                                        !jump_form.legacy_ssh_compatibility;
-                                }
-                            },
-                            cx,
-                        )),
-                )
-                .child(
-                    modal_footer(&self.tokens)
-                        .child(self.render_jump_cancel_button(cx))
-                        .child(self.render_jump_add_button(add_disabled, cx)),
-                ),
-        )
-        .into_any_element()
+                            .child(self.render_connection_checkbox(
+                                self.i18n.t("ssh.form.legacy_ssh_compatibility"),
+                                jump_form.legacy_ssh_compatibility,
+                                |form| {
+                                    if let Some(jump_form) = form.jump_server_form.as_mut() {
+                                        jump_form.legacy_ssh_compatibility =
+                                            !jump_form.legacy_ssh_compatibility;
+                                    }
+                                },
+                                cx,
+                            )),
+                    )
+                    .child(
+                        modal_footer(&self.tokens)
+                            .child(self.render_jump_cancel_button(cx))
+                            .child(self.render_jump_add_button(add_disabled, cx)),
+                    ),
+            )
+            .into_any_element()
     }
 
-    fn render_proxy_chain_section(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn render_proxy_chain_section(&self, cx: &mut Context<Self>) -> AnyElement {
         let (hops, expanded) = self
             .new_connection_form
             .as_ref()
@@ -983,7 +945,7 @@ impl WorkspaceApp {
             },
             cx,
         )
-            .into_any_element()
+        .into_any_element()
     }
 
     fn render_add_jump_button(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -1011,7 +973,7 @@ impl WorkspaceApp {
             },
             cx.listener(|this, _event, window, cx| {
                 if let Some(form) = this.new_connection_form.as_mut() {
-                    form.jump_server_form = Some(super::form_state::NewConnectionProxyHop::new());
+                    form.jump_server_form = Some(NewConnectionProxyHop::new());
                     form.field_focused = true;
                     form.focused_field = NewConnectionField::JumpHost;
                     form.selected_field = None;
@@ -1023,7 +985,7 @@ impl WorkspaceApp {
                 cx.notify();
             }),
         )
-            .into_any_element()
+        .into_any_element()
     }
 
     fn render_jump_add_button(&self, disabled: bool, cx: &mut Context<Self>) -> AnyElement {
@@ -1047,7 +1009,7 @@ impl WorkspaceApp {
                 cx.stop_propagation();
             }),
         )
-            .into_any_element()
+        .into_any_element()
     }
 
     fn render_jump_cancel_button(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -1079,7 +1041,7 @@ impl WorkspaceApp {
     fn render_proxy_hop_summary(
         &self,
         index: usize,
-        hop: super::form_state::NewConnectionProxyHop,
+        hop: NewConnectionProxyHop,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let auth_label = match hop.auth_tab {
@@ -1091,7 +1053,10 @@ impl WorkspaceApp {
             SshAuthTab::Agent => self.i18n.t("ssh.auth.agent"),
             SshAuthTab::TwoFactor => self.i18n.t("ssh.auth.two_factor"),
         };
-        let auth_icon = if matches!(hop.auth_tab, SshAuthTab::SshKey | SshAuthTab::DefaultKey | SshAuthTab::ManagedKey) {
+        let auth_icon = if matches!(
+            hop.auth_tab,
+            SshAuthTab::SshKey | SshAuthTab::DefaultKey | SshAuthTab::ManagedKey
+        ) {
             LucideIcon::Key
         } else {
             LucideIcon::Lock
@@ -1199,28 +1164,24 @@ impl WorkspaceApp {
             .items_center()
             .gap_2()
             .text_size(px(self.tokens.metrics.ui_text_sm))
-            .child(
-                div()
-                    .text_color(rgb(self.tokens.ui.text_muted))
-                    .child(self.render_selectable_text_scoped(
-                        "proxy-hop-label",
-                        (&label, &value),
-                        format!("{label}:"),
-                        self.tokens.ui.text_muted,
-                        cx,
-                    )),
-            )
-            .child(
-                div()
-                    .font_weight(gpui::FontWeight::MEDIUM)
-                    .child(self.render_selectable_text_scoped(
-                        "proxy-hop-value",
-                        (&label, &value),
-                        value.clone(),
-                        self.tokens.ui.text,
-                        cx,
-                    )),
-            )
+            .child(div().text_color(rgb(self.tokens.ui.text_muted)).child(
+                self.render_selectable_text_scoped(
+                    "proxy-hop-label",
+                    (&label, &value),
+                    format!("{label}:"),
+                    self.tokens.ui.text_muted,
+                    cx,
+                ),
+            ))
+            .child(div().font_weight(gpui::FontWeight::MEDIUM).child(
+                self.render_selectable_text_scoped(
+                    "proxy-hop-value",
+                    (&label, &value),
+                    value.clone(),
+                    self.tokens.ui.text,
+                    cx,
+                ),
+            ))
             .into_any_element()
     }
 
@@ -1244,10 +1205,10 @@ impl WorkspaceApp {
             },
             cx,
         )
-            .into_any_element()
+        .into_any_element()
     }
 
-    fn add_pending_jump_server(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn add_pending_jump_server(&mut self, cx: &mut Context<Self>) {
         let Some(form) = self.new_connection_form.as_mut() else {
             return;
         };
@@ -1272,5 +1233,4 @@ impl WorkspaceApp {
         self.ime_marked_text = None;
         cx.notify();
     }
-
 }

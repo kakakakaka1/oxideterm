@@ -1,4 +1,7 @@
-fn record_completed_ai_tool_call(completed_calls: &mut Vec<AiToolCall>, call: AiToolCall) {
+pub(in crate::workspace) fn record_completed_ai_tool_call(
+    completed_calls: &mut Vec<AiToolCall>,
+    call: AiToolCall,
+) {
     if let Some(existing) = completed_calls
         .iter_mut()
         .find(|existing| existing.id == call.id)
@@ -9,7 +12,7 @@ fn record_completed_ai_tool_call(completed_calls: &mut Vec<AiToolCall>, call: Ai
     }
 }
 
-fn reject_ai_tool_calls_for_protocol_guard(
+pub(in crate::workspace) fn reject_ai_tool_calls_for_protocol_guard(
     ui_tx: &std::sync::mpsc::Sender<AiStreamDelivery>,
     generation: u64,
     conversation_id: &str,
@@ -40,7 +43,7 @@ fn reject_ai_tool_calls_for_protocol_guard(
     }
 }
 
-fn send_ai_guardrail(
+pub(in crate::workspace) fn send_ai_guardrail(
     ui_tx: &std::sync::mpsc::Sender<AiStreamDelivery>,
     generation: u64,
     conversation_id: &str,
@@ -63,7 +66,7 @@ fn send_ai_guardrail(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn send_ai_assistant_round(
+pub(in crate::workspace) fn send_ai_assistant_round(
     ui_tx: &std::sync::mpsc::Sender<AiStreamDelivery>,
     generation: u64,
     conversation_id: &str,
@@ -93,7 +96,7 @@ fn send_ai_assistant_round(
     )
 }
 
-fn send_ai_round_summary(
+pub(in crate::workspace) fn send_ai_round_summary(
     ui_tx: &std::sync::mpsc::Sender<AiStreamDelivery>,
     generation: u64,
     conversation_id: &str,
@@ -115,7 +118,7 @@ fn send_ai_round_summary(
     )
 }
 
-fn send_ai_round_stateful_marker(
+pub(in crate::workspace) fn send_ai_round_stateful_marker(
     ui_tx: &std::sync::mpsc::Sender<AiStreamDelivery>,
     generation: u64,
     conversation_id: &str,
@@ -132,7 +135,7 @@ fn send_ai_round_stateful_marker(
     )
 }
 
-fn send_ai_diagnostic(
+pub(in crate::workspace) fn send_ai_diagnostic(
     ui_tx: &std::sync::mpsc::Sender<AiStreamDelivery>,
     generation: u64,
     conversation_id: &str,
@@ -154,14 +157,18 @@ fn send_ai_diagnostic(
     )
 }
 
-fn ai_orchestrator_obligation_mode_label(mode: AiOrchestratorObligationMode) -> &'static str {
+pub(in crate::workspace) fn ai_orchestrator_obligation_mode_label(
+    mode: AiOrchestratorObligationMode,
+) -> &'static str {
     match mode {
         AiOrchestratorObligationMode::Auto => "auto",
         AiOrchestratorObligationMode::Required => "required",
     }
 }
 
-fn ai_tool_choice_label(choice: &oxideterm_ai::AiToolChoice) -> serde_json::Value {
+pub(in crate::workspace) fn ai_tool_choice_label(
+    choice: &oxideterm_ai::AiToolChoice,
+) -> serde_json::Value {
     match choice {
         oxideterm_ai::AiToolChoice::Auto => serde_json::json!("auto"),
         oxideterm_ai::AiToolChoice::Required => serde_json::json!("required"),
@@ -170,13 +177,13 @@ fn ai_tool_choice_label(choice: &oxideterm_ai::AiToolChoice) -> serde_json::Valu
 }
 
 #[derive(Debug)]
-struct AiRoundToolResultSummary {
-    tool_name: String,
-    success: bool,
-    summary: String,
+pub(in crate::workspace) struct AiRoundToolResultSummary {
+    pub(in crate::workspace) tool_name: String,
+    pub(in crate::workspace) success: bool,
+    pub(in crate::workspace) summary: String,
 }
 
-fn ai_round_summary_text(results: &[AiRoundToolResultSummary]) -> String {
+pub(in crate::workspace) fn ai_round_summary_text(results: &[AiRoundToolResultSummary]) -> String {
     results
         .iter()
         .map(|result| {
@@ -191,7 +198,7 @@ fn ai_round_summary_text(results: &[AiRoundToolResultSummary]) -> String {
         .join("\n")
 }
 
-fn send_ai_stream_delivery(
+pub(in crate::workspace) fn send_ai_stream_delivery(
     ui_tx: &std::sync::mpsc::Sender<AiStreamDelivery>,
     generation: u64,
     conversation_id: &str,
@@ -206,7 +213,7 @@ fn send_ai_stream_delivery(
     })
 }
 
-fn send_ai_tool_status(
+pub(in crate::workspace) fn send_ai_tool_status(
     ui_tx: &std::sync::mpsc::Sender<AiStreamDelivery>,
     generation: u64,
     conversation_id: &str,
@@ -235,7 +242,7 @@ fn send_ai_tool_status(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn send_ai_tool_status_with_payload(
+pub(in crate::workspace) fn send_ai_tool_status_with_payload(
     ui_tx: &std::sync::mpsc::Sender<AiStreamDelivery>,
     generation: u64,
     conversation_id: &str,
@@ -271,7 +278,7 @@ fn send_ai_tool_status_with_payload(
     )
 }
 
-fn parse_ai_tool_args(arguments: &str) -> Option<serde_json::Value> {
+pub(in crate::workspace) fn parse_ai_tool_args(arguments: &str) -> Option<serde_json::Value> {
     let parsed = serde_json::from_str::<serde_json::Value>(arguments).ok()?;
     if parsed.is_object() {
         Some(parsed)
@@ -280,7 +287,7 @@ fn parse_ai_tool_args(arguments: &str) -> Option<serde_json::Value> {
     }
 }
 
-fn ai_tool_call_message_value(call: &AiToolCall) -> serde_json::Value {
+pub(in crate::workspace) fn ai_tool_call_message_value(call: &AiToolCall) -> serde_json::Value {
     serde_json::json!({
         "id": call.id,
         "name": call.name,
@@ -288,7 +295,7 @@ fn ai_tool_call_message_value(call: &AiToolCall) -> serde_json::Value {
     })
 }
 
-fn ai_tool_result_message(result: AiExecutedToolResult) -> AiChatMessage {
+pub(in crate::workspace) fn ai_tool_result_message(result: AiExecutedToolResult) -> AiChatMessage {
     let content = ai_tool_result_model_content(&result);
     AiChatMessage {
         id: format!("tool-result-{}", result.tool_call_id),

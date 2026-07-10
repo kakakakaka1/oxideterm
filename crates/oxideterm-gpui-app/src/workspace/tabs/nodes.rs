@@ -1,9 +1,22 @@
+use super::helpers::readiness_for_connection_state;
+use super::nodes_reconnect_helpers::{
+    cleanup_reconnect_created_forwards, event_log_severity_for_connection_status,
+    event_log_title_for_node_readiness, forward_restore_failure_label,
+    forward_restore_key_for_rule, forward_restore_key_for_snapshot_rule,
+    forward_restore_phase_result, forward_restore_result_detail,
+    forward_rule_from_reconnect_snapshot, readiness_for_connection_status,
+    reason_for_connection_status, reconnect_cascade_child_should_start,
+    reconnect_error_is_non_retryable, reconnect_forward_rule_from_rule,
+    release_reconnect_forward_bindings,
+};
+use super::*;
+
 const RECONNECT_DEBOUNCE_MS: u64 = 500;
 const RECONNECT_MAX_REQUEUE: u32 = 120;
 const RECONNECT_AUTO_CLEANUP_DELAY_MS: u64 = 30_000;
 
 impl WorkspaceApp {
-    pub(super) fn sync_ssh_node_lifecycle(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn sync_ssh_node_lifecycle(&mut self, cx: &mut Context<Self>) {
         let terminal_nodes = self.terminal_ssh_nodes.clone();
         let mut changed = false;
         let mut forwarding_to_suspend = Vec::new();
@@ -121,7 +134,11 @@ impl WorkspaceApp {
         }
     }
 
-    pub(super) fn poll_node_events(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn poll_node_events(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let mut events = Vec::new();
         while let Ok(event) = self.node_event_rx.try_recv() {
             events.push(event);
@@ -158,18 +175,16 @@ impl WorkspaceApp {
         let Some(connection_id) = self.node_router.connection_id_for_node(node_id) else {
             return true;
         };
-        self.ssh_registry
-            .get(&connection_id)
-            .is_none_or(|handle| {
-                matches!(
-                    handle.state(),
-                    ConnectionState::LinkDown
-                        | ConnectionState::Reconnecting
-                        | ConnectionState::Disconnected
-                        | ConnectionState::Disconnecting
-                        | ConnectionState::Error(_)
-                )
-            })
+        self.ssh_registry.get(&connection_id).is_none_or(|handle| {
+            matches!(
+                handle.state(),
+                ConnectionState::LinkDown
+                    | ConnectionState::Reconnecting
+                    | ConnectionState::Disconnected
+                    | ConnectionState::Disconnecting
+                    | ConnectionState::Error(_)
+            )
+        })
     }
 
     fn cleanup_temporary_session_tree_node(&mut self, cleanup_root: &NodeId) {
@@ -211,7 +226,7 @@ impl WorkspaceApp {
         }
     }
 
-    pub(super) fn remove_inactive_session_tree_node(
+    pub(in crate::workspace) fn remove_inactive_session_tree_node(
         &mut self,
         cleanup_root: &NodeId,
         window: &mut Window,
@@ -232,10 +247,8 @@ impl WorkspaceApp {
             self.reconnect_requeue_counts.remove(node_id);
             self.pending_reconnect_cascade_nodes
                 .retain(|pending_node_id| pending_node_id != node_id);
-            let _ = self.interrupt_sftp_transfers_by_node(
-                node_id,
-                "Connection removed".to_string(),
-            );
+            let _ =
+                self.interrupt_sftp_transfers_by_node(node_id, "Connection removed".to_string());
         }
         if self
             .reconnect_pipeline_active_node
@@ -249,7 +262,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    pub(super) fn poll_reconnect_worker_results(
+    pub(in crate::workspace) fn poll_reconnect_worker_results(
         &mut self,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -328,7 +341,9 @@ impl WorkspaceApp {
                         self.schedule_next_reconnect_cascade_node();
                     }
                     if self.active_proxy_connect_waits_for_node(&node_id) {
-                        self.advance_active_proxy_connect_after_node_connected(&node_id, window, cx);
+                        self.advance_active_proxy_connect_after_node_connected(
+                            &node_id, window, cx,
+                        );
                     }
                     let _ = self.drain_ready_pending_ssh_terminal_opens(window, cx);
                     self.restore_forwarding_rules_for_reconnect(&node_id);
@@ -786,7 +801,10 @@ impl WorkspaceApp {
         }
     }
 
-    pub(super) fn maybe_probe_active_ssh_connections(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn maybe_probe_active_ssh_connections(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) {
         if self.ssh_active_probe_in_flight {
             return;
         }
@@ -814,7 +832,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    pub(super) fn emit_node_event(&self, event: NodeStateEvent) {
+    pub(in crate::workspace) fn emit_node_event(&self, event: NodeStateEvent) {
         let _ = self.node_event_tx.send(event);
     }
 
@@ -1035,7 +1053,8 @@ impl WorkspaceApp {
                         self.schedule_grace_period_reconnect(&node_id, cx);
                     }
                     if matches!(state, NodeReadiness::Disconnected) {
-                        let mut nodes_to_close = self.node_runtime_store.subtree_postorder(&node_id);
+                        let mut nodes_to_close =
+                            self.node_runtime_store.subtree_postorder(&node_id);
                         if nodes_to_close.is_empty() {
                             nodes_to_close.push(node_id.clone());
                         }
@@ -1070,7 +1089,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn ensure_workspace_ssh_node_from_runtime(&mut self, node_id: &NodeId) -> bool {
+    pub(super) fn ensure_workspace_ssh_node_from_runtime(&mut self, node_id: &NodeId) -> bool {
         if self.ssh_nodes.contains_key(node_id) {
             return false;
         }
@@ -1280,7 +1299,7 @@ impl WorkspaceApp {
         queued
     }
 
-    pub(super) fn on_sftp_transfer_finished_for_reconnect(
+    pub(in crate::workspace) fn on_sftp_transfer_finished_for_reconnect(
         &mut self,
         _transfer_node_id: &NodeId,
         transfer_id: &str,
@@ -1377,7 +1396,7 @@ impl WorkspaceApp {
         }
     }
 
-    pub(super) fn complete_pending_ide_reconnect_restore(
+    pub(in crate::workspace) fn complete_pending_ide_reconnect_restore(
         &mut self,
         node_id: &NodeId,
         result: PhaseResult,
@@ -1845,7 +1864,7 @@ impl WorkspaceApp {
         });
     }
 
-    pub(super) fn clear_reconnect_pipeline_active(&mut self, node_id: &NodeId) {
+    pub(in crate::workspace) fn clear_reconnect_pipeline_active(&mut self, node_id: &NodeId) {
         if self
             .reconnect_pipeline_active_node
             .as_ref()
@@ -1877,7 +1896,7 @@ impl WorkspaceApp {
         token
     }
 
-    pub(super) fn cancel_forward_restore_token(&mut self, node_id: &NodeId) {
+    pub(in crate::workspace) fn cancel_forward_restore_token(&mut self, node_id: &NodeId) {
         if let Some(token) = self.reconnect_forward_restore_tokens.remove(node_id) {
             token.store(false, Ordering::Release);
         }
@@ -1933,7 +1952,7 @@ impl WorkspaceApp {
         let _ = self.ssh_registry.retire_connection(connection_id);
     }
 
-    pub(super) fn release_parent_ref_for_child_connection(
+    pub(in crate::workspace) fn release_parent_ref_for_child_connection(
         &self,
         child_node_id: &NodeId,
         child_connection_id: &str,
@@ -2019,7 +2038,10 @@ impl WorkspaceApp {
         false
     }
 
-    pub(super) fn ensure_node_connection_started(&mut self, node_id: &NodeId) -> bool {
+    pub(in crate::workspace) fn ensure_node_connection_started(
+        &mut self,
+        node_id: &NodeId,
+    ) -> bool {
         let trace_mode = if self
             .reconnect_orchestrator
             .job(&node_id.0)
@@ -2032,7 +2054,7 @@ impl WorkspaceApp {
         self.connect_node_with_ancestors(node_id, trace_mode)
     }
 
-    pub(super) fn ensure_node_connection_started_without_ancestors(
+    pub(in crate::workspace) fn ensure_node_connection_started_without_ancestors(
         &mut self,
         node_id: &NodeId,
     ) -> bool {
@@ -2210,7 +2232,7 @@ impl WorkspaceApp {
                 .is_some_and(|current_id| current_id == node_id)
     }
 
-    fn abort_connection_chain_for_node(&mut self, node_id: &NodeId) {
+    pub(super) fn abort_connection_chain_for_node(&mut self, node_id: &NodeId) {
         if self
             .active_connection_chain
             .as_ref()
@@ -2687,7 +2709,10 @@ impl WorkspaceApp {
             .map(|connection| readiness_for_connection_state(&connection.state))
     }
 
-    pub(super) fn reconnect_all_link_down_nodes_from_palette(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn reconnect_all_link_down_nodes_from_palette(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) {
         let link_down_connections = self
             .ssh_registry
             .list_connection_summaries()

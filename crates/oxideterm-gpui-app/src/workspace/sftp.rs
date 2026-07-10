@@ -193,6 +193,7 @@ pub(super) struct SftpMutationToast {
 
 #[derive(Debug)]
 pub(super) enum SftpWorkerResult {
+    WakeRemoteLoad,
     RemoteList {
         tab_id: TabId,
         node_id: NodeId,
@@ -696,12 +697,32 @@ impl SftpViewState {
     }
 }
 
-include!("sftp/runtime.rs");
-include!("sftp/surface.rs");
-include!("sftp/file_list.rs");
-include!("sftp/transfers.rs");
-include!("sftp/menus.rs");
-include!("sftp/dialogs.rs");
-include!("sftp/controls.rs");
-include!("sftp/actions.rs");
-include!("sftp/helpers.rs");
+// Keep each SFTP responsibility in a real module while preserving this file as the facade.
+mod actions;
+mod controls;
+mod dialogs;
+mod file_list;
+mod helpers;
+mod menus;
+mod runtime;
+mod surface;
+mod transfers;
+
+// Re-export only the cross-module helpers needed by the SFTP facade and its children.
+pub(in crate::workspace::sftp) use actions::sftp_extract_archive_kind;
+use helpers::{
+    compute_sftp_diff, diff_cell, format_conflict_modified, format_file_size, format_modified,
+    format_sftp_media_time, format_transfer_speed, home_path,
+    is_sftp_incomplete_store_compat_error, join_local_path, join_sftp_path, list_local_files,
+    load_remote_sftp_listing, load_remote_sftp_preview, load_remote_sftp_preview_hex, local_drives,
+    new_sftp_transfer_id, normalize_external_dropped_path, normalize_remote_path, parent_path,
+    preview_content_text, remote_directory_prefixes, save_remote_sftp_preview, sftp_bg,
+    sftp_border, sftp_breadcrumb_max_scroll, sftp_card_surface,
+    sftp_conflict_resolution_from_settings, sftp_diff_stats, sftp_diff_visual_lines,
+    sftp_editor_language, sftp_editor_language_id, sftp_file_entry, sftp_file_name, sftp_hover_bg,
+    sftp_panel_bg, sftp_path_bar_viewport_width, sftp_path_segments,
+    sftp_preview_editor_is_network_error, sftp_preview_is_markdown, sftp_preview_visual_lines,
+    sftp_source_not_newer_than_target, sftp_transfer_conflicts,
+    sftp_transfer_state_from_background, sftp_transfer_state_from_remote, sorted_sftp_files,
+    unique_sftp_conflict_name,
+};

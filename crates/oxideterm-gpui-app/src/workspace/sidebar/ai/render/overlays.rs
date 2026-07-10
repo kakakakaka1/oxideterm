@@ -1,14 +1,14 @@
 use oxideterm_gpui_ui::modal::rounded_shell_child_radius;
 
-const AI_CONVERSATION_ROW_HEIGHT: f32 = 46.0; // Tauri ConversationItem: px-3 py-1.5, title + mono meta.
-const AI_CONVERSATION_EMPTY_HEIGHT: f32 = 52.0; // Tauri empty row p-4 text-center.
-const AI_CONVERSATION_MAX_HEIGHT: f32 = 256.0; // Tauri max-h-64.
-const AI_CHAT_PANEL_HEADER_HEIGHT: f32 = 36.0; // Tauri AiChatPanel min-h-[36px].
-const AI_TOP_FLOATING_INSET_X: f32 = 8.0; // Tauri left-2/right-2 and right-0 within the chat panel.
-const AI_FLOATING_GAP: f32 = 4.0; // Tauri mt-0.5/mb-1 style popup gap.
-const AI_CHAT_MENU_WIDTH: f32 = 160.0; // Tauri w-40.
-const AI_MODEL_SELECTOR_DROPDOWN_WIDTH: f32 = 256.0; // Tauri w-64.
-const AI_CONTEXT_POPOVER_WIDTH: f32 = 280.0; // Tauri-sized compact context popover.
+pub(in crate::workspace) const AI_CONVERSATION_ROW_HEIGHT: f32 = 46.0; // Tauri ConversationItem: px-3 py-1.5, title + mono meta.
+pub(in crate::workspace) const AI_CONVERSATION_EMPTY_HEIGHT: f32 = 52.0; // Tauri empty row p-4 text-center.
+pub(in crate::workspace) const AI_CONVERSATION_MAX_HEIGHT: f32 = 256.0; // Tauri max-h-64.
+pub(in crate::workspace) const AI_CHAT_PANEL_HEADER_HEIGHT: f32 = 36.0; // Tauri AiChatPanel min-h-[36px].
+pub(in crate::workspace) const AI_TOP_FLOATING_INSET_X: f32 = 8.0; // Tauri left-2/right-2 and right-0 within the chat panel.
+pub(in crate::workspace) const AI_FLOATING_GAP: f32 = 4.0; // Tauri mt-0.5/mb-1 style popup gap.
+pub(in crate::workspace) const AI_CHAT_MENU_WIDTH: f32 = 160.0; // Tauri w-40.
+pub(in crate::workspace) const AI_MODEL_SELECTOR_DROPDOWN_WIDTH: f32 = 256.0; // Tauri w-64.
+pub(in crate::workspace) const AI_CONTEXT_POPOVER_WIDTH: f32 = 280.0; // Tauri-sized compact context popover.
 
 impl WorkspaceApp {
     pub(in crate::workspace) fn update_ai_sidebar_overlay_for_window_bounds(
@@ -17,7 +17,7 @@ impl WorkspaceApp {
         cx: &mut Context<Self>,
     ) {
         let next_size = current_window_size(window);
-        let Some(previous_size) = self.ai_overlay_window_size.replace(next_size) else {
+        let Some(previous_size) = self.ai.chat.overlay_window_size.replace(next_size) else {
             return;
         };
         let dx = next_size.0 - previous_size.0;
@@ -33,7 +33,7 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn shift_ai_sidebar_overlay_anchors(&mut self, dx: f32, dy: f32) {
+    pub(in crate::workspace) fn shift_ai_sidebar_overlay_anchors(&mut self, dx: f32, dy: f32) {
         for (id, anchor) in &mut self.select_anchors {
             match id {
                 SelectAnchorId::AiPanelRoot => {
@@ -63,12 +63,15 @@ impl WorkspaceApp {
             return None;
         }
 
-        let panel_anchor = self.select_anchors.get(&SelectAnchorId::AiPanelRoot).copied()?;
+        let panel_anchor = self
+            .select_anchors
+            .get(&SelectAnchorId::AiPanelRoot)
+            .copied()?;
         let panel_left = f32::from(panel_anchor.bounds.left());
         let panel_right = f32::from(panel_anchor.bounds.right());
         let panel_width = f32::from(panel_anchor.bounds.size.width);
 
-        let (corner, anchor_x, anchor_y, popup) = if self.ai_conversation_list_open {
+        let (corner, anchor_x, anchor_y, popup) = if self.ai.chat.conversation_list_open {
             let top = self
                 .select_anchors
                 .get(&SelectAnchorId::AiConversationList)
@@ -83,8 +86,11 @@ impl WorkspaceApp {
                 top,
                 self.render_ai_conversation_dropdown(dropdown_width, cx),
             )
-        } else if self.ai_chat_menu_open {
-            let anchor = self.select_anchors.get(&SelectAnchorId::AiChatMenu).copied()?;
+        } else if self.ai.chat.menu_open {
+            let anchor = self
+                .select_anchors
+                .get(&SelectAnchorId::AiChatMenu)
+                .copied()?;
             let left = ai_sidebar_popup_left(
                 f32::from(anchor.bounds.right()) - AI_CHAT_MENU_WIDTH,
                 AI_CHAT_MENU_WIDTH,
@@ -93,8 +99,8 @@ impl WorkspaceApp {
             );
             let top = f32::from(anchor.bounds.bottom()) + AI_FLOATING_GAP / 2.0;
             (Corner::TopLeft, left, top, self.render_ai_chat_menu(cx))
-        } else if self.ai_model_selector_open
-            && self.ai_model_selector_scope == Some(AiModelSelectorScope::Sidebar)
+        } else if self.ai.models.selector_open
+            && self.ai.models.selector_scope == Some(AiModelSelectorScope::Sidebar)
         {
             let anchor = self.select_anchors.get(&SelectAnchorId::AiModelSelector)?;
             (
@@ -106,12 +112,9 @@ impl WorkspaceApp {
                     panel_right,
                 ),
                 f32::from(anchor.bounds.top()) - AI_FLOATING_GAP,
-                self.render_ai_model_selector_dropdown(
-                    &self.ai_model_selector_providers(),
-                    cx,
-                ),
+                self.render_ai_model_selector_dropdown(&self.ai_model_selector_providers(), cx),
             )
-        } else if self.ai_safety_menu_open {
+        } else if self.ai.chat.safety_menu_open {
             let anchor = self.select_anchors.get(&SelectAnchorId::AiSafetyMenu)?;
             (
                 Corner::BottomLeft,
@@ -124,7 +127,7 @@ impl WorkspaceApp {
                 f32::from(anchor.bounds.top()) - AI_FLOATING_GAP,
                 self.render_ai_safety_menu(cx),
             )
-        } else if self.ai_context_popover_open {
+        } else if self.ai.chat.context_popover_open {
             let anchor = self.select_anchors.get(&SelectAnchorId::AiContextPopover)?;
             (
                 Corner::BottomLeft,
@@ -172,19 +175,24 @@ impl WorkspaceApp {
     }
 
     pub(in crate::workspace) fn has_ai_sidebar_floating_overlay(&self) -> bool {
-        self.ai_conversation_list_open
-            || self.ai_chat_menu_open
-            || (self.ai_model_selector_open
-                && self.ai_model_selector_scope == Some(AiModelSelectorScope::Sidebar))
-            || self.ai_safety_menu_open
-            || self.ai_context_popover_open
+        self.ai.chat.conversation_list_open
+            || self.ai.chat.menu_open
+            || (self.ai.models.selector_open
+                && self.ai.models.selector_scope == Some(AiModelSelectorScope::Sidebar))
+            || self.ai.chat.safety_menu_open
+            || self.ai.chat.context_popover_open
     }
 
-    fn render_ai_conversation_dropdown(&self, dropdown_width: f32, cx: &mut Context<Self>) -> AnyElement {
-        let dropdown_height = if self.ai_chat.conversations.is_empty() {
+    pub(in crate::workspace) fn render_ai_conversation_dropdown(
+        &self,
+        dropdown_width: f32,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let dropdown_height = if self.ai.chat.conversation_state.conversations.is_empty() {
             AI_CONVERSATION_EMPTY_HEIGHT
         } else {
-            (self.ai_chat.conversations.len() as f32 * AI_CONVERSATION_ROW_HEIGHT)
+            (self.ai.chat.conversation_state.conversations.len() as f32
+                * AI_CONVERSATION_ROW_HEIGHT)
                 .min(AI_CONVERSATION_MAX_HEIGHT)
         };
         let mut list = div()
@@ -208,7 +216,7 @@ impl WorkspaceApp {
             // stays with the overlay and cannot scroll the message/sidebar body.
             .on_scroll_wheel(|_, _, cx| cx.stop_propagation());
 
-        if self.ai_chat.conversations.is_empty() {
+        if self.ai.chat.conversation_state.conversations.is_empty() {
             list = list.child(
                 div()
                     .p(px(16.0))
@@ -225,8 +233,15 @@ impl WorkspaceApp {
                     )),
             );
         } else {
-            let conversation_count = self.ai_chat.conversations.len();
-            for (index, conversation) in self.ai_chat.conversations.iter().enumerate() {
+            let conversation_count = self.ai.chat.conversation_state.conversations.len();
+            for (index, conversation) in self
+                .ai
+                .chat
+                .conversation_state
+                .conversations
+                .iter()
+                .enumerate()
+            {
                 list = list.child(self.render_ai_conversation_item(
                     conversation,
                     index == 0,
@@ -238,7 +253,7 @@ impl WorkspaceApp {
         list.into_any_element()
     }
 
-    fn render_ai_conversation_item(
+    pub(in crate::workspace) fn render_ai_conversation_item(
         &self,
         conversation: &AiConversation,
         is_first: bool,
@@ -247,7 +262,13 @@ impl WorkspaceApp {
     ) -> AnyElement {
         let id = conversation.id.clone();
         let delete_id = conversation.id.clone();
-        let is_active = self.ai_chat.active_conversation_id.as_deref() == Some(conversation.id.as_str());
+        let is_active = self
+            .ai
+            .chat
+            .conversation_state
+            .active_conversation_id
+            .as_deref()
+            == Some(conversation.id.as_str());
         let count = if conversation.messages_loaded {
             conversation.messages.len()
         } else {
@@ -300,9 +321,12 @@ impl WorkspaceApp {
                     .pr(px(8.0))
                     .gap(px(2.0))
                     .child(
-                        div().flex().items_center().gap(px(6.0)).min_w_0().when(
-                            conversation.origin == "cli",
-                            |row| {
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(6.0))
+                            .min_w_0()
+                            .when(conversation.origin == "cli", |row| {
                                 row.child(
                                     div()
                                         .size(px(16.0))
@@ -320,19 +344,19 @@ impl WorkspaceApp {
                                             rgb(self.tokens.ui.text_muted),
                                         )),
                                 )
-                            },
-                        ).child(
-                            div()
-                                .truncate()
-                                .text_size(px(12.0))
-                                .font_weight(gpui::FontWeight::BOLD)
-                                .text_color(if is_active {
-                                    rgb(self.tokens.ui.text)
-                                } else {
-                                    rgb(self.tokens.ui.text_muted)
-                                })
-                                .child(conversation.title.clone()),
-                        ),
+                            })
+                            .child(
+                                div()
+                                    .truncate()
+                                    .text_size(px(12.0))
+                                    .font_weight(gpui::FontWeight::BOLD)
+                                    .text_color(if is_active {
+                                        rgb(self.tokens.ui.text)
+                                    } else {
+                                        rgb(self.tokens.ui.text_muted)
+                                    })
+                                    .child(conversation.title.clone()),
+                            ),
                     )
                     .child(
                         div()
@@ -380,7 +404,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_ai_chat_menu(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn render_ai_chat_menu(&self, cx: &mut Context<Self>) -> AnyElement {
         div()
             .w(px(AI_CHAT_MENU_WIDTH))
             .py(px(2.0))
@@ -406,7 +430,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_ai_chat_menu_item(
+    pub(in crate::workspace) fn render_ai_chat_menu_item(
         &self,
         icon: LucideIcon,
         label: String,
@@ -463,24 +487,25 @@ impl WorkspaceApp {
             } else {
                 rgba((self.tokens.ui.border << 8) | 0x1a)
             }),
-            move |this, _event, window, cx| {
-                match action {
-                    AiHeaderAction::Settings => this.open_ai_settings(window, cx),
-                    AiHeaderAction::NewChat => {
-                        this.ai_clear_all_confirm_open = true;
-                        this.reset_standard_confirm_focus();
-                    }
+            move |this, _event, window, cx| match action {
+                AiHeaderAction::Settings => this.open_ai_settings(window, cx),
+                AiHeaderAction::NewChat => {
+                    this.ai.chat.clear_all_confirm_open = true;
+                    this.reset_standard_confirm_focus();
                 }
             },
             cx,
         )
         .into_any_element()
     }
-
-
 }
 
-fn ai_sidebar_popup_left(desired: f32, popup_width: f32, panel_left: f32, panel_right: f32) -> f32 {
+pub(in crate::workspace) fn ai_sidebar_popup_left(
+    desired: f32,
+    popup_width: f32,
+    panel_left: f32,
+    panel_right: f32,
+) -> f32 {
     let min_left = panel_left + AI_TOP_FLOATING_INSET_X;
     let max_left = (panel_right - AI_TOP_FLOATING_INSET_X - popup_width).max(min_left);
     desired.clamp(min_left, max_left)

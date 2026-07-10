@@ -1,5 +1,5 @@
 impl WorkspaceApp {
-    fn render_ai_model_selector(
+    pub(in crate::workspace) fn render_ai_model_selector(
         &self,
         scope: AiModelSelectorScope,
         anchor_id: SelectAnchorId,
@@ -43,7 +43,7 @@ impl WorkspaceApp {
             model_selector_display_name(active_provider, active_model)
         };
         let selector_open =
-            self.ai_model_selector_open && self.ai_model_selector_scope == Some(scope);
+            self.ai.models.selector_open && self.ai.models.selector_scope == Some(scope);
         let ready = active_provider
             .map(|provider| {
                 self.ai_model_selector_has_key(provider)
@@ -62,14 +62,14 @@ impl WorkspaceApp {
             selector_open,
             browser_behavior::browser_focus_visible(
                 selector_open,
-                self.ai_model_selector_focus_origin,
+                self.ai.models.selector_focus_origin,
             ),
             Self::render_lucide_icon(chevron, 12.0, rgb(self.tokens.ui.text_muted)),
         )
         .on_mouse_down(
             MouseButton::Left,
             cx.listener(move |this, _event, window, cx| {
-                this.ai_model_selector_focus_origin =
+                this.ai.models.selector_focus_origin =
                     Some(browser_behavior::BrowserFocusOrigin::Pointer);
                 this.toggle_ai_model_selector(scope, window, cx);
                 cx.stop_propagation();
@@ -86,7 +86,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_ai_model_selector_dropdown(
+    pub(in crate::workspace) fn render_ai_model_selector_dropdown(
         &self,
         providers: &[AiProviderView],
         cx: &mut Context<Self>,
@@ -116,16 +116,19 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_ai_model_selector_search(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn render_ai_model_selector_search(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let target = WorkspaceImeTarget::AiModelSelectorSearch;
-        let focused = self.ai_model_selector_search_focused;
+        let focused = self.ai.models.selector_search_focused;
         let marked_text = self.marked_text_for_target(target).unwrap_or_default();
         let showing_placeholder =
-            self.ai_model_selector_search_query.is_empty() && marked_text.is_empty();
+            self.ai.models.selector_search_query.is_empty() && marked_text.is_empty();
         let display_text = if showing_placeholder {
             self.i18n.t("ai.model_selector.search_placeholder")
         } else {
-            self.ai_model_selector_search_query.clone()
+            self.ai.models.selector_search_query.clone()
         };
         let input = div()
             .min_w_0()
@@ -159,7 +162,7 @@ impl WorkspaceApp {
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |this, event: &gpui::MouseDownEvent, window, cx| {
-                    this.ai_model_selector_search_focused = true;
+                    this.ai.models.selector_search_focused = true;
                     this.ime_marked_text = None;
                     window.focus(&this.focus_handle);
                     this.begin_ime_selection_from_mouse_down(target, event, window, cx);
@@ -176,7 +179,7 @@ impl WorkspaceApp {
             input,
             Self::deferred_ai_text_input_anchor_update(cx.entity()),
         );
-        let clear = (!self.ai_model_selector_search_query.is_empty()).then(|| {
+        let clear = (!self.ai.models.selector_search_query.is_empty()).then(|| {
             div()
                 .size(px(14.0))
                 .flex()
@@ -185,8 +188,8 @@ impl WorkspaceApp {
                 .on_mouse_down(
                     MouseButton::Left,
                     cx.listener(|this, _event, _window, cx| {
-                        this.ai_model_selector_search_query.clear();
-                        this.ai_model_selector_highlighted_model = None;
+                        this.ai.models.selector_search_query.clear();
+                        this.ai.models.selector_highlighted_model = None;
                         cx.stop_propagation();
                         cx.notify();
                     }),
@@ -206,5 +209,4 @@ impl WorkspaceApp {
         )
         .into_any_element()
     }
-
 }

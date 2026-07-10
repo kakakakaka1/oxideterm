@@ -191,7 +191,44 @@ impl CloudSyncBackend {
         Ok(Some(object))
     }
 
-    pub(super) async fn s3_request(
+    pub(super) async fn download_s3_snapshot_object(
+        &self,
+        config: &CloudSyncSettings,
+        secrets: &CloudSyncSecrets,
+        metadata: &RemoteMetadata,
+    ) -> Result<RemoteObject> {
+        // Snapshot metadata may point at a revision-specific key; older metadata
+        // falls back to the provider's compatibility blob key.
+        let path = metadata
+            .blob_key
+            .as_deref()
+            .unwrap_or(&s3_paths(config).blob_key)
+            .to_string();
+        let response = self
+            .s3_request(
+                Method::GET,
+                &s3_blob_url(config, &path)?,
+                config,
+                secrets,
+                None,
+                HeaderMap::new(),
+            )
+            .await?;
+        if response.status() == StatusCode::NOT_FOUND {
+            bail!("remote_not_found: no remote S3 snapshot found");
+        }
+        if !response.status().is_success() {
+            let status = response.status().as_u16();
+            bail!(
+                "s3_blob_{}: Failed to download S3 snapshot ({})",
+                status,
+                status
+            );
+        }
+        response_to_object(response, "S3 blob").await
+    }
+
+    async fn s3_request(
         &self,
         method: Method,
         url: &Url,
@@ -199,7 +236,7 @@ impl CloudSyncBackend {
         secrets: &CloudSyncSecrets,
         body: Option<Vec<u8>>,
         headers: HeaderMap,
-    ) -> Result<reqwest::Response> {
+    ) -> Result<super::HttpResponseSnapshot> {
         validate_s3_config(config, secrets)?;
         let bytes = body.unwrap_or_default();
         let signed_headers = s3_signed_headers(
@@ -378,13 +415,12 @@ fn s3_signed_headers(
     .join("\n");
     let signing_key = s3_signature_key(secret_access_key, &date_stamp, region)?;
     let signature = hmac_sha256_hex(signing_key.as_slice(), string_to_sign.as_bytes())?;
-    insert_header(
-        &mut headers,
-        AUTHORIZATION.as_str(),
-        &format!(
-            "AWS4-HMAC-SHA256 Credential={access_key_id}/{credential_scope}, SignedHeaders={signed_headers}, Signature={signature}"
-        ),
-    )?;
+    // The authorization value includes credential material and a request
+    // signature, so zeroize the formatted staging value after HeaderMap copies it.
+    let authorization = Zeroizing::new(format!(
+        "AWS4-HMAC-SHA256 Credential={access_key_id}/{credential_scope}, SignedHeaders={signed_headers}, Signature={signature}"
+    ));
+    insert_header(&mut headers, AUTHORIZATION.as_str(), authorization.as_str())?;
     Ok(headers)
 }
 

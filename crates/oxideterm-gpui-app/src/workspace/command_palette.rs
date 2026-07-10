@@ -1085,7 +1085,7 @@ impl WorkspaceApp {
     }
 
     fn command_palette_plugin_items(&self) -> Vec<PaletteItem> {
-        let contributions = self.plugin_registry.contributions();
+        let contributions = self.native_plugin_runtime.registry.contributions();
         let mut items = Vec::new();
         items.extend(contributions.api_commands.iter().map(|command| {
             // Phase 2 mirrors Tauri command registry visibility without
@@ -1308,7 +1308,9 @@ impl WorkspaceApp {
                     ),
             );
         let palette_top = self
-            .ai_overlay_window_size
+            .ai
+            .chat
+            .overlay_window_size
             .map(|(_, height)| height * COMMAND_PALETTE_TOP_RATIO)
             .unwrap_or(COMMAND_PALETTE_FALLBACK_TOP);
 

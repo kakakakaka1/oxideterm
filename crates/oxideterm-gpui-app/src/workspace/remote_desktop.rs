@@ -26,14 +26,15 @@ use oxideterm_gpui_ui::button::{
 use oxideterm_remote_desktop::{
     RemoteDesktopClipboardData, RemoteDesktopClipboardFormat, RemoteDesktopConnectionProfile,
     RemoteDesktopEndpoint, RemoteDesktopErrorCategory, RemoteDesktopFakeBackend,
-    RemoteDesktopHelperEvent, RemoteDesktopHelperRequest, RemoteDesktopKey, RemoteDesktopKeyState,
-    RemoteDesktopLockKeys, RemoteDesktopMouseButton, RemoteDesktopMouseButtonState,
-    RemoteDesktopProtocol, RemoteDesktopProviderManifest, RemoteDesktopSecret,
-    RemoteDesktopSessionStatus, RemoteDesktopSize, RemoteDesktopWheelDelta,
-    builtin_preview_provider_registry, builtin_provider_registry, read_event_line,
-    write_request_line,
+    RemoteDesktopFrameFormat, RemoteDesktopHelperEvent, RemoteDesktopHelperRequest,
+    RemoteDesktopJsonLineError, RemoteDesktopKey, RemoteDesktopKeyState, RemoteDesktopLockKeys,
+    RemoteDesktopMouseButton, RemoteDesktopMouseButtonState, RemoteDesktopProtocol,
+    RemoteDesktopProviderManifest, RemoteDesktopSecret, RemoteDesktopSessionStatus,
+    RemoteDesktopSize, RemoteDesktopWheelDelta, builtin_preview_provider_registry,
+    builtin_provider_registry, read_event_line, write_request_line,
 };
 use oxideterm_workspace::{Tab, TabKind, TabTitleSource};
+use tokio::sync::Notify;
 
 use super::*;
 
@@ -42,7 +43,6 @@ const REMOTE_DESKTOP_INITIAL_HEIGHT: u32 = 720;
 const REMOTE_DESKTOP_SCROLL_LINE: f32 = 38.0;
 const REMOTE_DESKTOP_INITIAL_LAYOUT_PROBE_INTERVAL: Duration = Duration::from_millis(16);
 const REMOTE_DESKTOP_INITIAL_LAYOUT_PROBE_TICKS: usize = 120;
-const REMOTE_DESKTOP_WORKER_WAKE_POLL_INTERVAL: Duration = Duration::from_millis(4);
 const REMOTE_DESKTOP_RESIZE_DEBOUNCE: Duration = Duration::from_millis(120);
 const REMOTE_DESKTOP_RESIZE_DELTA_THRESHOLD: u32 = 16;
 const REMOTE_DESKTOP_DEFAULT_SCALE_FACTOR_PERCENT: u32 = 100;
@@ -55,12 +55,21 @@ const REMOTE_DESKTOP_SCROLL_PIXEL_STEP: f32 = 120.0;
 const REMOTE_DESKTOP_FRAME_READY_INTERVAL: Duration = Duration::from_millis(16);
 const REMOTE_DESKTOP_FRAME_READY_DRAIN_LIMIT: usize = 32;
 const REMOTE_DESKTOP_FRAME_READY_DRAIN_BUDGET: Duration = Duration::from_millis(6);
+const REMOTE_DESKTOP_FRAME_QUEUE_MAX_EVENTS: usize = 256;
+const REMOTE_DESKTOP_FRAME_QUEUE_MAX_DIRTY_BYTES: usize = 32 * 1024 * 1024;
+const REMOTE_DESKTOP_FRAME_QUEUE_MAX_BASE_BYTES: usize = RemoteDesktopSize::MAX_DIMENSION as usize
+    * RemoteDesktopSize::MAX_DIMENSION as usize
+    * RemoteDesktopFrameFormat::Rgba8.bytes_per_pixel();
 const REMOTE_DESKTOP_REQUEST_WRITE_DRAIN_LIMIT: usize = 128;
 const REMOTE_DESKTOP_DIAGNOSTICS_ENV: &str = "OXIDETERM_REMOTE_DESKTOP_DIAGNOSTICS";
 
 #[derive(Debug)]
 pub(super) enum RemoteDesktopWorkerDelivery {
     FrameReady {
+        tab_id: TabId,
+        generation: u64,
+    },
+    FrameRecoveryRequired {
         tab_id: TabId,
         generation: u64,
     },
@@ -76,28 +85,68 @@ pub(super) enum RemoteDesktopWorkerDelivery {
     },
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 struct RemoteDesktopWorkerWake {
     pending: Arc<AtomicBool>,
+    stopped: Arc<AtomicBool>,
+    notification: Arc<Notify>,
+}
+
+impl Default for RemoteDesktopWorkerWake {
+    fn default() -> Self {
+        Self {
+            pending: Arc::new(AtomicBool::new(false)),
+            stopped: Arc::new(AtomicBool::new(false)),
+            notification: Arc::new(Notify::new()),
+        }
+    }
 }
 
 impl RemoteDesktopWorkerWake {
     fn mark(&self) {
-        // Worker threads cannot touch GPUI state directly; this flag gives the
-        // foreground task a cheap edge-triggered signal to request a repaint.
+        // Worker threads cannot touch GPUI state directly. Notify stores one
+        // permit when the foreground task has not started waiting yet.
         self.pending.store(true, Ordering::Release);
+        self.notification.notify_one();
     }
 
     fn take(&self) -> bool {
         self.pending.swap(false, Ordering::AcqRel)
     }
+
+    fn stop(&self) {
+        self.stopped.store(true, Ordering::Release);
+        self.notification.notify_one();
+    }
+
+    fn is_stopped(&self) -> bool {
+        self.stopped.load(Ordering::Acquire)
+    }
+
+    async fn wait(&self) {
+        self.notification.notified().await;
+    }
 }
 
 #[derive(Clone, Default)]
 struct RemoteDesktopFrameDeliverySlot {
-    frames: Arc<Mutex<VecDeque<RemoteDesktopHelperEvent>>>,
+    queue: Arc<Mutex<RemoteDesktopFrameQueue>>,
     queued: Arc<AtomicBool>,
     last_presented_at: Arc<Mutex<Option<Instant>>>,
+}
+
+#[derive(Default)]
+struct RemoteDesktopFrameQueue {
+    frames: VecDeque<RemoteDesktopHelperEvent>,
+    queued_dirty_bytes: usize,
+    awaiting_base_frame: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RemoteDesktopFrameQueuePush {
+    Queued,
+    RecoveryRequired,
+    AwaitingRecovery,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -186,7 +235,7 @@ impl RemoteDesktopRenderDiagnostics {
 impl RemoteDesktopFrameDeliverySlot {
     fn new() -> Self {
         Self {
-            frames: Arc::default(),
+            queue: Arc::default(),
             queued: Arc::default(),
             last_presented_at: Arc::default(),
         }
@@ -200,14 +249,33 @@ impl RemoteDesktopFrameDeliverySlot {
         delivery_tx: &mpsc::Sender<RemoteDesktopWorkerDelivery>,
         worker_wake: &RemoteDesktopWorkerWake,
     ) {
-        {
-            let Ok(mut frames) = self.frames.lock() else {
+        let queue_push = {
+            let Ok(mut queue) = self.queue.lock() else {
                 return;
             };
-            // Keep the reader-side queue as an ordered invalid-region stream.
-            // Sync recovery is owned by helper bridge saturation and state
-            // corruption boundaries, not by this local queue length.
-            push_remote_desktop_frame_event(&mut frames, event);
+            // Preserve the ordered invalid-region stream until a real event or
+            // byte limit is reached. Saturation then becomes an explicit base
+            // frame recovery boundary instead of silently dropping deltas.
+            push_remote_desktop_frame_event(
+                &mut queue,
+                event,
+                REMOTE_DESKTOP_FRAME_QUEUE_MAX_EVENTS,
+                REMOTE_DESKTOP_FRAME_QUEUE_MAX_DIRTY_BYTES,
+            )
+        };
+
+        if queue_push == RemoteDesktopFrameQueuePush::RecoveryRequired {
+            send_remote_desktop_worker_delivery(
+                delivery_tx,
+                worker_wake,
+                RemoteDesktopWorkerDelivery::FrameRecoveryRequired { tab_id, generation },
+            );
+            if !self.has_queued_frame_events() {
+                return;
+            }
+        }
+        if queue_push == RemoteDesktopFrameQueuePush::AwaitingRecovery {
+            return;
         }
 
         // A single queued marker is enough because the slot preserves ordered
@@ -222,14 +290,28 @@ impl RemoteDesktopFrameDeliverySlot {
     }
 
     fn take(&self) -> Option<RemoteDesktopHelperEvent> {
-        self.frames.lock().ok()?.pop_front()
+        let mut queue = self.queue.lock().ok()?;
+        let event = queue.frames.pop_front()?;
+        if matches!(event, RemoteDesktopHelperEvent::FrameUpdate { .. }) {
+            queue.queued_dirty_bytes = queue
+                .queued_dirty_bytes
+                .saturating_sub(remote_desktop_frame_event_bytes(&event));
+        }
+        Some(event)
+    }
+
+    fn has_queued_frame_events(&self) -> bool {
+        self.queue
+            .lock()
+            .map(|queue| !queue.frames.is_empty())
+            .unwrap_or(false)
     }
 
     fn complete_delivery(&self) -> bool {
         self.queued.store(false, Ordering::Release);
-        self.frames
+        self.queue
             .lock()
-            .map(|frames| !frames.is_empty())
+            .map(|queue| !queue.frames.is_empty())
             .unwrap_or(false)
     }
 
@@ -707,6 +789,17 @@ impl WorkspaceApp {
                         changed = true;
                     }
                 }
+                RemoteDesktopWorkerDelivery::FrameRecoveryRequired { tab_id, generation } => {
+                    if !self.remote_desktop_worker_generation_matches(tab_id, generation) {
+                        continue;
+                    }
+                    // Queue saturation is an explicit continuity break. Ask
+                    // the helper for one new base before accepting more deltas.
+                    self.send_remote_desktop_request(
+                        tab_id,
+                        RemoteDesktopHelperRequest::RequestFrame,
+                    );
+                }
                 RemoteDesktopWorkerDelivery::Event {
                     tab_id,
                     generation,
@@ -817,10 +910,10 @@ impl WorkspaceApp {
         changed |= self.ime_marked_text.take().is_some();
         changed |= self.pending_platform_text_commit.take().is_some();
 
-        let ai_focus_changed = self.ai_chat_input_focused
-            || self.ai_chat_footer_focus.is_some()
-            || self.ai_model_selector_open
-            || self.ai_model_selector_search_focused;
+        let ai_focus_changed = self.ai.chat.input_focused
+            || self.ai.chat.footer_focus.is_some()
+            || self.ai.models.selector_open
+            || self.ai.models.selector_search_focused;
         self.clear_ai_sidebar_keyboard_focus();
         changed |= ai_focus_changed;
 
@@ -881,7 +974,7 @@ impl WorkspaceApp {
         request_tx
     }
 
-    fn schedule_remote_desktop_worker_wake_poll(
+    fn schedule_remote_desktop_worker_wake(
         &self,
         tab_id: TabId,
         generation: u64,
@@ -890,7 +983,7 @@ impl WorkspaceApp {
     ) {
         cx.spawn(async move |workspace, cx| {
             loop {
-                Timer::after(REMOTE_DESKTOP_WORKER_WAKE_POLL_INTERVAL).await;
+                worker_wake.wait().await;
                 let keep_running = workspace
                     .update(cx, |this, cx| {
                         if !this.remote_desktop_worker_generation_matches(tab_id, generation) {
@@ -899,7 +992,7 @@ impl WorkspaceApp {
                         if worker_wake.take() {
                             cx.notify();
                         }
-                        true
+                        !worker_wake.is_stopped()
                     })
                     .unwrap_or(false);
                 if !keep_running {
@@ -1183,8 +1276,6 @@ impl WorkspaceApp {
             initial_request_size,
             scale_factor,
         );
-        self.schedule_remote_desktop_worker_wake_poll(tab_id, generation, worker_wake.clone(), cx);
-
         if let Some(session) = self.remote_desktop_sessions.get_mut(&tab_id) {
             let old_images = session.state.take_all_images();
             let old_textures = session.state.take_all_textures();
@@ -1206,6 +1297,9 @@ impl WorkspaceApp {
             session.last_lock_keys = None;
             session.wheel_pixel_remainder = remote_desktop_empty_wheel_delta();
         }
+        // Register the generation before awaiting a possibly pre-signalled
+        // wake so a fast helper cannot make the event task exit as stale.
+        self.schedule_remote_desktop_worker_wake(tab_id, generation, worker_wake, cx);
     }
 
     fn start_remote_desktop_worker_for_session(
@@ -1247,8 +1341,6 @@ impl WorkspaceApp {
             initial_request_size,
             scale_factor,
         );
-        self.schedule_remote_desktop_worker_wake_poll(tab_id, generation, worker_wake.clone(), cx);
-
         if let Some(session) = self.remote_desktop_sessions.get_mut(&tab_id) {
             session.request_tx = Some(request_tx);
             session.worker_generation = generation;
@@ -1261,6 +1353,9 @@ impl WorkspaceApp {
                 status: RemoteDesktopSessionStatus::Connecting,
                 message: None,
             });
+            // Store the worker generation before the event-driven task can
+            // consume a wake permit emitted during helper startup.
+            self.schedule_remote_desktop_worker_wake(tab_id, generation, worker_wake, cx);
             return true;
         }
         false
@@ -2362,21 +2457,69 @@ fn is_remote_desktop_frame_event(event: &RemoteDesktopHelperEvent) -> bool {
 }
 
 fn push_remote_desktop_frame_event(
-    frames: &mut VecDeque<RemoteDesktopHelperEvent>,
+    queue: &mut RemoteDesktopFrameQueue,
     event: RemoteDesktopHelperEvent,
-) {
+    max_events: usize,
+    max_dirty_bytes: usize,
+) -> RemoteDesktopFrameQueuePush {
     if matches!(event, RemoteDesktopHelperEvent::Frame { .. }) {
-        frames.clear();
-        frames.push_back(event);
-        return;
+        let event_bytes = remote_desktop_frame_event_bytes(&event);
+        queue.frames.clear();
+        queue.queued_dirty_bytes = 0;
+        if event_bytes > REMOTE_DESKTOP_FRAME_QUEUE_MAX_BASE_BYTES {
+            queue.awaiting_base_frame = true;
+            return RemoteDesktopFrameQueuePush::RecoveryRequired;
+        }
+        queue.frames.push_back(event);
+        queue.awaiting_base_frame = false;
+        return RemoteDesktopFrameQueuePush::Queued;
     }
 
-    if let Some(existing) = frames.back_mut() {
+    if queue.awaiting_base_frame {
+        // Applying deltas after a dropped predecessor would corrupt the local
+        // backing frame. Wait for the requested base instead.
+        return RemoteDesktopFrameQueuePush::AwaitingRecovery;
+    }
+
+    if let Some(existing) = queue.frames.back_mut() {
         if let Err(incoming) = try_merge_remote_desktop_frame_event(existing, event) {
-            frames.push_back(incoming);
+            queue.frames.push_back(incoming);
         }
     } else {
-        frames.push_back(event);
+        queue.frames.push_back(event);
+    }
+    queue.queued_dirty_bytes = queue
+        .frames
+        .iter()
+        .filter(|event| matches!(event, RemoteDesktopHelperEvent::FrameUpdate { .. }))
+        .map(remote_desktop_frame_event_bytes)
+        .fold(0_usize, usize::saturating_add);
+    if queue.frames.len() <= max_events && queue.queued_dirty_bytes <= max_dirty_bytes {
+        return RemoteDesktopFrameQueuePush::Queued;
+    }
+
+    // A queued base may already include every compatible delta seen before
+    // saturation. Keep that recoverable snapshot, discard only the now-broken
+    // tail, and require a newer base before accepting further updates.
+    let recoverable_frame = queue
+        .frames
+        .iter()
+        .rposition(|event| matches!(event, RemoteDesktopHelperEvent::Frame { .. }))
+        .and_then(|index| queue.frames.remove(index));
+    queue.frames.clear();
+    queue.queued_dirty_bytes = 0;
+    if let Some(frame) = recoverable_frame {
+        queue.frames.push_back(frame);
+    }
+    queue.awaiting_base_frame = true;
+    RemoteDesktopFrameQueuePush::RecoveryRequired
+}
+
+fn remote_desktop_frame_event_bytes(event: &RemoteDesktopHelperEvent) -> usize {
+    match event {
+        RemoteDesktopHelperEvent::Frame { frame } => frame.bytes.len(),
+        RemoteDesktopHelperEvent::FrameUpdate { update } => update.bytes.len(),
+        _ => 0,
     }
 }
 
@@ -2453,7 +2596,9 @@ fn run_remote_desktop_worker(
         Ok((mut child, mut stdin)) => {
             let stdout = child.stdout.take();
             let connect = connect_request(&profile, password, initial_size, scale_factor);
-            if let Err(error) = write_request_line(&mut stdin, &connect) {
+            if let Err(error) =
+                write_initial_remote_desktop_connect(&mut child, &mut stdin, &connect)
+            {
                 send_remote_desktop_worker_delivery(
                     &delivery_tx,
                     &worker_wake,
@@ -2463,9 +2608,10 @@ fn run_remote_desktop_worker(
                         message: error.to_string(),
                     },
                 );
+                worker_wake.stop();
                 return;
             }
-            if let Some(stdout) = stdout {
+            let reader_thread = stdout.and_then(|stdout| {
                 let reader_tx = delivery_tx.clone();
                 let reader_frame_slot = frame_slot.clone();
                 let reader_worker_wake = worker_wake.clone();
@@ -2481,8 +2627,8 @@ fn run_remote_desktop_worker(
                             reader_worker_wake,
                         )
                     })
-                    .ok();
-            }
+                    .ok()
+            });
 
             run_remote_desktop_writer(
                 tab_id,
@@ -2494,6 +2640,11 @@ fn run_remote_desktop_worker(
             );
             drop(stdin);
             let exit_code = child.wait().ok().and_then(|status| status.code());
+            if let Some(reader_thread) = reader_thread {
+                // Drain every event emitted before process exit before the
+                // event-driven GPUI wake task receives its stop signal.
+                let _ = reader_thread.join();
+            }
             send_remote_desktop_worker_delivery(
                 &delivery_tx,
                 &worker_wake,
@@ -2503,6 +2654,7 @@ fn run_remote_desktop_worker(
                     event: RemoteDesktopHelperEvent::Terminated { exit_code },
                 },
             );
+            worker_wake.stop();
             return;
         }
         Err(error) if !remote_desktop_provider_uses_fake_backend(&provider) => {
@@ -2515,6 +2667,7 @@ fn run_remote_desktop_worker(
                     message: format!("Remote desktop helper failed to start: {error}"),
                 },
             );
+            worker_wake.stop();
             return;
         }
         Err(_) => {}
@@ -2528,10 +2681,32 @@ fn run_remote_desktop_worker(
         initial_size,
         scale_factor,
         frame_slot,
-        worker_wake,
+        worker_wake.clone(),
         request_rx,
         delivery_tx,
     );
+    worker_wake.stop();
+}
+
+fn write_initial_remote_desktop_connect(
+    child: &mut Child,
+    stdin: &mut impl Write,
+    connect: &RemoteDesktopHelperRequest,
+) -> Result<(), RemoteDesktopJsonLineError> {
+    if let Err(error) = write_request_line(stdin, connect) {
+        // Startup owns both process termination and reaping until the initial
+        // protocol handoff succeeds.
+        terminate_remote_desktop_helper(child);
+        return Err(error);
+    }
+    Ok(())
+}
+
+fn terminate_remote_desktop_helper(child: &mut Child) {
+    // Dropping Child does not terminate or reap it. A failed initial protocol
+    // write must not leave a detached helper behind.
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 fn remote_desktop_provider_uses_fake_backend(provider: &RemoteDesktopProviderManifest) -> bool {
@@ -3128,7 +3303,7 @@ mod tests {
         RemoteDesktopHelperEvent::FrameUpdate {
             update: oxideterm_remote_desktop::RemoteDesktopFrameUpdate::new(
                 RemoteDesktopSize {
-                    width: 128,
+                    width: 1024,
                     height: 1,
                 },
                 oxideterm_remote_desktop::RemoteDesktopRect::new(x, 0, 1, 1),
@@ -3136,6 +3311,205 @@ mod tests {
                 vec![x as u8, 0, 0, 0xff],
             ),
         }
+    }
+
+    #[cfg(unix)]
+    fn spawn_sleeping_test_helper() -> Child {
+        // `exec` makes the shell process itself the long-lived child under test.
+        Command::new("sh")
+            .args(["-c", "exec sleep 30"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap()
+    }
+
+    #[cfg(windows)]
+    fn spawn_sleeping_test_helper() -> Child {
+        // Ping provides a stock long-lived Windows process without test tools.
+        Command::new("cmd")
+            .args(["/C", "ping -n 31 127.0.0.1 >NUL"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap()
+    }
+
+    struct FailingConnectWriter;
+
+    impl Write for FailingConnectWriter {
+        fn write(&mut self, _buffer: &[u8]) -> std::io::Result<usize> {
+            // Model a helper that closes stdin before accepting Connect.
+            Err(std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                "test helper closed stdin",
+            ))
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    #[cfg(any(unix, windows))]
+    fn failed_initial_connect_cleanup_kills_and_reaps_helper() {
+        let mut child = spawn_sleeping_test_helper();
+        let profile = preview_remote_desktop_profile(RemoteDesktopProtocol::Rdp);
+        let connect = connect_request(
+            &profile,
+            None,
+            RemoteDesktopSize {
+                width: 1280,
+                height: 720,
+            },
+            None,
+        );
+
+        let error =
+            write_initial_remote_desktop_connect(&mut child, &mut FailingConnectWriter, &connect)
+                .unwrap_err();
+
+        assert!(matches!(
+            error,
+            RemoteDesktopJsonLineError::ReadFailed(source)
+                if source.kind() == std::io::ErrorKind::BrokenPipe
+        ));
+        assert!(child.try_wait().unwrap().is_some());
+    }
+
+    #[test]
+    fn worker_wake_uses_event_notification_and_stops_explicitly() {
+        let wake = RemoteDesktopWorkerWake::default();
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+
+        wake.mark();
+        runtime.block_on(wake.wait());
+        assert!(wake.take());
+
+        wake.stop();
+        runtime.block_on(wake.wait());
+        assert!(wake.is_stopped());
+    }
+
+    #[test]
+    fn bounded_frame_queue_requests_recovery_for_event_and_byte_saturation() {
+        let mut event_limited = RemoteDesktopFrameQueue::default();
+        assert_eq!(
+            push_remote_desktop_frame_event(
+                &mut event_limited,
+                test_frame_update_at(0),
+                1,
+                usize::MAX,
+            ),
+            RemoteDesktopFrameQueuePush::Queued
+        );
+        assert_eq!(
+            push_remote_desktop_frame_event(
+                &mut event_limited,
+                test_frame_update_at(2),
+                1,
+                usize::MAX,
+            ),
+            RemoteDesktopFrameQueuePush::RecoveryRequired
+        );
+        assert!(event_limited.frames.is_empty());
+        assert_eq!(
+            push_remote_desktop_frame_event(
+                &mut event_limited,
+                test_frame_update_at(4),
+                1,
+                usize::MAX,
+            ),
+            RemoteDesktopFrameQueuePush::AwaitingRecovery
+        );
+
+        let mut byte_limited = RemoteDesktopFrameQueue::default();
+        assert_eq!(
+            push_remote_desktop_frame_event(
+                &mut byte_limited,
+                test_frame_update_at(0),
+                usize::MAX,
+                3,
+            ),
+            RemoteDesktopFrameQueuePush::RecoveryRequired
+        );
+        assert!(byte_limited.frames.is_empty());
+    }
+
+    #[test]
+    fn saturated_frame_queue_keeps_latest_recoverable_base() {
+        let size = RemoteDesktopSize {
+            width: 2,
+            height: 1,
+        };
+        let mut queue = RemoteDesktopFrameQueue::default();
+        let base = RemoteDesktopHelperEvent::Frame {
+            frame: oxideterm_remote_desktop::RemoteDesktopFrame::new(
+                size,
+                RemoteDesktopFrameFormat::Rgba8,
+                vec![0; 8],
+            ),
+        };
+        assert_eq!(
+            push_remote_desktop_frame_event(&mut queue, base, 1, usize::MAX),
+            RemoteDesktopFrameQueuePush::Queued
+        );
+        let applied_update = RemoteDesktopHelperEvent::FrameUpdate {
+            update: oxideterm_remote_desktop::RemoteDesktopFrameUpdate::new(
+                size,
+                oxideterm_remote_desktop::RemoteDesktopRect::new(0, 0, 1, 1),
+                RemoteDesktopFrameFormat::Rgba8,
+                vec![1, 2, 3, 4],
+            ),
+        };
+        assert_eq!(
+            push_remote_desktop_frame_event(&mut queue, applied_update, 1, usize::MAX),
+            RemoteDesktopFrameQueuePush::Queued
+        );
+        assert_eq!(
+            push_remote_desktop_frame_event(&mut queue, test_frame_update_at(0), 1, usize::MAX,),
+            RemoteDesktopFrameQueuePush::RecoveryRequired
+        );
+
+        let Some(RemoteDesktopHelperEvent::Frame { frame }) = queue.frames.pop_front() else {
+            panic!("recoverable base frame should remain queued");
+        };
+        assert_eq!(&frame.bytes[..4], &[1, 2, 3, 4]);
+        assert!(queue.awaiting_base_frame);
+    }
+
+    #[test]
+    fn frame_slot_signals_recovery_only_once_until_a_new_base_arrives() {
+        let slot = RemoteDesktopFrameDeliverySlot::new();
+        let wake = RemoteDesktopWorkerWake::default();
+        let (delivery_tx, delivery_rx) = mpsc::channel();
+
+        for index in 0..=REMOTE_DESKTOP_FRAME_QUEUE_MAX_EVENTS {
+            slot.push(
+                TabId(6),
+                2,
+                test_frame_update_at((index as u32) * 2),
+                &delivery_tx,
+                &wake,
+            );
+        }
+        slot.push(TabId(6), 2, test_frame_update_at(700), &delivery_tx, &wake);
+
+        assert!(matches!(
+            delivery_rx.try_recv(),
+            Ok(RemoteDesktopWorkerDelivery::FrameReady { .. })
+        ));
+        assert!(matches!(
+            delivery_rx.try_recv(),
+            Ok(RemoteDesktopWorkerDelivery::FrameRecoveryRequired { .. })
+        ));
+        assert!(matches!(
+            delivery_rx.try_recv(),
+            Err(mpsc::TryRecvError::Empty)
+        ));
     }
 
     #[test]

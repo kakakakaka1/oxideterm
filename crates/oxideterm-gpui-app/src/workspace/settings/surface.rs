@@ -1,9 +1,19 @@
+use super::*;
+
 impl WorkspaceApp {
-    pub(super) fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn open_settings(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.open_settings_tab(window, cx);
     }
 
-    pub(super) fn close_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn close_settings(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let close_active_settings_tab = self
             .active_tab()
             .is_some_and(|tab| tab.kind == TabKind::Settings);
@@ -19,7 +29,10 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    pub(super) fn render_settings_surface(&mut self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn render_settings_surface(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let theme = self.tokens.ui;
         let has_settings_background = self.settings_background_active();
         div()
@@ -42,9 +55,10 @@ impl WorkspaceApp {
                     .relative()
                     .child(self.render_settings_section_list_scroll(cx)),
             )
-            .when_some(self.render_ai_mcp_add_server_dialog(cx), |surface, modal| {
-                surface.child(modal)
-            })
+            .when_some(
+                self.render_ai_mcp_add_server_dialog(cx),
+                |surface, modal| surface.child(modal),
+            )
             .when_some(
                 self.render_knowledge_create_collection_dialog(cx),
                 |surface, modal| surface.child(modal),
@@ -57,31 +71,40 @@ impl WorkspaceApp {
                 self.render_knowledge_delete_confirm_dialog(cx),
                 |surface, modal| surface.child(modal),
             )
-            .when(self.settings_page.keybinding_reset_all_confirm_open, |surface| {
-                surface.child(self.render_keybinding_reset_all_confirm_dialog(cx))
-            })
-            .when_some(self.render_settings_select_overlay(cx), |surface, overlay| {
-                surface.child(overlay)
-            })
+            .when(
+                self.settings_page.keybinding_reset_all_confirm_open,
+                |surface| surface.child(self.render_keybinding_reset_all_confirm_dialog(cx)),
+            )
+            .when_some(
+                self.render_settings_select_overlay(cx),
+                |surface, overlay| surface.child(overlay),
+            )
             .when_some(self.render_theme_editor_modal(cx), |surface, modal| {
                 surface.child(modal)
             })
-            .when_some(self.render_settings_managed_key_dialog(cx), |surface, modal| {
-                surface.child(modal)
-            })
-            .when_some(self.render_portable_password_change_dialog(cx), |surface, modal| {
-                surface.child(modal)
-            })
-            .when_some(self.session_manager.oxide_import_dialog.as_ref(), |surface, _| {
-                surface.child(self.render_oxide_import_dialog(cx))
-            })
-            .when_some(self.session_manager.oxide_export_dialog.as_ref(), |surface, _| {
-                surface.child(self.render_oxide_export_dialog(cx))
-            })
+            .when_some(
+                self.render_settings_managed_key_dialog(cx),
+                |surface, modal| surface.child(modal),
+            )
+            .when_some(
+                self.render_portable_password_change_dialog(cx),
+                |surface, modal| surface.child(modal),
+            )
+            .when_some(
+                self.session_manager.oxide_import_dialog.as_ref(),
+                |surface, _| surface.child(self.render_oxide_import_dialog(cx)),
+            )
+            .when_some(
+                self.session_manager.oxide_export_dialog.as_ref(),
+                |surface, _| surface.child(self.render_oxide_export_dialog(cx)),
+            )
             .into_any_element()
     }
 
-    fn render_settings_section_list_scroll(&mut self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn render_settings_section_list_scroll(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         self.sync_settings_section_list_state();
         let state = self.settings_section_list_state.clone();
         let workspace = cx.entity();
@@ -107,15 +130,19 @@ impl WorkspaceApp {
                     cx.notify();
                 }
             }))
-            .child(tauri_virtual_list(state, spec, move |index, _window, cx| {
-                workspace.update(cx, |this, cx| {
-                    this.render_settings_section_list_item(index, cx)
-                })
-            }))
+            .child(tauri_virtual_list(
+                state,
+                spec,
+                move |index, _window, cx| {
+                    workspace.update(cx, |this, cx| {
+                        this.render_settings_section_list_item(index, cx)
+                    })
+                },
+            ))
             .into_any_element()
     }
 
-    fn render_settings_section_list_item(
+    pub(in crate::workspace) fn render_settings_section_list_item(
         &mut self,
         index: usize,
         cx: &mut Context<Self>,
@@ -134,7 +161,11 @@ impl WorkspaceApp {
         self.wrap_settings_section_list_item(index, child)
     }
 
-    fn render_settings_ai_section_item(&mut self, index: usize, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn render_settings_ai_section_item(
+        &mut self,
+        index: usize,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let item = if index == 0 {
             self.render_settings_virtual_header(SettingsTab::Ai, cx)
         } else {
@@ -144,7 +175,7 @@ impl WorkspaceApp {
         self.wrap_settings_section_list_item(index, item)
     }
 
-    fn render_settings_ai_page_section(
+    pub(in crate::workspace) fn render_settings_ai_page_section(
         &mut self,
         section_index: usize,
         cx: &mut Context<Self>,
@@ -200,7 +231,11 @@ impl WorkspaceApp {
         }
     }
 
-    fn wrap_settings_section_list_item(&self, index: usize, child: AnyElement) -> AnyElement {
+    pub(in crate::workspace) fn wrap_settings_section_list_item(
+        &self,
+        index: usize,
+        child: AnyElement,
+    ) -> AnyElement {
         let padding = self.tokens.metrics.settings_content_padding;
         let gap = self.tokens.metrics.settings_page_gap;
         let outer_max_width = self.settings_content_outer_max_width();
@@ -225,7 +260,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn settings_content_outer_max_width(&self) -> f32 {
+    pub(in crate::workspace) fn settings_content_outer_max_width(&self) -> f32 {
         // Native keeps Tauri's padded `mx-auto` settings shell, but uses a wider
         // semantic cap so large desktop windows do not leave every page pinned
         // to the original browser `max-w-4xl` column.
@@ -233,7 +268,11 @@ impl WorkspaceApp {
             + self.tokens.metrics.settings_content_padding * 2.0
     }
 
-    fn render_settings_virtual_header(&self, tab: SettingsTab, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn render_settings_virtual_header(
+        &self,
+        tab: SettingsTab,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         div()
             .w_full()
             .relative()
@@ -245,7 +284,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn ai_provider_views_for_settings_render(
+    pub(in crate::workspace) fn ai_provider_views_for_settings_render(
         &mut self,
         cx: &mut Context<Self>,
     ) -> Vec<AiProviderView> {
@@ -254,7 +293,7 @@ impl WorkspaceApp {
         provider_views
     }
 
-    fn sync_settings_section_list_state(&mut self) {
+    pub(in crate::workspace) fn sync_settings_section_list_state(&mut self) {
         let spec = self.settings_section_list_spec();
         let identity = self.settings_section_list_identity();
         let signatures = self.settings_section_list_signatures();
@@ -267,7 +306,7 @@ impl WorkspaceApp {
         );
     }
 
-    fn settings_section_list_spec(&self) -> TauriVirtualListSpec {
+    pub(in crate::workspace) fn settings_section_list_spec(&self) -> TauriVirtualListSpec {
         if self.settings_page.active_tab == SettingsTab::Ai {
             TauriVirtualListSpec::new(
                 px(AI_SETTINGS_SECTION_ESTIMATED_HEIGHT),
@@ -281,7 +320,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn settings_section_list_identity(&self) -> String {
+    pub(in crate::workspace) fn settings_section_list_identity(&self) -> String {
         // Tauri keys virtual rows by tab plus the nested tab/filter state that
         // can change the section set. Preserve that identity before asking GPUI
         // ListState to reuse measured variable-height rows.
@@ -294,13 +333,13 @@ impl WorkspaceApp {
         )
     }
 
-    fn settings_section_list_signatures(&self) -> Vec<u64> {
+    pub(in crate::workspace) fn settings_section_list_signatures(&self) -> Vec<u64> {
         (0..self.settings_section_list_item_count())
             .map(|index| self.settings_section_signature(index))
             .collect()
     }
 
-    fn settings_section_signature(&self, index: usize) -> u64 {
+    pub(in crate::workspace) fn settings_section_signature(&self, index: usize) -> u64 {
         let mut hasher = DefaultHasher::new();
         // GPUI caches variable-row measurements. Hash only states that can
         // change section height so ListState remeasures affected rows without
@@ -313,7 +352,10 @@ impl WorkspaceApp {
             SettingsTab::General => {
                 settings.general.minimize_to_tray_on_close.hash(&mut hasher);
                 self.settings_page.cli_companion_loading.hash(&mut hasher);
-                self.settings_page.cli_companion_error.is_some().hash(&mut hasher);
+                self.settings_page
+                    .cli_companion_error
+                    .is_some()
+                    .hash(&mut hasher);
                 self.settings_page.cli_companion_status.hash(&mut hasher);
             }
             SettingsTab::Terminal => {
@@ -358,16 +400,28 @@ impl WorkspaceApp {
             }
             SettingsTab::Connections => {
                 self.connection_store.connections().len().hash(&mut hasher);
-                self.connection_store.managed_ssh_keys().len().hash(&mut hasher);
-                self.settings_page.settings_connection_status.is_some().hash(&mut hasher);
+                self.connection_store
+                    .managed_ssh_keys()
+                    .len()
+                    .hash(&mut hasher);
+                self.settings_page
+                    .settings_connection_status
+                    .is_some()
+                    .hash(&mut hasher);
                 self.settings_managed_key_status.is_some().hash(&mut hasher);
-                self.settings_connection_import_source.tag().hash(&mut hasher);
-                self.settings_connection_import_paths.len().hash(&mut hasher);
+                self.settings_connection_import_source
+                    .tag()
+                    .hash(&mut hasher);
+                self.settings_connection_import_paths
+                    .len()
+                    .hash(&mut hasher);
                 self.settings_connection_import_preview
                     .as_ref()
                     .map(|preview| preview.drafts.len())
                     .hash(&mut hasher);
-                self.settings_selected_connection_import_drafts.len().hash(&mut hasher);
+                self.settings_selected_connection_import_drafts
+                    .len()
+                    .hash(&mut hasher);
                 self.settings_connection_import_duplicate_strategy
                     .tag()
                     .hash(&mut hasher);
@@ -384,7 +438,9 @@ impl WorkspaceApp {
                 self.settings_local_privilege_draft
                     .credential_id
                     .hash(&mut hasher);
-                self.settings_local_privilege_error.is_some().hash(&mut hasher);
+                self.settings_local_privilege_error
+                    .is_some()
+                    .hash(&mut hasher);
             }
             SettingsTab::Portable => {
                 self.portable_settings_refresh_pending.hash(&mut hasher);
@@ -401,25 +457,51 @@ impl WorkspaceApp {
                 settings.ai.enabled.hash(&mut hasher);
                 settings.ai.providers.len().hash(&mut hasher);
                 settings.ai.acp_agents.len().hash(&mut hasher);
-                self.settings_page.ai_provider_settings_expanded.hash(&mut hasher);
+                self.settings_page
+                    .ai_provider_settings_expanded
+                    .hash(&mut hasher);
                 self.settings_page.ai_tool_use_expanded.hash(&mut hasher);
-                self.settings_page.ai_context_windows_expanded.hash(&mut hasher);
-                self.settings_page.ai_model_reasoning_expanded.hash(&mut hasher);
+                self.settings_page
+                    .ai_context_windows_expanded
+                    .hash(&mut hasher);
+                self.settings_page
+                    .ai_model_reasoning_expanded
+                    .hash(&mut hasher);
                 hash_string_bool_map(&self.settings_page.expanded_ai_providers, &mut hasher);
                 hash_string_set(&self.settings_page.expanded_ai_provider_models, &mut hasher);
-                hash_string_set(&self.settings_page.expanded_ai_context_providers, &mut hasher);
-                hash_string_set(&self.settings_page.expanded_ai_model_reasoning_providers, &mut hasher);
+                hash_string_set(
+                    &self.settings_page.expanded_ai_context_providers,
+                    &mut hasher,
+                );
+                hash_string_set(
+                    &self.settings_page.expanded_ai_model_reasoning_providers,
+                    &mut hasher,
+                );
             }
             SettingsTab::Knowledge => {
-                self.settings_page.knowledge_selected_collection_id.hash(&mut hasher);
-                self.settings_page.knowledge_error.is_some().hash(&mut hasher);
-                self.settings_page.knowledge_import_progress.hash(&mut hasher);
-                self.settings_page.knowledge_embedding_progress.hash(&mut hasher);
-                self.settings_page.knowledge_reindex_progress.hash(&mut hasher);
+                self.settings_page
+                    .knowledge_selected_collection_id
+                    .hash(&mut hasher);
+                self.settings_page
+                    .knowledge_error
+                    .is_some()
+                    .hash(&mut hasher);
+                self.settings_page
+                    .knowledge_import_progress
+                    .hash(&mut hasher);
+                self.settings_page
+                    .knowledge_embedding_progress
+                    .hash(&mut hasher);
+                self.settings_page
+                    .knowledge_reindex_progress
+                    .hash(&mut hasher);
             }
             SettingsTab::Keybindings => {
                 format!("{:?}", self.settings_page.keybinding_scope_filter).hash(&mut hasher);
-                self.settings_page.keybinding_search_query.trim().hash(&mut hasher);
+                self.settings_page
+                    .keybinding_search_query
+                    .trim()
+                    .hash(&mut hasher);
                 settings.keybindings.overrides.len().hash(&mut hasher);
             }
             _ => {}
@@ -428,19 +510,22 @@ impl WorkspaceApp {
         hasher.finish()
     }
 
-    fn settings_section_list_item_count(&self) -> usize {
+    pub(in crate::workspace) fn settings_section_list_item_count(&self) -> usize {
         settings_model_section_list_item_count(
             self.settings_page.active_tab,
             self.settings_dynamic_section_counts(),
         )
     }
 
-    fn settings_dynamic_section_counts(&self) -> SettingsDynamicSectionCounts {
-        let knowledge_has_selected_collection = if self.settings_page.active_tab == SettingsTab::Knowledge {
-            self.knowledge_has_selected_collection()
-        } else {
-            false
-        };
+    pub(in crate::workspace) fn settings_dynamic_section_counts(
+        &self,
+    ) -> SettingsDynamicSectionCounts {
+        let knowledge_has_selected_collection =
+            if self.settings_page.active_tab == SettingsTab::Knowledge {
+                self.knowledge_has_selected_collection()
+            } else {
+                false
+            };
         SettingsDynamicSectionCounts {
             terminal_page: self.settings_page.terminal_page,
             ai_page: self.settings_page.ai_page,
@@ -450,8 +535,12 @@ impl WorkspaceApp {
         }
     }
 
-    fn visible_keybinding_scope_count(&self) -> usize {
-        let query = self.settings_page.keybinding_search_query.trim().to_lowercase();
+    pub(in crate::workspace) fn visible_keybinding_scope_count(&self) -> usize {
+        let query = self
+            .settings_page
+            .keybinding_search_query
+            .trim()
+            .to_lowercase();
         [
             crate::keybindings::ActionScope::Global,
             crate::keybindings::ActionScope::Terminal,
@@ -480,9 +569,10 @@ impl WorkspaceApp {
         .count()
     }
 
-    fn knowledge_has_selected_collection(&self) -> bool {
+    pub(in crate::workspace) fn knowledge_has_selected_collection(&self) -> bool {
         let collections =
-            oxideterm_ai::rag_list_collections(&self.ai_rag_store.get(), None).unwrap_or_default();
+            oxideterm_ai::rag_list_collections(&self.ai.knowledge.rag_store.get(), None)
+                .unwrap_or_default();
         self.settings_page
             .knowledge_selected_collection_id
             .as_deref()
@@ -491,7 +581,7 @@ impl WorkspaceApp {
             .is_some()
     }
 
-    fn render_settings_tab_section(
+    pub(in crate::workspace) fn render_settings_tab_section(
         &mut self,
         tab: SettingsTab,
         section_index: usize,
@@ -506,7 +596,9 @@ impl WorkspaceApp {
             SettingsTab::Terminal => self.settings_terminal_section(section_index, cx),
             SettingsTab::Appearance => self.settings_appearance_section(section_index, cx),
             SettingsTab::Connections => self.settings_connections_section(section_index, cx),
-            SettingsTab::Privilege => self.settings_privilege_credentials_section(section_index, cx),
+            SettingsTab::Privilege => {
+                self.settings_privilege_credentials_section(section_index, cx)
+            }
             SettingsTab::Network => self.settings_network_section(section_index, cx),
             SettingsTab::Sftp => self.settings_sftp_section(section_index, cx),
             SettingsTab::Ide => self.settings_ide_section(section_index, cx),
@@ -517,12 +609,12 @@ impl WorkspaceApp {
         }
     }
 
-    fn clear_settings_select_anchors(&mut self) {
+    pub(in crate::workspace) fn clear_settings_select_anchors(&mut self) {
         self.select_anchors
             .retain(|id, _| matches!(id, SelectAnchorId::NewConnectionGroup));
     }
 
-    fn pause_settings_caret_blink_during_scroll(&mut self) {
+    pub(in crate::workspace) fn pause_settings_caret_blink_during_scroll(&mut self) {
         if self.focused_settings_input.is_none() {
             return;
         }
@@ -534,7 +626,7 @@ impl WorkspaceApp {
         self.new_connection_caret_visible = true;
     }
 
-    fn render_settings_nav(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn render_settings_nav(&self, cx: &mut Context<Self>) -> AnyElement {
         let theme = self.tokens.ui;
         let settings_nav_scroll = self.selectable_text_scroll_handle("settings-nav-scroll");
         let settings_nav_width = self.tokens.metrics.settings_nav_width;
@@ -589,21 +681,17 @@ impl WorkspaceApp {
             }
         }
 
-        nav.child(
-            div()
-                .flex_1()
-                .min_h(px(0.0))
-                .relative()
-                .child(list)
-                .child(selectable_vertical_scrollbar_layer(
-                    "settings-nav-scrollbar",
-                    &settings_nav_scroll,
-                )),
-        )
+        nav.child(div().flex_1().min_h(px(0.0)).relative().child(list).child(
+            selectable_vertical_scrollbar_layer("settings-nav-scrollbar", &settings_nav_scroll),
+        ))
         .into_any_element()
     }
 
-    fn render_settings_nav_item(&self, tab: SettingsTab, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn render_settings_nav_item(
+        &self,
+        tab: SettingsTab,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let theme = self.tokens.ui;
         let active = self.settings_page.active_tab == tab;
         div()
@@ -677,7 +765,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    fn render_settings_page_header(
+    pub(in crate::workspace) fn render_settings_page_header(
         &self,
         tab: SettingsTab,
         cx: &mut Context<Self>,
@@ -756,24 +844,30 @@ impl WorkspaceApp {
         let settings = self.settings_store.settings().clone();
         self.apply_loaded_settings_to_runtime(&settings, cx);
         let _ = self.settings_store.save();
-        self.settings_store_last_modified = settings_store_modified_time(self.settings_store.path());
+        self.settings_store_last_modified =
+            settings_store_modified_time(self.settings_store.path());
         self.emit_native_plugin_settings_events(&previous_settings, &settings, cx);
         self.sync_tab_titles(cx);
         cx.notify();
     }
 
-    pub(super) fn reload_after_external_sync(&mut self, cx: &mut Context<Self>) -> Result<(), String> {
+    pub(in crate::workspace) fn reload_after_external_sync(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
         let previous_settings = self.settings_store.settings().clone();
         let settings_path = self.settings_store.path().to_path_buf();
         let connection_path = self.connection_store.path().to_path_buf();
-        let next_settings = SettingsStore::load_from_path(settings_path, None)
+        let next_settings = SettingsStore::load_from_path(settings_path)
             .map_err(|error| format!("Failed to reload settings after external sync: {error}"))?;
-        let next_connections = ConnectionStore::load(connection_path)
-            .map_err(|error| format!("Failed to reload connections after external sync: {error}"))?;
+        let next_connections = ConnectionStore::load(connection_path).map_err(|error| {
+            format!("Failed to reload connections after external sync: {error}")
+        })?;
         let settings = next_settings.settings().clone();
         self.settings_store = next_settings;
         self.connection_store = next_connections;
-        self.settings_store_last_modified = settings_store_modified_time(self.settings_store.path());
+        self.settings_store_last_modified =
+            settings_store_modified_time(self.settings_store.path());
         self.connection_store_last_modified =
             settings_store_modified_time(self.connection_store.path());
         // External sync mutates persisted stores outside the GPUI controls.
@@ -787,7 +881,10 @@ impl WorkspaceApp {
         Ok(())
     }
 
-    pub(super) fn poll_external_settings_store_changes(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn poll_external_settings_store_changes(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) {
         let settings_modified = settings_store_modified_time(self.settings_store.path());
         let connections_modified = settings_store_modified_time(self.connection_store.path());
         let settings_changed = settings_modified != self.settings_store_last_modified;
@@ -805,7 +902,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn apply_loaded_settings_to_runtime(
+    pub(in crate::workspace) fn apply_loaded_settings_to_runtime(
         &mut self,
         settings: &PersistedSettings,
         cx: &mut Context<Self>,
@@ -861,12 +958,16 @@ impl WorkspaceApp {
             reconnect_timing_from_settings(&settings),
             reconnect_max_attempts_from_settings(&settings),
         );
-        self.ai_agent_fs
-            .set_mode(crate::workspace::ide::node_agent_mode_from_settings(&settings));
+        self.ai
+            .runtime
+            .agent_fs
+            .set_mode(crate::workspace::ide::node_agent_mode_from_settings(
+                &settings,
+            ));
         self.sidebar_collapsed = settings.sidebar_ui.collapsed;
         self.sidebar_width = settings.sidebar_ui.width as f32;
-        self.ai_sidebar_width =
-            (settings.sidebar_ui.ai_sidebar_width as f32).clamp(AI_SIDEBAR_MIN_WIDTH, AI_SIDEBAR_MAX_WIDTH);
+        self.ai.chat.sidebar_width = (settings.sidebar_ui.ai_sidebar_width as f32)
+            .clamp(AI_SIDEBAR_MIN_WIDTH, AI_SIDEBAR_MAX_WIDTH);
         let panes = self
             .panes
             .iter()
@@ -884,7 +985,7 @@ impl WorkspaceApp {
         self.apply_ide_runtime_settings_to_surfaces(cx);
     }
 
-    fn emit_native_plugin_settings_events(
+    pub(in crate::workspace) fn emit_native_plugin_settings_events(
         &mut self,
         previous_settings: &PersistedSettings,
         settings: &PersistedSettings,
@@ -911,12 +1012,10 @@ impl WorkspaceApp {
             );
         }
 
-        let previous_value = serde_json::to_value(previous_settings).unwrap_or_else(|_| {
-            serde_json::json!({})
-        });
-        let current_value = serde_json::to_value(settings).unwrap_or_else(|_| {
-            serde_json::json!({})
-        });
+        let previous_value =
+            serde_json::to_value(previous_settings).unwrap_or_else(|_| serde_json::json!({}));
+        let current_value =
+            serde_json::to_value(settings).unwrap_or_else(|_| serde_json::json!({}));
         if previous_value != current_value {
             // Tauri exposes app.onSettingsChange as an application-level
             // snapshot callback. Native sends the same immutable snapshot over
@@ -930,7 +1029,7 @@ impl WorkspaceApp {
     }
 }
 
-fn hash_string_set(values: &HashSet<String>, hasher: &mut impl Hasher) {
+pub(in crate::workspace) fn hash_string_set(values: &HashSet<String>, hasher: &mut impl Hasher) {
     let mut values = values.iter().collect::<Vec<_>>();
     values.sort();
     for value in values {
@@ -938,7 +1037,10 @@ fn hash_string_set(values: &HashSet<String>, hasher: &mut impl Hasher) {
     }
 }
 
-fn hash_string_bool_map(values: &HashMap<String, bool>, hasher: &mut impl Hasher) {
+pub(in crate::workspace) fn hash_string_bool_map(
+    values: &HashMap<String, bool>,
+    hasher: &mut impl Hasher,
+) {
     let mut values = values.iter().collect::<Vec<_>>();
     values.sort_by(|(left, _), (right, _)| left.cmp(right));
     for (key, value) in values {
