@@ -137,10 +137,12 @@ impl GitActionPlan {
         })
     }
 
+    /// Returns the command that should remain visible in the active terminal.
     pub fn command(&self) -> &str {
         &self.command
     }
 
+    /// Returns the trusted CWD transition caused by a worktree selection.
     pub fn cwd_after_command(&self) -> Option<&str> {
         self.cwd_after_command.as_deref()
     }

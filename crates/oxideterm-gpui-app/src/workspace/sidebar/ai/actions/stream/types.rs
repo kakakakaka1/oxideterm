@@ -1,9 +1,3 @@
-#[derive(Clone)]
-pub(in crate::workspace) struct AiCompactionPlan {
-    pub(in crate::workspace) compact_messages: Vec<AiChatMessage>,
-    pub(in crate::workspace) keep_messages: Vec<AiChatMessage>,
-}
-
 pub(in crate::workspace) struct AiStreamDelivery {
     pub(in crate::workspace) generation: u64,
     pub(in crate::workspace) conversation_id: String,

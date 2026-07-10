@@ -1,7 +1,7 @@
 // Copyright (C) 2026 AnalyseDeCircuit
 // SPDX-License-Identifier: GPL-3.0-only
 
-use std::path::PathBuf;
+use std::{collections::HashSet, path::PathBuf};
 
 pub fn is_absolute_remote_path(path: &str) -> bool {
     if path.starts_with('/') {
@@ -82,6 +82,27 @@ pub fn remote_directory_prefixes(path: &str) -> Vec<String> {
         .collect()
 }
 
+/// Chooses the first desktop-style numbered name that does not already exist.
+pub fn unique_conflict_name<'a>(
+    name: &str,
+    existing_names: impl IntoIterator<Item = &'a str>,
+) -> String {
+    let existing_names = existing_names.into_iter().collect::<HashSet<_>>();
+    let (base_name, extension) = match name.rfind('.') {
+        Some(index) if index > 0 => (&name[..index], &name[index..]),
+        _ => (name, ""),
+    };
+
+    let mut counter = 1usize;
+    loop {
+        let candidate = format!("{base_name} ({counter}){extension}");
+        if !existing_names.contains(candidate.as_str()) {
+            return candidate;
+        }
+        counter += 1;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -122,5 +143,16 @@ mod tests {
             remote_directory_prefixes("home/user"),
             vec!["home", "home/user"]
         );
+    }
+
+    #[test]
+    fn conflict_name_preserves_extension_and_skips_existing_numbers() {
+        let existing = ["report.txt", "report (1).txt", "report (2).txt"];
+
+        assert_eq!(
+            unique_conflict_name("report.txt", existing),
+            "report (3).txt"
+        );
+        assert_eq!(unique_conflict_name(".env", [".env"]), ".env (1)");
     }
 }

@@ -1,4 +1,8 @@
+//! Pure conversation compaction planning and summary payload construction.
+
 use crate::{AiChatMessage, AiChatRole};
+
+use super::history::ai_message_estimated_tokens;
 
 #[derive(Clone)]
 pub struct AiCompactionPlan {
@@ -46,9 +50,7 @@ pub fn ai_compaction_plan(
     })
 }
 
-pub(in crate::workspace) fn ai_compaction_summary_messages(
-    messages: &[AiChatMessage],
-) -> Vec<AiChatMessage> {
+pub fn ai_compaction_summary_messages(messages: &[AiChatMessage]) -> Vec<AiChatMessage> {
     let mut history_parts = Vec::new();
     for message in messages {
         if message
@@ -109,9 +111,7 @@ pub(in crate::workspace) fn ai_compaction_summary_messages(
     ]
 }
 
-pub(in crate::workspace) fn ai_conversation_summary_messages(
-    messages: &[AiChatMessage],
-) -> Vec<AiChatMessage> {
+pub fn ai_conversation_summary_messages(messages: &[AiChatMessage]) -> Vec<AiChatMessage> {
     let history_text = messages
         .iter()
         .filter(|message| matches!(message.role, AiChatRole::User | AiChatRole::Assistant))
@@ -165,9 +165,9 @@ pub(in crate::workspace) fn ai_conversation_summary_messages(
     ]
 }
 
-pub(in crate::workspace) const AI_MAX_ANCHOR_SNAPSHOT: usize = 50;
+pub const AI_MAX_ANCHOR_SNAPSHOT: usize = 50;
 
-pub(in crate::workspace) fn ai_compaction_original_count(messages: &[AiChatMessage]) -> usize {
+pub fn ai_compaction_original_count(messages: &[AiChatMessage]) -> usize {
     messages
         .iter()
         .map(|message| {
@@ -188,9 +188,7 @@ pub(in crate::workspace) fn ai_compaction_original_count(messages: &[AiChatMessa
         .sum()
 }
 
-pub(in crate::workspace) fn ai_compaction_anchor_snapshot(
-    messages: &[AiChatMessage],
-) -> Vec<AiChatMessage> {
+pub fn ai_compaction_anchor_snapshot(messages: &[AiChatMessage]) -> Vec<AiChatMessage> {
     messages
         .iter()
         .filter(|message| {
@@ -223,9 +221,7 @@ pub(in crate::workspace) fn ai_compaction_anchor_snapshot(
         .collect()
 }
 
-pub(in crate::workspace) fn ai_latest_summary_round_id(
-    messages: &[AiChatMessage],
-) -> Option<String> {
+pub fn ai_latest_summary_round_id(messages: &[AiChatMessage]) -> Option<String> {
     messages.iter().rev().find_map(|message| {
         message
             .summary_ref
@@ -249,82 +245,4 @@ pub(in crate::workspace) fn ai_latest_summary_round_id(
                     })
             })
     })
-}
-
-impl WorkspaceApp {
-    pub(in crate::workspace) fn set_ai_compaction_notice_running(
-        &mut self,
-        conversation_id: &str,
-        cx: &mut Context<Self>,
-    ) {
-        self.ai.chat.compaction_notice = Some(AiCompactionNotice {
-            conversation_id: conversation_id.to_string(),
-            phase: AiCompactionNoticePhase::Running,
-            compacted_count: None,
-            timestamp_ms: ai_now_ms(),
-        });
-        cx.notify();
-    }
-
-    pub(in crate::workspace) fn set_ai_compaction_notice_done(
-        &mut self,
-        conversation_id: &str,
-        compacted_count: usize,
-        cx: &mut Context<Self>,
-    ) {
-        let timestamp_ms = ai_now_ms();
-        self.ai.chat.compaction_notice = Some(AiCompactionNotice {
-            conversation_id: conversation_id.to_string(),
-            phase: AiCompactionNoticePhase::Done,
-            compacted_count: Some(compacted_count),
-            timestamp_ms,
-        });
-        self.schedule_ai_compaction_notice_clear(conversation_id.to_string(), timestamp_ms, cx);
-        cx.notify();
-    }
-
-    pub(in crate::workspace) fn clear_ai_compaction_notice_for(
-        &mut self,
-        conversation_id: &str,
-        cx: &mut Context<Self>,
-    ) {
-        if self
-            .ai
-            .chat
-            .compaction_notice
-            .as_ref()
-            .is_some_and(|notice| notice.conversation_id == conversation_id)
-        {
-            self.ai.chat.compaction_notice = None;
-            cx.notify();
-        }
-    }
-
-    pub(in crate::workspace) fn schedule_ai_compaction_notice_clear(
-        &mut self,
-        conversation_id: String,
-        timestamp_ms: i64,
-        cx: &mut Context<Self>,
-    ) {
-        cx.spawn(async move |weak, cx| {
-            Timer::after(Duration::from_secs(5)).await;
-            let _ = weak.update(cx, |this, cx| {
-                if this
-                    .ai
-                    .chat
-                    .compaction_notice
-                    .as_ref()
-                    .is_some_and(|notice| {
-                        notice.conversation_id == conversation_id
-                            && notice.phase == AiCompactionNoticePhase::Done
-                            && notice.timestamp_ms == timestamp_ms
-                    })
-                {
-                    this.ai.chat.compaction_notice = None;
-                    cx.notify();
-                }
-            });
-        })
-        .detach();
-    }
 }

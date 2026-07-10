@@ -1,7 +1,8 @@
-use crate::{
-    AiChatMessage, AiChatRole, AiConversation, AiToolDefinition, AiToolUsePolicy,
-    parse_ai_suggestions, sanitize_for_ai, tool_policy_from_parts,
-};
+//! Pure history normalization, token budgeting, and cancellation transitions.
+
+use crate::{AiChatMessage, AiChatRole, AiConversation, AiToolDefinition, model_context_window};
+
+use super::turn::{set_ai_turn_status, update_ai_tool_call_status};
 
 pub fn ai_message_estimated_tokens(message: &AiChatMessage) -> usize {
     // Tauri's chat token budget only counts message.content here; tool-call
@@ -9,9 +10,7 @@ pub fn ai_message_estimated_tokens(message: &AiChatMessage) -> usize {
     ai_estimated_tokens(&message.content)
 }
 
-pub(in crate::workspace) fn ai_tool_definitions_estimated_tokens(
-    tools: &[oxideterm_ai::AiToolDefinition],
-) -> usize {
+pub fn ai_tool_definitions_estimated_tokens(tools: &[AiToolDefinition]) -> usize {
     tools
         .iter()
         .map(|tool| {
@@ -22,7 +21,7 @@ pub(in crate::workspace) fn ai_tool_definitions_estimated_tokens(
         .sum()
 }
 
-pub(in crate::workspace) fn ai_summary_eligible_tokens(messages: &[&AiChatMessage]) -> usize {
+pub fn ai_summary_eligible_tokens(messages: &[&AiChatMessage]) -> usize {
     if messages.len() < 4 {
         return 0;
     }
@@ -33,9 +32,7 @@ pub(in crate::workspace) fn ai_summary_eligible_tokens(messages: &[&AiChatMessag
         .sum()
 }
 
-pub(in crate::workspace) fn normalize_ai_stream_history_for_provider(
-    history: &mut Vec<AiChatMessage>,
-) {
+pub fn normalize_ai_stream_history_for_provider(history: &mut Vec<AiChatMessage>) {
     let mut normalized = Vec::with_capacity(history.len());
     for mut message in history.drain(..) {
         match message.role {
@@ -79,14 +76,14 @@ pub(in crate::workspace) fn normalize_ai_stream_history_for_provider(
     *history = normalized;
 }
 
-pub(in crate::workspace) fn is_ai_compaction_anchor(message: &AiChatMessage) -> bool {
+pub fn is_ai_compaction_anchor(message: &AiChatMessage) -> bool {
     message
         .metadata
         .as_ref()
         .is_some_and(|metadata| metadata.kind == "compaction-anchor")
 }
 
-pub(in crate::workspace) fn is_runtime_ai_history_system(message: &AiChatMessage) -> bool {
+pub fn is_runtime_ai_history_system(message: &AiChatMessage) -> bool {
     matches!(
         message.id.as_str(),
         "task-mode" | "current-terminal-context"
@@ -94,13 +91,13 @@ pub(in crate::workspace) fn is_runtime_ai_history_system(message: &AiChatMessage
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::workspace) struct AiStoppedAssistantTurn {
-    pub(in crate::workspace) message_id: String,
-    pub(in crate::workspace) status: &'static str,
-    pub(in crate::workspace) retained: bool,
+pub struct AiStoppedAssistantTurn {
+    pub message_id: String,
+    pub status: &'static str,
+    pub retained: bool,
 }
 
-pub(in crate::workspace) fn finalize_streaming_ai_messages_on_cancel(
+pub fn finalize_streaming_ai_messages_on_cancel(
     conversation: &mut AiConversation,
 ) -> Vec<AiStoppedAssistantTurn> {
     let mut stopped_turns = Vec::new();
@@ -173,7 +170,7 @@ pub(in crate::workspace) fn finalize_streaming_ai_messages_on_cancel(
     stopped_turns
 }
 
-pub(in crate::workspace) fn should_retain_stopped_ai_message(message: &AiChatMessage) -> bool {
+pub fn should_retain_stopped_ai_message(message: &AiChatMessage) -> bool {
     if !message.content.trim().is_empty()
         || message
             .thinking_content
@@ -196,9 +193,7 @@ pub(in crate::workspace) fn should_retain_stopped_ai_message(message: &AiChatMes
     })
 }
 
-pub(in crate::workspace) fn cancel_rejected_tool_call(
-    call: &serde_json::Value,
-) -> Option<(String, String, String)> {
+pub fn cancel_rejected_tool_call(call: &serde_json::Value) -> Option<(String, String, String)> {
     let status = call
         .get("status")
         .and_then(serde_json::Value::as_str)
@@ -218,7 +213,7 @@ pub(in crate::workspace) fn cancel_rejected_tool_call(
     Some((id.to_string(), name.to_string(), arguments.to_string()))
 }
 
-pub(in crate::workspace) fn ai_estimated_tokens(text: &str) -> usize {
+pub fn ai_estimated_tokens(text: &str) -> usize {
     if text.is_empty() {
         return 0;
     }
@@ -235,47 +230,47 @@ pub(in crate::workspace) fn ai_estimated_tokens(text: &str) -> usize {
     ((cjk_count as f64 * 1.5 + non_cjk_count as f64 * 0.25) * 1.15).ceil() as usize
 }
 
-pub(in crate::workspace) fn ai_response_reserve(context_window: usize) -> usize {
+pub fn ai_response_reserve(context_window: usize) -> usize {
     (((context_window as f64) * 0.15).floor() as usize).min(4096)
 }
 
-pub(in crate::workspace) const AI_HISTORY_BUDGET_RATIO: f32 = 0.7;
-pub(in crate::workspace) const AI_COMPACTION_TRIGGER_THRESHOLD: f32 = 0.80;
-pub(in crate::workspace) const AI_TRANSCRIPT_LOOKUP_THRESHOLD: f32 = 0.92;
-pub(in crate::workspace) const AI_TOOL_LOOP_STOP_THRESHOLD: f32 = 0.98;
-pub(in crate::workspace) const AI_MIN_PROMPT_SAFETY_MARGIN: usize = 128;
+pub const AI_HISTORY_BUDGET_RATIO: f32 = 0.7;
+pub const AI_COMPACTION_TRIGGER_THRESHOLD: f32 = 0.80;
+pub const AI_TRANSCRIPT_LOOKUP_THRESHOLD: f32 = 0.92;
+pub const AI_TOOL_LOOP_STOP_THRESHOLD: f32 = 0.98;
+pub const AI_MIN_PROMPT_SAFETY_MARGIN: usize = 128;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(in crate::workspace) struct AiPromptBudget {
-    pub(in crate::workspace) usable_prompt_budget: usize,
-    pub(in crate::workspace) history_budget: usize,
+pub struct AiPromptBudget {
+    pub usable_prompt_budget: usize,
+    pub history_budget: usize,
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(in crate::workspace) struct AiPromptBudgetInput {
-    pub(in crate::workspace) context_window: usize,
-    pub(in crate::workspace) response_reserve: usize,
-    pub(in crate::workspace) system_budget: usize,
-    pub(in crate::workspace) history_tokens: usize,
-    pub(in crate::workspace) safety_margin: Option<usize>,
-    pub(in crate::workspace) trimmable_history_tokens: Option<usize>,
-    pub(in crate::workspace) summary_eligible_tokens: Option<usize>,
-    pub(in crate::workspace) can_summarize: bool,
-    pub(in crate::workspace) can_lookup_transcript: bool,
-    pub(in crate::workspace) in_tool_loop: bool,
-    pub(in crate::workspace) auto_compact_threshold: Option<f32>,
-    pub(in crate::workspace) transcript_lookup_threshold: Option<f32>,
-    pub(in crate::workspace) tool_loop_stop_threshold: Option<f32>,
+pub struct AiPromptBudgetInput {
+    pub context_window: usize,
+    pub response_reserve: usize,
+    pub system_budget: usize,
+    pub history_tokens: usize,
+    pub safety_margin: Option<usize>,
+    pub trimmable_history_tokens: Option<usize>,
+    pub summary_eligible_tokens: Option<usize>,
+    pub can_summarize: bool,
+    pub can_lookup_transcript: bool,
+    pub in_tool_loop: bool,
+    pub auto_compact_threshold: Option<f32>,
+    pub transcript_lookup_threshold: Option<f32>,
+    pub tool_loop_stop_threshold: Option<f32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(in crate::workspace) struct AiPromptBudgetDecision {
-    pub(in crate::workspace) level: u8,
-    pub(in crate::workspace) usage_ratio: f32,
-    pub(in crate::workspace) overage: usize,
+pub struct AiPromptBudgetDecision {
+    pub level: u8,
+    pub usage_ratio: f32,
+    pub overage: usize,
 }
 
-pub(in crate::workspace) fn compute_ai_prompt_budget(
+pub fn compute_ai_prompt_budget(
     context_window: usize,
     response_reserve: usize,
     system_budget: usize,
@@ -293,9 +288,7 @@ pub(in crate::workspace) fn compute_ai_prompt_budget(
     }
 }
 
-pub(in crate::workspace) fn determine_ai_compression_level(
-    input: AiPromptBudgetInput,
-) -> AiPromptBudgetDecision {
+pub fn determine_ai_compression_level(input: AiPromptBudgetInput) -> AiPromptBudgetDecision {
     let prompt_budget = compute_ai_prompt_budget(
         input.context_window,
         input.response_reserve,
@@ -366,7 +359,7 @@ pub(in crate::workspace) fn determine_ai_compression_level(
     }
 }
 
-pub(in crate::workspace) fn trim_ai_stream_history_to_budget(
+pub fn trim_ai_stream_history_to_budget(
     history: &mut Vec<AiChatMessage>,
     context_window: usize,
     response_reserve: usize,
@@ -437,11 +430,11 @@ pub(in crate::workspace) fn trim_ai_stream_history_to_budget(
     total_regular.saturating_sub(kept_regular)
 }
 
-pub(in crate::workspace) fn ai_user_memory_prompt(content: &str, enabled: bool) -> Option<String> {
+pub fn ai_user_memory_prompt(content: &str, enabled: bool) -> Option<String> {
     if !enabled {
         return None;
     }
-    let content = oxideterm_ai::sanitize_for_ai(content).trim().to_string();
+    let content = crate::sanitize_for_ai(content).trim().to_string();
     if content.is_empty() {
         return None;
     }
@@ -456,11 +449,11 @@ pub(in crate::workspace) fn ai_user_memory_prompt(content: &str, enabled: bool) 
     ))
 }
 
-pub(in crate::workspace) fn truncate_to_char_count(text: &str, max_chars: usize) -> String {
+pub fn truncate_to_char_count(text: &str, max_chars: usize) -> String {
     text.chars().take(max_chars).collect()
 }
 
-pub(in crate::workspace) fn ai_orchestrator_system_prompt(tool_use_enabled: bool) -> String {
+pub fn ai_orchestrator_system_prompt(tool_use_enabled: bool) -> String {
     let tool_use_policy = if tool_use_enabled {
         [
             "- You are using the OxideSens task-tool orchestrator. You only see high-level task tools; do not invent low-level tool names or fake command output.",
@@ -516,13 +509,13 @@ pub(in crate::workspace) fn ai_orchestrator_system_prompt(tool_use_enabled: bool
     .join("\n")
 }
 
-pub(in crate::workspace) fn ai_context_window_from_maps(
+pub fn ai_context_window_from_maps(
     user_context_windows: &serde_json::Map<String, serde_json::Value>,
     model_context_windows: &serde_json::Map<String, serde_json::Value>,
     provider_id: &str,
     model: &str,
 ) -> Option<usize> {
-    usize::try_from(oxideterm_ai::model_context_window(
+    usize::try_from(model_context_window(
         model,
         model_context_windows,
         Some(provider_id),
@@ -532,35 +525,7 @@ pub(in crate::workspace) fn ai_context_window_from_maps(
     .filter(|tokens| *tokens > 0)
 }
 
-pub(in crate::workspace) fn ai_tool_use_policy_from_settings(
-    settings: &oxideterm_settings::AiToolUseSettings,
-) -> AiToolUsePolicy {
-    tool_policy_from_parts(
-        settings.enabled,
-        settings
-            .auto_approve_tools
-            .iter()
-            .filter_map(|(key, value)| value.as_bool().map(|enabled| (key.clone(), enabled))),
-        settings.disabled_tools.clone(),
-        settings.max_rounds,
-        settings.max_calls_per_round,
-    )
-}
-
-pub(in crate::workspace) fn ai_reasoning_effort_value(
-    effort: oxideterm_settings::AiReasoningEffort,
-) -> Option<String> {
-    serde_json::to_value(effort)
-        .ok()
-        .and_then(|value| value.as_str().map(str::to_string))
-        .map(|value| match value.as_str() {
-            "none" | "minimal" => "off".to_string(),
-            "xhigh" => "max".to_string(),
-            other => other.to_string(),
-        })
-}
-
-pub(in crate::workspace) fn ai_conversation_message_tokens(conversation: &AiConversation) -> usize {
+pub fn ai_conversation_message_tokens(conversation: &AiConversation) -> usize {
     conversation
         .messages
         .iter()
@@ -574,19 +539,18 @@ pub(in crate::workspace) fn ai_conversation_message_tokens(conversation: &AiConv
         .sum()
 }
 
-pub(in crate::workspace) fn ai_context_percentage(tokens: usize, max_tokens: usize) -> f32 {
+pub fn ai_context_percentage(tokens: usize, max_tokens: usize) -> f32 {
     if max_tokens == 0 {
         return 0.0;
     }
     ((tokens as f32 / max_tokens as f32) * 100.0).min(100.0)
 }
 
-pub(in crate::workspace) const AI_CONTEXT_WARNING_PERCENT: f32 = 70.0;
-pub(in crate::workspace) const AI_CONTEXT_DANGER_PERCENT: f32 = 85.0;
-pub(in crate::workspace) const AI_COMPACTION_DEFAULT_CONTEXT_WINDOW: usize =
-    oxideterm_ai::DEFAULT_CONTEXT_WINDOW as usize;
-pub(in crate::workspace) const AI_USER_MEMORY_MAX_CHARS: usize = 4_000;
-pub(in crate::workspace) const DEFAULT_AI_SYSTEM_PROMPT: &str = r#"You are OxideSens, a terminal-aware assistant inside OxideTerm.
+pub const AI_CONTEXT_WARNING_PERCENT: f32 = 70.0;
+pub const AI_CONTEXT_DANGER_PERCENT: f32 = 85.0;
+pub const AI_COMPACTION_DEFAULT_CONTEXT_WINDOW: usize = crate::DEFAULT_CONTEXT_WINDOW as usize;
+pub const AI_USER_MEMORY_MAX_CHARS: usize = 4_000;
+pub const DEFAULT_AI_SYSTEM_PROMPT: &str = r#"You are OxideSens, a terminal-aware assistant inside OxideTerm.
 
 ## Identity / Scope
 - Help with shell commands, scripts, terminal output, files, connections, and OxideTerm workflows.
@@ -608,7 +572,7 @@ pub(in crate::workspace) const DEFAULT_AI_SYSTEM_PROMPT: &str = r#"You are Oxide
 - Prefer actionable answers over long theory.
 - When tools or file access are available, do not ask the user to manually copy text into files just to complete a task; use the available mechanisms or answer directly.
 - Format commands and paths clearly in markdown."#;
-pub(in crate::workspace) const AI_SUGGESTIONS_INSTRUCTION: &str = r#"
+pub const AI_SUGGESTIONS_INSTRUCTION: &str = r#"
 
 ## Follow-Up Suggestions
 

@@ -237,24 +237,7 @@ pub(in crate::workspace::sftp) fn unique_sftp_conflict_name(
     name: &str,
     existing_files: &[SftpFileEntry],
 ) -> String {
-    let existing_names = existing_files
-        .iter()
-        .map(|file| file.name.as_str())
-        .collect::<HashSet<_>>();
-    let last_dot = name.rfind('.');
-    let (base_name, extension) = match last_dot {
-        Some(index) if index > 0 => (&name[..index], &name[index..]),
-        _ => (name, ""),
-    };
-
-    let mut counter = 1;
-    loop {
-        let candidate = format!("{base_name} ({counter}){extension}");
-        if !existing_names.contains(candidate.as_str()) {
-            return candidate;
-        }
-        counter += 1;
-    }
+    oxideterm_sftp::unique_conflict_name(name, existing_files.iter().map(|file| file.name.as_str()))
 }
 
 pub(in crate::workspace::sftp) fn sftp_conflict_resolution_from_settings(
@@ -273,39 +256,43 @@ pub(in crate::workspace::sftp) fn sftp_transfer_conflicts(
     pending_transfers: &[SftpPendingTransfer],
     target_files: &[SftpFileEntry],
 ) -> Vec<SftpConflictInfo> {
-    pending_transfers
-        .iter()
-        .filter(|transfer| transfer.source.file_type != SftpFileType::Directory)
-        .filter_map(|transfer| {
-            let target = target_files.iter().find(|file| {
-                file.name == transfer.name && file.file_type != SftpFileType::Directory
-            })?;
-            Some(SftpConflictInfo {
-                file_name: transfer.name.clone(),
+    oxideterm_sftp::find_transfer_conflicts(
+        pending_transfers
+            .iter()
+            .map(|transfer| oxideterm_sftp::ConflictTransfer {
+                name: &transfer.name,
                 source_size: transfer.source.size,
                 source_modified: transfer.source.modified,
-                target_size: target.size,
-                target_modified: target.modified,
+                source_is_directory: transfer.source.file_type == SftpFileType::Directory,
                 direction: transfer.direction,
-            })
-        })
-        .collect()
+            }),
+        target_files
+            .iter()
+            .map(|target| oxideterm_sftp::ConflictTarget {
+                name: &target.name,
+                size: target.size,
+                modified: target.modified,
+                is_directory: target.file_type == SftpFileType::Directory,
+            }),
+    )
 }
 
 pub(in crate::workspace::sftp) fn sftp_source_not_newer_than_target(
     transfer: &SftpPendingTransfer,
     target_files: &[SftpFileEntry],
 ) -> bool {
-    let Some(target) = target_files
-        .iter()
-        .find(|file| file.name == transfer.name && file.file_type != SftpFileType::Directory)
-    else {
-        return false;
-    };
-    match (transfer.source.modified, target.modified) {
-        (Some(source_modified), Some(target_modified)) => source_modified <= target_modified,
-        _ => false,
-    }
+    oxideterm_sftp::source_not_newer_than_target(
+        &transfer.name,
+        transfer.source.modified,
+        target_files
+            .iter()
+            .map(|target| oxideterm_sftp::ConflictTarget {
+                name: &target.name,
+                size: target.size,
+                modified: target.modified,
+                is_directory: target.file_type == SftpFileType::Directory,
+            }),
+    )
 }
 
 pub(in crate::workspace::sftp) fn sftp_transfer_state_from_remote(
@@ -749,71 +736,6 @@ pub(in crate::workspace::sftp) fn format_conflict_modified(modified: Option<i64>
         .with_timezone(&chrono::Local)
         .format("%Y/%-m/%-d %-H:%M:%S")
         .to_string()
-}
-
-pub(in crate::workspace::sftp) fn compute_sftp_diff(left: &str, right: &str) -> Vec<SftpDiffLine> {
-    let left_lines = left.split('\n').collect::<Vec<_>>();
-    let right_lines = right.split('\n').collect::<Vec<_>>();
-    let m = left_lines.len();
-    let n = right_lines.len();
-    let mut dp = vec![vec![0usize; n + 1]; m + 1];
-
-    for i in 1..=m {
-        for j in 1..=n {
-            dp[i][j] = if left_lines[i - 1] == right_lines[j - 1] {
-                dp[i - 1][j - 1] + 1
-            } else {
-                dp[i - 1][j].max(dp[i][j - 1])
-            };
-        }
-    }
-
-    let mut i = m;
-    let mut j = n;
-    let mut diff = Vec::new();
-    while i > 0 || j > 0 {
-        if i > 0 && j > 0 && left_lines[i - 1] == right_lines[j - 1] {
-            diff.push(SftpDiffLine {
-                kind: SftpDiffLineKind::Unchanged,
-                content: left_lines[i - 1].to_string(),
-                left_line_num: Some(i),
-                right_line_num: Some(j),
-            });
-            i -= 1;
-            j -= 1;
-        } else if j > 0 && (i == 0 || dp[i][j - 1] >= dp[i - 1][j]) {
-            diff.push(SftpDiffLine {
-                kind: SftpDiffLineKind::Added,
-                content: right_lines[j - 1].to_string(),
-                left_line_num: None,
-                right_line_num: Some(j),
-            });
-            j -= 1;
-        } else {
-            diff.push(SftpDiffLine {
-                kind: SftpDiffLineKind::Removed,
-                content: left_lines[i - 1].to_string(),
-                left_line_num: Some(i),
-                right_line_num: None,
-            });
-            i -= 1;
-        }
-    }
-
-    diff.reverse();
-    diff
-}
-
-pub(in crate::workspace::sftp) fn sftp_diff_stats(lines: &[SftpDiffLine]) -> SftpDiffStats {
-    let mut stats = SftpDiffStats::default();
-    for line in lines {
-        match line.kind {
-            SftpDiffLineKind::Unchanged => stats.unchanged += 1,
-            SftpDiffLineKind::Added => stats.added += 1,
-            SftpDiffLineKind::Removed => stats.removed += 1,
-        }
-    }
-    stats
 }
 
 #[derive(Clone, Debug)]

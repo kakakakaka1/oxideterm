@@ -43,17 +43,6 @@ pub(in crate::workspace) struct AiOrchestratorTarget {
     pub(in crate::workspace) terminal_screen: Option<serde_json::Value>,
 }
 
-#[derive(Clone, Debug)]
-pub(in crate::workspace) struct AiExecutedToolResult {
-    pub(in crate::workspace) tool_call_id: String,
-    pub(in crate::workspace) tool_name: String,
-    pub(in crate::workspace) success: bool,
-    pub(in crate::workspace) output: String,
-    pub(in crate::workspace) error: Option<String>,
-    pub(in crate::workspace) duration_ms: u128,
-    pub(in crate::workspace) envelope: serde_json::Value,
-}
-
 #[derive(Debug)]
 pub(in crate::workspace) enum AiRemoteFileWriteError {
     ExpectedHashMismatch { expected: String, current: String },

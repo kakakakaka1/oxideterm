@@ -1,20 +1,13 @@
 use std::{
-    collections::{HashSet, VecDeque},
-    fs,
-    io::{BufReader, Write},
-    path::{Path, PathBuf},
-    process::{Child, ChildStdin, Command, Stdio},
+    collections::HashSet,
     sync::{
-        Arc, Mutex,
+        Arc,
         atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc,
     },
     thread,
-    time::{Duration, Instant, SystemTime},
+    time::{Duration, Instant},
 };
-
-#[cfg(windows)]
-use std::os::windows::process::CommandExt;
 
 use oxideterm_gpui_remote_desktop::{
     RemoteDesktopFrameApplyStats, RemoteDesktopMappedPoint, RemoteDesktopViewState,
@@ -25,13 +18,12 @@ use oxideterm_gpui_ui::button::{
 };
 use oxideterm_remote_desktop::{
     RemoteDesktopClipboardData, RemoteDesktopClipboardFormat, RemoteDesktopConnectionProfile,
-    RemoteDesktopEndpoint, RemoteDesktopErrorCategory, RemoteDesktopFakeBackend,
-    RemoteDesktopFrameFormat, RemoteDesktopHelperEvent, RemoteDesktopHelperRequest,
-    RemoteDesktopJsonLineError, RemoteDesktopKey, RemoteDesktopKeyState, RemoteDesktopLockKeys,
-    RemoteDesktopMouseButton, RemoteDesktopMouseButtonState, RemoteDesktopProtocol,
-    RemoteDesktopProviderManifest, RemoteDesktopSecret, RemoteDesktopSessionStatus,
-    RemoteDesktopSize, RemoteDesktopWheelDelta, builtin_preview_provider_registry,
-    builtin_provider_registry, read_event_line, write_request_line,
+    RemoteDesktopEndpoint, RemoteDesktopErrorCategory, RemoteDesktopFrameDeliverySlot,
+    RemoteDesktopHelperEvent, RemoteDesktopHelperRequest, RemoteDesktopKey, RemoteDesktopKeyState,
+    RemoteDesktopLockKeys, RemoteDesktopMouseButton, RemoteDesktopMouseButtonState,
+    RemoteDesktopProtocol, RemoteDesktopProviderManifest, RemoteDesktopSecret,
+    RemoteDesktopSessionStatus, RemoteDesktopSize, RemoteDesktopWheelDelta,
+    builtin_preview_provider_registry, builtin_provider_registry,
 };
 use oxideterm_workspace::{Tab, TabKind, TabTitleSource};
 use tokio::sync::Notify;
@@ -57,21 +49,12 @@ const REMOTE_DESKTOP_INITIAL_LAYOUT_PROBE_TICKS: usize = 120;
 const REMOTE_DESKTOP_RESIZE_DEBOUNCE: Duration = Duration::from_millis(120);
 const REMOTE_DESKTOP_RESIZE_DELTA_THRESHOLD: u32 = 16;
 const REMOTE_DESKTOP_DEFAULT_SCALE_FACTOR_PERCENT: u32 = 100;
-#[cfg(windows)]
-const REMOTE_DESKTOP_HELPER_CREATE_NO_WINDOW: u32 = 0x08000000;
 const REMOTE_DESKTOP_MIN_SCALE_FACTOR_PERCENT: u32 = 100;
 const REMOTE_DESKTOP_MAX_SCALE_FACTOR_PERCENT: u32 = 500;
 const REMOTE_DESKTOP_SCALE_PERCENT_MULTIPLIER: f32 = 100.0;
 const REMOTE_DESKTOP_SCROLL_PIXEL_STEP: f32 = 120.0;
-const REMOTE_DESKTOP_FRAME_READY_INTERVAL: Duration = Duration::from_millis(16);
 const REMOTE_DESKTOP_FRAME_READY_DRAIN_LIMIT: usize = 32;
 const REMOTE_DESKTOP_FRAME_READY_DRAIN_BUDGET: Duration = Duration::from_millis(6);
-const REMOTE_DESKTOP_FRAME_QUEUE_MAX_EVENTS: usize = 256;
-const REMOTE_DESKTOP_FRAME_QUEUE_MAX_DIRTY_BYTES: usize = 32 * 1024 * 1024;
-const REMOTE_DESKTOP_FRAME_QUEUE_MAX_BASE_BYTES: usize = RemoteDesktopSize::MAX_DIMENSION as usize
-    * RemoteDesktopSize::MAX_DIMENSION as usize
-    * RemoteDesktopFrameFormat::Rgba8.bytes_per_pixel();
-const REMOTE_DESKTOP_REQUEST_WRITE_DRAIN_LIMIT: usize = 128;
 const REMOTE_DESKTOP_DIAGNOSTICS_ENV: &str = "OXIDETERM_REMOTE_DESKTOP_DIAGNOSTICS";
 
 #[derive(Debug)]
@@ -137,27 +120,6 @@ impl RemoteDesktopWorkerWake {
     async fn wait(&self) {
         self.notification.notified().await;
     }
-}
-
-#[derive(Clone, Default)]
-struct RemoteDesktopFrameDeliverySlot {
-    queue: Arc<Mutex<RemoteDesktopFrameQueue>>,
-    queued: Arc<AtomicBool>,
-    last_presented_at: Arc<Mutex<Option<Instant>>>,
-}
-
-#[derive(Default)]
-struct RemoteDesktopFrameQueue {
-    frames: VecDeque<RemoteDesktopHelperEvent>,
-    queued_dirty_bytes: usize,
-    awaiting_base_frame: bool,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum RemoteDesktopFrameQueuePush {
-    Queued,
-    RecoveryRequired,
-    AwaitingRecovery,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -240,116 +202,6 @@ impl RemoteDesktopRenderDiagnostics {
         let apply_micros = duration_micros_u64(apply_elapsed);
         self.total_apply_micros = self.total_apply_micros.saturating_add(apply_micros);
         self.max_apply_micros = self.max_apply_micros.max(apply_micros);
-    }
-}
-
-impl RemoteDesktopFrameDeliverySlot {
-    fn new() -> Self {
-        Self {
-            queue: Arc::default(),
-            queued: Arc::default(),
-            last_presented_at: Arc::default(),
-        }
-    }
-
-    fn push(
-        &self,
-        tab_id: TabId,
-        generation: u64,
-        event: RemoteDesktopHelperEvent,
-        delivery_tx: &mpsc::Sender<RemoteDesktopWorkerDelivery>,
-        worker_wake: &RemoteDesktopWorkerWake,
-    ) {
-        let queue_push = {
-            let Ok(mut queue) = self.queue.lock() else {
-                return;
-            };
-            // Preserve the ordered invalid-region stream until a real event or
-            // byte limit is reached. Saturation then becomes an explicit base
-            // frame recovery boundary instead of silently dropping deltas.
-            push_remote_desktop_frame_event(
-                &mut queue,
-                event,
-                REMOTE_DESKTOP_FRAME_QUEUE_MAX_EVENTS,
-                REMOTE_DESKTOP_FRAME_QUEUE_MAX_DIRTY_BYTES,
-            )
-        };
-
-        if queue_push == RemoteDesktopFrameQueuePush::RecoveryRequired {
-            send_remote_desktop_worker_delivery(
-                delivery_tx,
-                worker_wake,
-                RemoteDesktopWorkerDelivery::FrameRecoveryRequired { tab_id, generation },
-            );
-            if !self.has_queued_frame_events() {
-                return;
-            }
-        }
-        if queue_push == RemoteDesktopFrameQueuePush::AwaitingRecovery {
-            return;
-        }
-
-        // A single queued marker is enough because the slot preserves ordered
-        // frame events until the UI thread catches up.
-        if self.mark_frame_ready_queued() {
-            send_remote_desktop_worker_delivery(
-                delivery_tx,
-                worker_wake,
-                RemoteDesktopWorkerDelivery::FrameReady { tab_id, generation },
-            );
-        }
-    }
-
-    fn take(&self) -> Option<RemoteDesktopHelperEvent> {
-        let mut queue = self.queue.lock().ok()?;
-        let event = queue.frames.pop_front()?;
-        if matches!(event, RemoteDesktopHelperEvent::FrameUpdate { .. }) {
-            queue.queued_dirty_bytes = queue
-                .queued_dirty_bytes
-                .saturating_sub(remote_desktop_frame_event_bytes(&event));
-        }
-        Some(event)
-    }
-
-    fn has_queued_frame_events(&self) -> bool {
-        self.queue
-            .lock()
-            .map(|queue| !queue.frames.is_empty())
-            .unwrap_or(false)
-    }
-
-    fn complete_delivery(&self) -> bool {
-        self.queued.store(false, Ordering::Release);
-        self.queue
-            .lock()
-            .map(|queue| !queue.frames.is_empty())
-            .unwrap_or(false)
-    }
-
-    fn mark_frame_ready_queued(&self) -> bool {
-        !self.queued.swap(true, Ordering::AcqRel)
-    }
-
-    fn mark_frame_presented(&self) {
-        if let Ok(mut last_presented_at) = self.last_presented_at.lock() {
-            *last_presented_at = Some(Instant::now());
-        }
-    }
-
-    fn next_frame_ready_delay(&self) -> Duration {
-        let now = Instant::now();
-        let Ok(last_presented_at) = self.last_presented_at.lock() else {
-            return Duration::ZERO;
-        };
-        let Some(previous_presented_at) = *last_presented_at else {
-            return Duration::ZERO;
-        };
-        let elapsed = now.saturating_duration_since(previous_presented_at);
-        if elapsed >= REMOTE_DESKTOP_FRAME_READY_INTERVAL {
-            Duration::ZERO
-        } else {
-            REMOTE_DESKTOP_FRAME_READY_INTERVAL.saturating_sub(elapsed)
-        }
     }
 }
 
@@ -450,87 +302,6 @@ struct RemoteDesktopResizeRequestState {
 mod tests {
     use super::*;
 
-    fn test_frame_update_at(x: u32) -> RemoteDesktopHelperEvent {
-        RemoteDesktopHelperEvent::FrameUpdate {
-            update: oxideterm_remote_desktop::RemoteDesktopFrameUpdate::new(
-                RemoteDesktopSize {
-                    width: 1024,
-                    height: 1,
-                },
-                oxideterm_remote_desktop::RemoteDesktopRect::new(x, 0, 1, 1),
-                oxideterm_remote_desktop::RemoteDesktopFrameFormat::Rgba8,
-                vec![x as u8, 0, 0, 0xff],
-            ),
-        }
-    }
-
-    #[cfg(unix)]
-    fn spawn_sleeping_test_helper() -> Child {
-        // `exec` makes the shell process itself the long-lived child under test.
-        Command::new("sh")
-            .args(["-c", "exec sleep 30"])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .unwrap()
-    }
-
-    #[cfg(windows)]
-    fn spawn_sleeping_test_helper() -> Child {
-        // Ping provides a stock long-lived Windows process without test tools.
-        Command::new("cmd")
-            .args(["/C", "ping -n 31 127.0.0.1 >NUL"])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .unwrap()
-    }
-
-    struct FailingConnectWriter;
-
-    impl Write for FailingConnectWriter {
-        fn write(&mut self, _buffer: &[u8]) -> std::io::Result<usize> {
-            // Model a helper that closes stdin before accepting Connect.
-            Err(std::io::Error::new(
-                std::io::ErrorKind::BrokenPipe,
-                "test helper closed stdin",
-            ))
-        }
-
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-
-    #[test]
-    #[cfg(any(unix, windows))]
-    fn failed_initial_connect_cleanup_kills_and_reaps_helper() {
-        let mut child = spawn_sleeping_test_helper();
-        let profile = preview_remote_desktop_profile(RemoteDesktopProtocol::Rdp);
-        let connect = connect_request(
-            &profile,
-            None,
-            RemoteDesktopSize {
-                width: 1280,
-                height: 720,
-            },
-            None,
-        );
-
-        let error =
-            write_initial_remote_desktop_connect(&mut child, &mut FailingConnectWriter, &connect)
-                .unwrap_err();
-
-        assert!(matches!(
-            error,
-            RemoteDesktopJsonLineError::ReadFailed(source)
-                if source.kind() == std::io::ErrorKind::BrokenPipe
-        ));
-        assert!(child.try_wait().unwrap().is_some());
-    }
-
     #[test]
     fn worker_wake_uses_event_notification_and_stops_explicitly() {
         let wake = RemoteDesktopWorkerWake::default();
@@ -543,277 +314,6 @@ mod tests {
         wake.stop();
         runtime.block_on(wake.wait());
         assert!(wake.is_stopped());
-    }
-
-    #[test]
-    fn bounded_frame_queue_requests_recovery_for_event_and_byte_saturation() {
-        let mut event_limited = RemoteDesktopFrameQueue::default();
-        assert_eq!(
-            push_remote_desktop_frame_event(
-                &mut event_limited,
-                test_frame_update_at(0),
-                1,
-                usize::MAX,
-            ),
-            RemoteDesktopFrameQueuePush::Queued
-        );
-        assert_eq!(
-            push_remote_desktop_frame_event(
-                &mut event_limited,
-                test_frame_update_at(2),
-                1,
-                usize::MAX,
-            ),
-            RemoteDesktopFrameQueuePush::RecoveryRequired
-        );
-        assert!(event_limited.frames.is_empty());
-        assert_eq!(
-            push_remote_desktop_frame_event(
-                &mut event_limited,
-                test_frame_update_at(4),
-                1,
-                usize::MAX,
-            ),
-            RemoteDesktopFrameQueuePush::AwaitingRecovery
-        );
-
-        let mut byte_limited = RemoteDesktopFrameQueue::default();
-        assert_eq!(
-            push_remote_desktop_frame_event(
-                &mut byte_limited,
-                test_frame_update_at(0),
-                usize::MAX,
-                3,
-            ),
-            RemoteDesktopFrameQueuePush::RecoveryRequired
-        );
-        assert!(byte_limited.frames.is_empty());
-    }
-
-    #[test]
-    fn saturated_frame_queue_keeps_latest_recoverable_base() {
-        let size = RemoteDesktopSize {
-            width: 2,
-            height: 1,
-        };
-        let mut queue = RemoteDesktopFrameQueue::default();
-        let base = RemoteDesktopHelperEvent::Frame {
-            frame: oxideterm_remote_desktop::RemoteDesktopFrame::new(
-                size,
-                RemoteDesktopFrameFormat::Rgba8,
-                vec![0; 8],
-            ),
-        };
-        assert_eq!(
-            push_remote_desktop_frame_event(&mut queue, base, 1, usize::MAX),
-            RemoteDesktopFrameQueuePush::Queued
-        );
-        let applied_update = RemoteDesktopHelperEvent::FrameUpdate {
-            update: oxideterm_remote_desktop::RemoteDesktopFrameUpdate::new(
-                size,
-                oxideterm_remote_desktop::RemoteDesktopRect::new(0, 0, 1, 1),
-                RemoteDesktopFrameFormat::Rgba8,
-                vec![1, 2, 3, 4],
-            ),
-        };
-        assert_eq!(
-            push_remote_desktop_frame_event(&mut queue, applied_update, 1, usize::MAX),
-            RemoteDesktopFrameQueuePush::Queued
-        );
-        assert_eq!(
-            push_remote_desktop_frame_event(&mut queue, test_frame_update_at(0), 1, usize::MAX,),
-            RemoteDesktopFrameQueuePush::RecoveryRequired
-        );
-
-        let Some(RemoteDesktopHelperEvent::Frame { frame }) = queue.frames.pop_front() else {
-            panic!("recoverable base frame should remain queued");
-        };
-        assert_eq!(&frame.bytes[..4], &[1, 2, 3, 4]);
-        assert!(queue.awaiting_base_frame);
-    }
-
-    #[test]
-    fn frame_slot_signals_recovery_only_once_until_a_new_base_arrives() {
-        let slot = RemoteDesktopFrameDeliverySlot::new();
-        let wake = RemoteDesktopWorkerWake::default();
-        let (delivery_tx, delivery_rx) = mpsc::channel();
-
-        for index in 0..=REMOTE_DESKTOP_FRAME_QUEUE_MAX_EVENTS {
-            slot.push(
-                TabId(6),
-                2,
-                test_frame_update_at((index as u32) * 2),
-                &delivery_tx,
-                &wake,
-            );
-        }
-        slot.push(TabId(6), 2, test_frame_update_at(700), &delivery_tx, &wake);
-
-        assert!(matches!(
-            delivery_rx.try_recv(),
-            Ok(RemoteDesktopWorkerDelivery::FrameReady { .. })
-        ));
-        assert!(matches!(
-            delivery_rx.try_recv(),
-            Ok(RemoteDesktopWorkerDelivery::FrameRecoveryRequired { .. })
-        ));
-        assert!(matches!(
-            delivery_rx.try_recv(),
-            Err(mpsc::TryRecvError::Empty)
-        ));
-    }
-
-    #[test]
-    fn frame_slot_preserves_sparse_dirty_backlog_without_recovery_request() {
-        let slot = RemoteDesktopFrameDeliverySlot::new();
-        let wake = RemoteDesktopWorkerWake::default();
-        let (delivery_tx, delivery_rx) = mpsc::channel();
-        let tab_id = TabId(7);
-        let generation = 3;
-        let event_count = 48;
-
-        for index in 0..event_count {
-            slot.push(
-                tab_id,
-                generation,
-                test_frame_update_at((index as u32) * 2),
-                &delivery_tx,
-                &wake,
-            );
-        }
-
-        assert!(matches!(
-            delivery_rx.try_recv(),
-            Ok(RemoteDesktopWorkerDelivery::FrameReady { .. })
-        ));
-        assert!(matches!(
-            delivery_rx.try_recv(),
-            Err(mpsc::TryRecvError::Empty)
-        ));
-        for _ in 0..event_count {
-            assert!(slot.take().is_some());
-        }
-        assert!(slot.take().is_none());
-    }
-
-    #[test]
-    fn frame_slot_base_frame_supersedes_queued_dirty_backlog() {
-        let slot = RemoteDesktopFrameDeliverySlot::new();
-        let wake = RemoteDesktopWorkerWake::default();
-        let (delivery_tx, delivery_rx) = mpsc::channel();
-        let tab_id = TabId(8);
-        let generation = 4;
-
-        for index in 0..8 {
-            slot.push(
-                tab_id,
-                generation,
-                test_frame_update_at((index as u32) * 2),
-                &delivery_tx,
-                &wake,
-            );
-        }
-        slot.push(
-            tab_id,
-            generation,
-            RemoteDesktopHelperEvent::Frame {
-                frame: oxideterm_remote_desktop::RemoteDesktopFrame::new(
-                    RemoteDesktopSize {
-                        width: 2,
-                        height: 1,
-                    },
-                    oxideterm_remote_desktop::RemoteDesktopFrameFormat::Rgba8,
-                    vec![0; 8],
-                ),
-            },
-            &delivery_tx,
-            &wake,
-        );
-
-        assert!(matches!(
-            delivery_rx.try_recv(),
-            Ok(RemoteDesktopWorkerDelivery::FrameReady { .. })
-        ));
-        assert!(matches!(
-            delivery_rx.try_recv(),
-            Err(mpsc::TryRecvError::Empty)
-        ));
-        assert!(matches!(
-            slot.take(),
-            Some(RemoteDesktopHelperEvent::Frame { .. })
-        ));
-        assert!(slot.take().is_none());
-    }
-
-    #[test]
-    fn frame_slot_delays_ready_after_recent_presentation() {
-        let slot = RemoteDesktopFrameDeliverySlot::new();
-
-        slot.mark_frame_presented();
-
-        let delay = slot.next_frame_ready_delay();
-        assert!(delay > Duration::ZERO);
-        assert!(delay <= REMOTE_DESKTOP_FRAME_READY_INTERVAL);
-    }
-
-    #[test]
-    fn frame_slot_allows_ready_after_presentation_interval() {
-        let slot = RemoteDesktopFrameDeliverySlot::new();
-        *slot.last_presented_at.lock().unwrap() =
-            Some(Instant::now() - REMOTE_DESKTOP_FRAME_READY_INTERVAL);
-
-        assert_eq!(slot.next_frame_ready_delay(), Duration::ZERO);
-    }
-
-    #[test]
-    fn remote_desktop_writer_coalesces_mouse_moves_without_reordering_clicks() {
-        let (request_tx, request_rx) = mpsc::channel();
-        request_tx
-            .send(RemoteDesktopHelperRequest::MouseMove { x: 10, y: 20 })
-            .unwrap();
-        request_tx
-            .send(RemoteDesktopHelperRequest::MouseMove { x: 30, y: 40 })
-            .unwrap();
-        request_tx
-            .send(RemoteDesktopHelperRequest::MouseButton {
-                button: RemoteDesktopMouseButton::Left,
-                state: RemoteDesktopMouseButtonState::Pressed,
-            })
-            .unwrap();
-        request_tx
-            .send(RemoteDesktopHelperRequest::MouseMove { x: 50, y: 60 })
-            .unwrap();
-        drop(request_tx);
-
-        let (delivery_tx, _delivery_rx) = mpsc::channel();
-        let mut output = Vec::new();
-        run_remote_desktop_writer(
-            TabId(9),
-            1,
-            &mut output,
-            request_rx,
-            delivery_tx,
-            RemoteDesktopWorkerWake::default(),
-        );
-
-        let mut reader = std::io::Cursor::new(output);
-        let mut decoded = Vec::new();
-        while let Some(request) = oxideterm_remote_desktop::read_request_line(&mut reader).unwrap()
-        {
-            decoded.push(request);
-        }
-
-        assert_eq!(
-            decoded,
-            vec![
-                RemoteDesktopHelperRequest::MouseMove { x: 30, y: 40 },
-                RemoteDesktopHelperRequest::MouseButton {
-                    button: RemoteDesktopMouseButton::Left,
-                    state: RemoteDesktopMouseButtonState::Pressed,
-                },
-                RemoteDesktopHelperRequest::MouseMove { x: 50, y: 60 },
-            ]
-        );
     }
 
     #[test]
@@ -870,45 +370,22 @@ mod tests {
     }
 
     #[test]
-    fn real_remote_desktop_provider_does_not_use_fake_backend() {
-        let registry = builtin_provider_registry().unwrap();
-        let provider = registry
-            .get_for_protocol(RemoteDesktopProtocol::Rdp)
-            .expect("built-in RDP provider should exist");
-
-        assert!(!remote_desktop_provider_uses_fake_backend(provider));
-    }
-
-    #[test]
-    fn preview_remote_desktop_provider_uses_fake_backend() {
-        let registry = builtin_preview_provider_registry().unwrap();
-        let provider = registry
-            .get_for_protocol(RemoteDesktopProtocol::Rdp)
-            .expect("preview RDP provider should exist");
-
-        assert!(remote_desktop_provider_uses_fake_backend(provider));
-    }
-
-    #[test]
-    fn connect_request_uses_measured_initial_size() {
-        let profile = preview_remote_desktop_profile(RemoteDesktopProtocol::Rdp);
-        let initial_size = RemoteDesktopSize {
-            width: 1600,
-            height: 900,
+    fn worker_delivery_adapter_restores_tab_mapping_at_the_app_boundary() {
+        let tab_id = TabId(42);
+        let generation = 7;
+        let delivery = oxideterm_remote_desktop::RemoteDesktopWorkerDelivery::FrameReady {
+            worker_id: oxideterm_remote_desktop::RemoteDesktopWorkerId::new(
+                oxideterm_remote_desktop::RemoteDesktopSessionId::new(),
+                generation,
+            ),
         };
 
-        let request = connect_request(&profile, None, initial_size, Some(200));
-
         assert!(matches!(
-            request,
-            RemoteDesktopHelperRequest::Connect {
-                size: RemoteDesktopSize {
-                    width: 1600,
-                    height: 900
-                },
-                scale_factor: Some(200),
-                ..
-            }
+            map_remote_desktop_worker_delivery(tab_id, generation, delivery),
+            RemoteDesktopWorkerDelivery::FrameReady {
+                tab_id: mapped_tab_id,
+                generation: mapped_generation,
+            } if mapped_tab_id == tab_id && mapped_generation == generation
         ));
     }
 

@@ -135,6 +135,7 @@ pub(in crate::workspace) use oxideterm_environment::{
     GitPathAction as TerminalGitPathAction, GitRepositoryAction as TerminalGitRepositoryAction,
 };
 
+// Translation ownership stays in the app instead of leaking UI keys into the domain crate.
 pub(in crate::workspace) fn terminal_git_repository_action_label_key(
     action: TerminalGitRepositoryAction,
 ) -> &'static str {
@@ -177,6 +178,7 @@ pub(in crate::workspace) fn terminal_git_repository_action_label_key(
     }
 }
 
+// Path-action labels follow the same app-owned internationalization boundary.
 pub(in crate::workspace) fn terminal_git_path_action_label_key(
     action: TerminalGitPathAction,
 ) -> &'static str {

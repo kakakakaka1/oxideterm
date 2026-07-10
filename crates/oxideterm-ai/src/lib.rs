@@ -14,9 +14,11 @@ mod rag;
 mod references;
 mod settings;
 mod slash;
+pub mod stream_state;
 mod streaming;
 mod suggestions;
 mod tool_protocol;
+mod tool_result_protocol;
 mod touch_id;
 mod types;
 
@@ -100,6 +102,7 @@ pub use slash::{
     detect_ai_intent, parse_ai_user_input, resolve_ai_participant, resolve_ai_reference,
     resolve_ai_slash_command, slash_task_system_prompt,
 };
+pub use stream_state::*;
 pub use streaming::stream_chat_completion;
 pub use suggestions::{
     AiSuggestionParseResult, ai_has_partial_suggestions_block, ai_visible_suggestion_content,
@@ -111,6 +114,15 @@ pub use tool_protocol::{
     ai_should_retry_required_tool_round, ai_should_retry_required_tool_round_for_turn,
     ai_should_trigger_hard_deny, ai_text_contains_tauri_action_claim,
     ai_user_explicitly_requested_json,
+};
+pub use tool_result_protocol::{
+    AI_TOOL_CONDENSE_KEEP_RECENT, AI_TOOL_CONDENSE_SUMMARY_MAX_CHARS,
+    AI_TOOL_MODEL_ERROR_MESSAGE_MAX_CHARS, AI_TOOL_MODEL_ERROR_OUTPUT_MAX_CHARS,
+    AI_TOOL_MODEL_OUTPUT_MAX_CHARS, AI_TOOL_MODEL_SUMMARY_MAX_CHARS, AiExecutedToolResult,
+    ai_insert_execution_shortcuts_for_model, ai_insert_non_empty_model_array,
+    ai_to_usable_budget_threshold, ai_tool_result_envelope_or_legacy,
+    ai_tool_result_evidence_facts_for_model, ai_tool_result_model_content,
+    ai_tool_result_model_error, condense_ai_tool_messages, truncate_ai_tool_result_for_model,
 };
 pub use types::{
     AiChatMessage, AiChatMessageMetadata, AiChatRole, AiChatState, AiChatStreamConfig,

@@ -7212,7 +7212,6 @@ dependencies = [
  "base64",
  "chrono",
  "embed-resource",
- "flate2",
  "fs2",
  "gpui",
  "gstreamer",
@@ -7251,6 +7250,7 @@ dependencies = [
  "oxideterm-plugin-host-api",
  "oxideterm-plugin-protocol",
  "oxideterm-plugin-registry",
+ "oxideterm-plugin-runtime-install",
  "oxideterm-portable-runtime",
  "oxideterm-preview",
  "oxideterm-quick-commands",
@@ -7273,11 +7273,9 @@ dependencies = [
  "raw-window-handle",
  "redb",
  "regex",
- "reqwest",
  "serde",
  "serde_json",
  "sha2 0.10.9",
- "tar",
  "tokio",
  "tracing",
  "tracing-appender",
@@ -7288,7 +7286,6 @@ dependencies = [
  "windows-core 0.61.2",
  "x11-dl",
  "zeroize",
- "zip",
 ]
 
 [[package]]
@@ -7549,6 +7546,21 @@ dependencies = [
  "reqwest",
  "serde_json",
  "sha2 0.10.9",
+ "zip",
+]
+
+[[package]]
+name = "oxideterm-plugin-runtime-install"
+version = "2.0.0-gpui-preview.15"
+dependencies = [
+ "flate2",
+ "futures-util",
+ "oxideterm-plugin-protocol",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tar",
  "zip",
 ]
 

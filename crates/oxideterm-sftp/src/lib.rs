@@ -7,18 +7,25 @@
 //! transfer semantics. Keeping that boundary explicit mirrors the Tauri backend
 //! where SFTP is acquired from a node connection rather than from terminal UI.
 
+mod conflict;
 mod error;
 mod path_utils;
 mod progress;
 mod retry;
 mod session;
 mod tar_transfer;
+mod text_diff;
 mod transfer_manager;
 mod types;
 
+pub use conflict::{
+    ConflictTarget, ConflictTransfer, TransferConflict, find_transfer_conflicts,
+    source_not_newer_than_target,
+};
 pub use error::SftpError;
 pub use path_utils::{
     join_remote_path, normalize_remote_path, remote_directory_prefixes, remote_parent_path,
+    unique_conflict_name,
 };
 pub use progress::{
     DummyProgressStore, LazyProgressStore, ProgressStore, RedbProgressStore,
@@ -33,6 +40,9 @@ pub use session::{SftpChannelOpener, SftpSession, WriteContentResult};
 pub use tar_transfer::{
     SftpExecChannelOpener, TarCompression, probe_tar_compression, probe_tar_support,
     tar_download_directory, tar_upload_directory,
+};
+pub use text_diff::{
+    TextDiffLine, TextDiffLineKind, TextDiffStats, compute_text_diff, text_diff_stats,
 };
 pub use transfer_manager::{
     BackgroundTransferDirection, BackgroundTransferKind, BackgroundTransferSnapshot,

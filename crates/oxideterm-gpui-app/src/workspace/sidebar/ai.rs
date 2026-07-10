@@ -4,6 +4,7 @@ use crate::workspace::ime::WorkspaceImeTarget;
 use crate::workspace::root::init::ai_chat_initialization_error;
 use crate::workspace::*;
 use gpui::{Context, Div, MouseDownEvent, Rgba, Window};
+use oxideterm_ai::stream_state::*;
 use oxideterm_ai::{
     AiAutocompleteCandidate, AiAutocompleteKind, AiChatMessage, AiChatMessageMetadata, AiChatRole,
     AiChatStreamConfig, AiConversation, AiExecutionBackend, AiMessageBranches,
@@ -18,11 +19,15 @@ use oxideterm_ai::{
     check_model_selector_provider_online, detect_ai_intent, extract_ai_error_context,
     generate_chat_title, infer_ai_cwd, model_max_response_tokens as ai_model_max_response_tokens,
     model_selector_display_name, model_selector_truncated_label,
-    model_selector_visible_provider_groups, parse_ai_suggestions, parse_ai_user_input,
+    model_selector_visible_provider_groups, parse_ai_user_input,
     provider_chat_requires_key as ai_provider_chat_requires_key,
     provider_views as ai_provider_views, resolve_ai_policy_decision, resolve_ai_slash_command,
     resolve_model_selector_provider_probe, select_provider_model as ai_select_provider_model,
     stream_chat_completion, tool_policy_from_parts,
+};
+use oxideterm_ai::{
+    AiExecutedToolResult, ai_to_usable_budget_threshold, ai_tool_result_model_content,
+    condense_ai_tool_messages,
 };
 use oxideterm_gpui_markdown::{
     MarkdownBlockLayout, MarkdownOptions, parser as markdown_parser, render as markdown_render,
