@@ -7,6 +7,7 @@ use std::{
 use anyhow::{Context, Result};
 
 use crate::ssh_paths::{default_ssh_dir, expand_home_path};
+use crate::{ConnectionStore, saved_connection_from_ssh_host};
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct SshConfigHost {
@@ -104,6 +105,56 @@ pub fn resolve_ssh_config_alias(alias: &str) -> Result<Option<SshConfigHost>> {
         certificate_file: resolved.certificate_file,
         already_imported: false,
     }))
+}
+
+/// Resolves and imports one literal SSH config alias as one store transaction.
+pub fn import_ssh_config_alias(store: &mut ConnectionStore, alias: &str) -> Result<bool> {
+    if store
+        .connections()
+        .iter()
+        .any(|connection| connection.name == alias)
+    {
+        return Ok(false);
+    }
+    let Some(host) = resolve_ssh_config_alias(alias)? else {
+        return Ok(false);
+    };
+    import_resolved_ssh_config_host(store, host)
+}
+
+fn import_resolved_ssh_config_host(
+    store: &mut ConnectionStore,
+    host: SshConfigHost,
+) -> Result<bool> {
+    if store
+        .connections()
+        .iter()
+        .any(|connection| connection.name == host.alias)
+    {
+        return Ok(false);
+    }
+    let connection = saved_connection_from_ssh_host(host)?;
+    store.import_ssh_connection(connection)?;
+    Ok(true)
+}
+
+/// Returns whether text can represent one literal SSH config alias.
+pub fn is_literal_ssh_config_alias_query(query: &str) -> bool {
+    !query.is_empty()
+        && !query
+            .chars()
+            .any(|character| character.is_whitespace() || matches!(character, '@' | ':'))
+}
+
+/// Resolves a case-insensitive query to the canonical alias stored in the SSH config.
+pub fn canonical_ssh_config_alias<'a>(hosts: &'a [SshConfigHost], query: &str) -> Option<&'a str> {
+    if !is_literal_ssh_config_alias_query(query) {
+        return None;
+    }
+    hosts
+        .iter()
+        .find(|host| host.alias.eq_ignore_ascii_case(query))
+        .map(|host| host.alias.as_str())
 }
 
 fn parse_ssh_config_file(path: &Path, seen: &mut HashSet<PathBuf>) -> Result<Vec<SshHostBlock>> {
@@ -287,7 +338,7 @@ fn alias_contains_pattern(alias: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{split_ssh_words, strip_comment};
+    use super::*;
 
     #[test]
     fn ssh_words_keep_quoted_values() {
@@ -295,5 +346,42 @@ mod tests {
             split_ssh_words(strip_comment("HostName \"dev box\" # comment")),
             vec!["HostName", "dev box"]
         );
+    }
+
+    #[test]
+    fn alias_query_returns_the_canonical_config_spelling() {
+        let hosts = vec![SshConfigHost {
+            alias: "Production-DB".to_string(),
+            ..SshConfigHost::default()
+        }];
+
+        assert_eq!(
+            canonical_ssh_config_alias(&hosts, "production-db"),
+            Some("Production-DB")
+        );
+        assert_eq!(canonical_ssh_config_alias(&hosts, "user@host"), None);
+        assert_eq!(canonical_ssh_config_alias(&hosts, "host:22"), None);
+    }
+
+    #[test]
+    fn resolved_alias_import_skips_duplicates_and_writes_once() {
+        let path = std::env::temp_dir().join(format!(
+            "oxideterm-ssh-alias-import-{}-connections.json",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&path);
+        let mut store = ConnectionStore::load(&path).unwrap();
+        let host = SshConfigHost {
+            alias: "production".to_string(),
+            hostname: Some("prod.example.com".to_string()),
+            user: Some("operator".to_string()),
+            ..SshConfigHost::default()
+        };
+
+        assert!(import_resolved_ssh_config_host(&mut store, host.clone()).unwrap());
+        assert!(!import_resolved_ssh_config_host(&mut store, host).unwrap());
+        assert_eq!(store.connections().len(), 1);
+        assert_eq!(store.connections()[0].host, "prod.example.com");
+        let _ = std::fs::remove_file(path);
     }
 }

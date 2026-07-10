@@ -3,6 +3,8 @@ use std::hash::{Hash, Hasher};
 
 use serde::{Deserialize, Serialize};
 
+use crate::capture::capture_failure_message;
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResourceFilesystemEntry {
@@ -235,6 +237,28 @@ pub fn parse_filesystem_snapshot(output: &str) -> ResourceFilesystemSnapshot {
     }
 }
 
+/// Interprets one command capture as a complete filesystem domain snapshot.
+pub fn filesystem_capture_snapshot(
+    stdout: &str,
+    stderr: &str,
+    exit_code: Option<i32>,
+) -> ResourceFilesystemSnapshot {
+    if exit_code == Some(0) {
+        return parse_filesystem_snapshot(stdout);
+    }
+    ResourceFilesystemSnapshot {
+        status: ResourceFilesystemStatus::Error {
+            message: capture_failure_message(
+                stdout,
+                stderr,
+                exit_code,
+                "Filesystem command failed.",
+            ),
+        },
+        entries: Vec::new(),
+    }
+}
+
 pub fn visible_filesystem_rows(
     entries: &[ResourceFilesystemEntry],
     query: &str,
@@ -315,8 +339,8 @@ pub fn filesystem_entry_severity(entry: &ResourceFilesystemEntry) -> FilesystemE
     let inode_count = parse_u64(&entry.inode_used);
 
     if entry.kind == "mount" {
-        if usage_percent >= 95
-            || inode_percent >= 95
+        if usage_percent >= 90
+            || inode_percent >= 90
             || (total_bytes >= 1024 * 1024 * 1024
                 && available_bytes > 0
                 && available_bytes < 512 * 1024 * 1024)
@@ -355,6 +379,15 @@ pub fn filesystem_entry_severity(entry: &ResourceFilesystemEntry) -> FilesystemE
     FilesystemEntrySeverity::Normal
 }
 
+/// Classifies percentage values using the same thresholds as filesystem rows.
+pub fn filesystem_percent_severity(value: &str) -> FilesystemEntrySeverity {
+    match parse_percent(value) {
+        percent if percent >= 90 => FilesystemEntrySeverity::Critical,
+        percent if percent >= 85 => FilesystemEntrySeverity::Warning,
+        _ => FilesystemEntrySeverity::Normal,
+    }
+}
+
 pub fn filesystem_attention_label_keys(entry: &ResourceFilesystemEntry) -> Vec<&'static str> {
     let mut keys = Vec::new();
     let usage_percent = parse_percent(&entry.used_percent);
@@ -363,12 +396,12 @@ pub fn filesystem_attention_label_keys(entry: &ResourceFilesystemEntry) -> Vec<&
     let total_bytes = parse_u64(&entry.size_bytes);
 
     if entry.kind == "mount" {
-        if usage_percent >= 95 {
+        if usage_percent >= 90 {
             keys.push("sidebar.host_filesystems.attention.critical_usage");
         } else if usage_percent >= 85 {
             keys.push("sidebar.host_filesystems.attention.high_usage");
         }
-        if inode_percent >= 95 {
+        if inode_percent >= 90 {
             keys.push("sidebar.host_filesystems.attention.critical_inode");
         } else if inode_percent >= 85 {
             keys.push("sidebar.host_filesystems.attention.inode_pressure");
@@ -974,6 +1007,59 @@ fn filesystem_os(os_type: &str) -> FilesystemOs {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn mount_with_usage(used_percent: u32) -> ResourceFilesystemEntry {
+        ResourceFilesystemEntry {
+            id: "/".into(),
+            kind: "mount".into(),
+            path: "/".into(),
+            device: "/dev/sda1".into(),
+            fs_type: "ext4".into(),
+            size_bytes: (10_u64 * 1024 * 1024 * 1024).to_string(),
+            used_bytes: String::new(),
+            available_bytes: (2_u64 * 1024 * 1024 * 1024).to_string(),
+            used_percent: used_percent.to_string(),
+            inode_total: String::new(),
+            inode_used: String::new(),
+            inode_available: String::new(),
+            inode_percent: String::new(),
+            read_only: false,
+            options: String::new(),
+            item_type: String::new(),
+            source: String::new(),
+            detail: String::new(),
+        }
+    }
+
+    #[test]
+    fn filesystem_usage_thresholds_are_consistent() {
+        for percent in [84, 85, 90, 94, 95] {
+            let expected = if percent >= 90 {
+                FilesystemEntrySeverity::Critical
+            } else if percent >= 85 {
+                FilesystemEntrySeverity::Warning
+            } else {
+                FilesystemEntrySeverity::Normal
+            };
+            assert_eq!(filesystem_percent_severity(&percent.to_string()), expected);
+            assert_eq!(
+                filesystem_entry_severity(&mount_with_usage(percent)),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn filesystem_capture_requires_an_explicit_zero_exit() {
+        for exit_code in [Some(7), None] {
+            let snapshot = filesystem_capture_snapshot("stdout reason", "stderr reason", exit_code);
+            let ResourceFilesystemStatus::Error { message } = snapshot.status else {
+                panic!("capture failure must produce an error snapshot");
+            };
+            assert!(message.starts_with("stderr reason"));
+            assert!(snapshot.entries.is_empty());
+        }
+    }
 
     #[test]
     fn parses_linux_mounts_inodes_findmnt_and_lsblk() {

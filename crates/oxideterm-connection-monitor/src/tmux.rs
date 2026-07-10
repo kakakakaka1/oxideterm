@@ -3,6 +3,7 @@ use std::hash::{Hash, Hasher};
 
 use serde::{Deserialize, Serialize};
 
+use crate::capture::capture_failure_message;
 use crate::shell::{powershell_quote, shell_quote};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -401,6 +402,23 @@ pub fn parse_tmux_snapshot(output: &str) -> ResourceTmuxSnapshot {
     }
 }
 
+/// Interprets one command capture as a complete tmux domain snapshot.
+pub fn tmux_capture_snapshot(
+    stdout: &str,
+    stderr: &str,
+    exit_code: Option<i32>,
+) -> ResourceTmuxSnapshot {
+    if exit_code == Some(0) {
+        return parse_tmux_snapshot(stdout);
+    }
+    ResourceTmuxSnapshot {
+        status: ResourceTmuxStatus::Error {
+            message: capture_failure_message(stdout, stderr, exit_code, "Tmux command failed."),
+        },
+        ..ResourceTmuxSnapshot::default()
+    }
+}
+
 pub fn visible_tmux_session_rows(
     snapshot: &ResourceTmuxSnapshot,
     query: &str,
@@ -727,6 +745,18 @@ fn extract_section<'a>(output: &'a str, name: &str) -> Option<&'a str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tmux_capture_failure_prefers_stderr_then_stdout() {
+        let stderr_snapshot = tmux_capture_snapshot("stdout reason", "stderr reason", Some(2));
+        assert!(
+            matches!(stderr_snapshot.status, ResourceTmuxStatus::Error { ref message } if message == "stderr reason (exit 2)")
+        );
+        let stdout_snapshot = tmux_capture_snapshot("stdout reason", "", None);
+        assert!(
+            matches!(stdout_snapshot.status, ResourceTmuxStatus::Error { ref message } if message == "stdout reason")
+        );
+    }
 
     fn tmux_row(kind: &str, fields: &[&str]) -> String {
         format!(

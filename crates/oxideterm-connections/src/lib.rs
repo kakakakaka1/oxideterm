@@ -1,4 +1,5 @@
 mod connection_import;
+mod connection_transport;
 mod draft;
 mod keychain;
 pub mod oxide_file;
@@ -16,6 +17,12 @@ pub use connection_import::{
     ImportedConnectionAuthType, ImportedConnectionDraft, ImportedProxyHopDraft,
     apply_connection_import, preview_connection_import,
 };
+pub use connection_transport::{
+    ConnectionTransport, RAW_TCP_DEFAULT_PORT_TEXT, RAW_UDP_DEFAULT_PORT_TEXT,
+    RDP_DEFAULT_PORT_TEXT, SSH_DEFAULT_PORT_TEXT, TELNET_DEFAULT_PORT_TEXT,
+    TransportUsernameTransition, VNC_DEFAULT_PORT_TEXT, transport_default_port,
+    transport_port_replacement, transport_username_transition,
+};
 pub use draft::{
     ConnectionAuthDraft, ConnectionAuthDraftKind, ConnectionDraft, IMPORTED_GROUP, ProxyHopDraft,
     SSH_CONFIG_TAG, first_available_default_key_path, save_request_from_draft,
@@ -23,7 +30,8 @@ pub use draft::{
 };
 pub use secret::SecretString;
 pub use ssh_config::{
-    SshBatchImportResult, SshConfigHost, SshConfigImportError, default_ssh_config_path,
+    SshBatchImportResult, SshConfigHost, SshConfigImportError, canonical_ssh_config_alias,
+    default_ssh_config_path, import_ssh_config_alias, is_literal_ssh_config_alias_query,
     list_ssh_config_hosts, resolve_ssh_config_alias,
 };
 pub use ssh_keys::{SshKeyInfo, list_available_ssh_keys};

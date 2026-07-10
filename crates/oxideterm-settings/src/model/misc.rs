@@ -290,7 +290,44 @@ impl Default for PersistedSettings {
 }
 
 impl PersistedSettings {
+    pub fn record_command_palette_use(&mut self, command_id: &str) {
+        const MAX_COMMAND_PALETTE_MRU_ENTRIES: usize = 20;
+
+        self.command_palette_mru
+            .retain(|candidate| candidate != command_id);
+        self.command_palette_mru.insert(0, command_id.to_string());
+        self.command_palette_mru
+            .truncate(MAX_COMMAND_PALETTE_MRU_ENTRIES);
+    }
+
     pub fn to_value(&self) -> Value {
         serde_json::to_value(self).expect("settings should serialize")
+    }
+}
+
+#[cfg(test)]
+mod misc_tests {
+    use super::PersistedSettings;
+
+    #[test]
+    fn command_palette_mru_deduplicates_promotes_and_bounds_entries() {
+        let mut settings = PersistedSettings::default();
+        settings.command_palette_mru = (0..20).map(|index| format!("command-{index}")).collect();
+
+        settings.record_command_palette_use("command-10");
+        assert_eq!(settings.command_palette_mru[0], "command-10");
+        assert_eq!(settings.command_palette_mru.len(), 20);
+        assert_eq!(
+            settings
+                .command_palette_mru
+                .iter()
+                .filter(|command| command.as_str() == "command-10")
+                .count(),
+            1
+        );
+
+        settings.record_command_palette_use("new-command");
+        assert_eq!(settings.command_palette_mru[0], "new-command");
+        assert_eq!(settings.command_palette_mru.len(), 20);
     }
 }

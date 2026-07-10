@@ -1,6 +1,7 @@
 use super::*;
 use oxideterm_connections::{
-    list_ssh_config_hosts, resolve_ssh_config_alias, saved_connection_from_ssh_host,
+    canonical_ssh_config_alias, is_literal_ssh_config_alias_query, list_ssh_config_hosts,
+    resolve_ssh_config_alias, saved_connection_from_ssh_host,
 };
 use oxideterm_gpui_settings_view::{OXIDE_THEME_IDS, built_in_theme_exists, is_oxide_theme};
 use oxideterm_gpui_ui::{
@@ -13,6 +14,7 @@ use oxideterm_gpui_ui::{
 use oxideterm_remote_desktop::{RemoteDesktopConnectionProfile, RemoteDesktopProtocol};
 use oxideterm_ssh_launch::{format_user_host_port_target, parse_explicit_user_host_port_target};
 use oxideterm_theme::BUILT_IN_THEMES;
+use oxideterm_workspace::{command_palette_match, parse_command_palette_query};
 use std::borrow::Cow;
 
 const COMMAND_PALETTE_WIDTH: f32 = 560.0; // Tauri DialogContent max-w-[560px].
@@ -299,7 +301,7 @@ impl WorkspaceApp {
     }
 
     fn update_command_palette_mode_from_query(&mut self, cx: &mut Context<Self>) {
-        let (mode, _) = parse_command_palette_mode(&self.command_palette.raw_query);
+        let (mode, _) = parse_command_palette_query(&self.command_palette.raw_query);
         self.command_palette.mode = mode;
         self.command_palette.selected_index = 0;
         self.command_palette.error = None;
@@ -669,10 +671,9 @@ impl WorkspaceApp {
     }
 
     fn record_command_palette_mru(&mut self, id: &str) {
-        let mru = &mut self.settings_store.settings_mut().command_palette_mru;
-        mru.retain(|candidate| candidate != id);
-        mru.insert(0, id.to_string());
-        mru.truncate(20);
+        self.settings_store
+            .settings_mut()
+            .record_command_palette_use(id);
         let _ = self.settings_store.save();
     }
 
@@ -847,7 +848,7 @@ impl WorkspaceApp {
     }
 
     fn ranked_command_palette_items(&self) -> Vec<RankedItem> {
-        let (mode, query) = parse_command_palette_mode(&self.command_palette.raw_query);
+        let (mode, query) = parse_command_palette_query(&self.command_palette.raw_query);
         let mut ranked = Vec::new();
 
         if mode == PaletteMode::All {
@@ -949,16 +950,10 @@ impl WorkspaceApp {
                 disabled: false,
             });
         }
-        if !is_quick_connect_alias_query(query) {
-            return None;
-        }
-        let alias = query.to_string();
-        let matched_alias = self
-            .command_palette
-            .ssh_config_hosts
-            .iter()
-            .any(|host| host.alias.eq_ignore_ascii_case(&alias));
-        if matched_alias {
+        if let Some(alias) =
+            canonical_ssh_config_alias(&self.command_palette.ssh_config_hosts, query)
+        {
+            let alias = alias.to_string();
             return Some(PaletteItem {
                 id: format!("quick_connect_alias:{alias}"),
                 label: self.quick_connect_label(&alias),
@@ -1190,7 +1185,7 @@ impl WorkspaceApp {
 
     pub(super) fn render_command_palette(&self, cx: &mut Context<Self>) -> AnyElement {
         let ranked_items = self.ranked_command_palette_items();
-        let (mode, _) = parse_command_palette_mode(&self.command_palette.raw_query);
+        let (mode, _) = parse_command_palette_query(&self.command_palette.raw_query);
         let query_text = if self.command_palette.raw_query.is_empty() {
             self.i18n.t(command_palette_placeholder_key(mode))
         } else {
@@ -1995,19 +1990,6 @@ struct ShortcutModalRow {
     shortcut: String,
 }
 
-pub(super) fn parse_command_palette_mode(raw_query: &str) -> (PaletteMode, String) {
-    let trimmed = raw_query.trim_start();
-    if let Some(rest) = trimmed.strip_prefix('>') {
-        (PaletteMode::Commands, rest.trim_start().to_string())
-    } else if let Some(rest) = trimmed.strip_prefix('@') {
-        (PaletteMode::Sessions, rest.trim_start().to_string())
-    } else if let Some(rest) = trimmed.strip_prefix('#') {
-        (PaletteMode::Connections, rest.trim_start().to_string())
-    } else {
-        (PaletteMode::All, trimmed.to_string())
-    }
-}
-
 fn command_palette_scroll_child_index(
     ranked_items: &[RankedItem],
     selected_index: usize,
@@ -2085,60 +2067,12 @@ fn rank_palette_section(items: Vec<PaletteItem>, query: &str) -> Vec<RankedItem>
 }
 
 fn rank_palette_item(item: PaletteItem, query: &str) -> Option<RankedItem> {
-    if query.is_empty() {
-        return Some(RankedItem {
-            item,
-            score: 1.0,
-            highlights: Vec::new(),
-        });
-    }
-    let haystack = item.value.to_lowercase();
-    let label = item.label.to_lowercase();
-    let needle = query.to_lowercase();
-    if haystack.contains(&needle) {
-        let highlights = substring_highlights(&label, &needle).unwrap_or_default();
-        return Some(RankedItem {
-            item,
-            score: 1.0,
-            highlights,
-        });
-    }
-    subsequence_highlights(&label, &needle).map(|highlights| RankedItem {
+    let palette_match = command_palette_match(&item.label, &item.value, query)?;
+    Some(RankedItem {
         item,
-        score: 0.5,
-        highlights,
+        score: palette_match.score,
+        highlights: palette_match.highlights,
     })
-}
-
-fn substring_highlights(label: &str, needle: &str) -> Option<Vec<usize>> {
-    let start_byte = label.find(needle)?;
-    let start = label[..start_byte].chars().count();
-    let len = needle.chars().count();
-    Some((start..start + len).collect())
-}
-
-fn subsequence_highlights(label: &str, needle: &str) -> Option<Vec<usize>> {
-    let mut highlights = Vec::new();
-    let mut needle_chars = needle.chars();
-    let mut current = needle_chars.next()?;
-    for (index, ch) in label.chars().enumerate() {
-        if ch == current {
-            highlights.push(index);
-            if let Some(next) = needle_chars.next() {
-                current = next;
-            } else {
-                return Some(highlights);
-            }
-        }
-    }
-    None
-}
-
-fn is_quick_connect_alias_query(query: &str) -> bool {
-    !query.is_empty()
-        && !query
-            .chars()
-            .any(|ch| ch.is_whitespace() || ch == '@' || ch == ':')
 }
 
 fn command_palette_health_counts_from_lifecycles<'a>(
@@ -2691,11 +2625,11 @@ mod tests {
 
     #[test]
     fn quick_connect_alias_query_rejects_tauri_excluded_characters() {
-        assert!(is_quick_connect_alias_query("prod-db"));
-        assert!(!is_quick_connect_alias_query(""));
-        assert!(!is_quick_connect_alias_query("prod db"));
-        assert!(!is_quick_connect_alias_query("user@host"));
-        assert!(!is_quick_connect_alias_query("host:2222"));
+        assert!(is_literal_ssh_config_alias_query("prod-db"));
+        assert!(!is_literal_ssh_config_alias_query(""));
+        assert!(!is_literal_ssh_config_alias_query("prod db"));
+        assert!(!is_literal_ssh_config_alias_query("user@host"));
+        assert!(!is_literal_ssh_config_alias_query("host:2222"));
     }
 
     #[test]

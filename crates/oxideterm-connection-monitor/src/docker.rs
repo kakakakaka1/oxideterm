@@ -40,6 +40,28 @@ pub enum DockerActionKind {
     Restart,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DockerActionAvailability {
+    pub can_start: bool,
+    pub can_stop: bool,
+    pub can_restart: bool,
+    pub can_use_live_tools: bool,
+}
+
+/// Returns the actions supported by the container's current lifecycle state.
+pub fn docker_action_availability(state: &str) -> DockerActionAvailability {
+    let is_live = matches!(
+        state.trim().to_ascii_lowercase().as_str(),
+        "running" | "restarting" | "paused"
+    );
+    DockerActionAvailability {
+        can_start: !is_live,
+        can_stop: is_live,
+        can_restart: is_live,
+        can_use_live_tools: is_live,
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DockerActionCommand {
     pub command: String,
@@ -594,5 +616,27 @@ mod tests {
         assert!(docker_sample_command("Windows").contains("--no-trunc"));
         assert!(docker_sample_command("Linux").contains("docker inspect --format"));
         assert!(docker_sample_command("Windows").contains("docker inspect --format"));
+    }
+
+    #[test]
+    fn docker_action_matrix_follows_container_lifecycle() {
+        assert_eq!(
+            docker_action_availability("running"),
+            DockerActionAvailability {
+                can_start: false,
+                can_stop: true,
+                can_restart: true,
+                can_use_live_tools: true
+            }
+        );
+        assert_eq!(
+            docker_action_availability("exited"),
+            DockerActionAvailability {
+                can_start: true,
+                can_stop: false,
+                can_restart: false,
+                can_use_live_tools: false
+            }
+        );
     }
 }

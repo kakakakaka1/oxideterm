@@ -1,4 +1,5 @@
 use super::super::*;
+use oxideterm_atomic_file::durable_write_with_before_replace;
 
 pub(in crate::workspace) fn tab_background_key(kind: &TabKind) -> &'static str {
     match kind {
@@ -35,51 +36,6 @@ pub(in crate::workspace) fn terminal_background_fit(fit: BackgroundFit) -> Termi
         BackgroundFit::Contain => TerminalBackgroundFit::Contain,
         BackgroundFit::Fill => TerminalBackgroundFit::Fill,
         BackgroundFit::Tile => TerminalBackgroundFit::Tile,
-    }
-}
-
-pub(in crate::workspace) fn sftp_runtime_settings_from_settings(
-    settings: &PersistedSettings,
-) -> SftpTransferRuntimeSettings {
-    SftpTransferRuntimeSettings {
-        max_concurrent_transfers: settings.sftp.max_concurrent_transfers.max(1) as usize,
-        speed_limit_kbps: if settings.sftp.speed_limit_enabled {
-            settings.sftp.speed_limit_kbps.max(0) as usize
-        } else {
-            0
-        },
-        directory_parallelism: settings.sftp.directory_parallelism.max(1) as usize,
-    }
-}
-
-pub(in crate::workspace) fn reconnect_timing_from_settings(
-    settings: &PersistedSettings,
-) -> ReconnectTiming {
-    ReconnectTiming {
-        retry_base_delay: Duration::from_millis(settings.reconnect.base_delay_ms.max(1) as u64),
-        retry_max_delay: Duration::from_millis(settings.reconnect.max_delay_ms.max(1) as u64),
-        ..ReconnectTiming::default()
-    }
-}
-
-pub(in crate::workspace) fn reconnect_max_attempts_from_settings(
-    settings: &PersistedSettings,
-) -> u32 {
-    settings.reconnect.max_attempts.max(1) as u32
-}
-
-pub(in crate::workspace) fn session_terminal_encoding(
-    encoding: SettingsTerminalEncoding,
-) -> SessionTerminalEncoding {
-    match encoding {
-        SettingsTerminalEncoding::Utf8 => SessionTerminalEncoding::Utf8,
-        SettingsTerminalEncoding::Gbk => SessionTerminalEncoding::Gbk,
-        SettingsTerminalEncoding::Gb18030 => SessionTerminalEncoding::Gb18030,
-        SettingsTerminalEncoding::Big5 => SessionTerminalEncoding::Big5,
-        SettingsTerminalEncoding::ShiftJis => SessionTerminalEncoding::ShiftJis,
-        SettingsTerminalEncoding::EucJp => SessionTerminalEncoding::EucJp,
-        SettingsTerminalEncoding::EucKr => SessionTerminalEncoding::EucKr,
-        SettingsTerminalEncoding::Windows1252 => SessionTerminalEncoding::Windows1252,
     }
 }
 
@@ -1364,66 +1320,9 @@ pub(in crate::workspace) fn write_session_tree_snapshot(
     path: &Path,
     snapshot: &PersistedNodeTreeSnapshot,
 ) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
     let bytes = serde_json::to_vec_pretty(snapshot)?;
-    atomic_write_session_tree_file(path, &bytes)?;
+    durable_write_with_before_replace(path, &bytes, fail_before_session_tree_replace_for_tests)?;
     Ok(())
-}
-
-pub(in crate::workspace) fn atomic_write_session_tree_file(
-    path: &Path,
-    bytes: &[u8],
-) -> io::Result<()> {
-    let parent = path
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."));
-    let file_name = path.file_name().ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "session tree path has no file name",
-        )
-    })?;
-    let (temp_path, mut temp_file) = (0..MAX_SESSION_TREE_TEMP_ATTEMPTS)
-        .find_map(|_| {
-            let sequence = SESSION_TREE_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-            let mut temp_name = OsString::from(".");
-            temp_name.push(file_name);
-            temp_name.push(format!(".{}.{sequence}.tmp", std::process::id()));
-            let temp_path = parent.join(temp_name);
-            match OpenOptions::new()
-                .create_new(true)
-                .write(true)
-                .open(&temp_path)
-            {
-                Ok(file) => Some(Ok((temp_path, file))),
-                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => None,
-                Err(error) => Some(Err(error)),
-            }
-        })
-        .transpose()?
-        .ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::AlreadyExists,
-                "session tree temp path exhausted",
-            )
-        })?;
-
-    // The previous snapshot remains visible until the complete replacement is durable.
-    let write_result = (|| {
-        temp_file.write_all(bytes)?;
-        temp_file.flush()?;
-        temp_file.sync_all()?;
-        drop(temp_file);
-        fail_before_session_tree_replace_for_tests()?;
-        replace_session_tree_file(&temp_path, path)
-    })();
-    if write_result.is_err() {
-        let _ = fs::remove_file(&temp_path);
-    }
-    write_result
 }
 
 #[cfg(test)]
@@ -1449,64 +1348,13 @@ pub(in crate::workspace) fn inject_session_tree_replace_failure() {
     FAIL_NEXT_SESSION_TREE_REPLACE.with(|fail| fail.set(true));
 }
 
-#[cfg(not(windows))]
-pub(in crate::workspace) fn replace_session_tree_file(
-    source: &Path,
-    destination: &Path,
-) -> io::Result<()> {
-    fs::rename(source, destination)
-}
-
-#[cfg(windows)]
-pub(in crate::workspace) fn replace_session_tree_file(
-    source: &Path,
-    destination: &Path,
-) -> io::Result<()> {
-    use std::os::windows::ffi::OsStrExt;
-
-    const MOVEFILE_REPLACE_EXISTING: u32 = 0x1;
-    const MOVEFILE_WRITE_THROUGH: u32 = 0x8;
-
-    #[link(name = "Kernel32")]
-    unsafe extern "system" {
-        pub(in crate::workspace) fn MoveFileExW(
-            existing: *const u16,
-            replacement: *const u16,
-            flags: u32,
-        ) -> i32;
-    }
-
-    let source = source
-        .as_os_str()
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect::<Vec<_>>();
-    let destination = destination
-        .as_os_str()
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect::<Vec<_>>();
-    let replaced = unsafe {
-        MoveFileExW(
-            source.as_ptr(),
-            destination.as_ptr(),
-            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
-        )
-    };
-    if replaced == 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
-}
-
 pub(in crate::workspace) fn persistable_session_tree_config(
     node: &NodeTreeSnapshotNode,
 ) -> Option<SshConfig> {
     if node.origin.saved_connection_id().is_some() {
         return None;
     }
-    config_without_runtime_secret(&node.config).then(|| node.config.clone())
+    (!node.config.has_runtime_auth_secret()).then(|| node.config.clone())
 }
 
 pub(in crate::workspace) fn connection_error_is_cancelled(error: &str) -> bool {
@@ -1619,26 +1467,6 @@ pub(in crate::workspace) fn saved_manual_preset_hop_config(
     }
 
     None
-}
-
-pub(in crate::workspace) fn config_without_runtime_secret(config: &SshConfig) -> bool {
-    auth_without_runtime_secret(&config.auth)
-        && config.proxy_chain.as_ref().is_none_or(|chain| {
-            chain
-                .iter()
-                .all(|hop| auth_without_runtime_secret(&hop.auth))
-        })
-}
-
-pub(in crate::workspace) fn auth_without_runtime_secret(auth: &AuthMethod) -> bool {
-    match auth {
-        AuthMethod::Password { .. } => false,
-        AuthMethod::Key { passphrase, .. } | AuthMethod::Certificate { passphrase, .. } => {
-            passphrase.is_none()
-        }
-        AuthMethod::ManagedKey { passphrase, .. } => passphrase.is_none(),
-        AuthMethod::Agent | AuthMethod::KeyboardInteractive => true,
-    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -9,10 +9,15 @@
 
 mod auth;
 mod proxy;
+mod runtime_settings;
 mod ssh;
 
 pub use auth::{auth_method_from_saved_auth, managed_key_resolver_from_store};
 pub use proxy::upstream_proxy_config_from_saved_policy;
+pub use runtime_settings::{
+    reconnect_max_attempts_from_settings, reconnect_timing_from_settings,
+    sftp_runtime_settings_from_settings, terminal_encoding_from_settings,
+};
 pub use ssh::{proxy_chain_config_from_saved_connection, ssh_config_from_saved_connection};
 
 #[cfg(test)]

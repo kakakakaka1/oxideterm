@@ -7224,6 +7224,7 @@ dependencies = [
  "objc2-foundation",
  "oxideterm-acp-adapter",
  "oxideterm-ai",
+ "oxideterm-atomic-file",
  "oxideterm-backend-classification",
  "oxideterm-cloud-sync",
  "oxideterm-connection-monitor",
@@ -7669,7 +7670,9 @@ dependencies = [
  "chrono",
  "oxideterm-connections",
  "oxideterm-settings",
+ "oxideterm-sftp",
  "oxideterm-ssh",
+ "oxideterm-terminal",
 ]
 
 [[package]]

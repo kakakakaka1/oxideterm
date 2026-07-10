@@ -3,7 +3,13 @@ use std::fmt;
 use oxideterm_connections::{
     AuthType, ConnectionInfo, PrivilegeCredentialKind, RawTcpDisplayMode, RawTcpLineEnding,
     RawTcpSendMode, RawTcpTlsMode, RawTcpTlsVerification, RawUdpDisplayMode, RawUdpLineEnding,
-    RawUdpSendMode, SavedUpstreamProxyProtocol,
+    RawUdpSendMode, SavedUpstreamProxyProtocol, TransportUsernameTransition,
+    transport_port_replacement, transport_username_transition,
+};
+pub(in crate::workspace) use oxideterm_connections::{
+    ConnectionTransport as NewConnectionTransport, RAW_TCP_DEFAULT_PORT_TEXT,
+    RAW_UDP_DEFAULT_PORT_TEXT, RDP_DEFAULT_PORT_TEXT, SSH_DEFAULT_PORT_TEXT,
+    TELNET_DEFAULT_PORT_TEXT, VNC_DEFAULT_PORT_TEXT,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -73,25 +79,6 @@ pub(in crate::workspace) fn default_auth_tab_for_family(family: SshAuthFamily) -
         SshAuthFamily::Agent => SshAuthTab::Agent,
         SshAuthFamily::TwoFactor => SshAuthTab::TwoFactor,
     }
-}
-
-pub(in crate::workspace) const SSH_DEFAULT_PORT_TEXT: &str = "22";
-pub(in crate::workspace) const TELNET_DEFAULT_PORT_TEXT: &str = "23";
-pub(in crate::workspace) const RAW_TCP_DEFAULT_PORT_TEXT: &str = "";
-pub(in crate::workspace) const RAW_UDP_DEFAULT_PORT_TEXT: &str = "";
-pub(in crate::workspace) const RDP_DEFAULT_PORT_TEXT: &str = "3389";
-pub(in crate::workspace) const VNC_DEFAULT_PORT_TEXT: &str = "5900";
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::workspace) enum NewConnectionTransport {
-    Ssh,
-    Telnet,
-    RawTcp,
-    RawUdp,
-    Serial,
-    Rdp,
-    Vnc,
-    WslGraphics,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -575,44 +562,11 @@ pub(in crate::workspace) fn apply_transport_default_port(
     previous_transport: NewConnectionTransport,
     next_transport: NewConnectionTransport,
 ) {
-    let current_port = form.port.trim();
-    let Some(next_default_port) = default_port_for_transport(next_transport) else {
-        return;
-    };
-    let current_matches_previous_default =
-        if let Some(previous_default_port) = default_port_for_transport(previous_transport) {
-            current_port == previous_default_port
-        } else {
-            is_known_transport_default_port(current_port)
-        };
-
-    // Switching transports updates only untouched default ports; user-entered
-    // custom ports are preserved across SSH/Telnet/RDP/VNC mode changes.
-    if current_port.is_empty() || current_matches_previous_default {
-        form.port = next_default_port.to_string();
+    if let Some(replacement) =
+        transport_port_replacement(&form.port, previous_transport, next_transport)
+    {
+        form.port = replacement.to_string();
     }
-}
-
-fn default_port_for_transport(transport: NewConnectionTransport) -> Option<&'static str> {
-    match transport {
-        NewConnectionTransport::Ssh => Some(SSH_DEFAULT_PORT_TEXT),
-        NewConnectionTransport::Telnet => Some(TELNET_DEFAULT_PORT_TEXT),
-        NewConnectionTransport::RawTcp => Some(RAW_TCP_DEFAULT_PORT_TEXT),
-        NewConnectionTransport::RawUdp => Some(RAW_UDP_DEFAULT_PORT_TEXT),
-        NewConnectionTransport::Rdp => Some(RDP_DEFAULT_PORT_TEXT),
-        NewConnectionTransport::Vnc => Some(VNC_DEFAULT_PORT_TEXT),
-        NewConnectionTransport::Serial | NewConnectionTransport::WslGraphics => None,
-    }
-}
-
-fn is_known_transport_default_port(port: &str) -> bool {
-    [
-        SSH_DEFAULT_PORT_TEXT,
-        TELNET_DEFAULT_PORT_TEXT,
-        RDP_DEFAULT_PORT_TEXT,
-        VNC_DEFAULT_PORT_TEXT,
-    ]
-    .contains(&port)
 }
 
 pub(in crate::workspace) fn apply_transport_default_username(
@@ -620,47 +574,10 @@ pub(in crate::workspace) fn apply_transport_default_username(
     previous_transport: NewConnectionTransport,
     next_transport: NewConnectionTransport,
 ) {
-    let username = form.username.trim();
-    match next_transport {
-        NewConnectionTransport::Rdp
-            if username.is_empty()
-                || (previous_transport == NewConnectionTransport::Ssh && username == "root") =>
-        {
-            form.username = "Administrator".to_string();
-        }
-        NewConnectionTransport::Vnc
-            if matches!(
-                previous_transport,
-                NewConnectionTransport::Ssh | NewConnectionTransport::Rdp
-            ) && matches!(username, "root" | "Administrator") =>
-        {
-            form.username.clear();
-        }
-        NewConnectionTransport::RawTcp | NewConnectionTransport::RawUdp
-            if matches!(
-                previous_transport,
-                NewConnectionTransport::Ssh | NewConnectionTransport::Rdp
-            ) && matches!(username, "root" | "Administrator") =>
-        {
-            form.username.clear();
-        }
-        NewConnectionTransport::Ssh
-            if matches!(
-                previous_transport,
-                NewConnectionTransport::Rdp
-                    | NewConnectionTransport::RawTcp
-                    | NewConnectionTransport::RawUdp
-            ) && (username == "Administrator" || username.is_empty()) =>
-        {
-            form.username = "root".to_string();
-        }
-        NewConnectionTransport::Ssh
-            if previous_transport == NewConnectionTransport::Vnc && username.is_empty() =>
-        {
-            form.username = "root".to_string();
-        }
-        NewConnectionTransport::WslGraphics => {}
-        _ => {}
+    match transport_username_transition(&form.username, previous_transport, next_transport) {
+        Some(TransportUsernameTransition::Set(username)) => form.username = username.to_string(),
+        Some(TransportUsernameTransition::Clear) => form.username.clear(),
+        None => {}
     }
 }
 

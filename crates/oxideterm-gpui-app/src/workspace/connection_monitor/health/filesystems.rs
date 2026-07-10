@@ -2,6 +2,8 @@
 
 use super::*;
 
+use oxideterm_connection_monitor::{filesystem_capture_snapshot, filesystem_percent_severity};
+
 impl WorkspaceApp {
     pub(super) fn render_host_filesystems_panel(&self, cx: &mut Context<Self>) -> AnyElement {
         let connections = self.monitor_connections();
@@ -1128,8 +1130,9 @@ impl WorkspaceApp {
         self.connection_monitor.host_filesystem_snapshot_running = None;
         self.connection_monitor.host_filesystem_snapshot_rx = None;
         match delivery.result {
-            Ok(output) if output.exit_code.unwrap_or(0) == 0 => {
-                let snapshot = parse_filesystem_snapshot(&output.stdout);
+            Ok(output) => {
+                let snapshot =
+                    filesystem_capture_snapshot(&output.stdout, &output.stderr, output.exit_code);
                 let visible_count = visible_filesystem_rows(
                     &snapshot.entries,
                     &self.connection_monitor.host_filesystem_search_query,
@@ -1176,33 +1179,6 @@ impl WorkspaceApp {
                 self.connection_monitor
                     .host_filesystem_snapshot_connection_id = Some(delivery.request.connection_id);
                 self.connection_monitor.host_filesystem_snapshot = Some(snapshot);
-            }
-            Ok(output) => {
-                let reason = host_filesystem_capture_failure_message(
-                    &output.stdout,
-                    &output.stderr,
-                    output.exit_code,
-                    self.i18n.t("sidebar.host_filesystems.toast.unknown_error"),
-                );
-                self.connection_monitor.host_filesystem_last_error = Some(reason.clone());
-                self.connection_monitor
-                    .host_filesystem_snapshot_connection_id = Some(delivery.request.connection_id);
-                self.connection_monitor.host_filesystem_snapshot =
-                    Some(ResourceFilesystemSnapshot {
-                        status: ResourceFilesystemStatus::Error {
-                            message: reason.clone(),
-                        },
-                        entries: Vec::new(),
-                    });
-                if feedback.should_toast() {
-                    self.push_host_filesystem_toast(
-                        self.i18n_replace(
-                            "sidebar.host_filesystems.toast.snapshot_failed",
-                            &[("reason", reason)],
-                        ),
-                        TerminalNoticeVariant::Error,
-                    );
-                }
             }
             Err(error) => {
                 self.connection_monitor.host_filesystem_last_error = Some(error.clone());
@@ -1324,11 +1300,13 @@ fn host_filesystem_path_color(entry: &ResourceFilesystemEntry, default_color: u3
 }
 
 fn host_filesystem_percent_color(value: &str, muted_color: u32) -> u32 {
-    match host_filesystem_percent_value(value) {
-        percent if percent >= 90 => MONITOR_RED,
-        percent if percent >= 85 => MONITOR_AMBER,
-        percent if percent > 0 => MONITOR_EMERALD,
-        _ => muted_color,
+    match filesystem_percent_severity(value) {
+        FilesystemEntrySeverity::Critical => MONITOR_RED,
+        FilesystemEntrySeverity::Warning => MONITOR_AMBER,
+        FilesystemEntrySeverity::Normal if host_filesystem_percent_value(value) > 0 => {
+            MONITOR_EMERALD
+        }
+        FilesystemEntrySeverity::Normal => muted_color,
     }
 }
 
@@ -1378,23 +1356,5 @@ fn host_filesystem_attention_summary(i18n: &I18n, entry: &ResourceFilesystemEntr
         "—".to_string()
     } else {
         labels.join(" · ")
-    }
-}
-
-fn host_filesystem_capture_failure_message(
-    stdout: &str,
-    stderr: &str,
-    exit_code: Option<i32>,
-    fallback: String,
-) -> String {
-    let reason = stderr
-        .lines()
-        .chain(stdout.lines())
-        .map(str::trim)
-        .find(|line| !line.is_empty())
-        .unwrap_or(fallback.as_str());
-    match exit_code {
-        Some(code) => format!("{reason} (exit {code})"),
-        None => reason.to_string(),
     }
 }

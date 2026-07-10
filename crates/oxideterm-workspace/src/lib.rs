@@ -1,5 +1,11 @@
 use std::fmt;
 
+mod command_palette;
+
+pub use command_palette::{
+    CommandPaletteMatch, CommandPaletteMode, command_palette_match, parse_command_palette_query,
+};
+
 pub const MAX_PANES_PER_TAB: usize = 4;
 pub const MIN_PANE_FRACTION: f32 = 10.0;
 

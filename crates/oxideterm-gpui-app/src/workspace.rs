@@ -55,14 +55,13 @@ mod virtual_list;
 use std::{
     cell::RefCell,
     collections::{HashMap, HashSet, VecDeque, hash_map::DefaultHasher},
-    ffi::OsString,
-    fs::{self, OpenOptions},
+    fs,
     hash::{Hash, Hasher},
-    io::{self, Write},
+    io,
     path::{Path, PathBuf},
     sync::{
         Arc,
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, Ordering},
     },
     time::{Duration, Instant, SystemTime},
 };
@@ -116,12 +115,11 @@ use oxideterm_connection_monitor::{
     gpu_list_rows, gpu_memory_percent, gpu_memory_summary, gpu_utilization_percent,
     interface_list_rows, log_level_label_key, log_preset_label_key, log_row_signature,
     metrics_source_label_key, package_filter_label_key, package_row_signature,
-    package_status_label_key, parse_filesystem_snapshot, parse_log_snapshot,
-    parse_package_snapshot, parse_port_snapshot, parse_scheduled_task_snapshot,
-    parse_tmux_snapshot, percent_level, port_endpoint, port_filter_label_key,
-    port_is_risky_exposure, port_row_signature, port_state_label_key,
-    process_action_failure_message, process_action_succeeded, process_action_success_message,
-    process_display_command, process_display_name, process_row_signature, process_state_label_key,
+    package_status_label_key, parse_log_snapshot, parse_package_snapshot, parse_port_snapshot,
+    percent_level, port_endpoint, port_filter_label_key, port_is_risky_exposure,
+    port_row_signature, port_state_label_key, process_action_failure_message,
+    process_action_succeeded, process_action_success_message, process_display_command,
+    process_display_name, process_row_signature, process_state_label_key,
     resource_metrics_is_rtt_only, rtt_level, scheduled_task_active_label_key,
     scheduled_task_enabled_label_key, scheduled_task_filter_label_key,
     scheduled_task_row_signature, scheduled_task_source_label_key, service_action_failure_message,
@@ -180,10 +178,15 @@ use oxideterm_notification_center::{
 use oxideterm_render_policy::{
     DetectedGraphics, EffectiveRenderPolicy, RenderProfile, compute_render_policy,
 };
+use oxideterm_session_adapter::{
+    reconnect_max_attempts_from_settings, reconnect_timing_from_settings,
+    sftp_runtime_settings_from_settings,
+    terminal_encoding_from_settings as session_terminal_encoding,
+};
 use oxideterm_settings::{
     AI_SIDEBAR_MAX_WIDTH, AI_SIDEBAR_MIN_WIDTH, BackgroundFit, CursorStyle as SettingsCursorStyle,
     FontFamily, FrostedGlassMode, HighlightRuleRenderMode, Language, PersistedSettings,
-    SettingsStore, TerminalEncoding as SettingsTerminalEncoding, default_settings_path,
+    SettingsStore, default_settings_path,
 };
 use oxideterm_settings_model::{
     AiMcpServerDraft, AiModelRefreshDelivery, AiProviderKeyStatusDelivery, SettingsPageModel,
@@ -191,8 +194,8 @@ use oxideterm_settings_model::{
 use oxideterm_sftp::{
     BackgroundTransferDirection, BackgroundTransferKind, BackgroundTransferSnapshot,
     BackgroundTransferState, LazyProgressStore, ProgressStore, SftpTransferGuard,
-    SftpTransferManager, SftpTransferRuntimeSettings, StoredTransferProgress, TransferStrategy,
-    probe_tar_compression, probe_tar_support, tar_download_directory, tar_upload_directory,
+    SftpTransferManager, StoredTransferProgress, TransferStrategy, probe_tar_compression,
+    probe_tar_support, tar_download_directory, tar_upload_directory,
 };
 use oxideterm_ssh::{
     AuthMethod, ConnectionConsumer, ConnectionPoolConfig, ConnectionState,
@@ -201,22 +204,22 @@ use oxideterm_ssh::{
     PhaseResult, ProbeConnectionStatus, ProxyHopConfig, ReconnectForwardRule,
     ReconnectForwardRuleSnapshot, ReconnectJob, ReconnectNodeConnectionSnapshot,
     ReconnectNodeTerminalSnapshot, ReconnectNodeTransferSnapshot, ReconnectOrchestratorStore,
-    ReconnectPhase, ReconnectSnapshot, ReconnectTiming, SshConfig, SshConnectionRegistry,
-    SshTransportClient, TerminalEndpoint, UpstreamProxyConfig,
+    ReconnectPhase, ReconnectSnapshot, SshConfig, SshConnectionRegistry, SshTransportClient,
+    TerminalEndpoint, UpstreamProxyConfig,
 };
 use oxideterm_ssh_launch::TemporarySshLaunch;
 use oxideterm_terminal::{
     LocalPtyConfig, RawTcpSessionConfig, RawUdpSessionConfig, SerialSessionConfig, ShellInfo,
     SshSessionConfig, TelnetSessionConfig, TerminalCommandMarkDetectionSource, TerminalCursorShape,
-    TerminalEncoding as SessionTerminalEncoding, TerminalLifecycle, scan_shells,
+    TerminalLifecycle, scan_shells,
 };
 use oxideterm_theme::{
     AppUiColors, TerminalTheme, ThemeTokens, UiRadii, derive_ui_colors_from_terminal, theme_by_id,
 };
 use oxideterm_workspace::{
-    ActiveSessionNode, ActiveSessionReadiness, ActiveSessionStatus, MAX_PANES_PER_TAB, PaneId,
-    PaneNode, SplitDirection, Tab, TabId, TabKind, TabTitleSource, TerminalSessionId,
-    adjusted_split_sizes, balanced_sizes,
+    ActiveSessionNode, ActiveSessionReadiness, ActiveSessionStatus,
+    CommandPaletteMode as PaletteMode, MAX_PANES_PER_TAB, PaneId, PaneNode, SplitDirection, Tab,
+    TabId, TabKind, TabTitleSource, TerminalSessionId, adjusted_split_sizes, balanced_sizes,
 };
 
 use self::actions::SearchBarState;
@@ -504,14 +507,6 @@ struct CommandPaletteState {
     ssh_config_hosts: Vec<oxideterm_connections::SshConfigHost>,
     ssh_config_hosts_loading: bool,
     error: Option<String>,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum PaletteMode {
-    All,
-    Commands,
-    Sessions,
-    Connections,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1231,9 +1226,6 @@ struct PersistedNodeTreeNode {
     created_at_ms: u64,
     generation: u64,
 }
-
-const MAX_SESSION_TREE_TEMP_ATTEMPTS: usize = 128;
-static SESSION_TREE_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[cfg(test)]
 thread_local! {

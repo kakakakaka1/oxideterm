@@ -3,6 +3,7 @@ use std::hash::{Hash, Hasher};
 
 use serde::{Deserialize, Serialize};
 
+use crate::capture::capture_failure_message;
 use crate::shell::{powershell_quote, shell_quote};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -72,6 +73,40 @@ pub enum ScheduledTaskActionKind {
     RunNow { id: String, unit: String },
     Enable { id: String, source: String },
     Disable { id: String, source: String },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ScheduledTaskToggleAction {
+    Enable,
+    Disable,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ScheduledTaskActionAvailability {
+    pub can_run_now: bool,
+    pub can_toggle_enabled: bool,
+    pub is_enabled: bool,
+    pub next_toggle: ScheduledTaskToggleAction,
+}
+
+/// Returns the task actions and next enabled-state transition.
+pub fn scheduled_task_action_availability(
+    task: &ResourceScheduledTask,
+) -> ScheduledTaskActionAvailability {
+    let is_enabled = matches!(
+        task.enabled.trim().to_ascii_lowercase().as_str(),
+        "enabled" | "true" | "yes" | "static"
+    );
+    ScheduledTaskActionAvailability {
+        can_run_now: task.unit.ends_with(".service") || task.source == "windows",
+        can_toggle_enabled: matches!(task.source.as_str(), "systemd" | "windows"),
+        is_enabled,
+        next_toggle: if is_enabled {
+            ScheduledTaskToggleAction::Disable
+        } else {
+            ScheduledTaskToggleAction::Enable
+        },
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -389,6 +424,28 @@ pub fn parse_scheduled_task_snapshot(output: &str) -> ResourceScheduledTaskSnaps
             platform,
         },
         entries,
+    }
+}
+
+/// Interprets one command capture as a complete scheduled-task domain snapshot.
+pub fn scheduled_task_capture_snapshot(
+    stdout: &str,
+    stderr: &str,
+    exit_code: Option<i32>,
+) -> ResourceScheduledTaskSnapshot {
+    if exit_code == Some(0) {
+        return parse_scheduled_task_snapshot(stdout);
+    }
+    ResourceScheduledTaskSnapshot {
+        status: ResourceScheduledTaskStatus::Error {
+            message: capture_failure_message(
+                stdout,
+                stderr,
+                exit_code,
+                "Scheduled task command failed.",
+            ),
+        },
+        entries: Vec::new(),
     }
 }
 
@@ -1117,5 +1174,34 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn scheduled_task_action_matrix_reports_next_toggle() {
+        let mut task = ResourceScheduledTask {
+            id: "backup.timer".to_string(),
+            name: "backup".to_string(),
+            source: "systemd".to_string(),
+            schedule: String::new(),
+            command: String::new(),
+            user: String::new(),
+            enabled: "enabled".to_string(),
+            active: String::new(),
+            last_run: String::new(),
+            next_run: String::new(),
+            last_result: String::new(),
+            description: String::new(),
+            unit: "backup.service".to_string(),
+        };
+        let enabled = scheduled_task_action_availability(&task);
+        assert!(enabled.can_run_now);
+        assert!(enabled.can_toggle_enabled);
+        assert!(enabled.is_enabled);
+        assert_eq!(enabled.next_toggle, ScheduledTaskToggleAction::Disable);
+
+        task.enabled = "disabled".to_string();
+        let disabled = scheduled_task_action_availability(&task);
+        assert!(!disabled.is_enabled);
+        assert_eq!(disabled.next_toggle, ScheduledTaskToggleAction::Enable);
     }
 }

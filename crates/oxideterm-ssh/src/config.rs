@@ -95,6 +95,15 @@ impl SshConfig {
             self.username, self.host, self.port, proxy_key, upstream_proxy_key, legacy_key
         )
     }
+
+    /// Runtime authentication material must never enter plain persisted snapshots.
+    pub fn has_runtime_auth_secret(&self) -> bool {
+        self.auth.has_runtime_secret()
+            || self
+                .proxy_chain
+                .as_ref()
+                .is_some_and(|chain| chain.iter().any(|hop| hop.auth.has_runtime_secret()))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -185,6 +194,17 @@ impl fmt::Debug for AuthMethod {
 }
 
 impl AuthMethod {
+    /// Passwords and supplied passphrases are retained only for the active connection attempt.
+    pub fn has_runtime_secret(&self) -> bool {
+        match self {
+            Self::Password { .. } => true,
+            Self::Key { passphrase, .. }
+            | Self::ManagedKey { passphrase, .. }
+            | Self::Certificate { passphrase, .. } => passphrase.is_some(),
+            Self::Agent | Self::KeyboardInteractive => false,
+        }
+    }
+
     pub fn password(password: impl Into<String>) -> Self {
         Self::Password {
             password: Zeroizing::new(password.into()),
@@ -341,5 +361,32 @@ mod tests {
     #[test]
     fn proxy_hop_default_matches_tauri_non_strict_proxy_default() {
         assert!(!default_proxy_strict_host_key_checking());
+    }
+
+    #[test]
+    fn runtime_auth_secret_detection_includes_target_and_proxy_hops() {
+        let mut config = SshConfig {
+            auth: AuthMethod::Agent,
+            ..SshConfig::default()
+        };
+        assert!(!config.has_runtime_auth_secret());
+
+        config.auth = AuthMethod::key("~/.ssh/id_ed25519", Some("passphrase".to_string()));
+        assert!(config.has_runtime_auth_secret());
+
+        config.auth = AuthMethod::Agent;
+        config.proxy_chain = Some(vec![ProxyHopConfig {
+            host: "jump.example.com".to_string(),
+            port: 22,
+            username: "operator".to_string(),
+            auth: AuthMethod::password("proxy-password"),
+            agent_forwarding: false,
+            legacy_ssh_compatibility: false,
+            strict_host_key_checking: false,
+            trust_host_key: None,
+            expected_host_key_fingerprint: None,
+        }]);
+
+        assert!(config.has_runtime_auth_secret());
     }
 }

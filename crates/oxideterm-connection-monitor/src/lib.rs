@@ -6,6 +6,7 @@
 //! This crate owns the UI-consumed monitor shapes and profiler state contract.
 //! SSH registries feed it snapshots; GPUI surfaces render it.
 
+mod capture;
 mod docker;
 mod filesystem;
 mod log;
@@ -22,19 +23,20 @@ mod summary;
 mod tmux;
 
 pub use docker::{
-    DockerActionCommand, DockerActionKind, DockerCaptureCommand, ResourceDockerContainer,
-    ResourceDockerSnapshot, ResourceDockerStatus, build_docker_action_command,
-    build_docker_exec_shell_command, build_docker_follow_logs_command, build_docker_logs_command,
-    docker_action_failure_message, docker_action_succeeded, docker_action_success_message,
-    docker_row_signature, docker_sample_command, docker_state_label_key, parse_docker_snapshot,
-    visible_docker_rows,
+    DockerActionAvailability, DockerActionCommand, DockerActionKind, DockerCaptureCommand,
+    ResourceDockerContainer, ResourceDockerSnapshot, ResourceDockerStatus,
+    build_docker_action_command, build_docker_exec_shell_command, build_docker_follow_logs_command,
+    build_docker_logs_command, docker_action_availability, docker_action_failure_message,
+    docker_action_succeeded, docker_action_success_message, docker_row_signature,
+    docker_sample_command, docker_state_label_key, parse_docker_snapshot, visible_docker_rows,
 };
 pub use filesystem::{
     FilesystemCaptureCommand, FilesystemCommandCapability, FilesystemEntrySeverity,
     FilesystemFilter, ResourceFilesystemEntry, ResourceFilesystemSnapshot,
     ResourceFilesystemStatus, build_filesystem_diagnostic_command,
-    build_filesystem_snapshot_command, filesystem_attention_label_keys, filesystem_entry_severity,
-    filesystem_filter_label_key, filesystem_kind_label_key, filesystem_read_only_label_key,
+    build_filesystem_snapshot_command, filesystem_attention_label_keys,
+    filesystem_capture_snapshot, filesystem_entry_severity, filesystem_filter_label_key,
+    filesystem_kind_label_key, filesystem_percent_severity, filesystem_read_only_label_key,
     filesystem_row_signature, parse_filesystem_snapshot, visible_filesystem_rows,
 };
 pub use log::{
@@ -78,21 +80,23 @@ pub use profiler::{
 };
 pub use scheduled_task::{
     ResourceScheduledTask, ResourceScheduledTaskSnapshot, ResourceScheduledTaskStatus,
-    ScheduledTaskActionCommand, ScheduledTaskActionKind, ScheduledTaskCapability,
-    ScheduledTaskCaptureCommand, ScheduledTaskFilter, build_scheduled_task_action_command,
+    ScheduledTaskActionAvailability, ScheduledTaskActionCommand, ScheduledTaskActionKind,
+    ScheduledTaskCapability, ScheduledTaskCaptureCommand, ScheduledTaskFilter,
+    ScheduledTaskToggleAction, build_scheduled_task_action_command,
     build_scheduled_task_diagnostic_command, build_scheduled_task_logs_command,
     build_scheduled_task_snapshot_command, parse_scheduled_task_snapshot,
-    scheduled_task_active_label_key, scheduled_task_enabled_label_key,
+    scheduled_task_action_availability, scheduled_task_active_label_key,
+    scheduled_task_capture_snapshot, scheduled_task_enabled_label_key,
     scheduled_task_filter_label_key, scheduled_task_row_signature, scheduled_task_source_label_key,
     visible_scheduled_task_rows,
 };
 pub use service::{
-    ResourceService, ResourceServiceSnapshot, ResourceServiceStatus, ServiceActionCommand,
-    ServiceActionKind, ServiceCaptureCommand, ServiceCommandCapability,
+    ResourceService, ResourceServiceSnapshot, ResourceServiceStatus, ServiceActionAvailability,
+    ServiceActionCommand, ServiceActionKind, ServiceCaptureCommand, ServiceCommandCapability,
     build_service_action_command, build_service_follow_logs_command, build_service_logs_command,
-    parse_service_snapshot, service_action_failure_message, service_action_succeeded,
-    service_action_success_message, service_enabled_label_key, service_row_signature,
-    service_sample_command, service_state_label_key, visible_service_rows,
+    parse_service_snapshot, service_action_availability, service_action_failure_message,
+    service_action_succeeded, service_action_success_message, service_enabled_label_key,
+    service_row_signature, service_sample_command, service_state_label_key, visible_service_rows,
 };
 pub use stats::{
     ConnectionMonitorConsumerKind, ConnectionPoolEntryState, ConnectionPoolEntrySummary,
@@ -111,5 +115,5 @@ pub use tmux::{
     TmuxCommandCapability, build_tmux_action_command, build_tmux_attach_command,
     build_tmux_new_session_command, build_tmux_snapshot_command, parse_tmux_snapshot,
     tmux_action_failure_message, tmux_action_succeeded, tmux_action_success_message,
-    tmux_session_row_signature, visible_tmux_session_rows,
+    tmux_capture_snapshot, tmux_session_row_signature, visible_tmux_session_rows,
 };

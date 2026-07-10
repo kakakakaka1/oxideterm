@@ -15,7 +15,6 @@ use oxideterm_editor_core::utf16::{
 };
 
 use super::WorkspaceApp;
-use super::command_palette::parse_command_palette_mode;
 use super::file_manager::FileManagerInput;
 use super::forwards::ForwardInput;
 use super::graphics::GraphicsInput;
@@ -31,6 +30,7 @@ use oxideterm_gpui_ui::{
         TextInputAnchor, TextInputAnchorId, TextInputContentAlign, text_input_secret_mask,
     },
 };
+use oxideterm_workspace::parse_command_palette_query;
 
 const READ_ONLY_TEXT_EM_WIDTH: f32 = 16.0;
 const READ_ONLY_TEXT_LINE_HEIGHT_ESTIMATE: f32 = 28.0;
@@ -2016,7 +2016,7 @@ impl WorkspaceApp {
             WorkspaceImeTarget::ReadOnlyText(_) => {}
             WorkspaceImeTarget::CommandPalette => {
                 replace_utf16(&mut self.command_palette.raw_query, replacement_range, text);
-                let (mode, _) = parse_command_palette_mode(&self.command_palette.raw_query);
+                let (mode, _) = parse_command_palette_query(&self.command_palette.raw_query);
                 self.command_palette.mode = mode;
                 self.command_palette.selected_index = 0;
                 self.new_connection_caret_visible = true;

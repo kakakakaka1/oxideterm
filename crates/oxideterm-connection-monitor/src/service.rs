@@ -59,6 +59,36 @@ pub enum ServiceActionKind {
     Disable,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ServiceActionAvailability {
+    pub can_start: bool,
+    pub can_stop: bool,
+    pub can_restart: bool,
+    pub can_reload: bool,
+    pub can_enable: bool,
+    pub can_disable: bool,
+}
+
+/// Returns the actions supported by the service's active and enabled states.
+pub fn service_action_availability(service: &ResourceService) -> ServiceActionAvailability {
+    let active = matches!(
+        service.active_state.trim().to_ascii_lowercase().as_str(),
+        "active" | "running"
+    );
+    let enabled = matches!(
+        service.enabled_state.trim().to_ascii_lowercase().as_str(),
+        "enabled" | "enabled-runtime" | "linked" | "linked-runtime" | "static"
+    );
+    ServiceActionAvailability {
+        can_start: !active,
+        can_stop: active,
+        can_restart: active,
+        can_reload: active,
+        can_enable: !enabled,
+        can_disable: enabled,
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ServiceActionCommand {
     pub command: String,
@@ -865,5 +895,42 @@ mod tests {
         assert_eq!(visible_service_rows(&rows, "openssh").len(), 1);
         assert_eq!(visible_service_rows(&rows, "42").len(), 1);
         assert_eq!(visible_service_rows(&rows, "postgres").len(), 0);
+    }
+
+    #[test]
+    fn service_action_matrix_uses_active_and_enabled_states() {
+        let mut service = ResourceService {
+            id: "sshd.service".into(),
+            load_state: "loaded".into(),
+            active_state: "active".into(),
+            sub_state: "running".into(),
+            enabled_state: "enabled".into(),
+            main_pid: None,
+            description: String::new(),
+        };
+        assert_eq!(
+            service_action_availability(&service),
+            ServiceActionAvailability {
+                can_start: false,
+                can_stop: true,
+                can_restart: true,
+                can_reload: true,
+                can_enable: false,
+                can_disable: true
+            }
+        );
+        service.active_state = "inactive".into();
+        service.enabled_state = "disabled".into();
+        assert_eq!(
+            service_action_availability(&service),
+            ServiceActionAvailability {
+                can_start: true,
+                can_stop: false,
+                can_restart: false,
+                can_reload: false,
+                can_enable: true,
+                can_disable: false
+            }
+        );
     }
 }

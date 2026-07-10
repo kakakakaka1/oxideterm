@@ -2,6 +2,8 @@
 
 use super::*;
 
+use oxideterm_connection_monitor::docker_action_availability;
+
 impl WorkspaceApp {
     pub(super) fn render_host_docker_panel(&self, cx: &mut Context<Self>) -> AnyElement {
         let connections = self.monitor_connections();
@@ -435,8 +437,7 @@ impl WorkspaceApp {
             .host_docker_action_running
             .as_ref()
             .is_some_and(|request| request.container_id == container.id);
-        let state = container.state.trim().to_lowercase();
-        let running_container = matches!(state.as_str(), "running" | "restarting" | "paused");
+        let availability = docker_action_availability(&container.state);
         div()
             .flex_none()
             .flex()
@@ -447,13 +448,13 @@ impl WorkspaceApp {
             .child(self.render_host_docker_follow_logs_button(
                 connection_id,
                 container,
-                is_running || !running_container,
+                is_running || !availability.can_use_live_tools,
                 cx,
             ))
             .child(self.render_host_docker_exec_button(
                 connection_id,
                 container,
-                is_running || !running_container,
+                is_running || !availability.can_use_live_tools,
                 cx,
             ))
             .child(self.render_host_docker_action_button(
@@ -463,7 +464,7 @@ impl WorkspaceApp {
                 LucideIcon::Play,
                 "sidebar.host_docker.actions.start",
                 false,
-                is_running || running_container,
+                is_running || !availability.can_start,
                 cx,
             ))
             .child(self.render_host_docker_action_button(
@@ -473,7 +474,7 @@ impl WorkspaceApp {
                 LucideIcon::Square,
                 "sidebar.host_docker.actions.stop",
                 true,
-                is_running || !running_container,
+                is_running || !availability.can_stop,
                 cx,
             ))
             .child(self.render_host_docker_action_button(
@@ -483,7 +484,7 @@ impl WorkspaceApp {
                 LucideIcon::RefreshCw,
                 "sidebar.host_docker.actions.restart",
                 true,
-                is_running || !running_container,
+                is_running || !availability.can_restart,
                 cx,
             ))
             .into_any_element()

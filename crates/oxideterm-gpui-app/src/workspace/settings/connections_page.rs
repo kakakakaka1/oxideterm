@@ -2157,7 +2157,7 @@ impl WorkspaceApp {
         alias: String,
         cx: &mut Context<Self>,
     ) {
-        match import_ssh_config_alias(&mut self.connection_store, &alias) {
+        match oxideterm_connections::import_ssh_config_alias(&mut self.connection_store, &alias) {
             Ok(true) => {
                 self.settings_page.remove_selected_ssh_host(&alias);
                 self.settings_page.set_connection_status(Some(
@@ -2200,7 +2200,8 @@ impl WorkspaceApp {
         let mut errors = Vec::new();
 
         for alias in aliases {
-            match import_ssh_config_alias(&mut self.connection_store, &alias) {
+            match oxideterm_connections::import_ssh_config_alias(&mut self.connection_store, &alias)
+            {
                 Ok(true) => {
                     imported += 1;
                     self.settings_page.remove_selected_ssh_host(&alias);
@@ -2460,21 +2461,6 @@ pub(in crate::workspace) fn connection_idle_timeout_label(seconds: i64, i18n: &I
         .into_iter()
         .find_map(|(value, label)| (value == seconds).then_some(label))
         .unwrap_or_else(|| seconds.to_string())
-}
-
-pub(in crate::workspace) fn import_ssh_config_alias(
-    store: &mut oxideterm_connections::ConnectionStore,
-    alias: &str,
-) -> anyhow::Result<bool> {
-    if store.connections().iter().any(|conn| conn.name == alias) {
-        return Ok(false);
-    }
-    let Some(host) = resolve_ssh_config_alias(alias)? else {
-        return Ok(false);
-    };
-    let connection = saved_connection_from_ssh_host(host)?;
-    store.import_ssh_connection(connection)?;
-    Ok(true)
 }
 
 pub(in crate::workspace) fn connection_import_source_options() -> &'static [ConnectionImportSource]

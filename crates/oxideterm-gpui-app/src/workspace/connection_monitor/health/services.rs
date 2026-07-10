@@ -2,6 +2,8 @@
 
 use super::*;
 
+use oxideterm_connection_monitor::service_action_availability;
+
 impl WorkspaceApp {
     pub(super) fn render_host_services_panel(&self, cx: &mut Context<Self>) -> AnyElement {
         let connections = self.monitor_connections();
@@ -468,8 +470,7 @@ impl WorkspaceApp {
             .host_service_action_running
             .as_ref()
             .is_some_and(|request| request.service_id == service.id);
-        let active = service.active_state.trim().eq_ignore_ascii_case("active")
-            || service.active_state.trim().eq_ignore_ascii_case("running");
+        let availability = service_action_availability(service);
         div()
             .flex_none()
             .flex()
@@ -490,7 +491,7 @@ impl WorkspaceApp {
                 LucideIcon::Play,
                 "sidebar.host_services.actions.start",
                 false,
-                is_running || active,
+                is_running || !availability.can_start,
                 cx,
             ))
             .child(self.render_host_service_action_button(
@@ -500,7 +501,7 @@ impl WorkspaceApp {
                 LucideIcon::Square,
                 "sidebar.host_services.actions.stop",
                 true,
-                is_running || !active,
+                is_running || !availability.can_stop,
                 cx,
             ))
             .child(self.render_host_service_action_button(
@@ -510,7 +511,7 @@ impl WorkspaceApp {
                 LucideIcon::RefreshCw,
                 "sidebar.host_services.actions.restart",
                 true,
-                is_running,
+                is_running || !availability.can_restart,
                 cx,
             ))
             .child(self.render_host_service_action_button(
@@ -520,7 +521,7 @@ impl WorkspaceApp {
                 LucideIcon::RefreshCcw,
                 "sidebar.host_services.actions.reload",
                 false,
-                is_running,
+                is_running || !availability.can_reload,
                 cx,
             ))
             .child(self.render_host_service_action_button(
@@ -530,7 +531,7 @@ impl WorkspaceApp {
                 LucideIcon::CheckCircle,
                 "sidebar.host_services.actions.enable",
                 false,
-                is_running,
+                is_running || !availability.can_enable,
                 cx,
             ))
             .child(self.render_host_service_action_button(
@@ -540,7 +541,7 @@ impl WorkspaceApp {
                 LucideIcon::ShieldOff,
                 "sidebar.host_services.actions.disable",
                 true,
-                is_running,
+                is_running || !availability.can_disable,
                 cx,
             ))
             .into_any_element()

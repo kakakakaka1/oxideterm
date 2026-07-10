@@ -2,6 +2,8 @@
 
 use super::*;
 
+use oxideterm_connection_monitor::tmux_capture_snapshot;
+
 use oxideterm_gpui_ui::button::ButtonVariant;
 
 impl WorkspaceApp {
@@ -1765,8 +1767,9 @@ impl WorkspaceApp {
         self.connection_monitor.host_tmux_snapshot_running = None;
         self.connection_monitor.host_tmux_snapshot_rx = None;
         match delivery.result {
-            Ok(output) if output.exit_code.unwrap_or(0) == 0 => {
-                let snapshot = parse_tmux_snapshot(&output.stdout);
+            Ok(output) => {
+                let snapshot =
+                    tmux_capture_snapshot(&output.stdout, &output.stderr, output.exit_code);
                 match &snapshot.status {
                     ResourceTmuxStatus::Available { .. } => {
                         let count = visible_tmux_session_rows(
@@ -1812,30 +1815,6 @@ impl WorkspaceApp {
                 self.connection_monitor.host_tmux_snapshot_connection_id =
                     Some(delivery.request.connection_id);
                 self.connection_monitor.host_tmux_snapshot = Some(snapshot);
-            }
-            Ok(output) => {
-                let reason =
-                    tmux_action_failure_message(&output.stdout, &output.stderr, output.exit_code);
-                self.connection_monitor.host_tmux_last_error = Some(reason.clone());
-                self.connection_monitor.host_tmux_snapshot_connection_id =
-                    Some(delivery.request.connection_id);
-                self.connection_monitor.host_tmux_snapshot = Some(ResourceTmuxSnapshot {
-                    status: ResourceTmuxStatus::Error {
-                        message: reason.clone(),
-                    },
-                    sessions: Vec::new(),
-                    windows: Vec::new(),
-                    panes: Vec::new(),
-                });
-                if feedback.should_toast() {
-                    self.push_host_tmux_toast(
-                        self.i18n_replace(
-                            "sidebar.host_tmux.toast.snapshot_failed",
-                            &[("reason", reason)],
-                        ),
-                        TerminalNoticeVariant::Error,
-                    );
-                }
             }
             Err(error) => {
                 self.connection_monitor.host_tmux_last_error = Some(error.clone());

@@ -2,6 +2,10 @@
 
 use super::*;
 
+use oxideterm_connection_monitor::{
+    ScheduledTaskToggleAction, scheduled_task_action_availability, scheduled_task_capture_snapshot,
+};
+
 impl WorkspaceApp {
     pub(super) fn render_host_schedules_panel(&self, cx: &mut Context<Self>) -> AnyElement {
         let connections = self.monitor_connections();
@@ -634,9 +638,10 @@ impl WorkspaceApp {
         let follow_task = entry.clone();
         let run_task = entry.clone();
         let toggle_task = entry.clone();
-        let can_run_now = entry.unit.ends_with(".service") || entry.source == "windows";
-        let can_toggle_enabled = entry.source == "systemd" || entry.source == "windows";
-        let should_enable = !host_schedule_enabled_is_enabled(&entry.enabled);
+        let availability = scheduled_task_action_availability(entry);
+        let can_run_now = availability.can_run_now;
+        let can_toggle_enabled = availability.can_toggle_enabled;
+        let should_enable = matches!(availability.next_toggle, ScheduledTaskToggleAction::Enable);
         let action_running = self
             .connection_monitor
             .host_schedule_action_running
@@ -1537,8 +1542,12 @@ impl WorkspaceApp {
         self.connection_monitor.host_schedule_snapshot_running = None;
         self.connection_monitor.host_schedule_snapshot_rx = None;
         match delivery.result {
-            Ok(output) if output.exit_code.unwrap_or(0) == 0 => {
-                let snapshot = parse_scheduled_task_snapshot(&output.stdout);
+            Ok(output) => {
+                let snapshot = scheduled_task_capture_snapshot(
+                    &output.stdout,
+                    &output.stderr,
+                    output.exit_code,
+                );
                 let visible_count = visible_scheduled_task_rows(
                     &snapshot.entries,
                     &self.connection_monitor.host_schedule_search_query,
@@ -1585,33 +1594,6 @@ impl WorkspaceApp {
                 self.connection_monitor.host_schedule_snapshot_connection_id =
                     Some(delivery.request.connection_id);
                 self.connection_monitor.host_schedule_snapshot = Some(snapshot);
-            }
-            Ok(output) => {
-                let reason = host_schedule_capture_failure_message(
-                    &output.stdout,
-                    &output.stderr,
-                    output.exit_code,
-                    self.i18n.t("sidebar.host_schedules.toast.unknown_error"),
-                );
-                self.connection_monitor.host_schedule_last_error = Some(reason.clone());
-                self.connection_monitor.host_schedule_snapshot_connection_id =
-                    Some(delivery.request.connection_id);
-                self.connection_monitor.host_schedule_snapshot =
-                    Some(ResourceScheduledTaskSnapshot {
-                        status: ResourceScheduledTaskStatus::Error {
-                            message: reason.clone(),
-                        },
-                        entries: Vec::new(),
-                    });
-                if feedback.should_toast() {
-                    self.push_host_schedule_toast(
-                        self.i18n_replace(
-                            "sidebar.host_schedules.toast.snapshot_failed",
-                            &[("reason", reason)],
-                        ),
-                        TerminalNoticeVariant::Error,
-                    );
-                }
             }
             Err(error) => {
                 self.connection_monitor.host_schedule_last_error = Some(error.clone());
@@ -2020,13 +2002,6 @@ fn host_schedule_enabled_color(enabled: &str, muted_color: u32) -> u32 {
         "disabled" => muted_color,
         _ => muted_color,
     }
-}
-
-fn host_schedule_enabled_is_enabled(enabled: &str) -> bool {
-    matches!(
-        enabled.trim().to_lowercase().as_str(),
-        "enabled" | "true" | "yes" | "static"
-    )
 }
 
 fn host_schedule_confirm_description_key(action: &ScheduledTaskActionKind) -> &'static str {
