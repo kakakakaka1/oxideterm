@@ -2535,21 +2535,6 @@ fn terminal_output_processors_preserve_bytes_on_failure() {
 }
 
 #[test]
-fn plugin_secret_account_ids_are_plugin_scoped_and_validated() {
-    assert_eq!(
-        native_plugin_secret_account_id("com.example.alpha", "token").unwrap(),
-        "plugin-secret:17:com.example.alpha:5:token"
-    );
-    assert_ne!(
-        native_plugin_secret_account_id("com.example.alpha", "token").unwrap(),
-        native_plugin_secret_account_id("com.example.beta", "token").unwrap()
-    );
-    assert!(native_plugin_secret_account_id("com.example.alpha", "").is_err());
-    assert!(native_plugin_secret_account_id("com.example.alpha", "bad\nkey").is_err());
-    assert!(native_plugin_secret_account_id("../escape", "token").is_err());
-}
-
-#[test]
 fn i18n_returnable_host_apis_use_plugin_scoped_fallback() {
     let snapshot = test_host_api_snapshot();
     let language = native_plugin_returnable_host_api_response(

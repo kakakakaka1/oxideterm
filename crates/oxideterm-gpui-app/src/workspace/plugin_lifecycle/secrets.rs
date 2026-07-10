@@ -34,7 +34,8 @@ fn native_plugin_secret_result(
     match method {
         "get" => {
             let key = native_plugin_secret_key_arg(args)?;
-            let account_id = native_plugin_secret_account_id(plugin_id, key)?;
+            let account_id =
+                oxideterm_plugin_host_api::secrets::plugin_secret_account_id(plugin_id, key)?;
             let secret = key_store
                 .get_provider_key(&account_id)
                 .map_err(|error| format!("Failed to read plugin secret: {error}"))?;
@@ -46,7 +47,9 @@ fn native_plugin_secret_result(
             let keys = native_plugin_secret_keys_arg(args)?;
             let mut account_ids = Vec::with_capacity(keys.len());
             for key in &keys {
-                account_ids.push(native_plugin_secret_account_id(plugin_id, key)?);
+                account_ids.push(
+                    oxideterm_plugin_host_api::secrets::plugin_secret_account_id(plugin_id, key)?,
+                );
             }
             let secrets = key_store
                 .get_provider_keys(&account_ids)
@@ -68,7 +71,8 @@ fn native_plugin_secret_result(
                 .get("value")
                 .and_then(Value::as_str)
                 .ok_or_else(|| "secrets.set requires args.value".to_string())?;
-            let account_id = native_plugin_secret_account_id(plugin_id, key)?;
+            let account_id =
+                oxideterm_plugin_host_api::secrets::plugin_secret_account_id(plugin_id, key)?;
             // The JSON bridge gives us a borrowed string; wrap the owned copy at
             // the keychain boundary so the temporary is zeroized after storage,
             // matching Tauri's rule that plugin secrets live only in keychain
@@ -86,12 +90,14 @@ fn native_plugin_secret_result(
         }
         "has" => {
             let key = native_plugin_secret_key_arg(args)?;
-            let account_id = native_plugin_secret_account_id(plugin_id, key)?;
+            let account_id =
+                oxideterm_plugin_host_api::secrets::plugin_secret_account_id(plugin_id, key)?;
             Ok(json!(key_store.has_provider_key(&account_id)))
         }
         "delete" => {
             let key = native_plugin_secret_key_arg(args)?;
-            let account_id = native_plugin_secret_account_id(plugin_id, key)?;
+            let account_id =
+                oxideterm_plugin_host_api::secrets::plugin_secret_account_id(plugin_id, key)?;
             key_store
                 .delete_provider_key(&account_id)
                 .map_err(|error| format!("Failed to delete plugin secret: {error}"))?;
@@ -119,42 +125,4 @@ fn native_plugin_secret_keys_arg(args: &Value) -> Result<Vec<String>, String> {
                 .ok_or_else(|| "secrets.getMany keys must be strings".to_string())
         })
         .collect()
-}
-
-pub(super) fn native_plugin_secret_account_id(
-    plugin_id: &str,
-    key: &str,
-) -> Result<String, String> {
-    native_plugin_validate_secret_plugin_id(plugin_id)?;
-    native_plugin_validate_secret_key(key)?;
-    Ok(format!(
-        "plugin-secret:{}:{}:{}:{}",
-        plugin_id.len(),
-        plugin_id,
-        key.len(),
-        key
-    ))
-}
-
-fn native_plugin_validate_secret_plugin_id(plugin_id: &str) -> Result<(), String> {
-    if plugin_id.is_empty() {
-        return Err("Plugin ID cannot be empty".to_string());
-    }
-    if plugin_id.contains('/') || plugin_id.contains('\\') || plugin_id.contains("..") {
-        return Err("Plugin ID contains invalid path characters".to_string());
-    }
-    if plugin_id.bytes().any(|byte| byte < 0x20) {
-        return Err("Plugin ID contains invalid characters".to_string());
-    }
-    Ok(())
-}
-
-fn native_plugin_validate_secret_key(key: &str) -> Result<(), String> {
-    if key.is_empty() {
-        return Err("Plugin secret key cannot be empty".to_string());
-    }
-    if key.bytes().any(|byte| byte < 0x20) {
-        return Err("Plugin secret key contains invalid characters".to_string());
-    }
-    Ok(())
 }

@@ -11,7 +11,6 @@ use oxideterm_gpui_ui::{
 use oxideterm_plugin_runtime_install as runtime_install;
 use std::{process::Command, sync::mpsc};
 
-const PLUGIN_ID_CONFLICT_ERROR_PREFIX: &str = "PLUGIN_ID_CONFLICT:";
 const PLUGIN_MANAGER_DELIVERY_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const PLUGIN_MANAGER_SECTION_LIST_ITEM_COUNT: usize = 4;
 const PLUGIN_MANAGER_SECTION_LIST_ESTIMATED_HEIGHT: f32 = 220.0;
@@ -1467,7 +1466,7 @@ impl WorkspaceApp {
                     );
             }
             Err(error) => {
-                if let Some(plugin_id) = native_plugin_conflict_id(&error) {
+                if let Some(plugin_id) = plugin_host::native_plugin_conflict_id(&error) {
                     // Tauri asks before overwriting an existing package. Native
                     // keeps the pending request so the confirmation button can
                     // retry with the same URL/checksum without retyping.
@@ -1552,9 +1551,9 @@ impl WorkspaceApp {
             .native_plugin_manager
             .expanded_plugin_ids
             .contains(&plugin.manifest.id);
-        let is_active = native_plugin_is_active_like(plugin.state);
+        let is_active = plugin_host::native_plugin_state_is_active_like(plugin.state);
         let is_disabled = plugin.state == plugin_host::NativePluginState::Disabled;
-        let is_error = native_plugin_is_error_like(plugin.state);
+        let is_error = plugin_host::native_plugin_state_is_error_like(plugin.state);
         let next_enabled = if !is_active && !is_disabled {
             false
         } else {
@@ -2013,14 +2012,6 @@ fn normalized_optional_string(value: &str) -> Option<String> {
     (!value.is_empty()).then(|| value.to_string())
 }
 
-fn native_plugin_conflict_id(error: &str) -> Option<String> {
-    error
-        .strip_prefix(PLUGIN_ID_CONFLICT_ERROR_PREFIX)
-        .map(str::trim)
-        .filter(|plugin_id| !plugin_id.is_empty())
-        .map(str::to_string)
-}
-
 fn native_plugin_registry_capabilities_label(
     i18n: &I18n,
     entry: &plugin_host::NativePluginRegistryEntry,
@@ -2095,23 +2086,6 @@ fn native_plugin_contribution_labels(
     labels
 }
 
-fn native_plugin_is_active_like(state: plugin_host::NativePluginState) -> bool {
-    matches!(
-        state,
-        plugin_host::NativePluginState::Active
-            | plugin_host::NativePluginState::ReadyManifestOnly
-            | plugin_host::NativePluginState::ReadyWasm
-            | plugin_host::NativePluginState::ReadyProcess
-    )
-}
-
-fn native_plugin_is_error_like(state: plugin_host::NativePluginState) -> bool {
-    matches!(
-        state,
-        plugin_host::NativePluginState::Error | plugin_host::NativePluginState::AutoDisabled
-    )
-}
-
 fn native_plugin_status_badge(
     i18n: &I18n,
     plugin: &plugin_host::NativePluginInfo,
@@ -2154,7 +2128,10 @@ fn native_plugin_visible_error(
     let Some(error) = plugin.config.last_error.as_deref() else {
         return Some(i18n.t("plugin.load_failed_default"));
     };
-    if native_plugin_error_has_code(error, plugin_runtime::WASM_RUNTIME_NOT_INSTALLED_CODE) {
+    if plugin_host::native_plugin_error_has_code(
+        error,
+        plugin_runtime::WASM_RUNTIME_NOT_INSTALLED_CODE,
+    ) {
         return Some(i18n.t("plugin.wasm_runtime_missing"));
     }
     Some(error.to_string())
@@ -2162,17 +2139,11 @@ fn native_plugin_visible_error(
 
 fn native_plugin_is_wasm_runtime_missing(plugin: &plugin_host::NativePluginInfo) -> bool {
     plugin.config.last_error.as_deref().is_some_and(|error| {
-        native_plugin_error_has_code(error, plugin_runtime::WASM_RUNTIME_NOT_INSTALLED_CODE)
+        plugin_host::native_plugin_error_has_code(
+            error,
+            plugin_runtime::WASM_RUNTIME_NOT_INSTALLED_CODE,
+        )
     })
-}
-
-fn native_plugin_error_has_code(error: &str, code: &str) -> bool {
-    // Runtime errors may keep a stable machine-readable code before the
-    // localized message so UI actions do not depend on English text matching.
-    let Some(rest) = error.trim_start().strip_prefix(code) else {
-        return false;
-    };
-    rest.is_empty() || rest.starts_with(':')
 }
 
 fn open_native_plugins_dir(settings_path: &std::path::Path, i18n: &I18n) -> Result<(), String> {
@@ -2286,15 +2257,6 @@ mod tests {
             homepage: None,
             updated_at: None,
         }
-    }
-
-    #[test]
-    fn plugin_manager_conflict_error_preserves_plugin_id() {
-        assert_eq!(
-            native_plugin_conflict_id("PLUGIN_ID_CONFLICT:com.example.demo").as_deref(),
-            Some("com.example.demo")
-        );
-        assert!(native_plugin_conflict_id("checksum mismatch").is_none());
     }
 
     #[test]

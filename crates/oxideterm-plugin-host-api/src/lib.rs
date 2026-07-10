@@ -12,6 +12,7 @@ pub mod ide;
 pub mod profiler;
 pub mod readonly;
 pub mod runtime;
+pub mod secrets;
 pub mod settings;
 pub mod sftp;
 pub mod sync;

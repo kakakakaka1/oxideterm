@@ -44,7 +44,7 @@ pub(crate) fn install_native_plugin_package_bytes(
         let backup_dir = plugins_dir.join(format!(".{}-backup", manifest.id));
         let replaced_existing = dest_dir.exists();
         if replaced_existing && !overwrite {
-            return Err(format!("PLUGIN_ID_CONFLICT:{}", manifest.id));
+            return Err(format!("{PLUGIN_ID_CONFLICT_ERROR_PREFIX}{}", manifest.id));
         }
         if backup_dir.exists() {
             fs::remove_dir_all(&backup_dir)

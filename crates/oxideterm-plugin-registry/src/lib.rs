@@ -48,6 +48,7 @@ mod discovery;
 mod install;
 mod paths;
 mod registry;
+mod state_semantics;
 mod validation;
 
 #[cfg(test)]
@@ -72,6 +73,10 @@ pub use contributions::{
 pub use discovery::{load_native_plugin_config, save_native_plugin_config};
 pub use paths::{native_plugin_config_path, native_plugins_dir};
 pub use registry::NativePluginRegistry;
+pub use state_semantics::{
+    PLUGIN_ID_CONFLICT_ERROR_PREFIX, native_plugin_conflict_id, native_plugin_error_has_code,
+    native_plugin_state_is_active_like, native_plugin_state_is_error_like,
+};
 pub use validation::{
     native_plugin_custom_event_key, native_plugin_declarative_control_is_actionable,
     native_plugin_state_for, native_runtime_kind_label, native_runtime_plan_for_manifest,
