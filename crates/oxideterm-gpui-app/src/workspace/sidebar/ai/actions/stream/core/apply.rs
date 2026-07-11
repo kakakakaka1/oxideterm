@@ -129,55 +129,18 @@ impl WorkspaceApp {
                 );
             }
             AiStreamEvent::Done => {
-                let turn_facts = self.ai_tool_result_facts_for_message(conversation_id, message_id);
-                let mut result_binding_guardrail = None;
                 self.ai.chat.conversation_state.update_message(
                     conversation_id,
                     message_id,
                     |message| {
-                        result_binding_guardrail =
-                            apply_ai_result_binding_guard(message, &turn_facts);
+                        // Older prompts asked models to append a private evidence block.
+                        // Keep the visible answer and remove only that transport artifact.
+                        strip_ai_evidence_claims(message);
                         finalize_ai_turn_suggestions(message);
                         message.is_streaming = false;
                         set_ai_turn_status(message, "complete");
                     },
                 );
-                if let Some(guardrail) = result_binding_guardrail {
-                    let now = ai_now_ms();
-                    self.persist_ai_transcript_entries(
-                        conversation_id.to_string(),
-                        vec![ai_transcript_entry(
-                            format!("transcript-guardrail-{message_id}-result-binding-{now}"),
-                            conversation_id,
-                            "guardrail",
-                            serde_json::json!({
-                                "code": "result_binding_required",
-                                "message": guardrail.message.as_str(),
-                                "rawText": guardrail.raw_text.as_str(),
-                            }),
-                            Some(message_id.to_string()),
-                            Some(message_id.to_string()),
-                            now,
-                        )],
-                    );
-                    self.persist_ai_diagnostic_events(
-                        conversation_id.to_string(),
-                        vec![ai_diagnostic_event(
-                            format!("diagnostic-guardrail-{message_id}-result-binding-{now}"),
-                            conversation_id,
-                            "guardrail",
-                            Some(message_id.to_string()),
-                            None,
-                            now,
-                            self.ai_diagnostic_base(serde_json::json!({
-                                "requestKind": "chat",
-                                "code": "result_binding_required",
-                                "message": guardrail.message.as_str(),
-                                "rawTextLength": guardrail.raw_text.chars().count(),
-                            })),
-                        )],
-                    );
-                }
                 self.persist_ai_assistant_turn_end(conversation_id, message_id, "complete");
                 self.ai.chat.stream_task = None;
                 self.ai.chat.loading = false;
@@ -644,18 +607,6 @@ impl WorkspaceApp {
         facts
     }
 
-    pub(in crate::workspace) fn ai_tool_result_facts_for_message(
-        &self,
-        conversation_id: &str,
-        assistant_message_id: &str,
-    ) -> Vec<AiToolResultFact> {
-        ai_tool_result_facts_for_message(
-            &self.ai.runtime.tool_result_facts,
-            conversation_id,
-            assistant_message_id,
-        )
-    }
-
     pub(in crate::workspace) fn record_ai_command_from_tool_status(
         &mut self,
         tool_name: &str,
@@ -907,121 +858,25 @@ impl WorkspaceApp {
     }
 }
 
-pub(in crate::workspace) struct AiResultBindingGuardrail {
-    message: String,
-    raw_text: String,
+pub(in crate::workspace) fn strip_ai_evidence_claims(message: &mut AiChatMessage) {
+    message.content = strip_ai_evidence_claims_from_text(&message.content);
+    strip_ai_evidence_claims_block_from_turn_text_parts(message);
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::workspace) struct AiEvidenceClaim {
-    text: String,
-    evidence: Vec<String>,
-    confidence: String,
-}
-
-pub(in crate::workspace) fn apply_ai_result_binding_guard(
-    message: &mut AiChatMessage,
-    recent_facts: &[AiToolResultFact],
-) -> Option<AiResultBindingGuardrail> {
-    match parse_ai_evidence_claims_from_message(&message.content) {
-        Ok(Some(parsed)) => {
-            message.content = parsed.visible_text;
-            strip_ai_evidence_claims_block_from_turn_text_parts(message);
-            if ai_validate_evidence_claims(&message.content, &parsed.claims, recent_facts).is_ok() {
-                append_ai_turn_claim_parts(message, &parsed.claims, "verified");
-                return None;
+pub(in crate::workspace) fn strip_ai_evidence_claims_from_text(text: &str) -> String {
+    const OPEN: &str = "<evidence_claims>";
+    let mut visible_text = text.to_string();
+    loop {
+        match extract_ai_evidence_claims_block(&visible_text) {
+            Ok(Some((next_text, _))) => visible_text = next_text,
+            Ok(None) => return visible_text.trim().to_string(),
+            Err(_) => {
+                // A partial streamed block is private protocol output too.
+                let visible_end = visible_text.find(OPEN).unwrap_or(visible_text.len());
+                return visible_text[..visible_end].trim().to_string();
             }
-            return Some(ai_result_binding_guardrail_for_message(message));
-        }
-        Ok(None) => {}
-        Err(_) => {
-            return Some(ai_result_binding_guardrail_for_message(message));
         }
     }
-
-    if !ai_text_claims_tool_backed_fact(&message.content)
-        || ai_recent_facts_support_text(&message.content, recent_facts)
-    {
-        return None;
-    }
-    Some(ai_result_binding_guardrail_for_message(message))
-}
-
-pub(in crate::workspace) fn ai_result_binding_guardrail_for_message(
-    message: &mut AiChatMessage,
-) -> AiResultBindingGuardrail {
-    let raw_text = message.content.clone();
-    let guardrail_message = "I do not have tool-result evidence for that claim, so I cannot present it as a verified fact yet. I need to run the appropriate tool first.".to_string();
-    message.content = guardrail_message.clone();
-    append_ai_turn_guardrail_part(
-        message,
-        "result_binding_required",
-        &guardrail_message,
-        Some(&raw_text),
-    );
-    AiResultBindingGuardrail {
-        message: guardrail_message,
-        raw_text,
-    }
-}
-
-pub(in crate::workspace) struct ParsedAiEvidenceClaims {
-    visible_text: String,
-    claims: Vec<AiEvidenceClaim>,
-}
-
-pub(in crate::workspace) fn parse_ai_evidence_claims_from_message(
-    text: &str,
-) -> Result<Option<ParsedAiEvidenceClaims>, String> {
-    let Some((visible_text, block)) = extract_ai_evidence_claims_block(text)? else {
-        return Ok(None);
-    };
-    let json_text = strip_ai_evidence_claims_code_fence(block.trim());
-    let value = serde_json::from_str::<serde_json::Value>(json_text)
-        .map_err(|error| format!("invalid evidence claims json: {error}"))?;
-    let claims_value = value
-        .get("claims")
-        .and_then(serde_json::Value::as_array)
-        .or_else(|| value.as_array())
-        .ok_or_else(|| "evidence claims must be an object with claims[] or an array".to_string())?;
-    let mut claims = Vec::new();
-    for claim in claims_value {
-        let object = claim
-            .as_object()
-            .ok_or_else(|| "each evidence claim must be an object".to_string())?;
-        let text = object
-            .get("text")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or_default()
-            .trim()
-            .to_string();
-        let evidence = object
-            .get("evidence")
-            .or_else(|| object.get("evidenceFactIds"))
-            .and_then(serde_json::Value::as_array)
-            .ok_or_else(|| "each evidence claim must include evidence[]".to_string())?
-            .iter()
-            .filter_map(serde_json::Value::as_str)
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(ToString::to_string)
-            .collect::<Vec<_>>();
-        let confidence = object
-            .get("confidence")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or("verified")
-            .trim()
-            .to_string();
-        claims.push(AiEvidenceClaim {
-            text,
-            evidence,
-            confidence,
-        });
-    }
-    Ok(Some(ParsedAiEvidenceClaims {
-        visible_text,
-        claims,
-    }))
 }
 
 pub(in crate::workspace) fn extract_ai_evidence_claims_block(
@@ -1048,21 +903,12 @@ pub(in crate::workspace) fn extract_ai_evidence_claims_block(
     Ok(Some((visible_text, block)))
 }
 
-pub(in crate::workspace) fn strip_ai_evidence_claims_code_fence(text: &str) -> &str {
-    let trimmed = text.trim();
-    if !trimmed.starts_with("```") {
-        return trimmed;
-    }
-    let Some(first_newline) = trimmed.find('\n') else {
-        return trimmed;
-    };
-    let body = &trimmed[first_newline + 1..];
-    body.strip_suffix("```").map(str::trim).unwrap_or(body)
-}
-
 pub(in crate::workspace) fn strip_ai_evidence_claims_block_from_turn_text_parts(
     message: &mut AiChatMessage,
 ) {
+    if message.turn.is_none() {
+        return;
+    }
     mutate_ai_turn_parts(message, |parts| {
         for part in parts {
             if part.get("type").and_then(serde_json::Value::as_str) != Some("text") {
@@ -1071,9 +917,7 @@ pub(in crate::workspace) fn strip_ai_evidence_claims_block_from_turn_text_parts(
             let Some(text) = part.get("text").and_then(serde_json::Value::as_str) else {
                 continue;
             };
-            let Ok(Some((visible_text, _))) = extract_ai_evidence_claims_block(text) else {
-                continue;
-            };
+            let visible_text = strip_ai_evidence_claims_from_text(text);
             if let Some(object) = part.as_object_mut() {
                 object.insert("text".to_string(), serde_json::json!(visible_text));
             }
@@ -1081,190 +925,14 @@ pub(in crate::workspace) fn strip_ai_evidence_claims_block_from_turn_text_parts(
     });
 }
 
-pub(in crate::workspace) fn append_ai_turn_claim_parts(
-    message: &mut AiChatMessage,
-    claims: &[AiEvidenceClaim],
-    status: &str,
-) {
-    mutate_ai_turn_parts(message, |parts| {
-        for claim in claims {
-            parts.push(serde_json::json!({
-                "type": "claim",
-                "text": claim.text,
-                "evidence": claim.evidence,
-                "confidence": claim.confidence,
-                "status": status,
-            }));
-        }
-    });
-}
-
-pub(in crate::workspace) fn ai_validate_evidence_claims(
-    visible_text: &str,
-    claims: &[AiEvidenceClaim],
-    facts: &[AiToolResultFact],
-) -> Result<(), String> {
-    if claims.is_empty() {
-        return Err("evidence claims block has no claims".to_string());
-    }
-    for claim in claims {
-        ai_validate_evidence_claim(claim, facts)?;
-    }
-    let cited_facts = ai_cited_evidence_facts(claims, facts);
-    if !ai_recent_facts_support_text(visible_text, &cited_facts) {
-        return Err("visible answer is not supported by cited evidence".to_string());
-    }
-    Ok(())
-}
-
-pub(in crate::workspace) fn ai_validate_evidence_claim(
-    claim: &AiEvidenceClaim,
-    facts: &[AiToolResultFact],
-) -> Result<(), String> {
-    if claim.text.trim().is_empty() {
-        return Err("evidence claim text is empty".to_string());
-    }
-    if !claim.confidence.eq_ignore_ascii_case("verified") {
-        return Err("first-pass evidence claims must be verified".to_string());
-    }
-    if claim.evidence.is_empty() {
-        return Err("verified evidence claim has no evidence".to_string());
-    }
-    let cited_facts = facts
-        .iter()
-        .filter(|fact| claim.evidence.iter().any(|id| id == &fact.fact_id))
-        .cloned()
-        .collect::<Vec<_>>();
-    if cited_facts.len() != claim.evidence.len() {
-        return Err("evidence claim cites unknown fact ids".to_string());
-    }
-    if !ai_recent_facts_support_text(&claim.text, &cited_facts) {
-        return Err("claim text is not supported by cited evidence".to_string());
-    }
-    Ok(())
-}
-
-pub(in crate::workspace) fn ai_cited_evidence_facts(
-    claims: &[AiEvidenceClaim],
-    facts: &[AiToolResultFact],
-) -> Vec<AiToolResultFact> {
-    facts
-        .iter()
-        .filter(|fact| {
-            claims
-                .iter()
-                .any(|claim| claim.evidence.iter().any(|id| id == &fact.fact_id))
-        })
-        .cloned()
-        .collect()
-}
-
-pub(in crate::workspace) fn ai_text_claims_tool_backed_fact(text: &str) -> bool {
-    let normalized = text.to_ascii_lowercase();
-    let english_markers = [
-        "i ran ",
-        "i executed ",
-        "i checked ",
-        "i verified ",
-        "command output",
-        "exit code",
-        "stdout",
-        "stderr",
-        "system load",
-        "load average",
-        "uptime",
-        "disk",
-        "memory",
-    ];
-    if english_markers
-        .iter()
-        .any(|marker| normalized.contains(marker))
-    {
-        return true;
-    }
-    let chinese_markers = [
-        "我执行",
-        "我运行",
-        "我检查",
-        "检查过",
-        "已经检查",
-        "已执行",
-        "已运行",
-        "真正的系统状态",
-        "真实的系统状态",
-        "命令输出",
-        "退出码",
-        "运行时间",
-        "系统负载",
-        "磁盘",
-        "内存",
-        "负载",
-        "结果是",
-        "输出是",
-    ];
-    chinese_markers.iter().any(|marker| text.contains(marker))
-}
-
-pub(in crate::workspace) fn ai_recent_facts_support_text(
-    text: &str,
-    facts: &[AiToolResultFact],
-) -> bool {
-    if facts.is_empty() {
-        return false;
-    }
-    let tokens = ai_numeric_evidence_tokens(text);
-    if tokens.is_empty() {
-        return false;
-    }
-    let support = facts
-        .iter()
-        .map(|fact| fact.output_preview.as_str())
-        .collect::<Vec<_>>()
-        .join("\n")
-        .to_ascii_lowercase();
-    let compact_support = ai_compact_evidence_text(&support);
-    tokens
-        .iter()
-        .all(|token| compact_support.contains(&ai_compact_evidence_text(token)))
-}
-
-pub(in crate::workspace) fn ai_numeric_evidence_tokens(text: &str) -> Vec<String> {
-    let mut tokens = Vec::new();
-    let mut current = String::new();
-    for character in text.chars() {
-        let allowed_after_digit =
-            character.is_ascii_alphanumeric() || matches!(character, '.' | ':' | '%' | '-');
-        if character.is_ascii_digit() || (!current.is_empty() && allowed_after_digit) {
-            current.push(character.to_ascii_lowercase());
-            continue;
-        }
-        ai_push_evidence_token(&mut tokens, &mut current);
-    }
-    ai_push_evidence_token(&mut tokens, &mut current);
-    tokens.sort();
-    tokens.dedup();
-    tokens
-}
-
-pub(in crate::workspace) fn ai_push_evidence_token(tokens: &mut Vec<String>, current: &mut String) {
-    if current.is_empty() {
-        return;
-    }
-    let has_digit = current.chars().any(|character| character.is_ascii_digit());
-    if has_digit {
-        tokens.push(current.clone());
-    }
-    current.clear();
-}
-
+#[cfg(test)]
 pub(in crate::workspace) fn ai_tool_result_facts_for_message(
     facts: &VecDeque<AiToolResultFact>,
     conversation_id: &str,
     assistant_message_id: &str,
 ) -> Vec<AiToolResultFact> {
-    // Keep result binding local to the assistant turn that produced the tool
-    // result. Older evidence can still be shown in history, but it must not
-    // prove a new "I checked" claim after restart or resume.
+    // Group facts by the assistant turn that produced the tool result so
+    // diagnostics and transcript projections do not mix unrelated rounds.
     facts
         .iter()
         .filter(|fact| {
@@ -1273,13 +941,6 @@ pub(in crate::workspace) fn ai_tool_result_facts_for_message(
         })
         .cloned()
         .collect()
-}
-
-pub(in crate::workspace) fn ai_compact_evidence_text(value: &str) -> String {
-    value
-        .chars()
-        .filter(|character| !character.is_whitespace() && !matches!(character, '*' | '`' | ','))
-        .collect::<String>()
 }
 
 pub(in crate::workspace) fn ai_tool_argument_summary(

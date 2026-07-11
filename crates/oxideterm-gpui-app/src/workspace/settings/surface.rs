@@ -87,14 +87,6 @@ impl WorkspaceApp {
                 self.render_portable_password_change_dialog(cx),
                 |surface, modal| surface.child(modal),
             )
-            .when_some(
-                self.session_manager.oxide_import_dialog.as_ref(),
-                |surface, _| surface.child(self.render_oxide_import_dialog(cx)),
-            )
-            .when_some(
-                self.session_manager.oxide_export_dialog.as_ref(),
-                |surface, _| surface.child(self.render_oxide_export_dialog(cx)),
-            )
             .into_any_element()
     }
 

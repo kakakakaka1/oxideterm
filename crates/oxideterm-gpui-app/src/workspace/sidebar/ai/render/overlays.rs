@@ -134,6 +134,15 @@ impl WorkspaceApp {
             )
         } else if self.ai.chat.context_popover_open {
             let anchor = self.select_anchors.get(&SelectAnchorId::AiContextPopover)?;
+            // Context usage is an informational inspector rather than a menu.
+            // Reduced motion keeps only opacity, while Off mounts immediately.
+            let popover = oxideterm_gpui_ui::motion::slide_fade_in_y(
+                &self.tokens,
+                "ai-context-popover-enter",
+                div().child(self.render_ai_context_popover(cx)),
+                6.0,
+                oxideterm_gpui_ui::motion::MotionDuration::Control,
+            );
             (
                 Corner::BottomLeft,
                 ai_sidebar_popup_left(
@@ -143,7 +152,7 @@ impl WorkspaceApp {
                     panel_right,
                 ),
                 f32::from(anchor.bounds.top()) - AI_FLOATING_GAP,
-                self.render_ai_context_popover(cx),
+                popover,
             )
         } else {
             return None;

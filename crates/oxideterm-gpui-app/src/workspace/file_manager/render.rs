@@ -23,8 +23,6 @@ impl WorkspaceApp {
             .relative()
             .flex()
             .flex_row()
-            .p(px(FILE_MANAGER_ROOT_PADDING))
-            .gap(px(FILE_MANAGER_GAP))
             .bg(file_manager_bg(theme.bg, has_background))
             .on_mouse_down(
                 MouseButton::Left,
@@ -37,9 +35,9 @@ impl WorkspaceApp {
                     cx.notify();
                 }),
             )
-            .when(self.file_manager.bookmarks_visible, |root| {
-                root.child(self.render_file_manager_bookmarks(has_background, cx))
-            })
+            // Match the original hierarchy: favorites are an attached rail,
+            // while the toolbar and file list belong to the main content.
+            .child(self.render_file_manager_bookmarks(has_background, cx))
             .child(
                 div()
                     .flex_1()
@@ -113,24 +111,6 @@ impl WorkspaceApp {
                 theme.bg_panel,
                 has_background,
                 FILE_MANAGER_PANEL_80_ALPHA,
-            ))
-            .child(self.render_file_manager_icon_button(
-                if self.file_manager.bookmarks_visible {
-                    LucideIcon::PanelLeftClose
-                } else {
-                    LucideIcon::PanelLeft
-                },
-                self.i18n.t(if self.file_manager.bookmarks_visible {
-                    "fileManager.collapseSidebar"
-                } else {
-                    "fileManager.expandSidebar"
-                }),
-                cx.listener(|this, _event, _window, cx| {
-                    this.file_manager.bookmarks_visible = !this.file_manager.bookmarks_visible;
-                    cx.stop_propagation();
-                    cx.notify();
-                }),
-                cx.entity(),
             ))
             .child(
                 div()
@@ -271,38 +251,108 @@ impl WorkspaceApp {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = self.tokens.ui;
-        let mut panel = file_manager_card_surface(
-            div()
-                .w(px(FILE_MANAGER_SIDEBAR_WIDTH))
-                .h_full()
-                .flex_none()
-                .flex()
-                .flex_col()
-                .border_1()
-                .rounded(px(self.tokens.radii.sm))
-                .border_color(file_manager_border(theme.border, has_background))
-                .bg(file_manager_panel_bg(
-                    theme.bg_card,
-                    has_background,
-                    FILE_MANAGER_PANEL_80_ALPHA,
-                )),
-            theme.bg_card,
-        )
-        .child(
+        let expanded = self.file_manager.bookmarks_visible;
+        let mut panel = div()
+            .h_full()
+            .flex_none()
+            .flex()
+            .flex_col()
+            .border_r_1()
+            .border_color(file_manager_border(theme.border, has_background))
+            .bg(file_manager_panel_bg(
+                theme.bg_card,
+                has_background,
+                FILE_MANAGER_PANEL_80_ALPHA,
+            ))
+            .overflow_hidden()
+            .child(
+                div()
+                    .h(px(32.0))
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .justify_end()
+                    .p(px(4.0))
+                    .border_b_1()
+                    .border_color(file_manager_border(theme.border, has_background))
+                    .child(self.render_file_manager_icon_button(
+                        if expanded {
+                            LucideIcon::PanelLeftClose
+                        } else {
+                            LucideIcon::PanelLeft
+                        },
+                        self.i18n.t(if expanded {
+                            "fileManager.collapseSidebar"
+                        } else {
+                            "fileManager.expandSidebar"
+                        }),
+                        cx.listener(|this, _event, _window, cx| {
+                            this.file_manager.bookmarks_visible =
+                                !this.file_manager.bookmarks_visible;
+                            cx.stop_propagation();
+                            cx.notify();
+                        }),
+                        cx.entity(),
+                    )),
+            );
+
+        if !expanded {
+            panel = panel.child(div().py(px(8.0)).flex().justify_center().child(
+                self.render_file_manager_icon_button(
+                    LucideIcon::Star,
+                    self.i18n.t("fileManager.addBookmark"),
+                    cx.listener(|this, _event, _window, cx| {
+                        if !this.is_file_manager_path_bookmarked(&this.file_manager.path) {
+                            this.toggle_file_manager_current_bookmark(cx);
+                        }
+                        cx.stop_propagation();
+                    }),
+                    cx.entity(),
+                ),
+            ));
+            return self.animate_file_manager_bookmarks_width(panel, expanded);
+        }
+
+        panel = panel.child(
             div()
                 .h(px(FILE_MANAGER_HEADER_HEIGHT))
                 .flex()
                 .items_center()
+                .justify_between()
                 .px(px(12.0))
                 .text_size(px(FILE_MANAGER_TEXT_XS))
                 .font_weight(gpui::FontWeight::SEMIBOLD)
                 .text_color(rgb(theme.text_muted))
-                .child(self.render_selectable_display_text(
-                    "file-manager-bookmarks-title",
-                    (),
-                    self.i18n.t("fileManager.favorites").to_uppercase(),
-                    theme.text_muted,
-                    cx,
+                .border_b_1()
+                .border_color(file_manager_border(theme.border, has_background))
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(8.0))
+                        .child(Self::render_lucide_icon(
+                            LucideIcon::Star,
+                            FILE_MANAGER_ICON_SM,
+                            rgb(theme.text_muted),
+                        ))
+                        .child(self.render_selectable_display_text(
+                            "file-manager-bookmarks-title",
+                            (),
+                            self.i18n.t("fileManager.favorites").to_uppercase(),
+                            theme.text_muted,
+                            cx,
+                        )),
+                )
+                .child(self.render_file_manager_icon_button(
+                    LucideIcon::Plus,
+                    self.i18n.t("fileManager.addBookmark"),
+                    cx.listener(|this, _event, _window, cx| {
+                        if !this.is_file_manager_path_bookmarked(&this.file_manager.path) {
+                            this.toggle_file_manager_current_bookmark(cx);
+                        }
+                        cx.stop_propagation();
+                    }),
+                    cx.entity(),
                 )),
         );
         if self.file_manager.bookmarks.is_empty() {
@@ -492,7 +542,46 @@ impl WorkspaceApp {
                         ),
                 ),
         );
-        panel.into_any_element()
+        self.animate_file_manager_bookmarks_width(panel, expanded)
+    }
+
+    fn animate_file_manager_bookmarks_width(&self, panel: gpui::Div, expanded: bool) -> AnyElement {
+        let target_width = if expanded {
+            FILE_MANAGER_SIDEBAR_WIDTH
+        } else {
+            FILE_MANAGER_SIDEBAR_COLLAPSED_WIDTH
+        };
+        if !self.tokens.motion.enabled || !self.tokens.motion.spatial_enabled {
+            // Reduced and Off change layout synchronously without an animation duration.
+            return panel.w(px(target_width)).into_any_element();
+        }
+
+        panel
+            .with_animation(
+                ("file-manager-bookmarks-width", expanded as usize),
+                Animation::new(oxideterm_gpui_ui::motion::duration(
+                    &self.tokens,
+                    oxideterm_gpui_ui::motion::MotionDuration::Control,
+                ))
+                .with_easing(oxideterm_gpui_ui::motion::ease_in_out_cubic),
+                move |panel, progress| {
+                    let width = if expanded {
+                        oxideterm_gpui_ui::motion::lerp(
+                            FILE_MANAGER_SIDEBAR_COLLAPSED_WIDTH,
+                            FILE_MANAGER_SIDEBAR_WIDTH,
+                            progress,
+                        )
+                    } else {
+                        oxideterm_gpui_ui::motion::lerp(
+                            FILE_MANAGER_SIDEBAR_WIDTH,
+                            FILE_MANAGER_SIDEBAR_COLLAPSED_WIDTH,
+                            progress,
+                        )
+                    };
+                    panel.w(px(width))
+                },
+            )
+            .into_any_element()
     }
 
     fn render_file_manager_list_panel(
@@ -509,9 +598,8 @@ impl WorkspaceApp {
             .h_full()
             .flex()
             .flex_col()
-            .border_1()
-            .rounded(px(self.tokens.radii.sm))
-            .border_color(rgba((theme.accent << 8) | FILE_MANAGER_ACTIVE_BORDER_ALPHA))
+            // The page toolbar already establishes the file-manager surface.
+            // Keep the list body unframed so its internal dividers define hierarchy.
             .bg(file_manager_bg(theme.bg, has_background))
             .child(self.render_file_manager_header(has_background, window, cx))
             .child(self.render_file_manager_columns(has_background, cx))

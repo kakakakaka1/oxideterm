@@ -409,6 +409,7 @@ fn release_windows_restart_manager_handles(app_exe: &Path) {
     let _ = unsafe { RmEndSession(session) };
 }
 
+#[cfg(any(windows, test))]
 fn windows_restart_manager_app_paths(app_exe: &Path) -> Vec<PathBuf> {
     let mut app_paths = vec![app_exe.to_path_buf()];
     if let Some(install_dir) = app_exe.parent() {

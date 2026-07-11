@@ -152,14 +152,6 @@ impl WorkspaceApp {
                 self.session_manager.delete_confirm.as_ref(),
                 |surface, _| surface.child(self.render_session_manager_delete_confirm(cx)),
             )
-            .when_some(
-                self.session_manager.oxide_import_dialog.as_ref(),
-                |surface, _| surface.child(self.render_oxide_import_dialog(cx)),
-            )
-            .when_some(
-                self.session_manager.oxide_export_dialog.as_ref(),
-                |surface, _| surface.child(self.render_oxide_export_dialog(cx)),
-            )
             .when(self.session_manager.view_mode_menu_open, |surface| {
                 surface.child(self.workspace_context_menu_backdrop(
                     self.render_session_manager_view_mode_menu(window, has_background, cx),

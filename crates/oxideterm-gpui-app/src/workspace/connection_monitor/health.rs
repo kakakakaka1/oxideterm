@@ -291,15 +291,6 @@ impl WorkspaceApp {
                     this.start_host_tools_tab_scrollbar_drag(event, cx);
                 }),
             )
-            .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _window, cx| {
-                this.update_host_tools_tab_scrollbar_drag(event, cx);
-            }))
-            .on_mouse_up(
-                MouseButton::Left,
-                cx.listener(|this, _event: &MouseUpEvent, _window, cx| {
-                    this.finish_host_tools_tab_scrollbar_drag(cx);
-                }),
-            )
             .child(
                 div()
                     .absolute()
@@ -388,7 +379,7 @@ impl WorkspaceApp {
         cx.stop_propagation();
     }
 
-    fn update_host_tools_tab_scrollbar_drag(
+    pub(in crate::workspace) fn update_host_tools_tab_scrollbar_drag(
         &mut self,
         event: &MouseMoveEvent,
         cx: &mut Context<Self>,
@@ -413,7 +404,10 @@ impl WorkspaceApp {
         cx.stop_propagation();
     }
 
-    fn finish_host_tools_tab_scrollbar_drag(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::workspace) fn finish_host_tools_tab_scrollbar_drag(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) {
         if self.connection_monitor.tab_scrollbar_drag.take().is_some() {
             cx.notify();
         }

@@ -499,14 +499,21 @@ pub fn ai_orchestrator_system_prompt(tool_use_enabled: bool) -> String {
         "### Output Handling",
         "- If tool output is truncated, sampled, or incomplete, explicitly say what part you could see and that conclusions are limited by truncation.",
         "- Do not ask the user to manually create, copy, or paste files to report results when tools can read or write them. Use tool calls or answer directly.",
-        "",
-        "### Evidence Binding",
-        "- Tool results may include `evidenceFacts` with `factId` values. When your final answer states facts derived from tool results, append an exact `<evidence_claims>...</evidence_claims>` block after the visible answer.",
-        "- The block content must be JSON shaped as `{ \"claims\": [{ \"text\": \"visible factual claim\", \"evidence\": [\"tool-call-id.output\"], \"confidence\": \"verified\" }] }`.",
-        "- Every verified claim must cite only fact IDs from the current turn's tool results. Do not cite old transcript facts for a new claim.",
-        "- Do not put guesses, plans, or unsupported prose in `evidence_claims`; if no fact proves a claim, say it is not verified instead of marking it verified.",
     ]
     .join("\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ai_orchestrator_system_prompt;
+
+    #[test]
+    fn orchestrator_prompt_does_not_require_evidence_binding_protocol() {
+        let prompt = ai_orchestrator_system_prompt(true);
+
+        assert!(!prompt.contains("Evidence Binding"));
+        assert!(!prompt.contains("<evidence_claims>"));
+    }
 }
 
 pub fn ai_context_window_from_maps(

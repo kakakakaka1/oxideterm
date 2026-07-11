@@ -44,10 +44,6 @@ mod ai_turn_order_tests {
         }
     }
 
-    fn test_tool_result_fact(fact_id: &str, output_preview: &str) -> AiToolResultFact {
-        test_tool_result_fact_for_assistant(fact_id, "assistant-1", output_preview)
-    }
-
     fn test_tool_result_fact_for_assistant(
         fact_id: &str,
         assistant_message_id: &str,
@@ -893,42 +889,18 @@ mod ai_turn_order_tests {
     }
 
     #[test]
-    fn result_binding_guard_replaces_unbacked_fact_claim() {
+    fn result_binding_keeps_unbacked_fact_claim_visible() {
         let mut message = assistant_message();
         message.content = "我刚才真正的系统状态：运行时间 12 days。".to_string();
-        let facts = Vec::new();
 
-        let guardrail = apply_ai_result_binding_guard(&mut message, &facts);
+        strip_ai_evidence_claims(&mut message);
 
-        assert!(guardrail.is_some());
-        assert!(message.content.contains("tool-result evidence"));
-        let parts = message
-            .turn
-            .as_ref()
-            .and_then(|turn| turn.get("parts"))
-            .and_then(serde_json::Value::as_array)
-            .expect("turn parts");
-        assert_eq!(parts[0]["type"], "guardrail");
-        assert_eq!(parts[0]["code"], "result_binding_required");
-    }
-
-    #[test]
-    fn result_binding_guard_allows_tool_backed_fact_claim() {
-        let mut message = assistant_message();
-        message.content = "磁盘是 468G，已用 72G。".to_string();
-        let facts = vec![test_tool_result_fact(
-            "tool-1.output",
-            "Filesystem Size Used Avail Use%\n/ 468G 72G 373G 17%",
-        )];
-
-        let guardrail = apply_ai_result_binding_guard(&mut message, &facts);
-
-        assert!(guardrail.is_none());
+        assert_eq!(message.content, "我刚才真正的系统状态：运行时间 12 days。");
         assert!(message.turn.is_none());
     }
 
     #[test]
-    fn result_binding_accepts_structured_evidence_claim_block() {
+    fn result_binding_strips_structured_evidence_claim_block() {
         let mut message = assistant_message();
         message.content = concat!(
             "磁盘是 468G，已用 72G。",
@@ -939,14 +911,9 @@ mod ai_turn_order_tests {
         .to_string();
         let streamed_content = message.content.clone();
         append_ai_turn_text_part(&mut message, "text", &streamed_content, false);
-        let facts = vec![test_tool_result_fact(
-            "tool-1.output",
-            "Filesystem Size Used Avail Use%\n/ 468G 72G 373G 17%",
-        )];
 
-        let guardrail = apply_ai_result_binding_guard(&mut message, &facts);
+        strip_ai_evidence_claims(&mut message);
 
-        assert!(guardrail.is_none());
         assert_eq!(message.content, "磁盘是 468G，已用 72G。");
         let parts = message
             .turn
@@ -956,69 +923,17 @@ mod ai_turn_order_tests {
             .expect("turn parts");
         assert_eq!(parts[0]["type"], "text");
         assert_eq!(parts[0]["text"], "磁盘是 468G，已用 72G。");
-        assert_eq!(parts[1]["type"], "claim");
-        assert_eq!(parts[1]["evidence"][0], "tool-1.output");
+        assert_eq!(parts.len(), 1);
     }
 
     #[test]
-    fn result_binding_rejects_structured_claim_with_unknown_fact_id() {
+    fn result_binding_drops_incomplete_evidence_claim_block() {
         let mut message = assistant_message();
-        message.content = concat!(
-            "磁盘是 468G。",
-            "\n<evidence_claims>",
-            r#"{"claims":[{"text":"磁盘是 468G。","evidence":["old-tool.output"],"confidence":"verified"}]}"#,
-            "</evidence_claims>"
-        )
-        .to_string();
-        let facts = vec![test_tool_result_fact(
-            "tool-1.output",
-            "Filesystem Size Used Avail Use%\n/ 468G 72G 373G 17%",
-        )];
+        message.content = "磁盘是 468G。\n<evidence_claims>{\"claims\":[".to_string();
 
-        let guardrail = apply_ai_result_binding_guard(&mut message, &facts);
+        strip_ai_evidence_claims(&mut message);
 
-        assert!(guardrail.is_some());
-        assert!(message.content.contains("tool-result evidence"));
-    }
-
-    #[test]
-    fn result_binding_guard_rejects_claim_without_extractable_evidence_tokens() {
-        let mut message = assistant_message();
-        message.content = "我已经检查过系统状态，结果正常。".to_string();
-        let facts = vec![test_tool_result_fact(
-            "tool-1.output",
-            "uptime ok\nload average: 0.20, 0.19, 0.24",
-        )];
-
-        let guardrail = apply_ai_result_binding_guard(&mut message, &facts);
-
-        assert!(guardrail.is_some());
-        assert!(message.content.contains("tool-result evidence"));
-    }
-
-    #[test]
-    fn result_binding_guard_rejects_tool_result_number_mismatch() {
-        let mut message = assistant_message();
-        message.content = "磁盘是 915G，已用 72G。".to_string();
-        let facts = vec![test_tool_result_fact(
-            "tool-1.output",
-            "Filesystem Size Used Avail Use%\n/ 468G 72G 373G 17%",
-        )];
-
-        let guardrail = apply_ai_result_binding_guard(&mut message, &facts);
-
-        assert!(guardrail.is_some());
-        assert_eq!(
-            message
-                .turn
-                .as_ref()
-                .and_then(|turn| turn.get("parts"))
-                .and_then(serde_json::Value::as_array)
-                .and_then(|parts| parts.first())
-                .and_then(|part| part.get("code"))
-                .and_then(serde_json::Value::as_str),
-            Some("result_binding_required")
-        );
+        assert_eq!(message.content, "磁盘是 468G。");
     }
 
     #[test]

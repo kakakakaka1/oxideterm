@@ -14,9 +14,7 @@ use oxideterm_gpui_ui::{
         rounded_shell_child_radius,
     },
     scroll::ScrollableElement,
-    surface::{
-        color_for_background, color_with_background_scaled_alpha, tauri_glass_surface_shadow,
-    },
+    surface::{color_for_background, color_with_background_scaled_alpha},
     text_input::{TextInputView, text_input, text_input_anchor_probe},
 };
 use oxideterm_local_files::{
@@ -38,8 +36,6 @@ use self::actions::{open_path_external, reveal_path_external};
 use self::helpers::*;
 use super::sftp::native_video::{SharedSftpNativeVideoSurface, sftp_native_video_element};
 
-const FILE_MANAGER_ROOT_PADDING: f32 = 8.0; // Tauri LocalFileManager/FileList p-2.
-const FILE_MANAGER_GAP: f32 = 8.0; // Tauri gap-2.
 const FILE_MANAGER_HEADER_HEIGHT: f32 = 40.0; // Tauri h-10.
 const FILE_MANAGER_ROW_HEIGHT: f32 = 28.0; // Tauri FileList FILE_ROW_HEIGHT.
 const FILE_MANAGER_VIRTUAL_OVERSCAN: usize = 15; // Tauri useVirtualizer overscan.
@@ -51,6 +47,7 @@ const FILE_MANAGER_PREVIEW_CODE_WRAP_COLUMNS: usize = 96; // Virtual rows pre-wr
 const FILE_MANAGER_PREVIEW_STREAM_CHUNK_SIZE: u64 = 128 * 1024; // Tauri VirtualTextPreview CHUNK_SIZE.
 const FILE_MANAGER_PREVIEW_CODE_GUTTER_ALPHA: u32 = 0x4d; // Tauri CodeHighlight line-number opacity 30%.
 const FILE_MANAGER_SIDEBAR_WIDTH: f32 = 220.0; // Tauri favorites sidebar column.
+const FILE_MANAGER_SIDEBAR_COLLAPSED_WIDTH: f32 = 40.0; // Tauri collapsed favorites rail.
 const FILE_MANAGER_TEXT_XS: f32 = 12.0;
 const FILE_MANAGER_TEXT_SM: f32 = 14.0;
 const FILE_MANAGER_ICON_SM: f32 = 12.0;
@@ -73,7 +70,6 @@ const FILE_MANAGER_BG_ACTIVE_BG_ALPHA: u32 = 0x66; // [data-bg-active] --color-t
 const FILE_MANAGER_BG_ACTIVE_PANEL_ALPHA: u32 = 0x66; // [data-bg-active] --color-theme-bg-panel 40%.
 const FILE_MANAGER_BG_ACTIVE_HOVER_ALPHA: u32 = 0x80; // [data-bg-active] --color-theme-bg-hover 50%.
 const FILE_MANAGER_PANEL_80_ALPHA: u32 = 0xcc; // Tauri bg-theme-bg-panel/80.
-const FILE_MANAGER_ACTIVE_BORDER_ALPHA: u32 = 0x80; // Tauri border-oxide-accent/50.
 const FILE_MANAGER_SELECTED_BG_ALPHA: u32 = 0x33; // Tauri bg-theme-accent/20.
 const FILE_MANAGER_BREADCRUMB_ACTIVE_ALPHA: u32 = 0x4d; // Tauri bg-theme-bg-hover/30.
 const FILE_MANAGER_BREADCRUMB_HOVER_ALPHA: u32 = 0x80; // Tauri hover:bg-theme-bg-hover/50.
@@ -348,12 +344,6 @@ fn file_manager_panel_bg(color: u32, has_background: bool, alpha: u32) -> Rgba {
         alpha,
         FILE_MANAGER_BG_ACTIVE_PANEL_ALPHA,
     )
-}
-
-fn file_manager_card_surface(surface: gpui::Div, color: u32) -> gpui::Div {
-    // LocalFileManager's bookmark sidebar is Tauri bg-theme-bg-card, which
-    // inherits --theme-card-shadow even when its opacity comes from data-bg-active.
-    tauri_glass_surface_shadow(surface, color)
 }
 
 fn file_manager_hover_bg(color: u32, has_background: bool) -> Rgba {

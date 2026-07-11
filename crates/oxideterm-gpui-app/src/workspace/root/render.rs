@@ -446,6 +446,8 @@ impl Render for WorkspaceApp {
                 this.update_split_drag(event, window, cx);
                 this.update_settings_slider_drag(event, cx);
                 this.update_terminal_cast_seek_drag(event, cx);
+                // Continue scrollbar dragging after the pointer leaves its thin hit target.
+                this.update_host_tools_tab_scrollbar_drag(event, cx);
                 this.update_ime_selection_drag(event.position, window, cx);
                 if this.read_only_selection_drag_active() {
                     this.update_selectable_text_autoscroll(event.position, cx);
@@ -931,6 +933,16 @@ impl Render for WorkspaceApp {
                 // Mount it here so the backdrop covers every persistent chrome region.
                 root.child(modal)
             })
+            .when(self.session_manager.oxide_import_dialog.is_some(), |root| {
+                // .oxide dialogs are application-level import flows. Portal
+                // them beside the command palette so their backdrop covers
+                // activity, session, tab, content, and companion sidebars.
+                root.child(self.render_oxide_import_dialog(cx))
+            })
+            .when(self.session_manager.oxide_export_dialog.is_some(), |root| {
+                // Export uses the same workspace-wide modal ownership as import.
+                root.child(self.render_oxide_export_dialog(cx))
+            })
             .when(self.command_palette.open, |root| {
                 root.child(self.render_command_palette(cx))
             })
@@ -1008,6 +1020,7 @@ impl WorkspaceApp {
         self.finish_split_drag(cx);
         self.finish_settings_slider_drag(cx);
         self.finish_terminal_cast_seek_drag(cx);
+        self.finish_host_tools_tab_scrollbar_drag(cx);
         self.finish_ime_selection_drag(cx);
         self.stop_selectable_text_autoscroll();
         self.finish_tab_drag(event, window, cx);
