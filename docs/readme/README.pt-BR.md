@@ -1,4 +1,4 @@
-<h1 align="center">⚡ OxideTerm — Native</h1>
+<h1 align="center">⚡ OxideTerm</h1>
 
 <p align="center">
   <strong>Espaço de trabalho operacional nativo com IA para servidores remotos — app nativo em Rust puro</strong>
@@ -7,7 +7,7 @@
   <br>
   Renderização GPU. Grátis. Sem necessidade de conta.
   <br>
-  <strong>Sem WebView incorporada. Sem telemetria. Sem assinatura. BYOK primeiro. SSH puro em Rust sem OpenSSL/libssh2.</strong>
+  <strong>Sem Electron. Sem WebView incorporada. Sem telemetria. Sem assinatura. BYOK primeiro. SSH puro em Rust sem OpenSSL/libssh2.</strong>
 </p>
 
 
@@ -20,7 +20,7 @@
 </p>
 
 <p align="center">
-  <sub>Próxima grande edição nativa do <a href="https://github.com/AnalyseDeCircuit/oxideterm">OxideTerm</a> — renderizada por GPU, sem WebView, usando <a href="https://github.com/zed-industries/zed/tree/main/crates/gpui">GPUI</a> (framework de renderização do Zed)</sub>
+  <sub>Código aberto, local-first e renderizado por GPU com GPUI.</sub>
 </p>
 
 <p align="center">
@@ -28,7 +28,7 @@
 </p>
 
 <p align="center">
-  <img src="../../docs/media/oxideterm-native-hero.png" alt="Visão geral dos recursos do OxideTerm Native" width="920">
+  <img src="../../docs/media/oxideterm-native-hero.png" alt="Visão geral dos recursos do OxideTerm" width="920">
 </p>
 
 <div align="center">
@@ -43,36 +43,32 @@
 
 ---
 
-## O que você pode fazer
+## O que é o OxideTerm
 
-- Gerenciar SSH, Telnet, serial, RDP/VNC, SFTP, encaminhamentos de portas, Raw TCP/UDP, shells locais e edição leve em um espaço de trabalho nativo
-- Manter o trabalho remoto vivo durante instabilidades de rede com a reconexão Grace Period
-- Pedir à OxideSens AI para inspecionar sessões ativas e executar ações aprovadas do espaço de trabalho usando seu próprio provedor de IA
+OxideTerm é um espaço de trabalho de código aberto para SSH e operações remotas. Terminais, arquivos, encaminhamentos, ferramentas do host, sockets Raw e desktops remotos ficam em um só lugar.
+
+**O que você pode fazer:**
+
+- Gerenciar SSH, Telnet, serial, RDP/VNC, SFTP, encaminhamento de portas, sockets Raw TCP/UDP, shells locais e edição leve em um único espaço de trabalho
+- Manter o trabalho remoto durante breves interrupções de rede com a reconexão Grace Period
+- Pedir ao OxideSens que examine sessões ativas e execute ações aprovadas usando seu próprio provedor de IA
+
+Suas conexões e dados operacionais permanecem sob seu controle. OxideSens usa seu próprio provedor de IA e não exige conta.
 
 ---
 
-## Por que OxideTerm Native?
+## Por que OxideTerm?
 
-| Se você se importa com... | OxideTerm Native oferece... |
-|---|---|
-| Um nó remoto, muitas ferramentas | Terminal, SFTP, encaminhamento de portas, RDP/VNC, Raw TCP/UDP, trzsz, IDE nativo, monitoramento e OxideSens AI ficam no mesmo espaço de trabalho |
-| Shell nativo sem WebView | GPUI desenha a interface desktop diretamente numa superfície GPU, sem DOM, CSS, JavaScript, Chromium ou runtime WebKit |
-| Fluxos operacionais locais primeiro | SSH, Telnet, SFTP, encaminhamento, RDP/VNC, Raw TCP/UDP, shell local, terminais seriais e configuração funcionam sem cadastro |
-| OxideSens AI com BYOK em vez de créditos de plataforma | OxideSens usa seu ponto de acesso OpenAI/Anthropic/Gemini/Ollama/OpenAI-compatible com MCP, RAG e ações aprovadas do espaço de trabalho |
-| Reconexão estável | Grace Period sonda a conexão antiga por 30 s antes de substituí-la, para que TUIs sobrevivam a quedas curtas |
-| SSH puro em Rust e credenciais seguras | A pilha SSH usa `russh` + `ring` sem OpenSSL/libssh2; credenciais armazenadas usam o chaveiro do sistema e `.oxide` usa ChaCha20-Poly1305 + Argon2id |
-
-## O que é / o que não é
-
-OxideTerm Native foca em um **espaço de trabalho de IA local primeiro para servidores remotos**, reconstruído como app desktop GPUI em Rust puro. Ele é feito para usuários que querem terminais, áreas de trabalho remotas, sockets brutos, arquivos, portas, transferências, edição leve, consoles seriais e OxideSens AI ao redor de suas próprias máquinas e nós remotos.
-
-Não é uma plataforma de agentes hospedada na nuvem. Também não é Electron, Tauri ou terminal web: sem Chromium, sem WebView, sem JavaScript, sem CSS.
+- SSH, Telnet, serial, RDP/VNC, SFTP, encaminhamento e shells locais em um aplicativo desktop
+- Reconexão Grace Period para quedas breves de rede
+- OxideSens com suas credenciais de IA e ações aprovadas
+- Interface GPUI sem Electron ou runtime de navegador incorporado
 
 ---
 
 ## Capturas de tela
 
-A interface nativa segue o mesmo modelo de espaço de trabalho e a mesma linguagem visual do OxideTerm da linha Tauri atual.
+As capturas mostram os fluxos de terminal, arquivos, edição e encaminhamento do OxideTerm.
 
 <table>
 <tr>
@@ -87,35 +83,28 @@ A interface nativa segue o mesmo modelo de espaço de trabalho e a mesma linguag
 
 ---
 
-## Diferenças em relação ao WebView/Tauri
+## Feito para operações remotas
 
-| Aspecto | WebView/Tauri | Native |
-|---|---|---|
-| Rendering | Chromium/Safari/WebKit2GTK + CSS | GPUI, superfície GPU, modo imediato, Rust puro |
-| Fluxo terminal | WebSocket → JS event loop → xterm.js | Rust input → `TerminalState` → GPUI render |
-| IPC | JSON-RPC por comando | Chamadas dentro do processo |
-| SSH keepalive | Timer JavaScript | Rust async task |
-| Plugins | ESM em sandbox do navegador | WASM wasmtime + API de host Rust tipada |
-| CLI | Requer app desktop | Binário standalone |
-| Limite de runtime | Runtime de navegador + ponte WebView | Processo nativo; sem runtime de navegador embutido |
+OxideTerm mantém conexões, arquivos, encaminhamentos, ferramentas do host, automação e contexto de IA em um espaço Rust. As ferramentas compartilham a mesma identidade de servidor e o mesmo ciclo de sessão.
 
-## Funcionalidades
+---
 
-| Categoria | Funcionalidades |
+## Recursos
+
+| Categoria | Recursos |
 |---|---|
-| Terminal | PTY local, SSH, Telnet, terminais Raw TCP/UDP, terminais seriais locais, painéis divididos, integração com shell, marcas de comando, asciicast, trzsz, Sixel/Kitty graphics, política de renderização |
-| SSH & Auth | pool de conexões, ProxyJump ilimitado, reconexão Grace Period, TOFU de chave de host, encaminhamento de SSH Agent, password/key/cert/keyboard-interactive |
-| SFTP / IDE | navegador de dois painéis, fila de transferências, prévia, favoritos, escritas atômicas, árvore remota de arquivos, editor multiaba, resolução de conflitos |
-| Forwarding | Local, Remote, Dynamic SOCKS5, regras salvas, restauração após reconexão, relatório de encerramento, tempo limite de inatividade |
-| Área de trabalho remota | Abas RDP e VNC integradas, controles de reconexão, tamanho conforme viewport, teclado, mouse, área de transferência e cursor |
-| Raw TCP/UDP | Terminais Raw TCP e Raw UDP para depurar serviços pontuais, protocolos de dispositivos e datagramas |
-| AI | OxideSens com OpenAI, Anthropic, Gemini, Ollama/compatible, MCP, RAG e aprovação de comandos |
-| Cloud Sync / `.oxide` | push/pull/apply/resolve, S3/WebDAV/Git, rollback backups, import/export criptografado |
-| Plugins / CLI | WASM sandbox, API de host nativa, configurações por plugin; CLI para settings, connections, encaminhamentos, plugins, secrets, cloud-sync, backup, report |
+| **Terminal e conexões** | Shells locais, SSH, Telnet, serial, Raw TCP/UDP, painéis, rotas multi-hop e reconexão estável |
+| **Arquivos e edição remota** | SFTP, filas de transferência, favoritos, gravação segura, árvores de projeto e edição em abas |
+| **Encaminhamento e rede** | Encaminhamento local, remoto e SOCKS5 dinâmico, regras salvas e depuração de sockets |
+| **Operações do host e desktop remoto** | Monitoramento, processos, serviços, logs, portas, tarefas, discos, pacotes, contêineres, tmux, RDP e VNC |
+| **OxideSens e automação** | Provedores de IA próprios, MCP, RAG local, ações aprovadas, sincronização criptografada e CLI |
+| **Extensões e personalização** | Plugins WASM, abas personalizadas, comandos rápidos, temas, fundos, atalhos e 11 idiomas |
+
+---
 
 ## Arquitetura
 
-OxideTerm Native remove a ponte WebView e mantém terminal, SSH, Telnet, RDP, VNC, Raw TCP/UDP, SFTP, forwarding, IDE, IA, plugins e CLI em uma arquitetura Rust-native. Os detalhes completos ficam preservados abaixo.
+OxideTerm remove a ponte WebView e mantém terminal, SSH, Telnet, RDP, VNC, Raw TCP/UDP, SFTP, forwarding, IDE, IA, plugins e CLI em uma arquitetura Rust-native. Os detalhes completos ficam preservados abaixo.
 
 <details>
 <summary><strong>Arquitetura, internos SSH, shell GPUI, reconexão, IA, plugins e mais</strong></summary>
@@ -138,7 +127,6 @@ Não existe fronteira de serialização entre UI e backend SSH/terminal. Os byte
 
 ### SSH puro em Rust — russh (ring)
 
-A edição nativa vincula o mesmo stack `russh` da linha Tauri diretamente no binário desktop:
 
 - **Sem OpenSSL/libssh2 na pilha SSH** — `ring` fornece a criptografia SSH
 - SSH2 completo: troca de chaves, canais, subsistema SFTP, encaminhamento de portas
@@ -148,7 +136,6 @@ A edição nativa vincula o mesmo stack `russh` da linha Tauri diretamente no bi
 
 ### Smart Reconnect com Grace Period
 
-A semântica de reconnect corresponde à linha Tauri, mas a orquestração roda inteiramente em tarefas async Rust:
 
 1. Detectar SSH keepalive timeout sem JavaScript timer throttling
 2. Fazer instantâneo de painéis de terminal, transferências SFTP, encaminhamentos e arquivos IDE
@@ -159,7 +146,6 @@ Pipeline: `queued → snapshot → grace-period → ssh-connect → await-termin
 
 ### Pool de conexões SSH e roteamento por nó
 
-`SshConnectionRegistry` usa `DashMap` e preserva o modelo node-first do Tauri sem a ponte de lifecycle WebSocket:
 
 - Uma conexão SSH física pode servir painéis de terminal, SFTP, encaminhamentos de portas e trabalho IDE
 - Cada conexão passa por `connecting → active → idle → link_down → reconnecting`
@@ -206,7 +192,7 @@ Arquivos remotos fazem parte do mesmo node espaço de trabalho, não de uma fun�
 
 ### Plugins, CLI e diagnósticos
 
-A branch native mantém extensões e superfícies de suporte dentro de limites Rust-native:
+Extensões e superfícies de suporte seguem limites explícitos definidos em Rust:
 
 - Plugins rodam em wasmtime sandbox com capacidades de host tipadas em vez de globais do navegador
 - A CLI linka diretamente crates de domínio para doctor, settings, connections, encaminhamentos, portable bundles, backups e reports
@@ -215,7 +201,6 @@ A branch native mantém extensões e superfícies de suporte dentro de limites R
 
 ### Port forwarding — Lock-Free I/O
 
-Forwarding mantém a semântica Tauri em um crate Rust independente:
 
 - Local `-L`, Remote `-R`, Dynamic SOCKS5 `-D`
 - Um único task `ssh_io` possui cada SSH Channel e evita `Arc<Mutex<Channel>>`
@@ -232,7 +217,6 @@ trzsz continua usando o stream do terminal, sem porta extra ou agent remoto:
 
 ### Export `.oxide` criptografado
 
-O formato de bundle criptografado corresponde à linha Tauri:
 
 - **ChaCha20-Poly1305 AEAD** authenticated encryption
 - **Argon2id KDF**: 256 MB memory cost, 4 iterations, eleva o custo de brute force por GPU
@@ -272,16 +256,6 @@ cargo run -p oxideterm-cli -- report --bundle ./oxideterm-report.zip
 | Plugins | wasmtime | Isolamento WASM com API de host nativa |
 | IA e busca | SSE + BM25 + HNSW | Streaming de provedores, bigramas CJK e fusão RRF |
 
-## Desenvolvimento
-
-```sh
-cargo check --workspace
-cargo test --workspace
-cargo fmt --all --check
-```
-
-Durante o desenvolvimento, prefira verificações direcionadas por crate; execute depois as verificações do workspace quando uma mudança atravessar seus limites.
-
 ## Segurança
 
 | Tema | Implementação |
@@ -294,31 +268,15 @@ Durante o desenvolvimento, prefira verificações direcionadas por crate; execut
 | Escritas CLI | dry-run plans, proteções `--yes`, rollback backups |
 | Plugins | isolamento wasmtime e baseada em capacidades API de host |
 
-## Status da release
-
-- [x] encaminhamento de SSH Agent, reconexão Grace Period, GPUI desktop shell
-- [x] Fluxo terminal dentro do processo sem WebSocket
-- [x] SFTP, forwarding, IDE, AI, sincronização em nuvem, plugins, CLI
-- [x] Terminais seriais locais
-- [x] Área de trabalho remota RDP/VNC e terminais Raw TCP/UDP
-- [x] Full ProxyCommand
-- [ ] Audit logging
-
 ## Contribuição
 
-Ao portar uma função existente do Tauri, preserve comportamento, textos, estados de interação e fluxos, salvo quando houver um projeto substituto documentado. Cada novo crate deve assumir uma responsabilidade real de domínio.
+Contribuições de código, documentação, traduções, plugins, testes e relatos de erros são bem-vindas. Discuta mudanças maiores em uma issue ou envie um pull request focado para uma correção bem delimitada.
 
 ```sh
 cargo run -p oxideterm-cli -- report --bundle ./oxideterm-report.zip
 ```
 
-## Neutralidade de provedores
-
-OxideTerm prioriza BYOK e mantém a neutralidade entre provedores.
-
-As integrações com provedores ajudam os usuários a conectar as ferramentas em que já confiam. Elas não são um ranking, um espaço publicitário nem um sistema que recompensa quem pede mais atenção.
-
-Compatibilidade, manutenibilidade, segurança e valor real para usuários decidem o que entra na documentação. Visibilidade segue utilidade, não entusiasmo.
+---
 
 ## Suporte e manutenção
 

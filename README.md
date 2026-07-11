@@ -1,13 +1,13 @@
-<h1 align="center">⚡ OxideTerm — Native</h1>
+<h1 align="center">⚡ OxideTerm</h1>
 
 <p align="center">
-  <strong>AI-Powered Native Operations Workspace for Remote Servers — Pure Rust Native App</strong>
+  <strong>AI-Powered SSH Client and Remote Operations Workspace</strong>
   <br>
   SSH, Telnet, Serial, RDP/VNC, SFTP, port forwarding, Raw TCP/UDP, and lightweight editing in one native workspace.
   <br>
   GPU-rendered. Free. No account needed.
   <br>
-  <strong>No bundled WebView. No telemetry. No subscription. BYOK-first. Pure-Rust SSH without OpenSSL/libssh2.</strong>
+  <strong>No Electron. No bundled WebView. No telemetry. No subscription. BYOK-first. Pure-Rust SSH without OpenSSL/libssh2.</strong>
 </p>
 
 <p align="center">
@@ -19,7 +19,7 @@
 </p>
 
 <p align="center">
-  <sub>Next major native edition of <a href="https://github.com/AnalyseDeCircuit/oxideterm">OxideTerm</a> — GPU-rendered, zero-WebView, using <a href="https://github.com/zed-industries/zed/tree/main/crates/gpui">GPUI</a> (Zed's rendering framework)</sub>
+  <sub>Open-source, local-first, and GPU-rendered with <a href="https://github.com/zed-industries/zed/tree/main/crates/gpui">GPUI</a>.</sub>
 </p>
 
 <p align="center">
@@ -27,7 +27,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/media/oxideterm-native-hero.png" alt="OxideTerm Native feature overview" width="920">
+  <img src="docs/media/oxideterm-native-hero.png" alt="OxideTerm feature overview" width="920">
 </p>
 
 <div align="center">
@@ -42,9 +42,9 @@
 
 ---
 
-## What OxideTerm Native Is
+## What OxideTerm Is
 
-OxideTerm Native is a **pure Rust GPUI desktop app** — an open-source operations workspace for SSH, files, port forwarding, raw sockets, and remote desktop workflows.
+OxideTerm is an open-source, local-first workspace for connecting to servers and working across terminals, files, forwarding, host tools, raw sockets, and remote desktops.
 
 **What you can do:**
 
@@ -52,16 +52,16 @@ OxideTerm Native is a **pure Rust GPUI desktop app** — an open-source operatio
 - Keep remote work alive through network hiccups with Grace Period reconnect
 - Ask OxideSens AI to inspect live sessions and perform approved workspace actions through your own AI provider
 
-It is **not** a hosted cloud agent platform, an Electron app, a Tauri app, or a web-based terminal: no Chromium, no WebView, no JavaScript, no CSS.
+Your connections and operational data stay under your control. OxideTerm requires no account, uses your own AI provider when OxideSens is enabled, and keeps the desktop experience free of Electron and bundled browser runtimes.
 
 ---
 
-## Why OxideTerm Native?
+## Why OxideTerm?
 
-| If you care about... | OxideTerm Native gives you... |
+| If you care about... | OxideTerm gives you... |
 |---|---|
 | One remote node, many tools | Terminal, SFTP, port forwarding, RDP/VNC, Raw TCP/UDP, trzsz, native IDE, monitoring, and OxideSens AI stay attached to the same workspace |
-| Native shell without a bundled WebView | GPUI draws the desktop UI directly on a GPU surface — no DOM, CSS, JavaScript, Chromium, or WebKit in the rendering path |
+| A desktop app without Electron or a bundled WebView | GPUI draws the interface directly on a GPU surface, without shipping a browser runtime |
 | Local-first operations workflows | SSH, Telnet, SFTP, forwarding, RDP/VNC, Raw TCP/UDP, local shell, serial terminals, and config work without signup |
 | BYOK OxideSens AI instead of platform credits | OxideSens uses your OpenAI/Anthropic/Gemini/Ollama/OpenAI-compatible endpoint with MCP, RAG, and approved workspace actions |
 | Reconnect stability | Grace Period probes the old connection for 30s before replacing it, so TUI apps can survive short network drops |
@@ -71,7 +71,7 @@ It is **not** a hosted cloud agent platform, an Electron app, a Tauri app, or a 
 
 ## Screenshots
 
-The native UI follows the same OxideTerm workspace model and visual language as the current Tauri line.
+The screenshots below show the OxideTerm workspace across terminal, file, editing, and forwarding workflows.
 
 <table>
 <tr>
@@ -86,23 +86,19 @@ The native UI follows the same OxideTerm workspace model and visual language as 
 
 ---
 
-## What's Different
+## Built for Remote Operations
 
-Most SSH workspace tools in this space ship a browser runtime inside a desktop wrapper. Terminal bytes flow through JavaScript, reconnect logic lives in the frontend, and the "native" Rust backend spends most of its time serializing events for the WebView. On Windows, that also means a WebView2 runtime dependency just to open a terminal tab.
+OxideTerm keeps terminal rendering, connection state, reconnect orchestration, files, forwarding, automation, and AI context inside one Rust application. The result is a workspace in which tools share the same server identity and session lifecycle instead of behaving like disconnected utilities.
 
-OxideTerm started there too (the Tauri version). The native branch removes the browser entirely:
-
-| Aspect | WebView-based (incl. Tauri) | Native (this branch) |
+| Aspect | Bundled browser approach | OxideTerm |
 |---|---|---|
-| **Rendering** | Chromium/Safari/WebKit2GTK + CSS layout | GPUI — GPU surface, immediate mode, pure Rust |
+| **Rendering** | Browser engine and web layout | GPUI on a GPU surface |
 | **Terminal data flow** | WebSocket → JS event loop → xterm.js | Rust input → `TerminalState` mutation → GPUI render |
-| **IPC overhead** | JSON-RPC serialization on every command | In-process function calls |
-| **SSH keepalive** | JavaScript timer, throttled by browser | Rust async task |
-| **Reconnect** | Orchestrated across the WS bridge | Single in-process pipeline |
-| **AI context** | Serialized through IPC into a handler | Built directly from in-process workspace state |
-| **Plugin runtime** | ESM in browser sandbox | WASM in wasmtime with typed Rust host API |
+| **Connection lifecycle** | Split across frontend and backend layers | One in-process connection and reconnect pipeline |
+| **AI context** | Copied through an application bridge | Built from the active workspace with user approval |
+| **Plugin runtime** | Browser scripting environment | Capability-scoped WASM runtime |
 | **CLI** | Requires the desktop app running | Standalone binary, direct crate linkage |
-| **Runtime boundary** | Browser runtime + WebView bridge | Native process, no bundled browser runtime |
+| **Runtime boundary** | Desktop wrapper plus browser runtime | Native process with no bundled browser runtime |
 
 ---
 
@@ -110,25 +106,18 @@ OxideTerm started there too (the Tauri version). The native branch removes the b
 
 | Category | Features |
 |---|---|
-| **Terminal** | Local PTY (zsh/bash/fish/pwsh/WSL2), SSH remote, Telnet, Raw TCP/UDP terminals, local serial terminals, split panes, shell integration, command marks, recording/playback (asciicast v2), trzsz in-band file transfer, Sixel/Kitty graphics, rendering policy (Boost/Normal/Idle) |
-| **SSH & Auth** | Connection pool, multi-hop ProxyJump (unlimited hops), Grace Period reconnect, host-key TOFU, SSH Agent forwarding. Auth: password, public key (RSA/Ed25519/ECDSA), SSH Agent, certificate, keyboard-interactive 2FA |
-| **SFTP** | Dual-pane browser, transfer queue (concurrent, speed-limited), adaptive chunking, progress + ETA, text/binary/image/archive preview, bookmarks, atomic writes |
-| **IDE** | SFTP-backed remote file tree, multi-tab editor, dirty tracking, conflict resolution, snapshot/restore, local + remote filesystem abstraction |
-| **Port Forwarding** | Local (-L), Remote (-R), Dynamic SOCKS5 (-D), saved rules, reconnect-aware restore, death reporting, idle timeout, remote port detection |
-| **Remote Desktop** | Built-in RDP and VNC tabs, reconnect controls, viewport-aware sizing, keyboard, mouse, clipboard, and cursor plumbing |
-| **Raw Sockets** | Raw TCP and Raw UDP terminals for ad-hoc service, device protocol, and datagram debugging |
-| **AI (OxideSens)** | OpenAI, Anthropic, Gemini, Ollama/OpenAI-compatible; MCP (stdio + SSE); RAG with BM25 + HNSW vector index, CJK bigram tokenizer; chat history, tool policy, command approval |
-| **Cloud Sync** | Push/pull/apply/resolve, S3/WebDAV/Git backends, structured manifest, conflict strategies, rollback backups, redacted diagnostics |
-| **Portable `.oxide`** | Encrypted export/import (ChaCha20-Poly1305 + Argon2id), connections, forwards, settings, quick commands, plugin settings, portable secrets |
-| **Plugins** | Manifest, protocol, registry, WASM sandbox (wasmtime), native host API, per-plugin settings, enable/disable, custom tab surfaces |
-| **CLI** | 17 top-level commands — settings, connections, forwards, quick-commands, plugins, portable, secrets, oxide, cloud-sync, paths, diagnose, doctor, backup, batch, report, completion, errors |
-| **i18n** | Native i18n loader with source-product parity checks |
+| **Terminal & Connections** | Local shells, SSH, Telnet, serial, Raw TCP/UDP, split panes, shell integration, command marks, recording, trzsz transfers, terminal graphics, multi-hop routes, host-key verification, Agent forwarding, 2FA, and Grace Period reconnect |
+| **Files & Remote Editing** | SFTP browsing, transfer queues, speed limits, progress and ETA, bookmarks, safe writes, local file management, remote project trees, multi-tab editing, conflict handling, and workspace restore |
+| **Forwarding & Networking** | Local, remote, and dynamic SOCKS5 forwarding, saved rules, reconnect-aware restore, remote port detection, connection topology, and ad-hoc socket debugging |
+| **Host Operations & Remote Desktop** | Host monitoring, processes, services, logs, ports, tasks, disks, packages, containers, tmux, built-in RDP and VNC, clipboard, input, reconnect, and viewport-aware sizing |
+| **OxideSens & Automation** | BYOK providers, MCP, local RAG, approved workspace actions, command policy, chat history, encrypted cloud sync, portable `.oxide` bundles, and a standalone CLI for automation and diagnostics |
+| **Extensions & Personalization** | Capability-scoped WASM plugins, custom tabs and settings, Quick Commands, themes, background images, configurable shortcuts, and 11 interface languages |
 
 ---
 
 ## Under the Hood
 
-OxideTerm Native removes the WebView bridge and keeps terminal, SSH, Telnet, RDP, VNC, Raw TCP/UDP, SFTP, forwarding, IDE, AI, plugins, and CLI in one Rust-native architecture. The full implementation notes are preserved below for readers who want the engineering details.
+OxideTerm keeps terminal, SSH, Telnet, RDP, VNC, Raw TCP/UDP, SFTP, forwarding, editing, AI, plugins, and CLI in one Rust architecture. The implementation notes below are for readers who want the engineering details.
 
 <details>
 <summary><strong>Architecture, SSH internals, GPUI shell, reconnect, AI, plugins, and more</strong></summary>
@@ -136,7 +125,7 @@ OxideTerm Native removes the WebView bridge and keeps terminal, SSH, Telnet, RDP
 
 ### Architecture — In-Process Core, No WebView Bridge
 
-The Tauri version separates terminal data from control commands into two planes bridged by WebSocket and JSON-RPC. In the native desktop core, GPUI and the terminal/SSH backend share one Rust process; optional remote agents and platform helpers remain outside this boundary:
+GPUI and the terminal/SSH backend share one Rust process; optional remote agents and platform helpers remain outside this boundary:
 
 ```
 ┌─────────────────────────────────────────────────┐
@@ -157,7 +146,7 @@ There is no serialization boundary between the UI and the SSH/terminal backend. 
 
 ### 🔩 Pure Rust SSH — russh (ring)
 
-Same russh stack as the Tauri version, now linked directly into the desktop app binary:
+The desktop app links the `russh` stack directly:
 
 - **No OpenSSL/libssh2 in the SSH stack** — SSH cryptography is provided through `ring`
 - Full SSH2: key exchange, channels, SFTP subsystem, port forwarding
@@ -168,7 +157,7 @@ Same russh stack as the Tauri version, now linked directly into the desktop app 
 
 ### 🔄 Smart Reconnect with Grace Period
 
-Identical reconnect semantics to the Tauri version, reimplemented entirely in Rust without a JavaScript orchestrator:
+Reconnect is coordinated by one Rust pipeline:
 
 1. **Detect** SSH keepalive timeout (Rust async task, no JS timer throttling)
 2. **Snapshot** terminal panes, SFTP transfers, forwards, IDE files — all in-process
@@ -179,7 +168,7 @@ Pipeline: `queued → snapshot → grace-period → ssh-connect → await-termin
 
 ### 🛡️ SSH Connection Pool
 
-`SshConnectionRegistry` backed by `DashMap` — same architecture as Tauri, without the WebSocket lifecycle bridge:
+`SshConnectionRegistry` is backed by `DashMap` and shared by workspace consumers:
 
 - **One connection, many consumers**: terminal panes, SFTP, port forwards, and IDE share one physical SSH connection
 - **State machine per connection**: `connecting → active → idle → link_down → reconnecting`
@@ -189,7 +178,7 @@ Pipeline: `queued → snapshot → grace-period → ssh-connect → await-termin
 
 ### 🤖 OxideSens AI
 
-Same BYOK-first AI as Tauri, with all context building done in-process:
+OxideSens is BYOK-first, with context building performed in-process:
 
 - **Providers**: OpenAI, Anthropic (Claude), Google Gemini, Ollama/any OpenAI-compatible endpoint
 - **MCP**: stdio + SSE transports, full tool discovery and invocation
@@ -227,7 +216,7 @@ Remote files are part of the same node workspace rather than a separate disconne
 
 ### 🧩 Plugins, CLI, and Diagnostics
 
-The native branch keeps extension and support surfaces in Rust-native boundaries:
+Extension and support surfaces stay inside explicit Rust-owned boundaries:
 
 - Plugins run in a wasmtime sandbox with typed host capabilities instead of browser globals
 - The CLI links directly to domain crates for doctor, settings, connections, forwards, portable bundles, backups, and reports
@@ -236,7 +225,7 @@ The native branch keeps extension and support surfaces in Rust-native boundaries
 
 ### 🔀 Port Forwarding — Lock-Free I/O
 
-Identical semantics to Tauri, implemented as standalone Rust crate:
+Forwarding is implemented as a standalone Rust crate:
 
 - Local (-L), Remote (-R), Dynamic SOCKS5 (-D)
 - Message-passing architecture: SSH Channel owned by single `ssh_io` task — no `Arc<Mutex<Channel>>`
@@ -244,7 +233,7 @@ Identical semantics to Tauri, implemented as standalone Rust crate:
 
 ### 📦 trzsz — In-Band File Transfer
 
-Same in-band protocol as Tauri, integrated directly with native file dialogs:
+The in-band protocol is integrated directly with native file dialogs:
 
 - Upload/download through the existing terminal stream — no extra ports or agents
 - Works through ProxyJump chains
@@ -253,7 +242,7 @@ Same in-band protocol as Tauri, integrated directly with native file dialogs:
 
 ### 🔐 .oxide Encrypted Export
 
-Same cryptography as Tauri:
+Portable exports use:
 
 - **ChaCha20-Poly1305 AEAD** authenticated encryption
 - **Argon2id KDF**: 256 MB memory cost, 4 iterations — GPU brute-force resistant
@@ -321,21 +310,7 @@ cargo run -p oxideterm-cli -- --config-dir ./fixture-config doctor --strict
 | **Plugin sandbox** | wasmtime | WASM isolation with native host API |
 | **AI streaming** | SSE (OpenAI/Anthropic/Gemini) | In-process, no IPC boundary |
 | **RAG** | BM25 + HNSW vector index | CJK bigram tokenizer, RRF fusion |
-| **i18n** | oxideterm-i18n (custom) | Native loader, parity checks |
-
----
-
-## Development
-
-```sh
-cargo check --workspace
-cargo check -p oxideterm-gpui-app
-cargo test --workspace
-cargo test -p oxideterm-cli -- --test-threads=1
-cargo fmt --all --check
-```
-
-Prefer scoped crate checks while iterating. Broaden to `--workspace` when a change crosses crate boundaries.
+| **i18n** | oxideterm-i18n (custom) | Built-in loader, 11 shipped locales |
 
 ---
 
@@ -354,35 +329,9 @@ Prefer scoped crate checks while iterating. Broaden to `--workspace` when a chan
 
 ---
 
-## Release Status
-
-- [x] SSH Agent forwarding
-- [x] Grace Period reconnect
-- [x] GPUI desktop shell
-- [x] In-process terminal data flow (no WebSocket)
-- [x] SFTP, port forwarding, IDE, AI, cloud sync, plugins, CLI
-- [x] Local serial and Telnet terminals
-- [x] RDP/VNC remote desktop and Raw TCP/UDP terminals
-- [x] Full ProxyCommand support
-- [ ] Audit logging
-
----
-
-## Provider Neutrality
-
-OxideTerm is BYOK-first and provider-neutral.
-
-Provider integrations exist to help users connect the tools they already trust. They are not a leaderboard, a billboard, or a reward system for whoever asks most warmly.
-
-Compatibility, maintainability, security, and real user value decide what gets documented. Visibility follows usefulness, not enthusiasm.
-
----
-
 ## Contributing
 
-When a feature already exists in the Tauri version, keep native behavior, labels, interaction states, and workflows aligned with that product unless a deliberate replacement is documented. Parity notes live in `docs/`.
-
-New crates must own a real domain responsibility — not just re-export modules. Split by capability: DTOs, validation, persistence, view models, protocol adapters, and presentational builders belong in the crate that owns that job.
+Contributions are welcome across Rust code, documentation, translations, plugins, testing, and issue reproduction. Open an issue to discuss larger changes, or send a focused pull request for a well-scoped fix.
 
 Bug reports are most useful with a redacted CLI bundle:
 

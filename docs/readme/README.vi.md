@@ -1,4 +1,4 @@
-<h1 align="center">⚡ OxideTerm — Native</h1>
+<h1 align="center">⚡ OxideTerm</h1>
 
 <p align="center">
   <strong>Không gian làm việc vận hành máy chủ từ xa có AI — ứng dụng gốc viết hoàn toàn bằng Rust</strong>
@@ -7,7 +7,7 @@
   <br>
   Kết xuất GPU. Miễn phí. Không cần tài khoản.
   <br>
-  <strong>Không đóng gói WebView. Không thu thập dữ liệu đo từ xa. Không thuê bao. Ưu tiên BYOK. SSH thuần Rust không dùng OpenSSL/libssh2.</strong>
+  <strong>Không dùng Electron. Không đóng gói WebView. Không thu thập dữ liệu đo từ xa. Không thuê bao. Ưu tiên BYOK. SSH thuần Rust không dùng OpenSSL/libssh2.</strong>
 </p>
 
 
@@ -20,7 +20,7 @@
 </p>
 
 <p align="center">
-  <sub>Phiên bản gốc lớn tiếp theo của <a href="https://github.com/AnalyseDeCircuit/oxideterm">OxideTerm</a> — kết xuất bằng GPU, không WebView, dùng <a href="https://github.com/zed-industries/zed/tree/main/crates/gpui">GPUI</a> (khung kết xuất của Zed)</sub>
+  <sub>Mã nguồn mở, ưu tiên cục bộ và kết xuất GPU bằng GPUI.</sub>
 </p>
 
 <p align="center">
@@ -28,7 +28,7 @@
 </p>
 
 <p align="center">
-  <img src="../../docs/media/oxideterm-native-hero.png" alt="Tổng quan tính năng của OxideTerm Native" width="920">
+  <img src="../../docs/media/oxideterm-native-hero.png" alt="Tổng quan tính năng của OxideTerm" width="920">
 </p>
 
 <div align="center">
@@ -43,36 +43,32 @@
 
 ---
 
-## Bạn có thể làm gì
+## OxideTerm là gì
 
-- Quản lý SSH, Telnet, nối tiếp, RDP/VNC, SFTP, chuyển tiếp cổng, Raw TCP/UDP, shell cục bộ và chỉnh sửa nhẹ trong một không gian làm việc native
-- Giữ công việc từ xa tiếp tục qua mạng chập chờn với cơ chế kết nối lại Grace Period
-- Yêu cầu OxideSens AI kiểm tra phiên đang chạy và thực hiện các thao tác đã được phê duyệt trong không gian làm việc qua nhà cung cấp AI của bạn
+OxideTerm là không gian làm việc mã nguồn mở cho SSH và vận hành từ xa. Terminal, tệp, chuyển tiếp cổng, công cụ máy chủ, socket Raw và màn hình từ xa được tập trung trong một nơi.
+
+**Bạn có thể làm gì:**
+
+- Quản lý SSH, Telnet, serial, RDP/VNC, SFTP, chuyển tiếp cổng, socket Raw TCP/UDP, shell cục bộ và chỉnh sửa nhẹ trong một không gian làm việc
+- Duy trì công việc từ xa qua gián đoạn mạng ngắn bằng cơ chế kết nối lại Grace Period
+- Yêu cầu OxideSens kiểm tra phiên đang hoạt động và thực hiện các hành động đã được phê duyệt qua nhà cung cấp AI của bạn
+
+Kết nối và dữ liệu vận hành vẫn do bạn kiểm soát. OxideSens dùng nhà cung cấp AI của bạn và không yêu cầu tài khoản.
 
 ---
 
-## Vì sao chọn OxideTerm Native?
+## Vì sao chọn OxideTerm?
 
-| Nếu bạn quan tâm đến... | OxideTerm Native mang lại... |
-|---|---|
-| Một nút từ xa, nhiều công cụ | Terminal, SFTP, chuyển tiếp cổng, RDP/VNC, Raw TCP/UDP, trzsz, IDE native, giám sát và OxideSens AI cùng gắn với một không gian làm việc |
-| Shell native không WebView | GPUI vẽ giao diện desktop trực tiếp lên bề mặt GPU, không DOM, CSS, JavaScript, Chromium hay runtime WebKit |
-| Luồng vận hành ưu tiên cục bộ | SSH, Telnet, SFTP, chuyển tiếp, RDP/VNC, Raw TCP/UDP, shell cục bộ, terminal nối tiếp và cấu hình hoạt động không cần đăng ký |
-| OxideSens AI dùng BYOK thay vì credit nền tảng | OxideSens dùng điểm truy cập OpenAI/Anthropic/Gemini/Ollama/OpenAI-compatible của bạn với MCP, RAG và thao tác không gian làm việc đã được phê duyệt |
-| Kết nối lại ổn định | Grace Period kiểm tra kết nối cũ 30 giây trước khi thay thế, giúp TUI sống sót qua mất mạng ngắn |
-| SSH thuần Rust và thông tin xác thực an toàn | Ngăn xếp SSH dùng `russh` + `ring` không cần OpenSSL/libssh2; thông tin xác thực đã lưu dùng kho khóa hệ điều hành và `.oxide` dùng ChaCha20-Poly1305 + Argon2id |
-
-## Nó là gì / không phải gì
-
-OxideTerm Native tập trung vào **không gian làm việc AI ưu tiên cục bộ cho máy chủ từ xa**, được xây lại thành ứng dụng desktop GPUI thuần Rust. Nó dành cho người dùng muốn terminal, remote desktop, raw socket, tệp, cổng, truyền tải, chỉnh sửa nhẹ, console nối tiếp và OxideSens AI xoay quanh máy của họ và các nút từ xa.
-
-Nó không phải nền tảng tác nhân đám mây được lưu trữ. Nó cũng không phải Electron, Tauri hay terminal web: không Chromium, không WebView, không JavaScript, không CSS.
+- SSH, Telnet, serial, RDP/VNC, SFTP, chuyển tiếp cổng và shell cục bộ trong một ứng dụng desktop
+- Kết nối lại Grace Period cho gián đoạn mạng ngắn
+- OxideSens dùng thông tin AI của bạn và các hành động được phê duyệt
+- Giao diện GPUI không dùng Electron hay runtime trình duyệt đóng gói
 
 ---
 
 ## Ảnh chụp màn hình
 
-Giao diện native theo cùng mô hình không gian làm việc và ngôn ngữ hình ảnh OxideTerm như nhánh Tauri hiện tại.
+Các ảnh dưới đây thể hiện quy trình terminal, tệp, chỉnh sửa và chuyển tiếp của OxideTerm.
 
 <table>
 <tr>
@@ -87,35 +83,28 @@ Giao diện native theo cùng mô hình không gian làm việc và ngôn ngữ 
 
 ---
 
-## Khác gì so với WebView/Tauri
+## Thiết kế cho vận hành từ xa
 
-| Khía cạnh | WebView/Tauri | Native |
-|---|---|---|
-| Kết xuất | Chromium/Safari/WebKit2GTK + CSS | GPUI, bề mặt GPU, chế độ tức thời, Rust thuần |
-| Luồng dữ liệu terminal | WebSocket → JS event loop → xterm.js | đầu vào Rust → `TerminalState` → kết xuất GPUI |
-| IPC | JSON-RPC cho từng lệnh | lời gọi hàm trong tiến trình |
-| SSH keepalive | JavaScript timer | Rust async task |
-| Runtime plugin | ESM trong sandbox trình duyệt | WASM wasmtime + API host Rust có kiểu |
-| CLI | Cần desktop app chạy | Standalone binary |
-| Ranh giới runtime | Runtime trình duyệt + cầu WebView | Tiến trình native; không kèm runtime trình duyệt |
+OxideTerm giữ kết nối, tệp, chuyển tiếp, công cụ máy chủ, tự động hóa và ngữ cảnh AI trong một không gian Rust. Các công cụ dùng chung danh tính máy chủ và vòng đời phiên.
+
+---
 
 ## Tính năng
 
 | Danh mục | Tính năng |
 |---|---|
-| Terminal | PTY cục bộ, SSH, Telnet, terminal Raw TCP/UDP, terminal nối tiếp cục bộ, chia pane, tích hợp shell, đánh dấu lệnh, asciicast, trzsz, Sixel/Kitty graphics, chính sách kết xuất |
-| SSH & Auth | pool kết nối, ProxyJump không giới hạn, kết nối lại Grace Period, TOFU khóa host, chuyển tiếp SSH Agent, password/key/cert/keyboard-interactive |
-| SFTP / IDE | trình duyệt hai bảng, hàng đợi truyền tải, xem trước, đánh dấu, ghi nguyên tử, cây tệp từ xa, trình soạn thảo nhiều tab, giải quyết xung đột |
-| Forwarding | Local, Remote, Dynamic SOCKS5, quy tắc đã lưu, khôi phục sau kết nối lại, báo cáo kết thúc, hết thời gian nhàn rỗi |
-| Remote desktop | Tab RDP và VNC tích hợp, điều khiển kết nối lại, kích thước theo viewport, bàn phím, chuột, clipboard và con trỏ |
-| Raw TCP/UDP | Terminal Raw TCP và Raw UDP để debug dịch vụ tạm thời, giao thức thiết bị và datagram |
-| AI | OxideSens với OpenAI, Anthropic, Gemini, Ollama/compatible, MCP, RAG và phê duyệt lệnh |
-| Cloud Sync / `.oxide` | push/pull/apply/resolve, S3/WebDAV/Git, rollback backups, encrypted import/export |
-| Plugin / CLI | sandbox WASM, API host native, cài đặt plugin; CLI cho settings, connections, forwards, plugins, bí mật, cloud-sync, backup, report |
+| **Terminal và kết nối** | Shell cục bộ, SSH, Telnet, serial, Raw TCP/UDP, khung chia, multi-hop và kết nối lại ổn định |
+| **Tệp và chỉnh sửa từ xa** | SFTP, hàng đợi truyền, dấu trang, ghi an toàn, cây dự án và chỉnh sửa theo tab |
+| **Chuyển tiếp và mạng** | Chuyển tiếp cục bộ, từ xa và SOCKS5 động, quy tắc đã lưu và gỡ lỗi socket |
+| **Vận hành máy chủ và màn hình từ xa** | Giám sát, tiến trình, dịch vụ, log, cổng, tác vụ, đĩa, gói, container, tmux, RDP và VNC |
+| **OxideSens và tự động hóa** | Nhà cung cấp AI riêng, MCP, RAG cục bộ, hành động được duyệt, đồng bộ mã hóa và CLI |
+| **Mở rộng và cá nhân hóa** | Plugin WASM, tab tùy chỉnh, lệnh nhanh, chủ đề, hình nền, phím tắt và 11 ngôn ngữ |
+
+---
 
 ## Kiến trúc
 
-OxideTerm Native loại bỏ cầu WebView và giữ terminal, SSH, Telnet, RDP, VNC, Raw TCP/UDP, SFTP, chuyển tiếp, IDE, AI, plugin và CLI trong một kiến trúc Rust native. Các chi tiết triển khai đầy đủ được giữ lại bên dưới.
+OxideTerm hợp nhất terminal, SSH, Telnet, RDP, VNC, Raw TCP/UDP, SFTP, chuyển tiếp, IDE, AI, plugin và CLI trong một kiến trúc Rust. Chi tiết kỹ thuật được trình bày bên dưới.
 
 <details>
 <summary><strong>Kiến trúc, nội bộ SSH, shell GPUI, kết nối lại, AI, plugins và hơn nữa</strong></summary>
@@ -138,7 +127,6 @@ Không có ranh giới tuần tự hóa giữa giao diện và phần nền SSH/
 
 ### SSH Rust thuần — russh (ring)
 
-Phiên bản gốc liên kết trực tiếp ngăn xếp `russh` của bản Tauri vào tệp thực thi desktop:
 
 - **Ngăn xếp SSH không dùng OpenSSL/libssh2** — `ring` cung cấp mật mã SSH
 - SSH2 đầy đủ: trao đổi khóa, kênh, phân hệ SFTP, chuyển tiếp cổng
@@ -148,7 +136,6 @@ Phiên bản gốc liên kết trực tiếp ngăn xếp `russh` của bản Tau
 
 ### Kết nối lại thông minh với Grace Period
 
-Hành vi kết nối lại khớp với bản Tauri, nhưng toàn bộ điều phối chạy trong các tác vụ Rust bất đồng bộ:
 
 1. Phát hiện SSH keepalive timeout mà không bị JavaScript timer throttling
 2. Chụp lại bảng terminal, truyền tải SFTP, chuyển tiếp và tệp IDE
@@ -159,7 +146,6 @@ Pipeline: `queued → snapshot → grace-period → ssh-connect → await-termin
 
 ### SSH pool kết nối và node routing
 
-`SshConnectionRegistry` dùng `DashMap`, giữ mô hình node-first của Tauri nhưng bỏ WebSocket lifecycle bridge:
 
 - Một SSH connection vật lý có thể phục vụ bảng terminal, SFTP, chuyển tiếp cổng và IDE work
 - Mỗi kết nối đi qua `connecting → active → idle → link_down → reconnecting`
@@ -215,7 +201,6 @@ Nhánh gốc giữ phần mở rộng và bề mặt hỗ trợ trong ranh giớ
 
 ### Chuyển tiếp cổng — I/O không khóa
 
-Forwarding giữ semantics của Tauri trong một Rust crate độc lập:
 
 - Local `-L`, Remote `-R`, Dynamic SOCKS5 `-D`
 - Một task `ssh_io` sở hữu mỗi SSH Channel, tránh `Arc<Mutex<Channel>>`
@@ -232,7 +217,6 @@ trzsz tiếp tục dùng terminal stream, không cần port phụ hoặc remote 
 
 ### Export `.oxide` mã hóa
 
-Định dạng gói mã hóa khớp với bản Tauri:
 
 - **ChaCha20-Poly1305 AEAD** authenticated encryption
 - **Argon2id KDF**: 256 MB memory cost, 4 iterations, tăng chi phí GPU brute-force
@@ -272,16 +256,6 @@ cargo run -p oxideterm-cli -- report --bundle ./oxideterm-report.zip
 | Plugin | wasmtime | Cách ly WASM với API máy chủ gốc |
 | AI và tìm kiếm | SSE + BM25 + HNSW | Truyền dữ liệu nhà cung cấp, bigram CJK và hợp nhất RRF |
 
-## Phát triển
-
-```sh
-cargo check --workspace
-cargo test --workspace
-cargo fmt --all --check
-```
-
-Khi phát triển, hãy ưu tiên kiểm tra từng crate; sau đó kiểm tra toàn bộ workspace nếu thay đổi vượt qua ranh giới giữa các crate.
-
 ## Bảo mật
 
 | Concern | Implementation |
@@ -294,31 +268,15 @@ Khi phát triển, hãy ưu tiên kiểm tra từng crate; sau đó kiểm tra t
 | Ghi bằng CLI | Kế hoạch chạy thử, bảo vệ `--yes`, bản sao lưu khôi phục |
 | Plugin | Cách ly wasmtime và API máy chủ dựa trên năng lực |
 
-## Trạng thái phát hành
-
-- [x] chuyển tiếp SSH Agent, kết nối lại Grace Period, GPUI desktop shell
-- [x] Luồng dữ liệu terminal trong tiến trình, không dùng WebSocket
-- [x] SFTP, chuyển tiếp, IDE, AI, đồng bộ đám mây, plugin, CLI
-- [x] Terminal nối tiếp cục bộ và Telnet
-- [x] Remote desktop RDP/VNC và terminal Raw TCP/UDP
-- [x] Full ProxyCommand
-- [ ] Audit logging
-
 ## Đóng góp
 
-Khi chuyển một tính năng hiện có từ Tauri, hãy giữ nguyên hành vi, nhãn, trạng thái tương tác và quy trình trừ khi đã có thiết kế thay thế được ghi rõ. Mỗi crate mới phải đảm nhận một trách nhiệm miền thực sự.
+Chúng tôi hoan nghênh đóng góp về mã nguồn, tài liệu, bản dịch, plugin, kiểm thử và tái hiện lỗi. Hãy thảo luận thay đổi lớn trong issue hoặc gửi pull request tập trung cho một bản sửa lỗi có phạm vi rõ ràng.
 
 ```sh
 cargo run -p oxideterm-cli -- report --bundle ./oxideterm-report.zip
 ```
 
-## Trung lập nhà cung cấp
-
-OxideTerm ưu tiên BYOK và giữ trung lập giữa các nhà cung cấp.
-
-Tích hợp nhà cung cấp tồn tại để giúp người dùng kết nối các công cụ họ đã tin tưởng. Chúng không phải bảng xếp hạng, biển quảng cáo, hay hệ thống thưởng cho bên nào hỏi han nhiệt tình nhất.
-
-Khả năng tương thích, khả năng bảo trì, tính bảo mật và giá trị thực cho người dùng quyết định nội dung được ghi vào tài liệu. Mức độ hiển thị đi theo tính hữu ích, không theo mức độ vận động.
+---
 
 ## Hỗ trợ và bảo trì
 
