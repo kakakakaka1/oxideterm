@@ -608,6 +608,14 @@ def zip_macos_app_bundle(app_dir: Path, dest: Path) -> None:
     run([ditto, "-c", "-k", "--keepParent", app_dir.name, str(dest)], cwd=app_dir.parent)
 
 
+def archive_macos_tauri_bundle(app_dir: Path, dest: Path) -> None:
+    """Create the app.tar.gz shape consumed by the OxideTerm 1.x updater."""
+    if dest.exists():
+        dest.unlink()
+    with tarfile.open(dest, "w:gz", format=tarfile.PAX_FORMAT) as archive:
+        archive.add(app_dir, arcname=app_dir.name)
+
+
 def create_portable_package(binary: Path, target: str, version: str, label: str) -> None:
     package_root = DIST_DIR / f"OxideTerm_{version}_{label}_portable"
     if package_root.exists():
@@ -704,11 +712,23 @@ def windows_installer_script(
     # each native release channel isolated in its own registry/install scope.
     # Automatic updates stage payloads first; the helper performs the final
     # replacement after the running app has exited.
+    legacy_upgrade_init = ""
+    if identity.channel == "stable":
+        legacy_upgrade_init = rf"""
+  ${{If}} $IsOxideUpdate == "0"
+  ${{AndIf}} ${{FileExists}} "$LOCALAPPDATA\OxideTerm\oxideterm.exe"
+    StrCpy $INSTDIR "$LOCALAPPDATA\OxideTerm"
+    StrCpy $IsOxideUpdate "1"
+    StrCpy $IsLegacyUpgrade "1"
+    SetSilent silent
+  ${{EndIf}}"""
+
     return f"""
 Unicode true
 RequestExecutionLevel user
 !include MUI2.nsh
 !include FileFunc.nsh
+!include LogicLib.nsh
 
 Name "{identity.app_name}"
 OutFile "{nsis_path(installer_path)}"
@@ -730,11 +750,15 @@ VIAddVersionKey /LANG=1033 "ProductVersion" "{nsis_string(version)}"
 !insertmacro MUI_LANGUAGE "English"
 
 Var IsOxideUpdate
+Var IsLegacyUpgrade
 
 Function .onInit
+  StrCpy $IsLegacyUpgrade "0"
   ${{GetOptions}} "$CMDLINE" "/{WINDOWS_UPDATE_FLAG}=1" $IsOxideUpdate
-  IfErrors 0 oxide_update_mode
+  IfErrors check_legacy_install oxide_update_mode
+check_legacy_install:
   StrCpy $IsOxideUpdate "0"
+{legacy_upgrade_init}
   Return
 oxide_update_mode:
   StrCpy $IsOxideUpdate "1"
@@ -770,6 +794,13 @@ update_install:
   WriteRegStr HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{identity.windows_uninstall_key}" "DisplayVersion" "{nsis_string(version)}"
   WriteRegStr HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{identity.windows_uninstall_key}" "Publisher" "AnalyseDeCircuit"
   WriteRegStr HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{identity.windows_uninstall_key}" "UninstallString" "$\\"$INSTDIR\\Uninstall.exe$\\""
+  StrCmp $IsLegacyUpgrade "1" 0 legacy_shortcuts_done
+  CreateDirectory "$SMPROGRAMS\\{identity.app_name}"
+  CreateShortcut "$SMPROGRAMS\\{identity.app_name}\\{identity.app_name}.lnk" "$INSTDIR\\{binary.name}" "" "$INSTDIR\\resources\\icons\\icon.ico"
+  IfFileExists "$DESKTOP\\{identity.app_name}.lnk" 0 legacy_shortcuts_done
+  CreateShortcut "$DESKTOP\\{identity.app_name}.lnk" "$INSTDIR\\{binary.name}" "" "$INSTDIR\\resources\\icons\\icon.ico"
+legacy_shortcuts_done:
+  Exec '"$INSTDIR\\{WINDOWS_UPDATE_HELPER_DIR}\\{UPDATE_HELPER_BIN}.exe" --install-dir "$INSTDIR" --app-exe "$INSTDIR\\{binary.name}" --launch'
 
 install_done:
 SectionEnd
@@ -831,6 +862,14 @@ def create_macos_app(
         # to the application itself, then rebuild the distributable archive.
         run(["xcrun", "stapler", "staple", str(app_dir)])
         zip_macos_app_bundle(app_dir, app_zip)
+
+    if identity.channel == "stable":
+        # OxideTerm 1.x uses Tauri's app.tar.gz installer contract. Keep this
+        # bridge asset beside the native ZIP until the 1.x population retires.
+        archive_macos_tauri_bundle(
+            app_dir,
+            DIST_DIR / f"OxideTerm_{version}_{label}.app.tar.gz",
+        )
 
     if shutil.which("hdiutil"):
         dmg_root = DIST_DIR / f"dmg-{label}"

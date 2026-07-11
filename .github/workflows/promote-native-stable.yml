@@ -53,6 +53,8 @@ jobs:
               throw new Error(`manifest version ${manifest.version} does not match ${expectedVersion}`);
             }
             const requiredPlatforms = [
+              'darwin-aarch64',
+              'darwin-x86_64',
               'macos-aarch64-app',
               'macos-aarch64-portable',
               'macos-x86_64-app',
@@ -76,6 +78,10 @@ jobs:
               if (!entry.url.includes(`/releases/download/${sourceTag}/`)) {
                 throw new Error(`${platform} does not reference an asset from ${sourceTag}`);
               }
+            }
+            if (!manifest.platforms['darwin-aarch64'].url.endsWith('.app.tar.gz')
+                || !manifest.platforms['darwin-x86_64'].url.endsWith('.app.tar.gz')) {
+              throw new Error('stable manifest legacy macOS keys must use Tauri app.tar.gz assets');
             }
 
             const channelTag = 'updater-stable';

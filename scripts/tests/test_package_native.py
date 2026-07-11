@@ -7,7 +7,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+# Import the release helpers from the parent scripts directory.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import package_native
 
@@ -70,8 +71,55 @@ class WindowsInstallerScriptTests(unittest.TestCase):
         self.assertIn('SetOutPath "$INSTDIR\\tools"', script)
         self.assertIn('tools/oxideterm-update-helper.exe"', script)
         self.assertIn('SetOutPath "$INSTDIR\\install"', script)
+        self.assertIn('Exec \'"$INSTDIR\\tools\\oxideterm-update-helper.exe"', script)
+        self.assertIn('--install-dir "$INSTDIR"', script)
+        self.assertIn('--app-exe "$INSTDIR\\oxideterm-native.exe" --launch', script)
         self.assertIn('StrCmp $IsOxideUpdate "1" start_menu_shortcut_done', script)
         self.assertIn('StrCmp $IsOxideUpdate "1" desktop_shortcut_done', script)
+        self.assertNotIn('$LOCALAPPDATA\\OxideTerm\\oxideterm.exe', script)
+
+    def test_stable_installer_detects_tauri_current_user_install(self) -> None:
+        identity = package_native.release_identity("v2.0.0", "2.0.0")
+        script = package_native.windows_installer_script(
+            binary=Path("oxideterm-native.exe"),
+            version="2.0.0",
+            identity=identity,
+            installer_root=Path(r"C:\dist\nsis-windows_x64"),
+            installer_path=Path(r"C:\dist\OxideTerm_setup.exe"),
+            icon_path=Path(r"C:\icons\icon.ico"),
+        )
+
+        self.assertIn('$LOCALAPPDATA\\OxideTerm\\oxideterm.exe', script)
+        self.assertIn('StrCpy $INSTDIR "$LOCALAPPDATA\\OxideTerm"', script)
+        self.assertIn('StrCpy $IsOxideUpdate "1"', script)
+        self.assertIn('StrCpy $IsLegacyUpgrade "1"', script)
+        self.assertIn('SetSilent silent', script)
+        self.assertIn(
+            'CreateShortcut "$SMPROGRAMS\\OxideTerm\\OxideTerm.lnk" '
+            '"$INSTDIR\\oxideterm-native.exe"',
+            script,
+        )
+        self.assertIn('IfFileExists "$DESKTOP\\OxideTerm.lnk"', script)
+
+
+class MacosBridgeArchiveTests(unittest.TestCase):
+    def test_tauri_bridge_archive_keeps_app_bundle_root(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            app = root / "OxideTerm.app"
+            executable = app / "Contents" / "MacOS" / "oxideterm-native"
+            executable.parent.mkdir(parents=True)
+            executable.write_bytes(b"native")
+            executable.chmod(0o755)
+            archive_path = root / "OxideTerm.app.tar.gz"
+
+            package_native.archive_macos_tauri_bundle(app, archive_path)
+
+            with package_native.tarfile.open(archive_path, "r:gz") as archive:
+                member = archive.getmember(
+                    "OxideTerm.app/Contents/MacOS/oxideterm-native"
+                )
+                self.assertEqual(member.mode & 0o111, 0o111)
 
 
 class ReleaseDocumentTests(unittest.TestCase):

@@ -8,7 +8,8 @@ import tempfile
 import unittest
 import zipfile
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+# Import the release helpers from the parent scripts directory.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import verify_native_package
 
@@ -41,6 +42,20 @@ class ArtifactNameTests(unittest.TestCase):
         self.assertTrue(any(name.endswith(".AppImage") for name in names))
         self.assertTrue(any(name.endswith(".deb") for name in names))
         self.assertTrue(any(name.endswith(".tar.gz") for name in names))
+
+    def test_stable_macos_requires_tauri_bridge_archive(self) -> None:
+        stable = verify_native_package.expected_artifact_names(
+            "aarch64-apple-darwin", "2.0.0"
+        )
+        preview = verify_native_package.expected_artifact_names(
+            "aarch64-apple-darwin", "2.0.0-gpui-preview.15"
+        )
+
+        self.assertIn("OxideTerm_2.0.0_macos_arm64.app.tar.gz", stable)
+        self.assertNotIn(
+            "OxideTerm_2.0.0-gpui-preview.15_macos_arm64.app.tar.gz",
+            preview,
+        )
 
 
 class PortableArchiveTests(unittest.TestCase):

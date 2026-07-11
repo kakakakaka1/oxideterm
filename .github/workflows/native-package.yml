@@ -491,6 +491,7 @@ jobs:
           script: |
             const tag = process.env.RELEASE_TAG;
             const version = process.env.RELEASE_VERSION;
+            const isStable = tag.startsWith('v') && !version.includes('-');
 
             const { data: release } = await github.rest.repos.getReleaseByTag({
               owner: context.repo.owner,
@@ -526,17 +527,33 @@ jobs:
             }
 
             await addAsset(
-              ['darwin-aarch64', 'darwin-aarch64-app', 'macos-aarch64', 'aarch64-apple-darwin'],
+              isStable
+                ? ['darwin-aarch64-app', 'macos-aarch64', 'aarch64-apple-darwin']
+                : ['darwin-aarch64', 'darwin-aarch64-app', 'macos-aarch64', 'aarch64-apple-darwin'],
               `OxideTerm_${version}_macos_arm64.app.zip`,
             );
+            if (isStable) {
+              await addAsset(
+                ['darwin-aarch64'],
+                `OxideTerm_${version}_macos_arm64.app.tar.gz`,
+              );
+            }
             await addAsset(
               ['darwin-aarch64-portable', 'macos-aarch64-portable', 'aarch64-apple-darwin-portable'],
               `OxideTerm_${version}_macos_arm64_portable.tar.gz`,
             );
             await addAsset(
-              ['darwin-x86_64', 'darwin-x86_64-app', 'macos-x86_64', 'x86_64-apple-darwin'],
+              isStable
+                ? ['darwin-x86_64-app', 'macos-x86_64', 'x86_64-apple-darwin']
+                : ['darwin-x86_64', 'darwin-x86_64-app', 'macos-x86_64', 'x86_64-apple-darwin'],
               `OxideTerm_${version}_macos_x64.app.zip`,
             );
+            if (isStable) {
+              await addAsset(
+                ['darwin-x86_64'],
+                `OxideTerm_${version}_macos_x64.app.tar.gz`,
+              );
+            }
             await addAsset(
               ['darwin-x86_64-portable', 'macos-x86_64-portable', 'x86_64-apple-darwin-portable'],
               `OxideTerm_${version}_macos_x64_portable.tar.gz`,
@@ -786,6 +803,12 @@ jobs:
               `OxideTerm_${version}_windows_x64-setup.exe`,
               `OxideTerm_${version}_windows_x64_portable.zip`,
             ];
+            if (!isGpuiPreview && !version.includes('-')) {
+              expected.push(
+                `OxideTerm_${version}_macos_arm64.app.tar.gz`,
+                `OxideTerm_${version}_macos_x64.app.tar.gz`,
+              );
+            }
 
             const missing = expected.filter((name) => !names.has(name));
             if (missing.length > 0) {

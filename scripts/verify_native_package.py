@@ -61,6 +61,8 @@ def expected_artifact_names(target: str, version: str) -> set[str]:
                 f"OxideTerm_{version}_{label}.dmg",
             }
         )
+        if "-" not in version:
+            names.add(f"OxideTerm_{version}_{label}.app.tar.gz")
     if "linux" in target:
         names.update(
             {
@@ -137,6 +139,11 @@ def verify_macos_app_zip(path: Path, expected_version: str) -> None:
         raise RuntimeError(
             f"{path.name} Info.plist contains version {actual_version!r}, expected {expected_version!r}"
         )
+
+
+def verify_macos_tauri_archive(path: Path, expected_version: str) -> None:
+    """Validate the legacy Tauri updater archive using the app bundle contract."""
+    verify_macos_app_zip(path, expected_version)
 
 
 def run_checked(command: list[str], *, cwd: Path | None = None) -> str:
@@ -267,6 +274,9 @@ def verify_release(dist: Path, target: str, version: str) -> dict[str, object]:
         verify_windows_installer(dist / f"OxideTerm_{version}_{label}-setup.exe", version)
     elif "apple-darwin" in target:
         verify_macos_app_zip(dist / f"OxideTerm_{version}_{label}.app.zip", version)
+        legacy_archive = dist / f"OxideTerm_{version}_{label}.app.tar.gz"
+        if legacy_archive.exists():
+            verify_macos_tauri_archive(legacy_archive, version)
     elif "linux" in target:
         verify_appimage(dist / f"OxideTerm_{version}_{label}.AppImage", version)
         verify_deb(dist / f"OxideTerm_{version}_{label}.deb", version)

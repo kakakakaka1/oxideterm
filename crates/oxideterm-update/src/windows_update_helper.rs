@@ -366,12 +366,20 @@ fn release_windows_restart_manager_handles(app_exe: &Path) {
         return;
     }
 
-    let wide_path = app_exe
-        .as_os_str()
-        .encode_wide()
-        .chain(std::iter::once(0))
+    let app_paths = windows_restart_manager_app_paths(app_exe);
+    let wide_paths = app_paths
+        .iter()
+        .map(|path| {
+            path.as_os_str()
+                .encode_wide()
+                .chain(std::iter::once(0))
+                .collect::<Vec<_>>()
+        })
         .collect::<Vec<_>>();
-    let resources = [PCWSTR(wide_path.as_ptr())];
+    let resources = wide_paths
+        .iter()
+        .map(|path| PCWSTR(path.as_ptr()))
+        .collect::<Vec<_>>();
     let registered = unsafe { RmRegisterResources(session, Some(&resources), None, None) };
     if registered == ERROR_SUCCESS {
         let mut needed = 0u32;
@@ -401,9 +409,31 @@ fn release_windows_restart_manager_handles(app_exe: &Path) {
     let _ = unsafe { RmEndSession(session) };
 }
 
+fn windows_restart_manager_app_paths(app_exe: &Path) -> Vec<PathBuf> {
+    let mut app_paths = vec![app_exe.to_path_buf()];
+    if let Some(install_dir) = app_exe.parent() {
+        // OxideTerm 1.x used the Tauri binary name. Register both names so the
+        // 2.0 bridge installer can release the old process before replacement.
+        app_paths.push(install_dir.join("oxideterm.exe"));
+    }
+    app_paths
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn restart_manager_tracks_native_and_legacy_app_names() {
+        let install_dir = PathBuf::from("C:/Users/me/AppData/Local/OxideTerm");
+        assert_eq!(
+            windows_restart_manager_app_paths(&install_dir.join("oxideterm-native.exe")),
+            vec![
+                install_dir.join("oxideterm-native.exe"),
+                install_dir.join("oxideterm.exe"),
+            ]
+        );
+    }
 
     #[test]
     fn helper_arguments_round_trip() {
