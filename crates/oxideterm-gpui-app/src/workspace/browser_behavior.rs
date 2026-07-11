@@ -438,6 +438,7 @@ pub(crate) enum BrowserPointerCaptureOwner {
     PaneSplitter,
     SettingsSlider,
     TerminalCastSeekbar,
+    HostToolsTabScrollbar,
     TextSelection,
     SftpFileDrag,
     TabDrag,
@@ -456,6 +457,7 @@ struct BrowserPointerCaptureState {
     pane_splitter_dragging: bool,
     settings_slider_dragging: bool,
     terminal_cast_seekbar_dragging: bool,
+    host_tools_tab_scrollbar_dragging: bool,
     text_selection_dragging: bool,
     sftp_file_dragging: bool,
     tab_dragging: bool,
@@ -500,12 +502,13 @@ pub(crate) fn clamp_context_menu_position(
 }
 
 pub(crate) fn pointer_capture_needs_workspace_overlay(owner: BrowserPointerCaptureOwner) -> bool {
-    // Structural resize drags must stay above scroll-heavy Host Tools content.
-    // GPUI only offers global capture for mouse-up, so resize move events need
-    // an explicit top-level overlay instead of relying on bubbling from rows.
+    // Structural resizes and thin scrollbars must keep receiving movement after
+    // the pointer crosses terminal, list, or selectable-text event owners.
     matches!(
         owner,
-        BrowserPointerCaptureOwner::SidebarResize | BrowserPointerCaptureOwner::AiSidebarResize
+        BrowserPointerCaptureOwner::SidebarResize
+            | BrowserPointerCaptureOwner::AiSidebarResize
+            | BrowserPointerCaptureOwner::HostToolsTabScrollbar
     )
 }
 
@@ -517,6 +520,7 @@ impl WorkspaceApp {
             pane_splitter_dragging: self.split_drag.is_some(),
             settings_slider_dragging: self.settings_slider_drag.is_some(),
             terminal_cast_seekbar_dragging: self.terminal_cast_seek_dragging,
+            host_tools_tab_scrollbar_dragging: self.host_tools_tab_scrollbar_drag_active(),
             text_selection_dragging: self.ime_drag_selection.is_some(),
             sftp_file_dragging: self.sftp_view.has_drag_capture(),
             tab_dragging: self.main_window_tabs.drag.is_some(),
@@ -540,6 +544,8 @@ fn resolve_browser_pointer_capture_owner(
         Some(BrowserPointerCaptureOwner::SettingsSlider)
     } else if state.terminal_cast_seekbar_dragging {
         Some(BrowserPointerCaptureOwner::TerminalCastSeekbar)
+    } else if state.host_tools_tab_scrollbar_dragging {
+        Some(BrowserPointerCaptureOwner::HostToolsTabScrollbar)
     } else if state.text_selection_dragging {
         Some(BrowserPointerCaptureOwner::TextSelection)
     } else if state.sftp_file_dragging {
@@ -627,12 +633,15 @@ mod tests {
     }
 
     #[test]
-    fn pointer_capture_overlay_is_reserved_for_structural_resizes() {
+    fn pointer_capture_overlay_covers_structural_and_scrollbar_drags() {
         assert!(pointer_capture_needs_workspace_overlay(
             BrowserPointerCaptureOwner::SidebarResize
         ));
         assert!(pointer_capture_needs_workspace_overlay(
             BrowserPointerCaptureOwner::AiSidebarResize
+        ));
+        assert!(pointer_capture_needs_workspace_overlay(
+            BrowserPointerCaptureOwner::HostToolsTabScrollbar
         ));
         assert!(!pointer_capture_needs_workspace_overlay(
             BrowserPointerCaptureOwner::TextSelection
@@ -640,6 +649,19 @@ mod tests {
         assert!(!pointer_capture_needs_workspace_overlay(
             BrowserPointerCaptureOwner::SftpFileDrag
         ));
+    }
+
+    #[test]
+    fn pointer_capture_reports_host_tools_tab_scrollbar_owner() {
+        let state = BrowserPointerCaptureState {
+            host_tools_tab_scrollbar_dragging: true,
+            ..BrowserPointerCaptureState::default()
+        };
+
+        assert_eq!(
+            resolve_browser_pointer_capture_owner(state),
+            Some(BrowserPointerCaptureOwner::HostToolsTabScrollbar)
+        );
     }
 
     #[test]

@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   promote:
-    name: Promote stable updater manifest
+    name: Promote stable GitHub release
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -84,130 +84,9 @@ jobs:
               throw new Error('stable manifest legacy macOS keys must use Tauri app.tar.gz assets');
             }
 
-            const channelTag = 'updater-stable';
-            let channelRelease;
-            try {
-              const { data } = await github.rest.repos.getReleaseByTag({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                tag: channelTag,
-              });
-              channelRelease = data;
-            } catch (error) {
-              if (error.status !== 404) throw error;
-              const { data } = await github.rest.repos.createRelease({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                tag_name: channelTag,
-                name: 'Stable Updater Manifest',
-                body: 'This release hosts the explicitly promoted stable updater manifest.',
-                prerelease: true,
-                draft: false,
-              });
-              channelRelease = data;
-            }
-
-            const current = channelRelease.assets.find((asset) => asset.name === 'latest.json');
-            const previous = channelRelease.assets.find((asset) => asset.name === 'previous.json');
-            const staged = channelRelease.assets.find((asset) => asset.name === 'latest.next.json');
-            if (staged) {
-              await github.rest.repos.deleteReleaseAsset({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                asset_id: staged.id,
-              });
-            }
-
-            let previousText = null;
-            if (current) {
-              const response = await fetch(current.browser_download_url);
-              if (!response.ok) {
-                throw new Error(`failed to read current stable manifest: HTTP ${response.status}`);
-              }
-              previousText = await response.text();
-              const currentManifest = JSON.parse(previousText);
-              const parseStable = (value) => value.split('.').map((part) => Number.parseInt(part, 10));
-              const compareStable = (left, right) => {
-                for (let index = 0; index < 3; index += 1) {
-                  if (left[index] !== right[index]) return left[index] - right[index];
-                }
-                return 0;
-              };
-              if (compareStable(parseStable(expectedVersion), parseStable(currentManifest.version)) < 0) {
-                throw new Error(`refusing to roll stable updater back from ${currentManifest.version} to ${expectedVersion}`);
-              }
-            }
-
-            const stagedAsset = await github.rest.repos.uploadReleaseAsset({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              release_id: channelRelease.id,
-              name: 'latest.next.json',
-              data: manifestText,
-              headers: {
-                'content-type': 'application/json',
-                'content-length': Buffer.byteLength(manifestText),
-              },
-            });
-            if (previous) {
-              await github.rest.repos.deleteReleaseAsset({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                asset_id: previous.id,
-              });
-            }
-            if (current) {
-              await github.rest.repos.uploadReleaseAsset({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                release_id: channelRelease.id,
-                name: 'previous.json',
-                data: previousText,
-                headers: {
-                  'content-type': 'application/json',
-                  'content-length': Buffer.byteLength(previousText),
-                },
-              });
-              await github.rest.repos.deleteReleaseAsset({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                asset_id: current.id,
-              });
-            }
-            try {
-              await github.rest.repos.uploadReleaseAsset({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                release_id: channelRelease.id,
-                name: 'latest.json',
-                data: manifestText,
-                headers: {
-                  'content-type': 'application/json',
-                  'content-length': Buffer.byteLength(manifestText),
-                },
-              });
-            } catch (error) {
-              if (previousText !== null) {
-                await github.rest.repos.uploadReleaseAsset({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  release_id: channelRelease.id,
-                  name: 'latest.json',
-                  data: previousText,
-                  headers: {
-                    'content-type': 'application/json',
-                    'content-length': Buffer.byteLength(previousText),
-                  },
-                });
-              }
-              throw error;
-            } finally {
-              await github.rest.repos.deleteReleaseAsset({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                asset_id: stagedAsset.data.id,
-              });
-            }
+            // `updater-stable` is intentionally frozen for old GPUI preview
+            // builds. Tauri 1.x and native stable releases both consume the
+            // validated manifest from GitHub's Latest release instead.
             await github.rest.repos.updateRelease({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -215,4 +94,4 @@ jobs:
               make_latest: 'true',
             });
 
-            core.info(`Promoted ${sourceTag} to updater-stable and GitHub latest.`);
+            core.info(`Promoted ${sourceTag} to GitHub latest; updater-stable remains frozen.`);

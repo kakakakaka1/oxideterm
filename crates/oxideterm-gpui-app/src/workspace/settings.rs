@@ -8,7 +8,7 @@ use oxideterm_settings::{
     AppIconVariant, FrostedGlassMode, HighlightRule, IdeAgentMode, Language, MAX_HIGHLIGHT_RULES,
     PersistedSettings, SettingsUpstreamProxyAuth, SettingsUpstreamProxyConfig,
     SettingsUpstreamProxyProtocol, UpdateChannel, UpdateProxyMode, UpdateProxyProtocol,
-    create_default_highlight_rule, reindex_highlight_rules,
+    create_default_highlight_rule, is_gpui_preview_version, reindex_highlight_rules,
 };
 use oxideterm_settings_model::{
     AI_MODEL_REFRESH_MISSING_API_KEY, AcpAgentPreset, AiMcpServerDraft, AiModelRefreshDelivery,

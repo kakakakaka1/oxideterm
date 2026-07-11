@@ -449,6 +449,7 @@ impl Render for WorkspaceApp {
                 this.update_terminal_cast_seek_drag(event, cx);
                 // Continue scrollbar dragging after the pointer leaves its thin hit target.
                 this.update_host_tools_tab_scrollbar_drag(event, cx);
+                this.update_tabbar_scrollbar_drag(event, window, cx);
                 this.update_ime_selection_drag(event.position, window, cx);
                 if this.read_only_selection_drag_active() {
                     this.update_selectable_text_autoscroll(event.position, cx);
@@ -769,10 +770,18 @@ impl Render for WorkspaceApp {
                         layout.child(self.render_animated_context_sidebar_frame(cx))
                     }),
             )
+            .when(!zen_mode && self.context_sidebar_visible(), |root| {
+                // Start right-sidebar resizing above Host Tools virtual lists;
+                // the full capture overlay takes over after the initial press.
+                root.child(self.render_context_right_sidebar_resize_hotzone_overlay(
+                    effective_titlebar_height,
+                    cx,
+                ))
+            })
             .when(
                 self.browser_pointer_capture_owner()
                     .is_some_and(browser_behavior::pointer_capture_needs_workspace_overlay),
-                |root| root.child(self.render_workspace_resize_capture_overlay(cx)),
+                |root| root.child(self.render_workspace_pointer_capture_overlay(cx)),
             )
             .when(self.new_connection_form.is_some(), |root| {
                 root.child(self.render_new_connection_modal(window, cx))
@@ -980,26 +989,32 @@ impl Render for WorkspaceApp {
 }
 
 impl WorkspaceApp {
-    pub(in crate::workspace) fn render_workspace_resize_capture_overlay(
+    pub(in crate::workspace) fn render_workspace_pointer_capture_overlay(
         &self,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        let cursor = match self.browser_pointer_capture_owner() {
+            Some(browser_behavior::BrowserPointerCaptureOwner::HostToolsTabScrollbar) => {
+                CursorStyle::ClosedHand
+            }
+            _ => CursorStyle::ResizeColumn,
+        };
         div()
-            .id("workspace-resize-capture-overlay")
+            .id("workspace-pointer-capture-overlay")
             .absolute()
             .top_0()
             .left_0()
             .right_0()
             .bottom_0()
-            .cursor(CursorStyle::ResizeColumn)
-            // Host Tools pages contain Lists, text inputs, and selectable log
-            // lines that can stop bubbling after data arrives. During a resize
-            // drag the frame-level handle must keep owning mouse movement.
+            .cursor(cursor)
+            // Scroll-heavy surfaces can stop bubbling after data arrives, so
+            // captured resizes and scrollbar drags move through this top layer.
             .occlude()
             .bg(rgba(0x00000000))
             .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, window, cx| {
                 this.update_sidebar_resize(event, window, cx);
                 this.update_ai_sidebar_resize(event, window, cx);
+                this.update_host_tools_tab_scrollbar_drag(event, cx);
                 cx.stop_propagation();
             }))
             .on_mouse_up(
@@ -1026,6 +1041,7 @@ impl WorkspaceApp {
         self.finish_settings_slider_drag(cx);
         self.finish_terminal_cast_seek_drag(cx);
         self.finish_host_tools_tab_scrollbar_drag(cx);
+        self.finish_tabbar_scrollbar_drag(cx);
         self.finish_ime_selection_drag(cx);
         self.stop_selectable_text_autoscroll();
         self.finish_tab_drag(event, window, cx);

@@ -6,6 +6,8 @@ pub(in crate::workspace) const HELP_GITHUB_URL: &str =
     "https://github.com/AnalyseDeCircuit/oxideterm";
 pub(in crate::workspace) const HELP_ISSUES_URL: &str =
     "https://github.com/AnalyseDeCircuit/oxideterm/issues";
+pub(in crate::workspace) const HELP_DOWNLOAD_URL: &str =
+    "https://github.com/AnalyseDeCircuit/oxideterm/releases/latest";
 // Keep the in-app legal link aligned with the repository-level multilingual notice.
 pub(in crate::workspace) const HELP_LEGAL_URL: &str =
     "https://github.com/AnalyseDeCircuit/oxideterm/blob/main/LEGAL.md";
@@ -459,9 +461,69 @@ impl WorkspaceApp {
             .gap(px(12.0))
             .child(if is_portable {
                 self.help_portable_update_notice()
+            } else if is_gpui_preview_version(env!("CARGO_PKG_VERSION"))
+                && self.settings_store.settings().general.update_channel == UpdateChannel::Stable
+            {
+                self.help_preview_stable_update_notice(cx)
             } else {
                 self.help_update_status_area(cx)
             })
+            .into_any_element()
+    }
+
+    pub(in crate::workspace) fn help_preview_stable_update_notice(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        div()
+            .rounded(px(self.tokens.radii.md))
+            .border_1()
+            .border_color(rgba(
+                (self.tokens.ui.warning << 8) | alpha_byte(HELP_PREVIEW_NOTICE_BORDER_ALPHA),
+            ))
+            .bg(rgba(
+                (self.tokens.ui.warning << 8) | alpha_byte(HELP_PREVIEW_NOTICE_ALPHA),
+            ))
+            .p(px(12.0))
+            .flex()
+            .flex_wrap()
+            .items_center()
+            .justify_between()
+            .gap(px(16.0))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(px(0.0))
+                    .child(
+                        div()
+                            .text_size(px(self.tokens.metrics.ui_text_sm))
+                            .font_weight(gpui::FontWeight::MEDIUM)
+                            .text_color(rgb(self.tokens.ui.warning))
+                            .child(
+                                self.i18n
+                                    .t("settings_view.help.preview_stable_upgrade_title"),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .mt(px(6.0))
+                            .text_size(px(self.tokens.metrics.ui_text_sm))
+                            .line_height(px(22.0))
+                            .text_color(rgb(self.tokens.ui.text_muted))
+                            .child(
+                                self.i18n
+                                    .t("settings_view.help.preview_stable_upgrade_hint"),
+                            ),
+                    ),
+            )
+            .child(self.help_outline_button(
+                self.i18n.t("settings_view.help.download_stable"),
+                LucideIcon::ExternalLink,
+                |this, _event, _window, cx| {
+                    this.open_help_url(HELP_DOWNLOAD_URL, cx);
+                },
+                cx,
+            ))
             .into_any_element()
     }
 

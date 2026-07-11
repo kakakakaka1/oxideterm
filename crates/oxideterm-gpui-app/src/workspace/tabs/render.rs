@@ -26,7 +26,7 @@ fn tab_kind_icon(kind: &TabKind) -> LucideIcon {
 impl WorkspaceApp {
     pub(in crate::workspace) fn render_tab_bar(
         &self,
-        _window: &Window,
+        window: &Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = self.tokens.ui;
@@ -35,6 +35,7 @@ impl WorkspaceApp {
             .flex()
             .flex_row()
             .items_center()
+            .relative()
             .overflow_hidden()
             .border_b_1()
             .border_color(rgb(theme.border))
@@ -245,7 +246,139 @@ impl WorkspaceApp {
         scroll_viewport = scroll_viewport
             .child(self.render_window_drag_region("workspace-tabbar-drag-region", cx));
 
-        bar.child(scroll_viewport).into_any_element()
+        bar.child(scroll_viewport)
+            .child(self.render_tabbar_scrollbar(window, cx))
+            .into_any_element()
+    }
+
+    fn render_tabbar_scrollbar(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
+        let Some(geometry) = self.tabbar_scrollbar_geometry(window) else {
+            return div().into_any_element();
+        };
+        let scrollbar_dragging = self.main_window_tabs.scrollbar_drag.is_some();
+        let thumb_color = if scrollbar_dragging {
+            rgb(self.tokens.ui.accent)
+        } else if self.main_window_tabs.scrollbar_hovered {
+            rgba((self.tokens.ui.accent << 8) | TABBAR_SCROLLBAR_HOVER_ALPHA)
+        } else {
+            rgba((self.tokens.ui.text_muted << 8) | TABBAR_SCROLLBAR_ALPHA)
+        };
+
+        // The visible thumb stays subtle, while the transparent hit target remains easy to drag.
+        div()
+            .id("workspace-tabbar-thin-scrollbar")
+            .absolute()
+            .left(px(0.0))
+            .right(px(0.0))
+            .bottom_0()
+            .h(px(TABBAR_SCROLLBAR_DRAG_HEIGHT))
+            .cursor(if scrollbar_dragging {
+                CursorStyle::ClosedHand
+            } else {
+                CursorStyle::OpenHand
+            })
+            .on_hover(cx.listener(|this, hovered: &bool, _window, cx| {
+                if this.main_window_tabs.scrollbar_hovered != *hovered {
+                    this.main_window_tabs.scrollbar_hovered = *hovered;
+                    cx.notify();
+                }
+            }))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, event: &MouseDownEvent, window, cx| {
+                    this.start_tabbar_scrollbar_drag(event, window, cx);
+                }),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .left(px(geometry.thumb_left))
+                    .bottom_0()
+                    .w(px(geometry.thumb_width))
+                    .h(px(TABBAR_SCROLLBAR_HEIGHT))
+                    .rounded(px(TABBAR_SCROLLBAR_RADIUS))
+                    .bg(thumb_color),
+            )
+            .into_any_element()
+    }
+
+    fn tabbar_scrollbar_geometry(&self, window: &Window) -> Option<TabbarScrollbarGeometry> {
+        let viewport_bounds = self.main_window_tabs.scroll_handle.bounds();
+        let measured_width = f32::from(viewport_bounds.size.width);
+        let viewport_width = if measured_width > 1.0 {
+            measured_width
+        } else {
+            self.tabbar_scroll_viewport_width(window)
+        };
+        let viewport_left = if measured_width > 1.0 {
+            f32::from(viewport_bounds.origin.x)
+        } else {
+            self.tabbar_left_x()
+        };
+        calculate_tabbar_scrollbar_geometry(
+            viewport_left,
+            viewport_width,
+            self.tabbar_max_scroll(window),
+            self.tabbar_effective_scroll_x(window),
+        )
+    }
+
+    fn start_tabbar_scrollbar_drag(
+        &mut self,
+        event: &MouseDownEvent,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(geometry) = self.tabbar_scrollbar_geometry(window) else {
+            return;
+        };
+        let pointer_x = f32::from(event.position.x) - geometry.viewport_left;
+        let track_left = TABBAR_SCROLLBAR_HORIZONTAL_INSET;
+        let track_right = track_left + geometry.track_width;
+        let thumb_right = geometry.thumb_left + geometry.thumb_width;
+        let grab_offset_x = if pointer_x >= geometry.thumb_left && pointer_x <= thumb_right {
+            pointer_x - geometry.thumb_left
+        } else {
+            geometry.thumb_width / 2.0
+        };
+        self.main_window_tabs.scrollbar_drag = Some(TabbarScrollbarDragState { grab_offset_x });
+        let thumb_left =
+            (pointer_x - grab_offset_x).clamp(track_left, track_right - geometry.thumb_width);
+        self.set_tabbar_scroll_x(tabbar_scroll_x_for_thumb_left(thumb_left, geometry), window);
+        cx.notify();
+        cx.stop_propagation();
+    }
+
+    pub(in crate::workspace) fn update_tabbar_scrollbar_drag(
+        &mut self,
+        event: &MouseMoveEvent,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(drag) = self.main_window_tabs.scrollbar_drag else {
+            return;
+        };
+        if !event.dragging() {
+            self.finish_tabbar_scrollbar_drag(cx);
+            return;
+        }
+        let Some(geometry) = self.tabbar_scrollbar_geometry(window) else {
+            self.finish_tabbar_scrollbar_drag(cx);
+            return;
+        };
+        let pointer_x = f32::from(event.position.x) - geometry.viewport_left;
+        let track_left = TABBAR_SCROLLBAR_HORIZONTAL_INSET;
+        let max_thumb_left = track_left + geometry.track_width - geometry.thumb_width;
+        let thumb_left = (pointer_x - drag.grab_offset_x).clamp(track_left, max_thumb_left);
+        self.set_tabbar_scroll_x(tabbar_scroll_x_for_thumb_left(thumb_left, geometry), window);
+        cx.notify();
+        cx.stop_propagation();
+    }
+
+    pub(in crate::workspace) fn finish_tabbar_scrollbar_drag(&mut self, cx: &mut Context<Self>) {
+        if self.main_window_tabs.scrollbar_drag.take().is_some() {
+            cx.notify();
+        }
     }
 
     fn render_closing_tab_visual(&self, closing: &ClosingTabVisual) -> AnyElement {

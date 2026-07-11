@@ -1095,7 +1095,7 @@ impl WorkspaceApp {
         (window_width - sidebar_width - context_sidebar_width).max(0.0)
     }
 
-    fn tabbar_scroll_viewport_width(&self, window: &Window) -> f32 {
+    pub(in crate::workspace) fn tabbar_scroll_viewport_width(&self, window: &Window) -> f32 {
         let measured_width = f32::from(self.main_window_tabs.scroll_handle.bounds().size.width);
         if measured_width > 1.0 {
             return measured_width;
@@ -1103,7 +1103,7 @@ impl WorkspaceApp {
         self.tabbar_outer_width(window)
     }
 
-    fn tabbar_left_x(&self) -> f32 {
+    pub(in crate::workspace) fn tabbar_left_x(&self) -> f32 {
         if self.sidebar_collapsed {
             self.tokens.metrics.activity_bar_width
         } else {
@@ -1120,7 +1120,7 @@ impl WorkspaceApp {
                 .sum::<f32>()
     }
 
-    fn tabbar_max_scroll(&self, window: &Window) -> f32 {
+    pub(in crate::workspace) fn tabbar_max_scroll(&self, window: &Window) -> f32 {
         let measured_width = f32::from(self.main_window_tabs.scroll_handle.bounds().size.width);
         if measured_width > 1.0 {
             return f32::from(self.main_window_tabs.scroll_handle.max_offset().width);
@@ -1146,7 +1146,7 @@ impl WorkspaceApp {
         }
     }
 
-    fn set_tabbar_scroll_x(&mut self, scroll_x: f32, window: &Window) {
+    pub(in crate::workspace) fn set_tabbar_scroll_x(&mut self, scroll_x: f32, window: &Window) {
         let next = scroll_x.clamp(0.0, self.tabbar_max_scroll(window));
         self.main_window_tabs
             .scroll_handle
@@ -1538,6 +1538,41 @@ mod tests {
         assert_eq!(tabbar_scroll_x_after_wheel(24.0, 24.0, 120.0), 0.0);
         assert_eq!(tabbar_scroll_x_after_wheel(110.0, -24.0, 120.0), 120.0);
         assert_eq!(tabbar_scroll_x_after_wheel(120.0, -24.0, 120.0), 120.0);
+    }
+
+    #[test]
+    fn tabbar_scrollbar_is_hidden_without_horizontal_overflow() {
+        assert!(calculate_tabbar_scrollbar_geometry(20.0, 600.0, 0.0, 0.0).is_none());
+    }
+
+    #[test]
+    fn tabbar_scrollbar_thumb_tracks_horizontal_scroll() {
+        let at_start = calculate_tabbar_scrollbar_geometry(20.0, 600.0, 600.0, 0.0)
+            .expect("overflow should produce scrollbar geometry");
+        let at_end = calculate_tabbar_scrollbar_geometry(20.0, 600.0, 600.0, 600.0)
+            .expect("overflow should produce scrollbar geometry");
+
+        assert_eq!(at_start.viewport_left, 20.0);
+        assert_eq!(at_start.thumb_left, TABBAR_SCROLLBAR_HORIZONTAL_INSET);
+        assert_eq!(at_start.thumb_width, TABBAR_SCROLLBAR_MAX_THUMB_WIDTH);
+        assert_eq!(
+            at_end.thumb_left,
+            TABBAR_SCROLLBAR_HORIZONTAL_INSET + at_end.track_width - at_end.thumb_width
+        );
+    }
+
+    #[test]
+    fn tabbar_scrollbar_drag_maps_track_edges_to_scroll_edges() {
+        let geometry = calculate_tabbar_scrollbar_geometry(20.0, 600.0, 600.0, 0.0)
+            .expect("overflow should produce scrollbar geometry");
+        let track_start = TABBAR_SCROLLBAR_HORIZONTAL_INSET;
+        let track_end = track_start + geometry.track_width - geometry.thumb_width;
+
+        assert_eq!(tabbar_scroll_x_for_thumb_left(track_start, geometry), 0.0);
+        assert_eq!(
+            tabbar_scroll_x_for_thumb_left(track_end, geometry),
+            geometry.max_scroll
+        );
     }
 
     #[test]

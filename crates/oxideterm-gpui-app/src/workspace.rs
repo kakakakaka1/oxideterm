@@ -586,6 +586,14 @@ struct WorkspaceWindowTabState {
     close_confirm: Option<TabCloseConfirm>,
     closing_tabs: Vec<ClosingTabVisual>,
     scroll_handle: ScrollHandle,
+    scrollbar_drag: Option<TabbarScrollbarDragState>,
+    scrollbar_hovered: bool,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct TabbarScrollbarDragState {
+    // Preserve the pointer's position inside the thumb to prevent a jump on drag start.
+    grab_offset_x: f32,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -611,6 +619,8 @@ impl WorkspaceWindowTabState {
             close_confirm: None,
             closing_tabs: Vec::new(),
             scroll_handle: ScrollHandle::new(),
+            scrollbar_drag: None,
+            scrollbar_hovered: false,
         }
     }
 }

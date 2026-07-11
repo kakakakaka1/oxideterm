@@ -38,6 +38,16 @@ impl WorkspaceApp {
         // so a previous changelog position cannot leak into the new package.
         self.native_update_release_notes_scroll = MarkdownVirtualListScrollHandle::new();
         let channel = self.settings_store.settings().general.update_channel;
+        if channel == UpdateChannel::Stable && is_gpui_preview_version(env!("CARGO_PKG_VERSION")) {
+            // Keep the persisted choice untouched because Tauri 1.x shares this
+            // settings file. The update crate repeats this guard for non-UI callers.
+            self.native_update_state = NativeUpdateUiState::Error(
+                self.i18n
+                    .t("settings_view.help.preview_stable_upgrade_hint"),
+            );
+            cx.notify();
+            return;
+        }
         let update_proxy = self.settings_store.settings().general.update_proxy.clone();
         let current_version = env!("CARGO_PKG_VERSION").to_string();
         let install_flavor =

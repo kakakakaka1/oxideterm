@@ -4,6 +4,16 @@ Keep the newest GPUI preview entry first. The native package workflow extracts
 the section whose heading matches the release version, so older preview entries
 can remain in this file.
 
+## 2.0.0-gpui-preview.16
+
+This preview focuses on safer release-channel boundaries and tighter workspace interaction behavior.
+
+- GPUI Preview no longer offers direct Stable-channel updates. Preview builds now block that path before contacting the updater and guide users to install the stable build manually or upgrade from an installed 1.x release.
+- Stable native updates now use the GitHub Latest manifest. The legacy `updater-stable` manifest remains frozen so older Preview builds cannot receive a stable package in place.
+- The update settings page now localizes the Preview-to-Stable migration guidance in every shipped language.
+- Host Tools sidebars keep their resize handle above loaded list content, so the panel remains resizable after monitoring, process, or service data arrives.
+- Workspace and Host Tools tab strips preserve visible, draggable horizontal scrollbar behavior when their content overflows.
+
 ## 2.0.0-gpui-preview.15
 
 This preview focuses on cloud sync reliability, saved connection editing, terminal font ligatures, and Windows auto-update reliability.

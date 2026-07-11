@@ -21,19 +21,40 @@ pub(in crate::workspace) fn context_sidebar_region_chrome() -> gpui::Div {
     div().relative().flex_1().min_w(px(0.0)).h_full().min_h_0()
 }
 
-pub(in crate::workspace) fn context_sidebar_resize_hotzone_chrome() -> gpui::Stateful<gpui::Div> {
+pub(in crate::workspace) fn context_sidebar_resize_hotzone_right_inset(sidebar_width: f32) -> f32 {
+    // Keep the root-owned hotzone inside the sidebar while aligning it with the seam.
+    (sidebar_width - CONTEXT_SIDEBAR_RESIZE_HOTZONE_WIDTH).max(0.0)
+}
+
+pub(in crate::workspace) fn context_sidebar_resize_hotzone_chrome(
+    sidebar_width: f32,
+    top_inset: f32,
+) -> gpui::Stateful<gpui::Div> {
     div()
         .id("context-right-sidebar-resize-hotzone")
+        .absolute()
+        .right(px(context_sidebar_resize_hotzone_right_inset(
+            sidebar_width,
+        )))
+        .top(px(top_inset))
+        .bottom_0()
+        .w(px(CONTEXT_SIDEBAR_RESIZE_HOTZONE_WIDTH))
+        .cursor(CursorStyle::ResizeColumn)
+        // This hit target is mounted at the workspace root, above virtual lists
+        // and selectable text that can otherwise consume the initial press.
+        .occlude()
+        .bg(rgba(0x00000000))
+}
+
+pub(in crate::workspace) fn context_sidebar_resize_divider_chrome(color: gpui::Rgba) -> gpui::Div {
+    // The visual seam remains inside the animated sidebar; only input moves to the root.
+    div()
         .absolute()
         .left_0()
         .top_0()
         .bottom_0()
-        .w(px(CONTEXT_SIDEBAR_RESIZE_HOTZONE_WIDTH))
-        .cursor(CursorStyle::ResizeColumn)
-        // This is the frame-owned hit target rendered after the content region.
-        // Host Tools bodies can contain scroll/list hitboxes; keeping the resize
-        // hotzone above them prevents loaded content from stealing edge drags.
-        .occlude()
+        .w(px(CONTEXT_SIDEBAR_RESIZE_DIVIDER_WIDTH))
+        .bg(color)
 }
 
 impl WorkspaceApp {
@@ -126,7 +147,7 @@ impl WorkspaceApp {
             // at the real seam with the terminal, while the resize affordance
             // is an overlay so it does not create a visible layout gap.
             .child(self.render_context_right_sidebar_region(cx))
-            .child(self.render_context_right_sidebar_resize_hotzone(cx))
+            .child(self.render_context_right_sidebar_resize_divider())
             .into_any_element()
     }
 
@@ -248,28 +269,22 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    pub(in crate::workspace) fn render_context_right_sidebar_resize_hotzone(
+    pub(in crate::workspace) fn render_context_right_sidebar_resize_divider(&self) -> AnyElement {
+        let theme = self.tokens.ui;
+        context_sidebar_resize_divider_chrome(if self.ai.chat.sidebar_resizing {
+            rgb(theme.accent)
+        } else {
+            rgba((theme.border << 8) | 0x80)
+        })
+        .into_any_element()
+    }
+
+    pub(in crate::workspace) fn render_context_right_sidebar_resize_hotzone_overlay(
         &mut self,
+        top_inset: f32,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let theme = self.tokens.ui;
-        context_sidebar_resize_hotzone_chrome()
-            .child(
-                div()
-                    .absolute()
-                    // The visible divider is drawn at the actual frame seam.
-                    // The wider invisible hotzone remains above the content
-                    // for reliable edge dragging after Host Tools lists load.
-                    .left_0()
-                    .top_0()
-                    .bottom_0()
-                    .w(px(CONTEXT_SIDEBAR_RESIZE_DIVIDER_WIDTH))
-                    .bg(if self.ai.chat.sidebar_resizing {
-                        rgb(theme.accent)
-                    } else {
-                        rgba((theme.border << 8) | 0x80)
-                    }),
-            )
+        context_sidebar_resize_hotzone_chrome(self.ai.chat.sidebar_width, top_inset)
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, event: &gpui::MouseDownEvent, window, cx| {
@@ -1585,52 +1600,65 @@ mod sidebar_resize_region_tests {
     impl Render for TestContextSidebarChrome {
         fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
             let resize_started = self.resize_started.clone();
-            context_sidebar_frame_chrome(self.total_width)
-                .debug_selector(|| "context-frame".to_string())
+            div()
+                .relative()
+                .size_full()
+                .flex()
+                .justify_end()
                 .child(
-                    context_sidebar_region_chrome()
-                        .debug_selector(|| "context-region".to_string())
+                    context_sidebar_frame_chrome(self.total_width)
+                        .debug_selector(|| "context-frame".to_string())
                         .child(
-                            div().size_full().min_w_0().flex().flex_col().child(
-                                div()
-                                    .w_full()
-                                    .min_w(px(0.0))
-                                    .flex_none()
-                                    .h(px(42.0))
-                                    .flex()
-                                    .flex_row()
-                                    .items_center()
-                                    .justify_between()
-                                    .gap(px(8.0))
-                                    .px_3()
-                                    .debug_selector(|| "context-titlebar".to_string())
-                                    .child(
-                                        div()
-                                            .h_full()
-                                            .flex_1()
-                                            .min_w(px(0.0))
-                                            .debug_selector(|| "context-title-drag".to_string()),
-                                    )
-                                    .child(
-                                        div()
-                                            .flex_none()
-                                            .size(px(28.0))
-                                            .debug_selector(|| "context-collapse".to_string()),
-                                    ),
-                            ),
+                            context_sidebar_region_chrome()
+                                .debug_selector(|| "context-region".to_string())
+                                .child(
+                                    div()
+                                        .size_full()
+                                        .min_w_0()
+                                        .flex()
+                                        .flex_col()
+                                        // Simulate loaded Host Tools content owning a blocking hitbox.
+                                        .child(div().absolute().size_full().occlude())
+                                        .child(
+                                            div()
+                                                .w_full()
+                                                .min_w(px(0.0))
+                                                .flex_none()
+                                                .h(px(42.0))
+                                                .flex()
+                                                .flex_row()
+                                                .items_center()
+                                                .justify_between()
+                                                .gap(px(8.0))
+                                                .px_3()
+                                                .debug_selector(|| "context-titlebar".to_string())
+                                                .child(
+                                                    div()
+                                                        .h_full()
+                                                        .flex_1()
+                                                        .min_w(px(0.0))
+                                                        .debug_selector(|| {
+                                                            "context-title-drag".to_string()
+                                                        }),
+                                                )
+                                                .child(
+                                                    div()
+                                                        .flex_none()
+                                                        .size(px(28.0))
+                                                        .debug_selector(|| {
+                                                            "context-collapse".to_string()
+                                                        }),
+                                                ),
+                                        ),
+                                ),
+                        )
+                        .child(
+                            context_sidebar_resize_divider_chrome(rgba(0x000000ff))
+                                .debug_selector(|| "context-divider".to_string()),
                         ),
                 )
                 .child(
-                    context_sidebar_resize_hotzone_chrome()
-                        .child(
-                            div()
-                                .absolute()
-                                .left_0()
-                                .top_0()
-                                .bottom_0()
-                                .w(px(CONTEXT_SIDEBAR_RESIZE_DIVIDER_WIDTH))
-                                .debug_selector(|| "context-divider".to_string()),
-                        )
+                    context_sidebar_resize_hotzone_chrome(self.total_width, 0.0)
                         .debug_selector(|| "context-hotzone".to_string())
                         .on_mouse_down(MouseButton::Left, move |_event, _window, cx| {
                             resize_started.set(true);
@@ -1652,12 +1680,13 @@ mod sidebar_resize_region_tests {
     }
 
     #[test]
-    pub(in crate::workspace) fn context_sidebar_resize_hotzone_is_frame_overlay_owned() {
+    pub(in crate::workspace) fn context_sidebar_resize_hotzone_is_workspace_overlay_owned() {
         // The resize affordance must remain wide enough for reliable dragging,
         // but it must not reserve layout width between the terminal and the
         // sidebar content. A frame-owned absolute overlay preserves both.
         assert!(CONTEXT_SIDEBAR_RESIZE_HOTZONE_WIDTH >= 8.0);
         assert_eq!(CONTEXT_SIDEBAR_RESIZE_DIVIDER_WIDTH, 1.0);
+        assert_eq!(context_sidebar_resize_hotzone_right_inset(280.0), 268.0);
     }
 
     #[gpui::test]
@@ -1729,7 +1758,7 @@ mod sidebar_resize_region_tests {
         );
         assert!(
             resize_started.get(),
-            "resize hotzone should receive edge mouse down after content is rendered"
+            "root resize hotzone should receive mouse down above loaded content"
         );
     }
 }

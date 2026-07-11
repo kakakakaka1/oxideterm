@@ -284,7 +284,10 @@ impl WorkspaceApp {
             .right(px(0.0))
             .bottom(px(HOST_TOOLS_TAB_SCROLLBAR_BOTTOM_INSET))
             .h(px(HOST_TOOLS_TAB_SCROLLBAR_DRAG_HEIGHT))
-            .cursor(CursorStyle::Arrow)
+            .cursor(CursorStyle::OpenHand)
+            // Own the thin track before individual Host Tools tabs see the press.
+            .occlude()
+            .bg(rgba(0x00000000))
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, event: &MouseDownEvent, _window, cx| {
@@ -334,6 +337,11 @@ impl WorkspaceApp {
             thumb_left,
             max_scroll,
         })
+    }
+
+    pub(in crate::workspace) fn host_tools_tab_scrollbar_drag_active(&self) -> bool {
+        // The root capture registry cannot access ConnectionMonitorState's private drag field.
+        self.connection_monitor.tab_scrollbar_drag.is_some()
     }
 
     fn current_host_tools_tab_scroll_x(&self) -> f32 {
