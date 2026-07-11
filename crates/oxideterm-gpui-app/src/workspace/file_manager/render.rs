@@ -97,7 +97,7 @@ impl WorkspaceApp {
         let theme = self.tokens.ui;
         let bookmarked = self.is_file_manager_path_bookmarked(&self.file_manager.path);
         div()
-            .h(px(FILE_MANAGER_HEADER_HEIGHT))
+            .h(px(FILE_MANAGER_TOOLBAR_HEIGHT))
             .flex()
             .flex_row()
             .items_center()
@@ -124,20 +124,6 @@ impl WorkspaceApp {
                     )),
             )
             .child(div().flex_1())
-            .child(self.render_file_manager_icon_button(
-                LucideIcon::Star,
-                self.i18n.t(if bookmarked {
-                    "fileManager.removeBookmark"
-                } else {
-                    "fileManager.addBookmark"
-                }),
-                cx.listener(|this, _event, _window, cx| {
-                    this.blur_file_manager_inline_inputs();
-                    this.toggle_file_manager_current_bookmark(cx);
-                    cx.stop_propagation();
-                }),
-                cx.entity(),
-            ))
             .child(self.render_file_manager_icon_button(
                 LucideIcon::FolderPlus,
                 self.i18n.t("fileManager.newFolder"),
@@ -193,34 +179,32 @@ impl WorkspaceApp {
                 }),
                 cx.entity(),
             ))
+            .child(
+                div()
+                    .w(px(1.0))
+                    .h(px(20.0))
+                    .bg(file_manager_border(theme.border, has_background)),
+            )
             .child(self.render_file_manager_icon_button(
-                LucideIcon::FileArchive,
-                self.i18n.t("fileManager.compress"),
+                LucideIcon::Star,
+                self.i18n.t(if bookmarked {
+                    "fileManager.removeBookmark"
+                } else {
+                    "fileManager.addBookmark"
+                }),
                 cx.listener(|this, _event, _window, cx| {
-                    this.compress_file_manager_selection(cx);
+                    this.blur_file_manager_inline_inputs();
+                    this.toggle_file_manager_current_bookmark(cx);
                     cx.stop_propagation();
                 }),
                 cx.entity(),
             ))
-            .child(self.render_file_manager_icon_button(
-                LucideIcon::FolderArchive,
-                self.i18n.t("fileManager.extract"),
-                cx.listener(|this, _event, _window, cx| {
-                    this.extract_selected_file_manager_archive(cx);
-                    cx.stop_propagation();
-                }),
-                cx.entity(),
-            ))
-            .child(self.render_file_manager_icon_button(
-                LucideIcon::HardDrive,
-                self.i18n.t("fileManager.showDrives"),
-                cx.listener(|this, _event, _window, cx| {
-                    this.file_manager.dialog = Some(FileManagerDialog::Drives);
-                    cx.stop_propagation();
-                    cx.notify();
-                }),
-                cx.entity(),
-            ))
+            .child(
+                div()
+                    .w(px(1.0))
+                    .h(px(20.0))
+                    .bg(file_manager_border(theme.border, has_background)),
+            )
             .child(self.render_file_manager_icon_button(
                 LucideIcon::FolderOpen,
                 self.i18n.t("fileManager.browse"),

@@ -341,6 +341,16 @@ impl WorkspaceApp {
                 this.refresh_file_manager();
             },
             cx,
+        ))
+        .child(self.render_file_manager_context_menu_item(
+            LucideIcon::HardDrive,
+            self.i18n.t("fileManager.showDrives"),
+            false,
+            has_background,
+            |this, _event, _window, _cx| {
+                this.file_manager.dialog = Some(FileManagerDialog::Drives);
+            },
+            cx,
         ));
 
         self.workspace_context_menu_backdrop(

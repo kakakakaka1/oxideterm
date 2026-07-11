@@ -634,7 +634,6 @@ impl WorkspaceApp {
             .min_h(px(0.0))
             .flex()
             .flex_col()
-            .pt(px(24.0))
             .pb_4()
             .bg(self.settings_panel_background(theme.bg_panel))
             .border_r_1()
@@ -643,9 +642,14 @@ impl WorkspaceApp {
         nav = nav.child(
             div()
                 .flex_none()
+                .h(px(48.0))
                 .px(px(20.0))
-                .mb(px(24.0))
-                .text_size(px(20.0))
+                .mb(px(12.0))
+                .flex()
+                .items_center()
+                .border_b_1()
+                .border_color(rgb(theme.border))
+                .text_size(px(self.tokens.metrics.ui_text_sm))
                 .font_weight(gpui::FontWeight::SEMIBOLD)
                 .text_color(rgb(theme.text_heading))
                 .child(self.i18n.t("settings_view.title")),
@@ -699,14 +703,14 @@ impl WorkspaceApp {
             .items_center()
             .gap_3()
             .rounded(px(self.tokens.radii.md))
-            .border_1()
+            .border_l_2()
             .border_color(if active {
-                rgba((theme.border << 8) | 0xff)
+                rgb(theme.accent)
             } else {
                 rgba(0x00000000)
             })
             .bg(if active {
-                rgb(theme.bg_panel)
+                rgba((theme.accent << 8) | 0x1f)
             } else {
                 rgba(0x00000000)
             })

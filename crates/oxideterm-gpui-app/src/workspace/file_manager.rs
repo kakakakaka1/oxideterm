@@ -37,6 +37,7 @@ use self::helpers::*;
 use super::sftp::native_video::{SharedSftpNativeVideoSurface, sftp_native_video_element};
 
 const FILE_MANAGER_HEADER_HEIGHT: f32 = 40.0; // Tauri h-10.
+const FILE_MANAGER_TOOLBAR_HEIGHT: f32 = 48.0; // Shared top-level tool-page toolbar height.
 const FILE_MANAGER_ROW_HEIGHT: f32 = 28.0; // Tauri FileList FILE_ROW_HEIGHT.
 const FILE_MANAGER_VIRTUAL_OVERSCAN: usize = 15; // Tauri useVirtualizer overscan.
 const FILE_MANAGER_ARCHIVE_LIST_INITIAL_ITEM_COUNT: usize = 0;
