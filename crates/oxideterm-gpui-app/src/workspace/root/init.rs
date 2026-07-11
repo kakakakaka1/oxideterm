@@ -812,6 +812,7 @@ impl WorkspaceApp {
             show_fps_overlay: terminal.show_fps_overlay,
             render_policy: self.render_policy.clone(),
             background: self.terminal_background_preferences(background_key),
+            transparent_background: self.window_background_preferences().is_some(),
             paste_labels: TerminalPasteLabels {
                 title_template: self.i18n.t("terminal.paste.title"),
                 more_lines_template: self.i18n.t("terminal.paste.more_lines"),
@@ -987,16 +988,49 @@ impl WorkspaceApp {
         &self,
         background_key: &str,
     ) -> Option<TerminalBackgroundPreferences> {
+        let terminal = &self.settings_store.settings().terminal;
+        if !background_scope_includes_content(
+            terminal.background_scope,
+            &terminal.background_enabled_tabs,
+            background_key,
+        ) {
+            return None;
+        }
+        self.background_image_preferences()
+    }
+
+    pub(in crate::workspace) fn window_background_preferences(
+        &self,
+    ) -> Option<TerminalBackgroundPreferences> {
+        if !background_scope_includes_window(
+            self.settings_store.settings().terminal.background_scope,
+        ) {
+            return None;
+        }
+        self.background_image_preferences()
+    }
+
+    pub(in crate::workspace) fn background_surface_active(&self, background_key: &str) -> bool {
+        self.window_background_preferences().is_some()
+            || self
+                .terminal_background_preferences(background_key)
+                .is_some()
+    }
+
+    pub(in crate::workspace) fn workspace_chrome_background(&self, color: u32) -> Rgba {
+        if self.window_background_preferences().is_some() {
+            rgba((color << 8) | alpha_byte(self.tokens.metrics.panel_vibrancy_alpha))
+        } else {
+            rgb(color)
+        }
+    }
+
+    fn background_image_preferences(&self) -> Option<TerminalBackgroundPreferences> {
         if !self.render_policy.allow_background_images {
             return None;
         }
         let terminal = &self.settings_store.settings().terminal;
-        if !terminal.background_enabled
-            || !terminal
-                .background_enabled_tabs
-                .iter()
-                .any(|tab| tab == background_key)
-        {
+        if !terminal.background_enabled {
             return None;
         }
         let path = PathBuf::from(terminal.background_image.as_deref()?);

@@ -47,7 +47,7 @@ impl WorkspaceApp {
             .overflow_hidden()
             .flex()
             .flex_col()
-            .bg(rgb(theme.bg))
+            .bg(self.workspace_chrome_background(theme.bg))
             .child(
                 div()
                     .px_8()
@@ -117,7 +117,7 @@ impl WorkspaceApp {
                         .rounded(px(self.tokens.radii.md))
                         .border_1()
                         .border_color(rgb(theme.border))
-                        .bg(rgb(theme.bg_panel))
+                        .bg(self.workspace_chrome_background(theme.bg_panel))
                         .overflow_hidden()
                         .child(match self.notification_center.active_view {
                             WorkspaceActivityView::Notifications => {

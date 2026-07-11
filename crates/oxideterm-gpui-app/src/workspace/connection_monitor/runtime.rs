@@ -11,7 +11,7 @@ impl WorkspaceApp {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = self.tokens.ui;
-        let has_background = self.terminal_background_preferences("runtime").is_some();
+        let has_background = self.background_surface_active("runtime");
         let active_section = self.active_connection_runtime_section;
         let content = match active_section {
             ConnectionRuntimeSection::Overview => self.render_connection_runtime_overview(cx),

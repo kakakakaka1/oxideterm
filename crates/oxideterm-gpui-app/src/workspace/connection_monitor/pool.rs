@@ -12,9 +12,7 @@ impl WorkspaceApp {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = self.tokens.ui;
-        let has_background = self
-            .terminal_background_preferences("connection_monitor")
-            .is_some();
+        let has_background = self.background_surface_active("connection_monitor");
         self.sync_connection_monitor_section_list_state();
         let state = self.connection_monitor_section_list_state.clone();
         let workspace = cx.entity();

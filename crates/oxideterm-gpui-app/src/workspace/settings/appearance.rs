@@ -315,9 +315,11 @@ impl WorkspaceApp {
         }
         rows.push(self.appearance_background_image_slot(settings, cx));
         if has_background_image {
-            // Matches BackgroundImageSection.tsx: sliders, fit select, and tab
-            // pills live directly after the gallery with normal `space-y-4`
-            // flow instead of stretching the gallery row to fill the card.
+            rows.push(self.appearance_row(
+                "settings_view.terminal.bg_scope",
+                "settings_view.terminal.bg_scope_hint",
+                self.appearance_background_scope_control(settings.terminal.background_scope, cx),
+            ));
             rows.extend([
                 self.appearance_row(
                     "settings_view.terminal.bg_opacity",
@@ -355,14 +357,81 @@ impl WorkspaceApp {
                         cx,
                     ),
                 ),
-                self.appearance_background_tabs(settings, cx),
             ]);
+            if settings.terminal.background_scope == BackgroundScope::Content {
+                rows.push(self.appearance_background_tabs(settings, cx));
+            }
         }
         self.appearance_card_with_icon(
             LucideIcon::Image,
             self.i18n.t("settings_view.terminal.bg_title"),
             rows,
         )
+    }
+
+    pub(in crate::workspace) fn appearance_background_scope_control(
+        &self,
+        selected: BackgroundScope,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let mut control = div()
+            .flex()
+            .items_center()
+            .p(px(2.0))
+            .rounded(px(self.tokens.radii.sm))
+            .border_1()
+            .border_color(rgb(self.tokens.ui.border))
+            .bg(rgb(self.tokens.ui.bg_sunken));
+        for (scope, label_key) in [
+            (
+                BackgroundScope::Content,
+                "settings_view.terminal.bg_scope_content",
+            ),
+            (
+                BackgroundScope::Window,
+                "settings_view.terminal.bg_scope_window",
+            ),
+        ] {
+            let active = scope == selected;
+            control = control.child(
+                div()
+                    .h(px(28.0))
+                    .px(px(12.0))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(self.tokens.radii.sm))
+                    .text_size(px(self.tokens.metrics.ui_text_xs))
+                    .font_weight(gpui::FontWeight::MEDIUM)
+                    .text_color(rgb(if active {
+                        self.tokens.ui.accent
+                    } else {
+                        self.tokens.ui.text_muted
+                    }))
+                    .bg(if active {
+                        rgba((self.tokens.ui.accent << 8) | 0x24)
+                    } else {
+                        rgba(0x00000000)
+                    })
+                    .cursor_pointer()
+                    .hover({
+                        let hover = self.tokens.ui.bg_hover;
+                        move |segment| segment.bg(rgb(hover))
+                    })
+                    .child(self.i18n.t(label_key))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |this, _event, _window, cx| {
+                            this.edit_settings(
+                                |settings| settings.terminal.background_scope = scope,
+                                cx,
+                            );
+                            cx.stop_propagation();
+                        }),
+                    ),
+            );
+        }
+        control.into_any_element()
     }
 
     pub(in crate::workspace) fn appearance_card(

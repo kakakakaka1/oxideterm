@@ -97,9 +97,7 @@ impl WorkspaceApp {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = self.tokens.ui;
-        let has_background = self
-            .terminal_background_preferences("session_manager")
-            .is_some();
+        let has_background = self.background_surface_active("session_manager");
         let view_mode = self.session_manager.view_mode;
         let content = self.render_session_manager_view_content(has_background, cx);
         let content = oxideterm_gpui_ui::motion::fade_in(

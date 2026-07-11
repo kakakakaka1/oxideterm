@@ -253,6 +253,8 @@ pub struct TerminalSettings {
     pub background_opacity: f64,
     pub background_blur: i64,
     pub background_fit: BackgroundFit,
+    #[serde(default)]
+    pub background_scope: BackgroundScope,
     pub background_enabled_tabs: Vec<String>,
     pub highlight_rules: Vec<HighlightRule>,
     pub in_band_transfer: InBandTransferSettings,
@@ -295,6 +297,7 @@ impl Default for TerminalSettings {
             background_opacity: 0.15,
             background_blur: 0,
             background_fit: BackgroundFit::Cover,
+            background_scope: BackgroundScope::Content,
             background_enabled_tabs: vec!["terminal".to_string(), "local_terminal".to_string()],
             highlight_rules: Vec::new(),
             in_band_transfer: InBandTransferSettings::default(),
@@ -308,6 +311,27 @@ impl Default for TerminalSettings {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn background_scope_defaults_to_content_for_legacy_settings() {
+        let mut value = serde_json::to_value(TerminalSettings::default()).expect("settings value");
+        value
+            .as_object_mut()
+            .expect("terminal settings object")
+            .remove("backgroundScope");
+        let settings: TerminalSettings = serde_json::from_value(value).expect("legacy settings");
+
+        assert_eq!(settings.background_scope, BackgroundScope::Content);
+    }
+
+    #[test]
+    fn background_scope_serializes_as_lowercase_camel_case_field() {
+        let mut settings = TerminalSettings::default();
+        settings.background_scope = BackgroundScope::Window;
+
+        let value = serde_json::to_value(settings).expect("serialize terminal settings");
+        assert_eq!(value["backgroundScope"], serde_json::json!("window"));
+    }
 
     #[test]
     fn terminal_settings_default_smooth_scroll_when_missing() {

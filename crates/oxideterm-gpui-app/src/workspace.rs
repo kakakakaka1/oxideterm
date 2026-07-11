@@ -182,9 +182,9 @@ use oxideterm_session_adapter::{
     terminal_encoding_from_settings as session_terminal_encoding,
 };
 use oxideterm_settings::{
-    AI_SIDEBAR_MAX_WIDTH, AI_SIDEBAR_MIN_WIDTH, BackgroundFit, CursorStyle as SettingsCursorStyle,
-    FontFamily, FrostedGlassMode, HighlightRuleRenderMode, Language, PersistedSettings,
-    SettingsStore, default_settings_path,
+    AI_SIDEBAR_MAX_WIDTH, AI_SIDEBAR_MIN_WIDTH, BackgroundFit, BackgroundScope,
+    CursorStyle as SettingsCursorStyle, FontFamily, FrostedGlassMode, HighlightRuleRenderMode,
+    Language, PersistedSettings, SettingsStore, default_settings_path,
 };
 use oxideterm_settings_model::{
     AiMcpServerDraft, AiModelRefreshDelivery, AiProviderKeyStatusDelivery, SettingsPageModel,

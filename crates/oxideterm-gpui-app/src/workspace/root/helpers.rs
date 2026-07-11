@@ -39,6 +39,18 @@ pub(in crate::workspace) fn terminal_background_fit(fit: BackgroundFit) -> Termi
     }
 }
 
+pub(in crate::workspace) fn background_scope_includes_content(
+    scope: BackgroundScope,
+    enabled_tabs: &[String],
+    background_key: &str,
+) -> bool {
+    scope == BackgroundScope::Content && enabled_tabs.iter().any(|tab| tab == background_key)
+}
+
+pub(in crate::workspace) fn background_scope_includes_window(scope: BackgroundScope) -> bool {
+    scope == BackgroundScope::Window
+}
+
 pub(in crate::workspace) fn root_locale_from_settings(language: Language) -> Locale {
     match language {
         Language::De => Locale::De,
@@ -1468,6 +1480,34 @@ mod helper_tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn content_background_scope_respects_enabled_tabs() {
+        let enabled_tabs = vec!["terminal".to_string(), "sftp".to_string()];
+
+        assert!(background_scope_includes_content(
+            BackgroundScope::Content,
+            &enabled_tabs,
+            "sftp",
+        ));
+        assert!(!background_scope_includes_content(
+            BackgroundScope::Content,
+            &enabled_tabs,
+            "settings",
+        ));
+    }
+
+    #[test]
+    fn window_background_scope_ignores_content_tab_selection() {
+        let enabled_tabs = vec!["terminal".to_string()];
+
+        assert!(background_scope_includes_window(BackgroundScope::Window));
+        assert!(!background_scope_includes_content(
+            BackgroundScope::Window,
+            &enabled_tabs,
+            "terminal",
+        ));
     }
 
     #[test]

@@ -197,12 +197,17 @@ impl WorkspaceApp {
 
     fn render_launcher_wsl_surface(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let theme = self.tokens.ui;
+        let has_background = self.background_surface_active("launcher");
         let filtered_distros = self.launcher.core.filtered_wsl_distros();
         div()
             .size_full()
             .flex()
             .flex_col()
-            .bg(rgb(theme.bg))
+            .bg(if has_background {
+                rgba(0x00000000)
+            } else {
+                rgb(theme.bg)
+            })
             .child(self.render_launcher_wsl_header(filtered_distros.len(), cx))
             .child(self.render_launcher_wsl_search(cx))
             .child(self.render_launcher_wsl_content(filtered_distros, cx))
@@ -609,9 +614,7 @@ impl WorkspaceApp {
     }
 
     fn launcher_background_active(&self) -> bool {
-        self.terminal_preferences_for_background_key("launcher")
-            .background
-            .is_some()
+        self.background_surface_active("launcher")
     }
 
     fn render_launcher_consent(&self, has_background: bool, cx: &mut Context<Self>) -> AnyElement {

@@ -92,7 +92,7 @@ impl WorkspaceApp {
             .min_h_0()
             .flex()
             .flex_col()
-            .bg(rgb(theme.bg))
+            .bg(self.workspace_chrome_background(theme.bg))
             .text_color(rgb(theme.text))
             .child(
                 self.render_native_plugin_surface_header(

@@ -84,7 +84,7 @@ impl WorkspaceApp {
             .flex()
             .flex_row()
             .items_center()
-            .bg(rgb(titlebar_bg))
+            .bg(self.workspace_chrome_background(titlebar_bg))
             .border_b_1()
             .border_color(rgb(titlebar_border))
             .text_size(px(self.tokens.metrics.titlebar_label_font_size))

@@ -7,9 +7,7 @@ impl WorkspaceApp {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = self.tokens.ui;
-        let has_background = self
-            .terminal_background_preferences("file_manager")
-            .is_some();
+        let has_background = self.background_surface_active("file_manager");
         let filtered = sorted_local_files(
             &self.file_manager.files,
             &self.file_manager.filter,

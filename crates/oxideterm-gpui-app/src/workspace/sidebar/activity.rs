@@ -40,7 +40,7 @@ impl WorkspaceApp {
             .flex_col()
             .items_center()
             .py_2()
-            .bg(rgb(theme.bg))
+            .bg(self.workspace_chrome_background(theme.bg))
             .border_r_1()
             .border_color(rgb(theme.border));
 

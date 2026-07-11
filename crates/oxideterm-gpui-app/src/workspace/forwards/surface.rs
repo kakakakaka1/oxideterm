@@ -112,7 +112,7 @@ impl WorkspaceApp {
             return self.render_empty_workspace(cx);
         };
         self.sync_forwards_section_list_state(tab_id, &node_id);
-        let has_background = self.terminal_background_preferences("forwards").is_some();
+        let has_background = self.background_surface_active("forwards");
         let state = self.forwards_section_list_state.clone();
         let workspace = cx.entity();
         let spec = self.forwards_section_list_spec();
@@ -259,7 +259,7 @@ impl WorkspaceApp {
         let Some(section) = self.forwards_sections().get(index).copied() else {
             return div().into_any_element();
         };
-        let has_background = self.terminal_background_preferences("forwards").is_some();
+        let has_background = self.background_surface_active("forwards");
         let mut inner = div()
             .w_full()
             .min_w(px(0.0))

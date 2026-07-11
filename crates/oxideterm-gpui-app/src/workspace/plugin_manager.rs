@@ -150,9 +150,7 @@ impl WorkspaceApp {
     pub(super) fn render_plugin_manager_surface(&mut self, cx: &mut Context<Self>) -> AnyElement {
         self.bootstrap_native_plugin_runtime(cx);
         let theme = self.tokens.ui;
-        let has_background = self
-            .terminal_background_preferences("plugin_manager")
-            .is_some();
+        let has_background = self.background_surface_active("plugin_manager");
         let state = self.native_plugin_manager.section_list_state.clone();
         let workspace = cx.entity();
         let spec = TauriVirtualListSpec::new(
@@ -200,9 +198,7 @@ impl WorkspaceApp {
 
     fn render_plugin_manager_section(&self, index: usize, cx: &mut Context<Self>) -> AnyElement {
         let theme = self.tokens.ui;
-        let has_background = self
-            .terminal_background_preferences("plugin_manager")
-            .is_some();
+        let has_background = self.background_surface_active("plugin_manager");
         match index {
             0 => div()
                 .flex()

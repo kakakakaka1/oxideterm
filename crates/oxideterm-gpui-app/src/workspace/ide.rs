@@ -458,7 +458,7 @@ impl WorkspaceApp {
                 .unwrap_or(settings.terminal.line_height)
                 .clamp(0.8, 3.0) as f32,
             word_wrap: settings.ide.word_wrap,
-            background_active: self.terminal_background_preferences("ide").is_some(),
+            background_active: self.background_surface_active("ide"),
             agent_mode: node_agent_mode_from_settings(settings),
         }
     }

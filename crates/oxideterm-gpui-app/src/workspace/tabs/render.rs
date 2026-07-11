@@ -38,7 +38,7 @@ impl WorkspaceApp {
             .overflow_hidden()
             .border_b_1()
             .border_color(rgb(theme.border))
-            .bg(rgb(theme.bg));
+            .bg(self.workspace_chrome_background(theme.bg));
 
         // Tauri's scroll container measures the full inline-flex tab row as
         // scrollWidth. GPUI's ScrollHandle computes max_offset from direct
@@ -570,7 +570,7 @@ impl WorkspaceApp {
             .items_center()
             .justify_center()
             .px(px(16.0))
-            .bg(rgb(theme.bg))
+            .bg(self.workspace_chrome_background(theme.bg))
             .text_color(rgb(theme.text_muted))
             .font_family(settings_ui_font_family(
                 &self.settings_store.settings().appearance.ui_font_family,

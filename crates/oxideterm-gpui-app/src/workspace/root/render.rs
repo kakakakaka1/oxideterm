@@ -126,6 +126,7 @@ impl Render for WorkspaceApp {
             window,
             cx,
         );
+        let window_background_layer = self.render_workspace_window_background(window, cx);
         let toast_layer = self.render_workspace_toasts(cx);
         let zen_mode = self.settings_store.settings().sidebar_ui.zen_mode;
         let titlebar_visible = !window.is_fullscreen();
@@ -710,6 +711,10 @@ impl Render for WorkspaceApp {
             .on_action(cx.listener(|this, _: &GoToTab9, window, cx| {
                 this.go_to_tab(8, window, cx);
             }))
+            .when_some(window_background_layer, |root, background| {
+                // Window scope paints exactly one absolute image behind all persistent chrome.
+                root.child(background)
+            })
             .when(titlebar_visible, |root| {
                 root.child(self.render_title_bar(window, cx))
             })

@@ -154,7 +154,7 @@ impl WorkspaceApp {
                     .flex()
                     .flex_col()
                     .overflow_hidden()
-                    .bg(rgb(theme.bg))
+                    .bg(self.workspace_chrome_background(theme.bg))
                     .child(
                         div()
                             .w_full()
@@ -328,7 +328,7 @@ impl WorkspaceApp {
             .h_full()
             .flex()
             .flex_col()
-            .bg(rgb(theme.bg_panel))
+            .bg(self.workspace_chrome_background(theme.bg_panel))
             .border_r_1()
             .border_color(rgb(theme.border))
             .child(self.render_sidebar_header(cx))

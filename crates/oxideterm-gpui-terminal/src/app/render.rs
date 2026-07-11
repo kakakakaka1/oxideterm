@@ -128,7 +128,7 @@ impl Render for TerminalPane {
         )
         .highlight_rules(self.preferences.highlight_rules.clone())
         .row_timestamps(row_timestamps)
-        .transparent_background(background.is_some())
+        .transparent_background(background.is_some() || self.preferences.transparent_background)
         .ghost_text(self.terminal_ghost_text())
         .viewport_rows(viewport_rows)
         .scrollbar_display_offset(scrollbar_display_offset)

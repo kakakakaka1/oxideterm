@@ -132,9 +132,7 @@ impl WorkspaceApp {
         let theme = self.tokens.ui;
         let workspace = cx.entity();
         let active = self.session_manager.focused_input == Some(target);
-        let has_background = self
-            .terminal_background_preferences("session_manager")
-            .is_some();
+        let has_background = self.background_surface_active("session_manager");
         let marked = self
             .marked_text_for_target(WorkspaceImeTarget::SessionManager(target))
             .unwrap_or_default();

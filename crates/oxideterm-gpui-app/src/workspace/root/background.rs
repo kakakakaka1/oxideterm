@@ -1,6 +1,15 @@
 use super::super::*;
 
 impl WorkspaceApp {
+    pub(in crate::workspace) fn render_workspace_window_background(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        let background = self.window_background_preferences()?;
+        Some(self.render_workspace_background_layer(background, window, cx))
+    }
+
     pub(in crate::workspace) fn wrap_content_background(
         &mut self,
         content: AnyElement,
@@ -17,6 +26,21 @@ impl WorkspaceApp {
         let Some(background) = self.terminal_background_preferences(background_key) else {
             return content;
         };
+        div()
+            .size_full()
+            .relative()
+            .overflow_hidden()
+            .child(self.render_workspace_background_layer(background, window, cx))
+            .child(div().relative().size_full().child(content))
+            .into_any_element()
+    }
+
+    fn render_workspace_background_layer(
+        &mut self,
+        background: TerminalBackgroundPreferences,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let blurred_image = self
             .background_image_cache
             .render_blurred_image(&background);
@@ -24,14 +48,7 @@ impl WorkspaceApp {
         if self.background_image_cache.has_pending() {
             self.schedule_background_cache_poll(cx);
         }
-
-        div()
-            .size_full()
-            .relative()
-            .overflow_hidden()
-            .child(workspace_background_image_layer(background, blurred_image))
-            .child(div().relative().size_full().child(content))
-            .into_any_element()
+        workspace_background_image_layer(background, blurred_image)
     }
 
     pub(in crate::workspace) fn schedule_background_cache_poll(&mut self, cx: &mut Context<Self>) {

@@ -13,7 +13,7 @@ impl WorkspaceApp {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = self.tokens.ui;
-        let has_background = self.terminal_background_preferences("topology").is_some();
+        let has_background = self.background_surface_active("topology");
         div()
             .size_full()
             .flex()
@@ -71,7 +71,7 @@ impl WorkspaceApp {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = self.tokens.ui;
-        let has_background = self.terminal_background_preferences("runtime").is_some();
+        let has_background = self.background_surface_active("runtime");
         div()
             .id("connection-runtime-topology")
             .flex_1()

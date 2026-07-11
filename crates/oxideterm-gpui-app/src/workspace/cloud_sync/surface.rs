@@ -144,7 +144,7 @@ impl WorkspaceApp {
     }
 
     pub(super) fn cloud_sync_has_background(&self) -> bool {
-        self.terminal_background_preferences("cloud_sync").is_some()
+        self.background_surface_active("cloud_sync")
     }
 
     pub(super) fn cloud_sync_sections(&self) -> Vec<CloudSyncSection> {

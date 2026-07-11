@@ -264,6 +264,14 @@ pub enum BackgroundFit {
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
+pub enum BackgroundScope {
+    #[default]
+    Content,
+    Window,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum UiDensity {
     Compact,
     #[default]

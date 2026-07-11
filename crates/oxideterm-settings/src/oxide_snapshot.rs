@@ -50,6 +50,7 @@ const TERMINAL_APPEARANCE_KEYS: &[&str] = &[
     "backgroundOpacity",
     "backgroundBlur",
     "backgroundFit",
+    "backgroundScope",
     "backgroundEnabledTabs",
 ];
 const TERMINAL_BEHAVIOR_KEYS: &[&str] = &[
@@ -427,6 +428,10 @@ mod tests {
         );
         assert!(parsed["settings"]["terminal"].get("commandMarks").is_some());
         assert!(parsed["settings"]["terminal"].get("graphics").is_some());
+        assert_eq!(
+            parsed["settings"]["terminal"]["backgroundScope"],
+            Value::String("content".to_string())
+        );
         assert!(parsed["settings"]["terminal"].get("unicode").is_some());
         assert!(
             parsed["settings"]["appearance"]

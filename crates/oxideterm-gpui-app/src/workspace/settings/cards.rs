@@ -272,7 +272,7 @@ impl WorkspaceApp {
     }
 
     pub(in crate::workspace) fn settings_background_active(&self) -> bool {
-        self.terminal_background_preferences("settings").is_some()
+        self.background_surface_active("settings")
     }
 
     pub(in crate::workspace) fn settings_panel_background(&self, color: u32) -> Rgba {

@@ -22,7 +22,7 @@ impl WorkspaceApp {
         let Some(node_id) = self.sftp_tab_nodes.get(&tab_id).cloned() else {
             return self.render_empty_workspace(cx);
         };
-        let has_background = self.terminal_background_preferences("sftp").is_some();
+        let has_background = self.background_surface_active("sftp");
         let node_title = self
             .ssh_nodes
             .get(&node_id)

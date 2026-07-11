@@ -560,9 +560,7 @@ impl WorkspaceApp {
     ) -> AnyElement {
         let theme = self.tokens.ui;
         let selected = self.auto_route_modal.selected_node_id.as_ref() == Some(&node.id);
-        let has_background = self
-            .terminal_background_preferences("session_manager")
-            .is_some();
+        let has_background = self.background_surface_active("session_manager");
         let selection_group_id = crate::workspace::selectable_text::selectable_text_id(
             "auto-route-target-row",
             &node.id,
