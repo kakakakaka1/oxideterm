@@ -152,7 +152,7 @@ use oxideterm_gpui_terminal::{
 };
 use oxideterm_gpui_ui::scroll::ScrollableElement;
 use oxideterm_gpui_ui::{
-    ConfirmDialogAction, ConfirmDialogVariant, ConfirmDialogView, confirm_dialog_with_focus,
+    ConfirmDialogAction, ConfirmDialogVariant, ConfirmDialogView,
     modal::{popover_backdrop, set_tauri_backdrop_blur_allowed},
     toast::{ToastVariant, ToastView, toast_close},
     toaster::toaster,
@@ -609,6 +609,16 @@ struct NodeDisconnectConfirm {
     display_name: String,
 }
 
+#[derive(Clone, Copy)]
+enum SimpleConfirmExitTarget {
+    AiClearAll,
+    AiDeleteMessage,
+    NodeDisconnect,
+    TabClose,
+    SettingsDataDirectory,
+    KeybindingResetAll,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum DataDirectoryConfirm {
     Conflict {
@@ -636,6 +646,7 @@ pub(crate) struct WorkspaceApp {
     detached_tab_return_drag: Option<DetachedTabReturnDrag>,
     main_window_tabbar_drop_bounds: Option<Bounds<Pixels>>,
     node_disconnect_confirm: Option<NodeDisconnectConfirm>,
+    node_disconnect_confirm_presence: oxideterm_gpui_ui::motion::ExitPresence,
     panes: HashMap<PaneId, gpui::Entity<TerminalPane>>,
     terminal_pane_subscriptions: HashMap<PaneId, Subscription>,
     pending_auto_close_terminal_sessions: HashSet<TerminalSessionId>,
@@ -725,11 +736,20 @@ pub(crate) struct WorkspaceApp {
     active_session_sidebar_list_state: ListState,
     active_session_sidebar_list_cache: RefCell<VirtualListSignatureCache>,
     open_settings_select: Option<SettingsSelect>,
+    rendered_settings_select: Option<SettingsSelect>,
+    settings_select_frozen_anchor: Option<OverlayAnchor>,
+    settings_select_presence: oxideterm_gpui_ui::motion::ExitPresence,
     settings_select_focus_origin: Option<browser_behavior::BrowserFocusOrigin>,
     settings_section_list_state: ListState,
     settings_section_list_cache: RefCell<VirtualListSignatureCache>,
     settings_data_directory_confirm: Option<DataDirectoryConfirm>,
+    settings_data_directory_confirm_presence: oxideterm_gpui_ui::motion::ExitPresence,
     standard_confirm_focused_action: Option<ConfirmDialogAction>,
+    settings_reset_confirm_presence: oxideterm_gpui_ui::motion::ExitPresence,
+    keybinding_reset_all_confirm_presence: oxideterm_gpui_ui::motion::ExitPresence,
+    ai_clear_all_confirm_presence: oxideterm_gpui_ui::motion::ExitPresence,
+    ai_delete_message_confirm_presence: oxideterm_gpui_ui::motion::ExitPresence,
+    tab_close_confirm_presence: oxideterm_gpui_ui::motion::ExitPresence,
     select_anchors: HashMap<SelectAnchorId, OverlayAnchor>,
     text_input_anchors: HashMap<TextInputAnchorId, TextInputAnchor>,
     selectable_text_values: HashMap<u64, String>,
@@ -781,6 +801,9 @@ pub(crate) struct WorkspaceApp {
     duplicating_saved_connection_id: Option<String>,
     saved_connection_prompt_action: Option<SavedConnectionPromptAction>,
     open_new_connection_select: Option<NewConnectionSelect>,
+    rendered_new_connection_select: Option<NewConnectionSelect>,
+    new_connection_select_frozen_anchor: Option<OverlayAnchor>,
+    new_connection_select_presence: oxideterm_gpui_ui::motion::ExitPresence,
     new_connection_select_focus_origin: Option<browser_behavior::BrowserFocusOrigin>,
     new_connection_caret_visible: bool,
     host_key_challenge: Option<HostKeyChallenge>,
@@ -1076,6 +1099,7 @@ struct WorkspaceToast {
     id: u64,
     notice: TerminalNotice,
     expires_at: Instant,
+    presence: oxideterm_gpui_ui::motion::ExitPresence,
 }
 
 #[derive(Clone, Debug)]
@@ -1100,6 +1124,7 @@ struct ActiveConnectionTrace {
     show_generation: u64,
     flush_generation: u64,
     expires_at: Option<Instant>,
+    presence: oxideterm_gpui_ui::motion::ExitPresence,
 }
 
 #[derive(Clone, Debug)]

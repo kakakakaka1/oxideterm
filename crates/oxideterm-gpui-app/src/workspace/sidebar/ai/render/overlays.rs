@@ -516,6 +516,7 @@ impl WorkspaceApp {
                 AiHeaderAction::Settings => this.open_ai_settings(window, cx),
                 AiHeaderAction::NewChat => {
                     this.ai.chat.clear_all_confirm_open = true;
+                    this.ai_clear_all_confirm_presence.reopen();
                     this.reset_standard_confirm_focus();
                 }
             },

@@ -399,6 +399,7 @@ impl WorkspaceApp {
             },
             cx.listener(|this, _event, _window, cx| {
                 this.settings_data_directory_confirm = Some(DataDirectoryConfirm::Reset);
+                this.settings_data_directory_confirm_presence.reopen();
                 this.reset_standard_confirm_focus();
                 cx.stop_propagation();
                 cx.notify();
@@ -434,6 +435,7 @@ impl WorkspaceApp {
                                 path,
                                 files_found: check.files_found,
                             });
+                        this.settings_data_directory_confirm_presence.reopen();
                         this.reset_standard_confirm_focus();
                         cx.notify();
                     }
@@ -489,16 +491,18 @@ impl WorkspaceApp {
         &mut self,
         cx: &mut Context<Self>,
     ) {
-        self.settings_data_directory_confirm = None;
-        self.clear_standard_confirm_focus();
-        cx.notify();
+        if self.begin_settings_data_directory_confirm_exit(cx) {
+            cx.notify();
+        }
     }
 
     pub(in crate::workspace) fn confirm_settings_data_directory(&mut self, cx: &mut Context<Self>) {
-        let Some(confirm) = self.settings_data_directory_confirm.take() else {
+        let Some(confirm) = self.settings_data_directory_confirm.clone() else {
             return;
         };
-        self.clear_standard_confirm_focus();
+        if !self.begin_settings_data_directory_confirm_exit(cx) {
+            return;
+        }
         match confirm {
             DataDirectoryConfirm::Conflict { path, .. } => {
                 self.apply_settings_data_directory(path, cx);
@@ -527,29 +531,33 @@ impl WorkspaceApp {
                     .t("settings_view.general.reset_data_directory_confirm"),
             ),
         };
-        Some(confirm_dialog_with_focus(
-            &self.tokens,
-            ConfirmDialogView {
-                variant: ConfirmDialogVariant::Default,
-                title: div().child(self.i18n.t(title_key)).into_any_element(),
-                description: Some(div().child(description).into_any_element()),
-                cancel_label: div()
-                    .child(self.i18n.t("common.actions.cancel"))
-                    .into_any_element(),
-                confirm_label: div()
-                    .child(self.i18n.t("common.actions.confirm"))
-                    .into_any_element(),
-            },
-            self.standard_confirm_focus(),
-            cx.listener(|this, _event, _window, cx| {
-                this.cancel_settings_data_directory_confirm(cx);
-                cx.stop_propagation();
-            }),
-            cx.listener(|this, _event, _window, cx| {
-                this.confirm_settings_data_directory(cx);
-                cx.stop_propagation();
-            }),
-        ))
+        Some(
+            oxideterm_gpui_ui::confirm::confirm_dialog_with_focus_motion(
+                &self.tokens,
+                "settings-data-directory-confirm-motion",
+                self.settings_data_directory_confirm_presence.phase(),
+                ConfirmDialogView {
+                    variant: ConfirmDialogVariant::Default,
+                    title: div().child(self.i18n.t(title_key)).into_any_element(),
+                    description: Some(div().child(description).into_any_element()),
+                    cancel_label: div()
+                        .child(self.i18n.t("common.actions.cancel"))
+                        .into_any_element(),
+                    confirm_label: div()
+                        .child(self.i18n.t("common.actions.confirm"))
+                        .into_any_element(),
+                },
+                self.standard_confirm_focus(),
+                cx.listener(|this, _event, _window, cx| {
+                    this.cancel_settings_data_directory_confirm(cx);
+                    cx.stop_propagation();
+                }),
+                cx.listener(|this, _event, _window, cx| {
+                    this.confirm_settings_data_directory(cx);
+                    cx.stop_propagation();
+                }),
+            ),
+        )
     }
 
     pub(in crate::workspace) fn settings_terminal_section(

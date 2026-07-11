@@ -1,4 +1,5 @@
 use super::*;
+use gpui::Timer;
 use oxideterm_settings_model::parse_rgb24_hex;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -81,15 +82,24 @@ impl WorkspaceApp {
         )
     }
 
-    fn open_new_connection_select_from_pointer(&mut self, select_id: NewConnectionSelect) {
+    fn open_new_connection_select_from_pointer(
+        &mut self,
+        select_id: NewConnectionSelect,
+        cx: &mut Context<Self>,
+    ) {
         // New-connection selects share browser focus-origin semantics with
         // settings selects: pointer-opened menus should not render a keyboard
         // focus-visible ring on the trigger.
-        browser_behavior::toggle_browser_trigger_select_from_pointer(
-            &mut self.open_new_connection_select,
-            &mut self.new_connection_select_focus_origin,
-            select_id,
-        );
+        if self.open_new_connection_select == Some(select_id) {
+            self.begin_new_connection_select_exit(cx);
+            return;
+        }
+        self.open_new_connection_select = Some(select_id);
+        self.rendered_new_connection_select = Some(select_id);
+        self.new_connection_select_frozen_anchor = None;
+        self.new_connection_select_presence.reopen();
+        self.new_connection_select_focus_origin =
+            Some(browser_behavior::BrowserFocusOrigin::Pointer);
     }
 
     pub(in crate::workspace) fn close_new_connection_select(&mut self) {
@@ -97,6 +107,55 @@ impl WorkspaceApp {
             &mut self.open_new_connection_select,
             &mut self.new_connection_select_focus_origin,
         );
+        self.rendered_new_connection_select = None;
+        self.new_connection_select_frozen_anchor = None;
+        self.new_connection_select_presence.reopen();
+    }
+
+    pub(in crate::workspace) fn begin_new_connection_select_exit(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(select) = self.open_new_connection_select.take() else {
+            return false;
+        };
+        self.new_connection_select_focus_origin = None;
+        self.rendered_new_connection_select = Some(select);
+        self.new_connection_select_frozen_anchor = self
+            .select_anchors
+            .get(&Self::new_connection_select_anchor_id(select))
+            .copied();
+        let Some(generation) = self.new_connection_select_presence.begin_exit() else {
+            return false;
+        };
+        let delay = oxideterm_gpui_ui::motion::duration(
+            &self.tokens,
+            oxideterm_gpui_ui::motion::MotionDuration::Micro,
+        );
+        if delay.is_zero() || self.new_connection_select_frozen_anchor.is_none() {
+            self.finish_new_connection_select_exit(generation);
+            return true;
+        }
+        // Manual close freezes the final window-space anchor for the short exit.
+        cx.spawn(async move |weak, cx| {
+            Timer::after(delay).await;
+            let _ = weak.update(cx, |this, cx| {
+                if this.finish_new_connection_select_exit(generation) {
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+        true
+    }
+
+    fn finish_new_connection_select_exit(&mut self, generation: u64) -> bool {
+        if !self.new_connection_select_presence.finish_exit(generation) {
+            return false;
+        }
+        self.rendered_new_connection_select = None;
+        self.new_connection_select_frozen_anchor = None;
+        true
     }
 
     pub(super) fn clear_new_connection_select_anchor(&mut self) {
@@ -367,7 +426,7 @@ impl WorkspaceApp {
                         form.selected_field = None;
                     }
                     this.ime_marked_text = None;
-                    this.open_new_connection_select_from_pointer(NewConnectionSelect::Group);
+                    this.open_new_connection_select_from_pointer(NewConnectionSelect::Group, cx);
                     window.focus(&this.focus_handle);
                     cx.stop_propagation();
                     cx.notify();
@@ -392,7 +451,6 @@ impl WorkspaceApp {
             form.selected_field = None;
             form.error = None;
         }
-        self.close_new_connection_select();
         self.ime_marked_text = None;
         cx.notify();
     }
@@ -444,7 +502,7 @@ impl WorkspaceApp {
                         form.selected_field = None;
                     }
                     this.ime_marked_text = None;
-                    this.open_new_connection_select_from_pointer(select_id);
+                    this.open_new_connection_select_from_pointer(select_id, cx);
                     window.focus(&this.focus_handle);
                     cx.stop_propagation();
                     cx.notify();
@@ -502,6 +560,7 @@ impl WorkspaceApp {
                     this.ime_marked_text = None;
                     this.open_new_connection_select_from_pointer(
                         NewConnectionSelect::JumpSavedConnection,
+                        cx,
                     );
                     window.focus(&this.focus_handle);
                     cx.stop_propagation();
@@ -569,7 +628,6 @@ impl WorkspaceApp {
             form.selected_field = None;
             form.error = None;
         }
-        self.close_new_connection_select();
         self.ime_marked_text = None;
         cx.notify();
     }
@@ -583,7 +641,6 @@ impl WorkspaceApp {
             form.selected_field = None;
             form.error = None;
         }
-        self.close_new_connection_select();
         self.ime_marked_text = None;
         cx.notify();
     }
@@ -609,7 +666,6 @@ impl WorkspaceApp {
             form.selected_field = None;
             form.error = None;
         }
-        self.close_new_connection_select();
         self.ime_marked_text = None;
         cx.notify();
     }
@@ -991,7 +1047,7 @@ impl WorkspaceApp {
                         form.selected_field = None;
                     }
                     this.ime_marked_text = None;
-                    this.open_new_connection_select_from_pointer(select_id);
+                    this.open_new_connection_select_from_pointer(select_id, cx);
                     window.focus(&this.focus_handle);
                     cx.stop_propagation();
                     cx.notify();
@@ -1094,7 +1150,6 @@ impl WorkspaceApp {
             clear_connection_selection(form);
             form.error = None;
         }
-        self.close_new_connection_select();
         self.ime_marked_text = None;
         cx.notify();
     }
@@ -2235,7 +2290,7 @@ impl WorkspaceApp {
                             form.selected_field = None;
                         }
                         this.ime_marked_text = None;
-                        this.open_new_connection_select_from_pointer(select_id);
+                        this.open_new_connection_select_from_pointer(select_id, cx);
                         window.focus(&this.focus_handle);
                         cx.stop_propagation();
                         cx.notify();
@@ -2786,7 +2841,6 @@ impl WorkspaceApp {
             clear_connection_selection(form);
             form.error = None;
         }
-        self.close_new_connection_select();
         self.ime_marked_text = None;
         cx.notify();
     }
@@ -2807,7 +2861,6 @@ impl WorkspaceApp {
             clear_connection_selection(form);
             form.error = None;
         }
-        self.close_new_connection_select();
         self.ime_marked_text = None;
         cx.notify();
     }
@@ -2823,7 +2876,6 @@ impl WorkspaceApp {
             clear_connection_selection(form);
             form.error = None;
         }
-        self.close_new_connection_select();
         self.ime_marked_text = None;
         cx.notify();
     }
@@ -2839,7 +2891,6 @@ impl WorkspaceApp {
             clear_connection_selection(form);
             form.error = None;
         }
-        self.close_new_connection_select();
         self.ime_marked_text = None;
         cx.notify();
     }
@@ -2855,7 +2906,6 @@ impl WorkspaceApp {
             clear_connection_selection(form);
             form.error = None;
         }
-        self.close_new_connection_select();
         self.ime_marked_text = None;
         cx.notify();
     }
@@ -2871,7 +2921,6 @@ impl WorkspaceApp {
             clear_connection_selection(form);
             form.error = None;
         }
-        self.close_new_connection_select();
         self.ime_marked_text = None;
         cx.notify();
     }
@@ -2887,7 +2936,6 @@ impl WorkspaceApp {
             clear_connection_selection(form);
             form.error = None;
         }
-        self.close_new_connection_select();
         self.ime_marked_text = None;
         cx.notify();
     }
@@ -2903,7 +2951,6 @@ impl WorkspaceApp {
             clear_connection_selection(form);
             form.error = None;
         }
-        self.close_new_connection_select();
         self.ime_marked_text = None;
         cx.notify();
     }
@@ -2919,7 +2966,6 @@ impl WorkspaceApp {
             clear_connection_selection(form);
             form.error = None;
         }
-        self.close_new_connection_select();
         self.ime_marked_text = None;
         cx.notify();
     }
@@ -2935,7 +2981,6 @@ impl WorkspaceApp {
             clear_connection_selection(form);
             form.error = None;
         }
-        self.close_new_connection_select();
         self.ime_marked_text = None;
         cx.notify();
     }
@@ -2951,7 +2996,6 @@ impl WorkspaceApp {
             clear_connection_selection(form);
             form.error = None;
         }
-        self.close_new_connection_select();
         self.ime_marked_text = None;
         cx.notify();
     }
@@ -2967,7 +3011,6 @@ impl WorkspaceApp {
             clear_connection_selection(form);
             form.error = None;
         }
-        self.close_new_connection_select();
         self.ime_marked_text = None;
         cx.notify();
     }
@@ -2983,7 +3026,6 @@ impl WorkspaceApp {
             clear_connection_selection(form);
             form.error = None;
         }
-        self.close_new_connection_select();
         self.ime_marked_text = None;
         cx.notify();
     }
@@ -2999,7 +3041,6 @@ impl WorkspaceApp {
             clear_connection_selection(form);
             form.error = None;
         }
-        self.close_new_connection_select();
         self.ime_marked_text = None;
         cx.notify();
     }
@@ -3021,7 +3062,6 @@ impl WorkspaceApp {
             clear_connection_selection(form);
             form.error = None;
         }
-        self.close_new_connection_select();
         self.ime_marked_text = None;
         cx.notify();
     }

@@ -69,6 +69,7 @@ impl WorkspaceApp {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         self.poll_cloud_sync_delivery(cx);
+        self.invalidate_cloud_sync_select_if_needed();
 
         let theme = self.tokens.ui;
         let has_background = self.cloud_sync_has_background();
@@ -108,6 +109,23 @@ impl WorkspaceApp {
                 |surface, overlay| surface.child(overlay),
             )
             .into_any_element()
+    }
+
+    fn invalidate_cloud_sync_select_if_needed(&mut self) {
+        let Some(rendered_select) = self.cloud_sync.view.rendered_select else {
+            return;
+        };
+        let visible = self.cloud_sync.view.select_presence.phase()
+            == oxideterm_gpui_ui::motion::ExitPhase::Visible;
+        let anchor_valid = self
+            .select_anchors
+            .contains_key(&Self::cloud_sync_select_anchor_id(rendered_select));
+        if visible && (self.cloud_sync.view.open_select.is_none() || !anchor_valid) {
+            // Programmatic dismissal and invalid live geometry must unmount immediately.
+            self.cloud_sync.view.rendered_select = None;
+            self.cloud_sync.view.select_frozen_anchor = None;
+            self.cloud_sync.view.select_presence.reopen();
+        }
     }
 
     pub(super) fn sync_cloud_sync_section_list_state(&mut self) {

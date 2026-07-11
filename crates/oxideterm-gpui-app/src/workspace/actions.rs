@@ -67,6 +67,161 @@ fn terminal_tab_capture_blocked_by_workspace_ui(
 }
 
 impl WorkspaceApp {
+    fn schedule_simple_confirm_exit(
+        &mut self,
+        target: SimpleConfirmExitTarget,
+        generation: u64,
+        cx: &mut Context<Self>,
+    ) {
+        let delay = oxideterm_gpui_ui::motion::duration(
+            &self.tokens,
+            oxideterm_gpui_ui::motion::MotionDuration::Control,
+        );
+        if delay.is_zero() {
+            self.finish_simple_confirm_exit(target, generation);
+            return;
+        }
+        // Each target retains only the read-only payload needed for its exit frame.
+        cx.spawn(async move |weak, cx| {
+            Timer::after(delay).await;
+            let _ = weak.update(cx, |this, cx| {
+                if this.finish_simple_confirm_exit(target, generation) {
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+
+    fn finish_simple_confirm_exit(
+        &mut self,
+        target: SimpleConfirmExitTarget,
+        generation: u64,
+    ) -> bool {
+        match target {
+            SimpleConfirmExitTarget::AiClearAll
+                if self.ai_clear_all_confirm_presence.finish_exit(generation) =>
+            {
+                self.ai.chat.clear_all_confirm_open = false;
+            }
+            SimpleConfirmExitTarget::AiDeleteMessage
+                if self
+                    .ai_delete_message_confirm_presence
+                    .finish_exit(generation) =>
+            {
+                self.ai.chat.delete_message_confirm = None;
+            }
+            SimpleConfirmExitTarget::NodeDisconnect
+                if self
+                    .node_disconnect_confirm_presence
+                    .finish_exit(generation) =>
+            {
+                self.node_disconnect_confirm = None;
+            }
+            SimpleConfirmExitTarget::TabClose
+                if self.tab_close_confirm_presence.finish_exit(generation) =>
+            {
+                self.main_window_tabs.close_confirm = None;
+            }
+            SimpleConfirmExitTarget::SettingsDataDirectory
+                if self
+                    .settings_data_directory_confirm_presence
+                    .finish_exit(generation) =>
+            {
+                self.settings_data_directory_confirm = None;
+            }
+            SimpleConfirmExitTarget::KeybindingResetAll
+                if self
+                    .keybinding_reset_all_confirm_presence
+                    .finish_exit(generation) =>
+            {
+                self.settings_page
+                    .set_keybinding_reset_all_confirm_open(false);
+            }
+            _ => return false,
+        }
+        true
+    }
+
+    pub(in crate::workspace) fn begin_ai_clear_all_confirm_exit(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(generation) = self.ai_clear_all_confirm_presence.begin_exit() else {
+            return false;
+        };
+        self.clear_standard_confirm_focus();
+        self.schedule_simple_confirm_exit(SimpleConfirmExitTarget::AiClearAll, generation, cx);
+        true
+    }
+
+    pub(in crate::workspace) fn begin_ai_delete_message_confirm_exit(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(generation) = self.ai_delete_message_confirm_presence.begin_exit() else {
+            return false;
+        };
+        self.clear_standard_confirm_focus();
+        self.schedule_simple_confirm_exit(SimpleConfirmExitTarget::AiDeleteMessage, generation, cx);
+        true
+    }
+
+    pub(in crate::workspace) fn begin_node_disconnect_confirm_exit(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(generation) = self.node_disconnect_confirm_presence.begin_exit() else {
+            return false;
+        };
+        self.clear_standard_confirm_focus();
+        self.schedule_simple_confirm_exit(SimpleConfirmExitTarget::NodeDisconnect, generation, cx);
+        true
+    }
+
+    pub(in crate::workspace) fn begin_tab_close_confirm_exit(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(generation) = self.tab_close_confirm_presence.begin_exit() else {
+            return false;
+        };
+        self.clear_standard_confirm_focus();
+        self.schedule_simple_confirm_exit(SimpleConfirmExitTarget::TabClose, generation, cx);
+        true
+    }
+
+    pub(in crate::workspace) fn begin_settings_data_directory_confirm_exit(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(generation) = self.settings_data_directory_confirm_presence.begin_exit() else {
+            return false;
+        };
+        self.clear_standard_confirm_focus();
+        self.schedule_simple_confirm_exit(
+            SimpleConfirmExitTarget::SettingsDataDirectory,
+            generation,
+            cx,
+        );
+        true
+    }
+
+    pub(in crate::workspace) fn begin_keybinding_reset_all_confirm_exit(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(generation) = self.keybinding_reset_all_confirm_presence.begin_exit() else {
+            return false;
+        };
+        self.clear_standard_confirm_focus();
+        self.schedule_simple_confirm_exit(
+            SimpleConfirmExitTarget::KeybindingResetAll,
+            generation,
+            cx,
+        );
+        true
+    }
     pub(super) fn open_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.search.visible = true;
         self.terminal_command_bar_focused = false;
@@ -527,7 +682,7 @@ impl WorkspaceApp {
 
         if self.active_surface == ActiveSurface::Settings && self.open_settings_select.is_some() {
             if key == "escape" && !modifiers.platform {
-                self.close_settings_select();
+                self.begin_settings_select_exit(cx);
                 cx.notify();
             }
             return;
@@ -775,39 +930,48 @@ impl WorkspaceApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        if self.settings_page.settings_reset_confirm_open {
+        if self.settings_page.settings_reset_confirm_open
+            && self.settings_reset_confirm_presence.phase()
+                == oxideterm_gpui_ui::motion::ExitPhase::Visible
+        {
             match self.handle_standard_confirm_key(event, cx) {
                 Some(ConfirmKeyboardAction::Cancel) => {
-                    self.settings_page.set_settings_reset_confirm_open(false);
+                    self.begin_settings_reset_confirm_exit(cx);
                     cx.notify();
                     true
                 }
                 Some(ConfirmKeyboardAction::Confirm) => {
-                    self.settings_page.set_settings_reset_confirm_open(false);
-                    self.edit_settings(|settings| *settings = PersistedSettings::default(), cx);
+                    if self.begin_settings_reset_confirm_exit(cx) {
+                        self.edit_settings(|settings| *settings = PersistedSettings::default(), cx);
+                    }
                     true
                 }
                 Some(ConfirmKeyboardAction::Handled) => true,
                 None => false,
             }
-        } else if self.settings_page.keybinding_reset_all_confirm_open {
+        } else if self.settings_page.keybinding_reset_all_confirm_open
+            && self.keybinding_reset_all_confirm_presence.phase()
+                == oxideterm_gpui_ui::motion::ExitPhase::Visible
+        {
             match self.handle_standard_confirm_key(event, cx) {
                 Some(ConfirmKeyboardAction::Cancel) => {
-                    self.settings_page
-                        .set_keybinding_reset_all_confirm_open(false);
+                    self.begin_keybinding_reset_all_confirm_exit(cx);
                     cx.notify();
                     true
                 }
                 Some(ConfirmKeyboardAction::Confirm) => {
-                    self.settings_page
-                        .set_keybinding_reset_all_confirm_open(false);
-                    self.reset_all_keybindings(window, cx);
+                    if self.begin_keybinding_reset_all_confirm_exit(cx) {
+                        self.reset_all_keybindings(window, cx);
+                    }
                     true
                 }
                 Some(ConfirmKeyboardAction::Handled) => true,
                 None => false,
             }
-        } else if self.settings_data_directory_confirm.is_some() {
+        } else if self.settings_data_directory_confirm.is_some()
+            && self.settings_data_directory_confirm_presence.phase()
+                == oxideterm_gpui_ui::motion::ExitPhase::Visible
+        {
             match self.handle_standard_confirm_key(event, cx) {
                 Some(ConfirmKeyboardAction::Cancel) => {
                     self.cancel_settings_data_directory_confirm(cx);
@@ -903,6 +1067,10 @@ impl WorkspaceApp {
         if self.main_window_tabs.close_confirm.is_none() {
             return false;
         }
+        if self.tab_close_confirm_presence.phase() == oxideterm_gpui_ui::motion::ExitPhase::Exiting
+        {
+            return true;
+        }
         match self.handle_standard_confirm_key(event, cx) {
             Some(ConfirmKeyboardAction::Cancel) => {
                 self.cancel_tab_close_confirm(cx);
@@ -926,6 +1094,11 @@ impl WorkspaceApp {
         if self.node_disconnect_confirm.is_none() {
             return false;
         }
+        if self.node_disconnect_confirm_presence.phase()
+            == oxideterm_gpui_ui::motion::ExitPhase::Exiting
+        {
+            return true;
+        }
         match self.handle_standard_confirm_key(event, cx) {
             Some(ConfirmKeyboardAction::Cancel) => {
                 self.cancel_node_disconnect_confirm(cx);
@@ -946,43 +1119,63 @@ impl WorkspaceApp {
         cx: &mut Context<Self>,
     ) -> bool {
         if self.ai.chat.safety_confirm_open {
+            if self.ai.chat.safety_confirm_presence.phase()
+                == oxideterm_gpui_ui::motion::ExitPhase::Exiting
+            {
+                return true;
+            }
             match self.handle_standard_confirm_key(event, cx) {
                 Some(ConfirmKeyboardAction::Cancel) => {
-                    self.ai.chat.safety_confirm_open = false;
+                    self.begin_ai_safety_confirm_exit(cx);
                     cx.notify();
                     true
                 }
                 Some(ConfirmKeyboardAction::Confirm) => {
-                    self.confirm_ai_safety_bypass(cx);
+                    if self.begin_ai_safety_confirm_exit(cx) {
+                        self.confirm_ai_safety_bypass(cx);
+                    }
                     true
                 }
                 Some(ConfirmKeyboardAction::Handled) => true,
                 None => false,
             }
         } else if self.ai.chat.summarize_confirm_open {
+            if self.ai.chat.summarize_confirm_presence.phase()
+                == oxideterm_gpui_ui::motion::ExitPhase::Exiting
+            {
+                return true;
+            }
             match self.handle_standard_confirm_key(event, cx) {
                 Some(ConfirmKeyboardAction::Cancel) => {
-                    self.ai.chat.summarize_confirm_open = false;
+                    self.begin_ai_summarize_confirm_exit(cx);
                     cx.notify();
                     true
                 }
                 Some(ConfirmKeyboardAction::Confirm) => {
-                    self.ai.chat.summarize_confirm_open = false;
-                    self.start_ai_summarize_conversation(cx);
+                    if self.begin_ai_summarize_confirm_exit(cx) {
+                        self.start_ai_summarize_conversation(cx);
+                    }
                     true
                 }
                 Some(ConfirmKeyboardAction::Handled) => true,
                 None => false,
             }
         } else if self.ai.chat.clear_all_confirm_open {
+            if self.ai_clear_all_confirm_presence.phase()
+                == oxideterm_gpui_ui::motion::ExitPhase::Exiting
+            {
+                return true;
+            }
             match self.handle_standard_confirm_key(event, cx) {
                 Some(ConfirmKeyboardAction::Cancel) => {
-                    self.ai.chat.clear_all_confirm_open = false;
+                    self.begin_ai_clear_all_confirm_exit(cx);
                     cx.notify();
                     true
                 }
                 Some(ConfirmKeyboardAction::Confirm) => {
-                    self.clear_ai_conversations();
+                    if self.begin_ai_clear_all_confirm_exit(cx) {
+                        self.clear_ai_conversations();
+                    }
                     cx.notify();
                     true
                 }
@@ -990,17 +1183,23 @@ impl WorkspaceApp {
                 None => false,
             }
         } else if self.ai.chat.delete_message_confirm.is_some() {
+            if self.ai_delete_message_confirm_presence.phase()
+                == oxideterm_gpui_ui::motion::ExitPhase::Exiting
+            {
+                return true;
+            }
             match self.handle_standard_confirm_key(event, cx) {
                 Some(ConfirmKeyboardAction::Cancel) => {
-                    self.ai.chat.delete_message_confirm = None;
+                    self.begin_ai_delete_message_confirm_exit(cx);
                     cx.notify();
                     true
                 }
                 Some(ConfirmKeyboardAction::Confirm) => {
-                    if let Some(message_id) = self.ai.chat.delete_message_confirm.take() {
+                    let message_id = self.ai.chat.delete_message_confirm.clone();
+                    if self.begin_ai_delete_message_confirm_exit(cx)
+                        && let Some(message_id) = message_id
+                    {
                         self.delete_ai_message(&message_id, cx);
-                    } else {
-                        cx.notify();
                     }
                     true
                 }

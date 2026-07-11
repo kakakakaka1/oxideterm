@@ -60,6 +60,26 @@ pub fn confirm_dialog_with_focus(
     on_cancel: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static,
     on_confirm: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static,
 ) -> AnyElement {
+    confirm_dialog_with_focus_motion(
+        tokens,
+        "confirm-dialog",
+        crate::motion::ExitPhase::Visible,
+        view,
+        focused_action,
+        on_cancel,
+        on_confirm,
+    )
+}
+
+pub fn confirm_dialog_with_focus_motion(
+    tokens: &ThemeTokens,
+    id: impl Into<gpui::ElementId>,
+    phase: crate::motion::ExitPhase,
+    view: ConfirmDialogView,
+    focused_action: Option<ConfirmDialogAction>,
+    on_cancel: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static,
+    on_confirm: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static,
+) -> AnyElement {
     let theme = tokens.ui;
     let is_danger = view.variant == ConfirmDialogVariant::Danger;
     let icon_path = if is_danger {
@@ -218,10 +238,11 @@ pub fn confirm_dialog_with_focus(
         );
     // Confirm dialogs share one event island, so animate the completed island
     // without changing outside-click or focused-action behavior.
-    crate::motion::fade_in(
+    crate::motion::fade(
         tokens,
-        "confirm-dialog-enter",
+        id,
         dialog,
         crate::motion::MotionDuration::Control,
+        phase == crate::motion::ExitPhase::Visible,
     )
 }

@@ -24,6 +24,7 @@ pub(in crate::workspace) struct NativePluginRuntimeState {
     pub(in crate::workspace) confirm_tx: mpsc::Sender<NativePluginConfirmRequest>,
     pub(in crate::workspace) confirm_rx: mpsc::Receiver<NativePluginConfirmRequest>,
     pub(in crate::workspace) confirm: Option<NativePluginConfirmDialog>,
+    pub(in crate::workspace) confirm_presence: oxideterm_gpui_ui::motion::ExitPresence,
     pub(in crate::workspace) confirm_polling: bool,
     pub(in crate::workspace) terminal_tx: mpsc::Sender<NativePluginTerminalRequest>,
     pub(in crate::workspace) terminal_rx: mpsc::Receiver<NativePluginTerminalRequest>,
@@ -68,6 +69,7 @@ impl NativePluginRuntimeState {
             confirm_tx,
             confirm_rx,
             confirm: None,
+            confirm_presence: oxideterm_gpui_ui::motion::ExitPresence::visible(),
             confirm_polling: false,
             terminal_tx,
             terminal_rx,
@@ -146,8 +148,9 @@ impl From<NativePluginConfirmRequest> for NativePluginConfirmDialog {
 }
 
 impl NativePluginConfirmDialog {
-    pub(in crate::workspace) fn respond(self, confirmed: bool) {
-        let _request_id = self.request_id;
+    pub(in crate::workspace) fn respond(&self, confirmed: bool) {
+        // Keep the request identity alive with the retained exit-frame payload.
+        let _request_id = &self.request_id;
         let _ = self.response_tx.send(confirmed);
     }
 }

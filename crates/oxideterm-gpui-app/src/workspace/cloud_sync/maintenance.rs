@@ -95,6 +95,7 @@ impl WorkspaceApp {
             return;
         }
         self.cloud_sync.view.confirm = Some(CloudSyncConfirm::ImportPreview);
+        self.cloud_sync.view.confirm_presence.reopen();
         self.cloud_sync.view.confirm_focused_action = None;
     }
 
@@ -110,12 +111,14 @@ impl WorkspaceApp {
         });
         if let Some((id, created_at)) = selected {
             self.cloud_sync.view.confirm = Some(CloudSyncConfirm::RestoreBackup { id, created_at });
+            self.cloud_sync.view.confirm_presence.reopen();
             self.cloud_sync.view.confirm_focused_action = None;
         }
     }
 
     pub(super) fn open_cloud_sync_delete_backup_confirm(&mut self, id: String, created_at: String) {
         self.cloud_sync.view.confirm = Some(CloudSyncConfirm::DeleteBackup { id, created_at });
+        self.cloud_sync.view.confirm_presence.reopen();
         self.cloud_sync.view.confirm_focused_action = None;
     }
 
@@ -131,6 +134,7 @@ impl WorkspaceApp {
             return;
         }
         self.cloud_sync.view.confirm = Some(CloudSyncConfirm::ClearBackups);
+        self.cloud_sync.view.confirm_presence.reopen();
         self.cloud_sync.view.confirm_focused_action = None;
     }
 
@@ -146,17 +150,19 @@ impl WorkspaceApp {
             return;
         }
         self.cloud_sync.view.confirm = Some(CloudSyncConfirm::ClearHistory);
+        self.cloud_sync.view.confirm_presence.reopen();
         self.cloud_sync.view.confirm_focused_action = None;
     }
 
-    pub(super) fn cancel_cloud_sync_confirm(&mut self) {
-        self.cloud_sync.view.confirm = None;
-        self.cloud_sync.view.confirm_focused_action = None;
+    pub(super) fn cancel_cloud_sync_confirm(&mut self, cx: &mut Context<Self>) {
+        self.begin_cloud_sync_confirm_exit(cx);
     }
 
     pub(super) fn confirm_cloud_sync_confirm(&mut self, cx: &mut Context<Self>) {
-        let confirm = self.cloud_sync.view.confirm.take();
-        self.cloud_sync.view.confirm_focused_action = None;
+        let confirm = self.cloud_sync.view.confirm.clone();
+        if !self.begin_cloud_sync_confirm_exit(cx) {
+            return;
+        }
         match confirm {
             Some(CloudSyncConfirm::ImportPreview) => self.start_cloud_sync_apply_preview(cx),
             Some(CloudSyncConfirm::ClearSecret { key, .. }) => self.clear_cloud_sync_secret(&key),
@@ -179,6 +185,45 @@ impl WorkspaceApp {
             }
             None => {}
         }
+    }
+
+    fn begin_cloud_sync_confirm_exit(&mut self, cx: &mut Context<Self>) -> bool {
+        let Some(generation) = self.cloud_sync.view.confirm_presence.begin_exit() else {
+            return false;
+        };
+        self.cloud_sync.view.confirm_focused_action = None;
+        let delay = oxideterm_gpui_ui::motion::duration(
+            &self.tokens,
+            oxideterm_gpui_ui::motion::MotionDuration::Control,
+        );
+        if delay.is_zero() {
+            if self
+                .cloud_sync
+                .view
+                .confirm_presence
+                .finish_exit(generation)
+            {
+                self.cloud_sync.view.confirm = None;
+            }
+            return true;
+        }
+        // Keep the immutable confirmation payload mounted for the exit frame.
+        cx.spawn(async move |weak, cx| {
+            Timer::after(delay).await;
+            let _ = weak.update(cx, |this, cx| {
+                if this
+                    .cloud_sync
+                    .view
+                    .confirm_presence
+                    .finish_exit(generation)
+                {
+                    this.cloud_sync.view.confirm = None;
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+        true
     }
 
     pub(super) fn delete_cloud_sync_rollback_backup(&mut self, id: &str, cx: &mut Context<Self>) {

@@ -97,35 +97,16 @@ pub(crate) fn close_browser_trigger_select<T>(
     had_open_select
 }
 
-pub(crate) fn toggle_browser_trigger_select_from_pointer<T>(
-    open_select: &mut Option<T>,
-    focus_origin: &mut Option<BrowserFocusOrigin>,
-    select: T,
-) -> bool
-where
-    T: Copy + Eq,
-{
-    if *open_select == Some(select) {
-        close_browser_trigger_select(open_select, focus_origin);
-        return false;
+pub(crate) fn anchored_overlay_render_value<T: Copy>(
+    phase: oxideterm_gpui_ui::motion::ExitPhase,
+    frozen: Option<T>,
+    live: Option<T>,
+) -> Option<T> {
+    // Manual exits use frozen window geometry; visible overlays follow live probes.
+    match phase {
+        oxideterm_gpui_ui::motion::ExitPhase::Visible => live,
+        oxideterm_gpui_ui::motion::ExitPhase::Exiting => frozen,
     }
-
-    // Radix SelectTrigger opened with the mouse owns focus, but it does not
-    // match :focus-visible. Keep pointer modality and open-state paired here
-    // so every form/settings select uses the same browser rule.
-    *focus_origin = Some(BrowserFocusOrigin::Pointer);
-    *open_select = Some(select);
-    true
-}
-
-pub(crate) fn close_browser_trigger_select_on_container_scroll<T>(
-    open_select: &mut Option<T>,
-    focus_origin: &mut Option<BrowserFocusOrigin>,
-) -> bool {
-    // Settings/new-connection selects are trigger-owned form controls. When
-    // their scroll container moves the anchor, Radix closes the popup and drops
-    // focus-visible ownership rather than leaving a stale ring.
-    close_browser_trigger_select(open_select, focus_origin)
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -586,11 +567,11 @@ fn resolve_browser_pointer_capture_owner(
 mod tests {
     use super::{
         BrowserFocusOrigin, BrowserPointerCaptureOwner, BrowserPointerCaptureState, FocusCycle,
-        browser_focus_visible, clamp_context_menu_position, clear_browser_highlighted_select_focus,
-        modal_footer_input_key_action, modal_footer_key_action, modal_footer_key_moves_forward,
-        next_required_modal_footer_focus, pointer_capture_needs_workspace_overlay,
-        preserve_or_move_context_selection, resolve_browser_pointer_capture_owner,
-        toggle_browser_highlighted_select_from_pointer, toggle_browser_trigger_select_from_pointer,
+        anchored_overlay_render_value, browser_focus_visible, clamp_context_menu_position,
+        clear_browser_highlighted_select_focus, modal_footer_input_key_action,
+        modal_footer_key_action, modal_footer_key_moves_forward, next_required_modal_footer_focus,
+        pointer_capture_needs_workspace_overlay, preserve_or_move_context_selection,
+        resolve_browser_pointer_capture_owner, toggle_browser_highlighted_select_from_pointer,
     };
     use std::collections::HashSet;
 
@@ -615,6 +596,30 @@ mod tests {
 
         assert!(changed);
         assert_eq!(selected, HashSet::from(["three".to_string()]));
+    }
+
+    #[test]
+    fn anchored_overlay_uses_live_value_while_visible() {
+        assert_eq!(
+            anchored_overlay_render_value(
+                oxideterm_gpui_ui::motion::ExitPhase::Visible,
+                Some(1_u8),
+                Some(2_u8),
+            ),
+            Some(2),
+        );
+    }
+
+    #[test]
+    fn anchored_overlay_uses_frozen_value_while_exiting() {
+        assert_eq!(
+            anchored_overlay_render_value(
+                oxideterm_gpui_ui::motion::ExitPhase::Exiting,
+                Some(1_u8),
+                Some(2_u8),
+            ),
+            Some(1),
+        );
     }
 
     #[test]
@@ -783,37 +788,6 @@ mod tests {
         assert_eq!(focused_select, None);
         assert_eq!(focus_origin, None);
         assert_eq!(highlighted_option, None);
-    }
-
-    #[test]
-    fn trigger_select_pointer_toggle_tracks_focus_origin() {
-        let mut open_select = None;
-        let mut focus_origin = None;
-
-        assert!(toggle_browser_trigger_select_from_pointer(
-            &mut open_select,
-            &mut focus_origin,
-            "language",
-        ));
-        assert_eq!(open_select, Some("language"));
-        assert_eq!(focus_origin, Some(BrowserFocusOrigin::Pointer));
-        assert!(!browser_focus_visible(true, focus_origin));
-
-        assert!(!toggle_browser_trigger_select_from_pointer(
-            &mut open_select,
-            &mut focus_origin,
-            "language",
-        ));
-        assert_eq!(open_select, None);
-        assert_eq!(focus_origin, None);
-
-        assert!(toggle_browser_trigger_select_from_pointer(
-            &mut open_select,
-            &mut focus_origin,
-            "theme",
-        ));
-        assert_eq!(open_select, Some("theme"));
-        assert_eq!(focus_origin, Some(BrowserFocusOrigin::Pointer));
     }
 
     #[test]

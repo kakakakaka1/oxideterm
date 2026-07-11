@@ -8,6 +8,13 @@ pub(super) struct AiWorkspaceState {
     pub(super) knowledge: AiKnowledgeWorkspaceState,
 }
 
+/// Identifies the AI confirmation whose retained payload may finish exiting.
+#[derive(Clone, Copy)]
+pub(super) enum AiStandardConfirmKind {
+    Safety,
+    Summarize,
+}
+
 /// Owns AI chat presentation, conversation persistence, streaming, and compaction state.
 pub(super) struct AiChatWorkspaceState {
     pub(super) sidebar_resizing: bool,
@@ -27,7 +34,9 @@ pub(super) struct AiChatWorkspaceState {
     pub(super) menu_open: bool,
     pub(super) safety_menu_open: bool,
     pub(super) safety_confirm_open: bool,
+    pub(super) safety_confirm_presence: oxideterm_gpui_ui::motion::ExitPresence,
     pub(super) summarize_confirm_open: bool,
+    pub(super) summarize_confirm_presence: oxideterm_gpui_ui::motion::ExitPresence,
     pub(super) clear_all_confirm_open: bool,
     pub(super) delete_message_confirm: Option<String>,
     pub(super) safety_bypass_conversations: HashSet<String>,
@@ -175,7 +184,9 @@ impl AiChatWorkspaceState {
             menu_open: false,
             safety_menu_open: false,
             safety_confirm_open: false,
+            safety_confirm_presence: oxideterm_gpui_ui::motion::ExitPresence::visible(),
             summarize_confirm_open: false,
+            summarize_confirm_presence: oxideterm_gpui_ui::motion::ExitPresence::visible(),
             clear_all_confirm_open: false,
             delete_message_confirm: None,
             safety_bypass_conversations: HashSet::new(),

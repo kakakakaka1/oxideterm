@@ -202,6 +202,7 @@ impl WorkspaceApp {
                 variant,
             },
             expires_at: Instant::now() + Duration::from_secs(4),
+            presence: oxideterm_gpui_ui::motion::ExitPresence::visible(),
         });
     }
 }

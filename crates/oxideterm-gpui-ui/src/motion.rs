@@ -13,6 +13,49 @@ pub enum MotionDuration {
     Overlay,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ExitPhase {
+    Visible,
+    Exiting,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ExitPresence {
+    phase: ExitPhase,
+    generation: u64,
+}
+
+impl ExitPresence {
+    pub fn visible() -> Self {
+        Self {
+            phase: ExitPhase::Visible,
+            generation: 0,
+        }
+    }
+
+    pub fn phase(self) -> ExitPhase {
+        self.phase
+    }
+
+    pub fn begin_exit(&mut self) -> Option<u64> {
+        if self.phase == ExitPhase::Exiting {
+            return None;
+        }
+        self.generation = self.generation.wrapping_add(1);
+        self.phase = ExitPhase::Exiting;
+        Some(self.generation)
+    }
+
+    pub fn finish_exit(self, generation: u64) -> bool {
+        self.phase == ExitPhase::Exiting && self.generation == generation
+    }
+
+    pub fn reopen(&mut self) {
+        self.generation = self.generation.wrapping_add(1);
+        self.phase = ExitPhase::Visible;
+    }
+}
+
 pub fn duration(tokens: &ThemeTokens, tier: MotionDuration) -> Duration {
     let millis = match tier {
         MotionDuration::Micro => tokens.motion.short_duration_ms,
@@ -53,14 +96,32 @@ pub fn fade_in<E>(
 where
     E: IntoElement + Styled + 'static,
 {
+    fade(tokens, id, element, tier, true)
+}
+
+pub fn fade<E>(
+    tokens: &ThemeTokens,
+    id: impl Into<ElementId>,
+    element: E,
+    tier: MotionDuration,
+    visible: bool,
+) -> AnyElement
+where
+    E: IntoElement + Styled + 'static,
+{
+    let id = (id.into(), if visible { "visible" } else { "exiting" });
     if !tokens.motion.enabled {
-        return element.opacity(1.0).into_any_element();
+        return element
+            .opacity(if visible { 1.0 } else { 0.0 })
+            .into_any_element();
     }
     element
         .with_animation(
             id,
             Animation::new(duration(tokens, tier)).with_easing(ease_out_cubic),
-            |element, progress| element.opacity(progress),
+            move |element, progress| {
+                element.opacity(if visible { progress } else { 1.0 - progress })
+            },
         )
         .into_any_element()
 }
@@ -101,8 +162,22 @@ pub fn slide_fade_in_x(
     offset: f32,
     tier: MotionDuration,
 ) -> AnyElement {
+    slide_fade_x(tokens, id, element, offset, tier, true)
+}
+
+pub fn slide_fade_x(
+    tokens: &ThemeTokens,
+    id: impl Into<ElementId>,
+    element: Div,
+    offset: f32,
+    tier: MotionDuration,
+    visible: bool,
+) -> AnyElement {
+    let id = (id.into(), if visible { "visible" } else { "exiting" });
     if !tokens.motion.enabled {
-        return element.opacity(1.0).into_any_element();
+        return element
+            .opacity(if visible { 1.0 } else { 0.0 })
+            .into_any_element();
     }
     let spatial = tokens.motion.spatial_enabled;
     element
@@ -110,11 +185,12 @@ pub fn slide_fade_in_x(
             id,
             Animation::new(duration(tokens, tier)).with_easing(ease_out_cubic),
             move |element, progress| {
-                let element = element.opacity(progress);
+                let visibility = if visible { progress } else { 1.0 - progress };
+                let element = element.opacity(visibility);
                 if spatial {
                     element
                         .relative()
-                        .left(gpui::px(lerp(offset, 0.0, progress)))
+                        .left(gpui::px(lerp(offset, 0.0, visibility)))
                 } else {
                     element
                 }
@@ -282,5 +358,15 @@ mod tests {
     fn horizontal_reveal_targets_match_visibility() {
         assert_eq!(lerp(0.0, 280.0, 0.0), 0.0);
         assert_eq!(lerp(0.0, 280.0, 1.0), 280.0);
+    }
+
+    #[test]
+    fn exit_presence_rejects_stale_completion_after_reopen() {
+        let mut presence = ExitPresence::visible();
+        let generation = presence.begin_exit().expect("visible state can exit");
+        assert_eq!(presence.phase(), ExitPhase::Exiting);
+        presence.reopen();
+        assert_eq!(presence.phase(), ExitPhase::Visible);
+        assert!(!presence.finish_exit(generation));
     }
 }

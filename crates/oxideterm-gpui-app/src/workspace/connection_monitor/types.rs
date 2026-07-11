@@ -1,6 +1,7 @@
 use std::time::{Duration, Instant};
 
 use gpui::{Rgba, rgb, rgba};
+use oxideterm_gpui_ui::motion::ExitPresence;
 use oxideterm_ssh::SshCommandOutput;
 use oxideterm_topology::{ConnectionTopologySnapshot, TopologyViewStatus};
 
@@ -487,6 +488,31 @@ pub(in crate::workspace) enum ConnectionRuntimeSection {
     Topology,
 }
 
+/// Keeps a standard Host Tools confirmation payload alive while its exit motion runs.
+pub(super) struct HostToolConfirmState<T> {
+    pub(super) request: T,
+    pub(super) presence: ExitPresence,
+}
+
+impl<T> HostToolConfirmState<T> {
+    pub(super) fn new(request: T) -> Self {
+        Self {
+            request,
+            presence: ExitPresence::visible(),
+        }
+    }
+
+    /// Reuses the generation so a stale timer cannot close a replacement request.
+    pub(super) fn open(slot: &mut Option<Self>, request: T) {
+        if let Some(state) = slot.as_mut() {
+            state.request = request;
+            state.presence.reopen();
+        } else {
+            *slot = Some(Self::new(request));
+        }
+    }
+}
+
 pub(in crate::workspace) struct ConnectionMonitorState {
     pub(in crate::workspace) pool_stats: Option<ConnectionPoolMonitorStats>,
     pub(in crate::workspace) pool_summaries: Vec<ConnectionPoolEntrySummary>,
@@ -514,7 +540,7 @@ pub(in crate::workspace) struct ConnectionMonitorState {
     pub(super) host_process_list_cache: RefCell<VirtualListSignatureCache>,
     pub(in crate::workspace) host_process_renice_value: String,
     pub(in crate::workspace) host_process_renice_focused: bool,
-    pub(super) host_process_pending_confirm: Option<HostProcessActionRequest>,
+    pub(super) host_process_pending_confirm: Option<HostToolConfirmState<HostProcessActionRequest>>,
     pub(super) host_process_action_running: Option<HostProcessActionRequest>,
     pub(super) host_process_action_rx: Option<std::sync::mpsc::Receiver<HostProcessActionDelivery>>,
     pub(super) host_process_action_polling: bool,
@@ -523,7 +549,7 @@ pub(in crate::workspace) struct ConnectionMonitorState {
     pub(in crate::workspace) host_docker_expanded_id: Option<String>,
     pub(super) host_docker_list_state: ListState,
     pub(super) host_docker_list_cache: RefCell<VirtualListSignatureCache>,
-    pub(super) host_docker_pending_confirm: Option<HostDockerActionRequest>,
+    pub(super) host_docker_pending_confirm: Option<HostToolConfirmState<HostDockerActionRequest>>,
     pub(super) host_docker_action_running: Option<HostDockerActionRequest>,
     pub(super) host_docker_action_rx: Option<std::sync::mpsc::Receiver<HostDockerActionDelivery>>,
     pub(super) host_docker_action_polling: bool,
@@ -535,7 +561,7 @@ pub(in crate::workspace) struct ConnectionMonitorState {
     pub(in crate::workspace) host_service_expanded_id: Option<String>,
     pub(super) host_service_list_state: ListState,
     pub(super) host_service_list_cache: RefCell<VirtualListSignatureCache>,
-    pub(super) host_service_pending_confirm: Option<HostServiceActionRequest>,
+    pub(super) host_service_pending_confirm: Option<HostToolConfirmState<HostServiceActionRequest>>,
     pub(super) host_service_action_running: Option<HostServiceActionRequest>,
     pub(super) host_service_action_rx: Option<std::sync::mpsc::Receiver<HostServiceActionDelivery>>,
     pub(super) host_service_action_polling: bool,
@@ -564,7 +590,7 @@ pub(in crate::workspace) struct ConnectionMonitorState {
     pub(super) host_tmux_snapshot_running: Option<HostTmuxSnapshotRequest>,
     pub(super) host_tmux_snapshot_polling: bool,
     pub(super) host_tmux_last_error: Option<String>,
-    pub(super) host_tmux_pending_confirm: Option<HostTmuxActionRequest>,
+    pub(super) host_tmux_pending_confirm: Option<HostToolConfirmState<HostTmuxActionRequest>>,
     pub(in crate::workspace) host_tmux_input_dialog: Option<HostTmuxInputDialog>,
     pub(super) host_tmux_action_running: Option<HostTmuxActionRequest>,
     pub(super) host_tmux_action_rx: Option<std::sync::mpsc::Receiver<HostTmuxActionDelivery>>,
@@ -594,7 +620,8 @@ pub(in crate::workspace) struct ConnectionMonitorState {
     pub(super) host_schedule_snapshot_running: Option<HostScheduleSnapshotRequest>,
     pub(super) host_schedule_snapshot_polling: bool,
     pub(super) host_schedule_last_error: Option<String>,
-    pub(super) host_schedule_pending_confirm: Option<HostScheduleActionRequest>,
+    pub(super) host_schedule_pending_confirm:
+        Option<HostToolConfirmState<HostScheduleActionRequest>>,
     pub(super) host_schedule_action_running: Option<HostScheduleActionRequest>,
     pub(super) host_schedule_action_rx:
         Option<std::sync::mpsc::Receiver<HostScheduleActionDelivery>>,

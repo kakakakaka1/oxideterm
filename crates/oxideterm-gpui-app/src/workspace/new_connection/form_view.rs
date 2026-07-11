@@ -104,7 +104,7 @@ impl WorkspaceApp {
             && matches!(key, "escape" | "enter" | "tab")
             && !modifiers.platform
         {
-            self.close_new_connection_select();
+            self.begin_new_connection_select_exit(cx);
             cx.notify();
             return true;
         }

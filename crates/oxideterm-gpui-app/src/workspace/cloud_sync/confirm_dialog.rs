@@ -12,6 +12,8 @@ impl WorkspaceApp {
         cx: &mut Context<Self>,
     ) -> bool {
         if self.cloud_sync.view.confirm.is_none()
+            || self.cloud_sync.view.confirm_presence.phase()
+                != oxideterm_gpui_ui::motion::ExitPhase::Visible
             || event.keystroke.modifiers.platform
             || event.keystroke.modifiers.control
         {
@@ -26,7 +28,7 @@ impl WorkspaceApp {
             ConfirmDialogAction::Cancel,
         ) {
             Some(browser_behavior::ModalFooterKeyAction::Cancel) => {
-                self.cancel_cloud_sync_confirm();
+                self.cancel_cloud_sync_confirm(cx);
                 cx.notify();
                 true
             }
@@ -37,7 +39,7 @@ impl WorkspaceApp {
             }
             Some(browser_behavior::ModalFooterKeyAction::Activate(action)) => {
                 match action {
-                    ConfirmDialogAction::Cancel => self.cancel_cloud_sync_confirm(),
+                    ConfirmDialogAction::Cancel => self.cancel_cloud_sync_confirm(cx),
                     ConfirmDialogAction::Confirm => self.confirm_cloud_sync_confirm(cx),
                 }
                 cx.notify();
@@ -82,8 +84,10 @@ impl WorkspaceApp {
                     .t("plugin.cloud_sync.confirm.enable_sensitive_sync_description"),
             ),
         };
-        confirm_dialog_with_focus(
+        oxideterm_gpui_ui::confirm::confirm_dialog_with_focus_motion(
             &self.tokens,
+            "cloud-sync-confirm-motion",
+            self.cloud_sync.view.confirm_presence.phase(),
             ConfirmDialogView {
                 variant: copy.variant,
                 title: div()
@@ -132,7 +136,7 @@ impl WorkspaceApp {
             self.cloud_sync.view.confirm_focused_action,
             cx.listener(
                 |this: &mut WorkspaceApp, _event, _window, cx: &mut Context<WorkspaceApp>| {
-                    this.cancel_cloud_sync_confirm();
+                    this.cancel_cloud_sync_confirm(cx);
                     cx.stop_propagation();
                     cx.notify();
                 },

@@ -474,13 +474,7 @@ impl WorkspaceApp {
                             // cycle so GPUI does not re-enter WorkspaceApp while
                             // the old menu frame is still being processed.
                             cx.defer_in(window, |this, _window, cx| {
-                                this.ai.chat.safety_confirm_open = true;
-                                // Tauri useConfirm does not paint a footer focus
-                                // state when the dialog is opened from a pointer
-                                // menu action; focus-visible appears only after
-                                // keyboard navigation enters the footer.
-                                this.clear_standard_confirm_focus();
-                                cx.notify();
+                                this.open_ai_safety_confirm(cx);
                             });
                         }
                     }
@@ -495,8 +489,10 @@ impl WorkspaceApp {
         &self,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        confirm_dialog_with_focus(
+        oxideterm_gpui_ui::confirm::confirm_dialog_with_focus_motion(
             &self.tokens,
+            "ai-safety-confirm-motion",
+            self.ai.chat.safety_confirm_presence.phase(),
             ConfirmDialogView {
                 variant: ConfirmDialogVariant::Danger,
                 title: div()
@@ -544,15 +540,16 @@ impl WorkspaceApp {
             },
             self.standard_confirm_focus_owner(),
             cx.listener(|this, _event, _window, cx| {
-                this.ai.chat.safety_confirm_open = false;
-                this.clear_standard_confirm_focus();
+                this.begin_ai_safety_confirm_exit(cx);
                 cx.stop_propagation();
                 cx.notify();
             }),
             cx.listener(|this, _event, _window, cx| {
-                this.clear_standard_confirm_focus();
-                this.confirm_ai_safety_bypass(cx);
+                if this.begin_ai_safety_confirm_exit(cx) {
+                    this.confirm_ai_safety_bypass(cx);
+                }
                 cx.stop_propagation();
+                cx.notify();
             }),
         )
     }

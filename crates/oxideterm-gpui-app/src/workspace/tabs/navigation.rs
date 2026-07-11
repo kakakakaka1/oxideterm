@@ -441,14 +441,15 @@ impl WorkspaceApp {
             node_id: node_id.clone(),
             display_name,
         });
+        self.node_disconnect_confirm_presence.reopen();
         self.reset_standard_confirm_focus();
         cx.notify();
     }
 
     pub(in crate::workspace) fn cancel_node_disconnect_confirm(&mut self, cx: &mut Context<Self>) {
-        self.node_disconnect_confirm = None;
-        self.clear_standard_confirm_focus();
-        cx.notify();
+        if self.begin_node_disconnect_confirm_exit(cx) {
+            cx.notify();
+        }
     }
 
     pub(in crate::workspace) fn confirm_node_disconnect_confirm(
@@ -456,11 +457,12 @@ impl WorkspaceApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(confirm) = self.node_disconnect_confirm.take() else {
+        let Some(confirm) = self.node_disconnect_confirm.clone() else {
             return;
         };
-        self.clear_standard_confirm_focus();
-        self.disconnect_ssh_node(&confirm.node_id, window, cx);
+        if self.begin_node_disconnect_confirm_exit(cx) {
+            self.disconnect_ssh_node(&confirm.node_id, window, cx);
+        }
     }
 
     pub(in crate::workspace) fn disconnect_ssh_node(
@@ -582,6 +584,7 @@ impl WorkspaceApp {
             // Tauri confirms user-initiated SSH terminal tab closes while
             // still allowing backend/session cleanup paths to close directly.
             self.main_window_tabs.close_confirm = Some(TabCloseConfirm::Single { tab_id });
+            self.tab_close_confirm_presence.reopen();
             self.reset_standard_confirm_focus();
             cx.notify();
             return;
@@ -679,6 +682,7 @@ impl WorkspaceApp {
         }
         if self.tab_close_ids_include_ssh_terminal(&tab_ids) {
             self.main_window_tabs.close_confirm = Some(TabCloseConfirm::Other { tab_ids });
+            self.tab_close_confirm_presence.reopen();
             self.reset_standard_confirm_focus();
             cx.notify();
             return;
@@ -736,9 +740,9 @@ impl WorkspaceApp {
     }
 
     pub(in crate::workspace) fn cancel_tab_close_confirm(&mut self, cx: &mut Context<Self>) {
-        self.main_window_tabs.close_confirm = None;
-        self.clear_standard_confirm_focus();
-        cx.notify();
+        if self.begin_tab_close_confirm_exit(cx) {
+            cx.notify();
+        }
     }
 
     pub(in crate::workspace) fn confirm_tab_close_confirm(
@@ -746,10 +750,12 @@ impl WorkspaceApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(confirm) = self.main_window_tabs.close_confirm.take() else {
+        let Some(confirm) = self.main_window_tabs.close_confirm.clone() else {
             return;
         };
-        self.clear_standard_confirm_focus();
+        if !self.begin_tab_close_confirm_exit(cx) {
+            return;
+        }
         match confirm {
             TabCloseConfirm::Single { tab_id } => {
                 self.close_tab_by_id(tab_id, window, cx);
@@ -761,6 +767,7 @@ impl WorkspaceApp {
                 if self.tab_close_ids_include_local_foreground_child_process(&tab_ids, cx) {
                     self.main_window_tabs.close_confirm =
                         Some(TabCloseConfirm::LocalChildProcessBatch { tab_ids });
+                    self.tab_close_confirm_presence.reopen();
                     self.reset_standard_confirm_focus();
                     cx.notify();
                     return;

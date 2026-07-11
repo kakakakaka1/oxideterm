@@ -11,7 +11,7 @@ use std::{
 use gpui::{AnyElement, Context, IntoElement, KeyDownEvent, ParentElement, Timer, Window, div};
 use oxideterm_connections::{SavedConnectionsConflictStrategy, SavedConnectionsSyncSnapshot};
 use oxideterm_gpui_terminal::{TerminalNotice, TerminalNoticeVariant};
-use oxideterm_gpui_ui::{ConfirmDialogVariant, ConfirmDialogView, confirm_dialog_with_focus};
+use oxideterm_gpui_ui::{ConfirmDialogVariant, ConfirmDialogView};
 use oxideterm_sftp::BackgroundTransferState;
 use serde_json::{Value, json};
 use zeroize::Zeroizing;
@@ -107,6 +107,7 @@ impl WorkspaceApp {
                 // Native stores only the pending response channel here; plugin
                 // code never runs in the render path.
                 self.native_plugin_runtime.confirm = Some(request.into());
+                self.native_plugin_runtime.confirm_presence.reopen();
                 self.reset_standard_confirm_focus();
                 cx.notify();
             }
@@ -118,11 +119,46 @@ impl WorkspaceApp {
     }
 
     fn respond_native_plugin_confirm(&mut self, confirmed: bool, cx: &mut Context<Self>) {
-        if let Some(dialog) = self.native_plugin_runtime.confirm.take() {
-            dialog.respond(confirmed);
-        }
+        let Some(generation) = self.native_plugin_runtime.confirm_presence.begin_exit() else {
+            return;
+        };
+        let Some(dialog) = self.native_plugin_runtime.confirm.as_ref() else {
+            return;
+        };
+        // Resolve the plugin call once, but retain its copy until the exit frame ends.
+        dialog.respond(confirmed);
         self.clear_standard_confirm_focus();
-        self.poll_native_plugin_confirm_requests(cx);
+        let delay = oxideterm_gpui_ui::motion::duration(
+            &self.tokens,
+            oxideterm_gpui_ui::motion::MotionDuration::Control,
+        );
+        if delay.is_zero() {
+            if self
+                .native_plugin_runtime
+                .confirm_presence
+                .finish_exit(generation)
+            {
+                self.native_plugin_runtime.confirm = None;
+                self.poll_native_plugin_confirm_requests(cx);
+            }
+            cx.notify();
+            return;
+        }
+        cx.spawn(async move |weak, cx| {
+            Timer::after(delay).await;
+            let _ = weak.update(cx, |this, cx| {
+                if this
+                    .native_plugin_runtime
+                    .confirm_presence
+                    .finish_exit(generation)
+                {
+                    this.native_plugin_runtime.confirm = None;
+                    this.poll_native_plugin_confirm_requests(cx);
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
         cx.notify();
     }
 
@@ -328,7 +364,7 @@ impl WorkspaceApp {
                 registration_id,
                 value,
             } => {
-                self.update_native_plugin_progress(&plugin_id, registration_id, value);
+                self.update_native_plugin_progress(&plugin_id, registration_id, value, cx);
                 let _ = request.response_tx.send(plugin_runtime::PluginResponse::ok(
                     request.request_id,
                     Value::Null,
@@ -427,11 +463,12 @@ impl WorkspaceApp {
                                 total,
                                 false,
                             );
-                            let _ = weak.update(cx, |this, _cx| {
+                            let _ = weak.update(cx, |this, cx| {
                                 this.update_native_plugin_progress(
                                     &plugin_id,
                                     registration_id.clone(),
                                     value,
+                                    cx,
                                 );
                             });
                         }
@@ -451,6 +488,7 @@ impl WorkspaceApp {
                                         1,
                                         true,
                                     ),
+                                    cx,
                                 );
                             }
                             let _ = response_tx.send(response);
@@ -689,7 +727,10 @@ impl WorkspaceApp {
         event: &KeyDownEvent,
         cx: &mut Context<Self>,
     ) -> bool {
-        if self.native_plugin_runtime.confirm.is_none() {
+        if self.native_plugin_runtime.confirm.is_none()
+            || self.native_plugin_runtime.confirm_presence.phase()
+                != oxideterm_gpui_ui::motion::ExitPhase::Visible
+        {
             return false;
         }
 
@@ -712,31 +753,35 @@ impl WorkspaceApp {
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
         let dialog = self.native_plugin_runtime.confirm.as_ref()?;
-        Some(confirm_dialog_with_focus(
-            &self.tokens,
-            ConfirmDialogView {
-                variant: ConfirmDialogVariant::Default,
-                title: div()
-                    .child(native_plugin_dialog_title(&dialog.plugin_id, &dialog.title))
-                    .into_any_element(),
-                description: Some(div().child(dialog.description.clone()).into_any_element()),
-                cancel_label: div()
-                    .child(self.i18n.t("common.actions.cancel"))
-                    .into_any_element(),
-                confirm_label: div()
-                    .child(self.i18n.t("common.actions.confirm"))
-                    .into_any_element(),
-            },
-            self.standard_confirm_focus(),
-            cx.listener(|this, _event, _window, cx| {
-                this.respond_native_plugin_confirm(false, cx);
-                cx.stop_propagation();
-            }),
-            cx.listener(|this, _event, _window, cx| {
-                this.respond_native_plugin_confirm(true, cx);
-                cx.stop_propagation();
-            }),
-        ))
+        Some(
+            oxideterm_gpui_ui::confirm::confirm_dialog_with_focus_motion(
+                &self.tokens,
+                "native-plugin-confirm-motion",
+                self.native_plugin_runtime.confirm_presence.phase(),
+                ConfirmDialogView {
+                    variant: ConfirmDialogVariant::Default,
+                    title: div()
+                        .child(native_plugin_dialog_title(&dialog.plugin_id, &dialog.title))
+                        .into_any_element(),
+                    description: Some(div().child(dialog.description.clone()).into_any_element()),
+                    cancel_label: div()
+                        .child(self.i18n.t("common.actions.cancel"))
+                        .into_any_element(),
+                    confirm_label: div()
+                        .child(self.i18n.t("common.actions.confirm"))
+                        .into_any_element(),
+                },
+                self.standard_confirm_focus(),
+                cx.listener(|this, _event, _window, cx| {
+                    this.respond_native_plugin_confirm(false, cx);
+                    cx.stop_propagation();
+                }),
+                cx.listener(|this, _event, _window, cx| {
+                    this.respond_native_plugin_confirm(true, cx);
+                    cx.stop_propagation();
+                }),
+            ),
+        )
     }
 
     pub(super) fn start_native_plugin_layout_polling(&mut self, cx: &mut Context<Self>) {
@@ -2083,7 +2128,7 @@ impl WorkspaceApp {
             plugin_runtime::PluginOutboundEffect::Progress {
                 registration_id,
                 value,
-            } => self.update_native_plugin_progress(plugin_id, registration_id, value),
+            } => self.update_native_plugin_progress(plugin_id, registration_id, value, cx),
             _ => {}
         }
     }
@@ -2212,6 +2257,7 @@ impl WorkspaceApp {
                 variant,
             },
             expires_at: std::time::Instant::now() + NATIVE_PLUGIN_TOAST_TTL,
+            presence: oxideterm_gpui_ui::motion::ExitPresence::visible(),
         });
     }
 
@@ -2242,6 +2288,7 @@ impl WorkspaceApp {
                 variant,
             },
             expires_at: std::time::Instant::now() + NATIVE_PLUGIN_TOAST_TTL,
+            presence: oxideterm_gpui_ui::motion::ExitPresence::visible(),
         });
     }
 
@@ -2388,10 +2435,11 @@ impl WorkspaceApp {
         plugin_id: &str,
         registration_id: String,
         value: serde_json::Value,
+        cx: &mut Context<Self>,
     ) {
         let progress_key = native_plugin_progress_key(plugin_id, &registration_id);
         if native_plugin_progress_is_done(&value) {
-            self.plugin_progress_toasts.remove(&progress_key);
+            self.dismiss_plugin_progress_toast(&progress_key, cx);
             return;
         }
 
@@ -2399,15 +2447,25 @@ impl WorkspaceApp {
         // Tauri plugin progress is host-owned and keyed by reporter id. Native
         // updates the same toast entry instead of appending one toast per event
         // burst, which keeps noisy process runtimes from flooding the overlay.
-        let id = self.next_workspace_toast_id();
-        self.plugin_progress_toasts.insert(
-            progress_key,
-            WorkspaceToast {
-                id,
-                notice,
-                expires_at: std::time::Instant::now() + NATIVE_PLUGIN_TOAST_TTL,
-            },
-        );
+        let expires_at = std::time::Instant::now() + NATIVE_PLUGIN_TOAST_TTL;
+        if let Some(toast) = self.plugin_progress_toasts.get_mut(&progress_key) {
+            toast.notice = notice;
+            toast.expires_at = expires_at;
+            if toast.presence.phase() == oxideterm_gpui_ui::motion::ExitPhase::Exiting {
+                toast.presence.reopen();
+            }
+        } else {
+            let id = self.next_workspace_toast_id();
+            self.plugin_progress_toasts.insert(
+                progress_key,
+                WorkspaceToast {
+                    id,
+                    notice,
+                    expires_at,
+                    presence: oxideterm_gpui_ui::motion::ExitPresence::visible(),
+                },
+            );
+        }
     }
 }
 

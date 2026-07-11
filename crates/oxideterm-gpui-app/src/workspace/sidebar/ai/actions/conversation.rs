@@ -1,4 +1,96 @@
+use crate::workspace::ai_state::AiStandardConfirmKind;
+
 impl WorkspaceApp {
+    pub(in crate::workspace) fn open_ai_safety_confirm(&mut self, cx: &mut Context<Self>) {
+        self.ai.chat.safety_confirm_open = true;
+        self.ai.chat.safety_confirm_presence.reopen();
+        // Pointer-opened confirmations do not show keyboard focus until navigation starts.
+        self.clear_standard_confirm_focus();
+        cx.notify();
+    }
+
+    pub(in crate::workspace) fn begin_ai_safety_confirm_exit(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(generation) = self.ai.chat.safety_confirm_presence.begin_exit() else {
+            return false;
+        };
+        self.clear_standard_confirm_focus();
+        self.schedule_ai_standard_confirm_exit(AiStandardConfirmKind::Safety, generation, cx);
+        true
+    }
+
+    pub(in crate::workspace) fn open_ai_summarize_confirm(&mut self, cx: &mut Context<Self>) {
+        self.ai.chat.summarize_confirm_open = true;
+        self.ai.chat.summarize_confirm_presence.reopen();
+        self.reset_standard_confirm_focus();
+        cx.notify();
+    }
+
+    pub(in crate::workspace) fn begin_ai_summarize_confirm_exit(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(generation) = self.ai.chat.summarize_confirm_presence.begin_exit() else {
+            return false;
+        };
+        self.clear_standard_confirm_focus();
+        self.schedule_ai_standard_confirm_exit(AiStandardConfirmKind::Summarize, generation, cx);
+        true
+    }
+
+    fn schedule_ai_standard_confirm_exit(
+        &mut self,
+        kind: AiStandardConfirmKind,
+        generation: u64,
+        cx: &mut Context<Self>,
+    ) {
+        let delay = oxideterm_gpui_ui::motion::duration(
+            &self.tokens,
+            oxideterm_gpui_ui::motion::MotionDuration::Control,
+        );
+        if delay.is_zero() {
+            self.finish_ai_standard_confirm_exit(kind, generation);
+            return;
+        }
+        // The open flag remains set until this generation's exit frame completes.
+        cx.spawn(async move |weak, cx| {
+            Timer::after(delay).await;
+            let _ = weak.update(cx, |this, cx| {
+                if this.finish_ai_standard_confirm_exit(kind, generation) {
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+
+    fn finish_ai_standard_confirm_exit(
+        &mut self,
+        kind: AiStandardConfirmKind,
+        generation: u64,
+    ) -> bool {
+        let finished = match kind {
+            AiStandardConfirmKind::Safety => {
+                self.ai.chat.safety_confirm_presence.finish_exit(generation)
+            }
+            AiStandardConfirmKind::Summarize => self
+                .ai
+                .chat
+                .summarize_confirm_presence
+                .finish_exit(generation),
+        };
+        if !finished {
+            return false;
+        }
+        match kind {
+            AiStandardConfirmKind::Safety => self.ai.chat.safety_confirm_open = false,
+            AiStandardConfirmKind::Summarize => self.ai.chat.summarize_confirm_open = false,
+        }
+        true
+    }
+
     pub(in crate::workspace) fn create_ai_sidebar_conversation(
         &mut self,
         title: Option<String>,
@@ -372,6 +464,7 @@ impl WorkspaceApp {
             return;
         }
         self.ai.chat.delete_message_confirm = Some(message_id);
+        self.ai_delete_message_confirm_presence.reopen();
         self.reset_standard_confirm_focus();
         cx.notify();
     }
@@ -412,7 +505,6 @@ impl WorkspaceApp {
                 .remove(conversation_id);
         }
         self.ai.chat.safety_menu_open = false;
-        self.ai.chat.safety_confirm_open = false;
         self.restore_ai_chat_input_focus_after_safety_mode_change();
         cx.notify();
     }
@@ -431,7 +523,6 @@ impl WorkspaceApp {
                 .insert(conversation_id.clone());
         }
         self.ai.chat.safety_menu_open = false;
-        self.ai.chat.safety_confirm_open = false;
         self.restore_ai_chat_input_focus_after_safety_mode_change();
         cx.notify();
     }

@@ -119,6 +119,7 @@ impl WorkspaceApp {
             detached_tab_return_drag: None,
             main_window_tabbar_drop_bounds: None,
             node_disconnect_confirm: None,
+            node_disconnect_confirm_presence: oxideterm_gpui_ui::motion::ExitPresence::visible(),
             panes: HashMap::new(),
             terminal_pane_subscriptions: HashMap::new(),
             pending_auto_close_terminal_sessions: HashSet::new(),
@@ -266,6 +267,9 @@ impl WorkspaceApp {
             .measure_all(),
             active_session_sidebar_list_cache: RefCell::new(VirtualListSignatureCache::default()),
             open_settings_select: None,
+            rendered_settings_select: None,
+            settings_select_frozen_anchor: None,
+            settings_select_presence: oxideterm_gpui_ui::motion::ExitPresence::visible(),
             settings_select_focus_origin: None,
             // Settings tabs are variable-height browser sections, not a single
             // flex tree. Initialize the shared GPUI ListState here and let the
@@ -282,7 +286,15 @@ impl WorkspaceApp {
             .measure_all(),
             settings_section_list_cache: RefCell::new(VirtualListSignatureCache::default()),
             settings_data_directory_confirm: None,
+            settings_data_directory_confirm_presence:
+                oxideterm_gpui_ui::motion::ExitPresence::visible(),
             standard_confirm_focused_action: None,
+            settings_reset_confirm_presence: oxideterm_gpui_ui::motion::ExitPresence::visible(),
+            keybinding_reset_all_confirm_presence: oxideterm_gpui_ui::motion::ExitPresence::visible(
+            ),
+            ai_clear_all_confirm_presence: oxideterm_gpui_ui::motion::ExitPresence::visible(),
+            ai_delete_message_confirm_presence: oxideterm_gpui_ui::motion::ExitPresence::visible(),
+            tab_close_confirm_presence: oxideterm_gpui_ui::motion::ExitPresence::visible(),
             select_anchors: HashMap::new(),
             text_input_anchors: HashMap::new(),
             selectable_text_values: HashMap::new(),
@@ -334,6 +346,9 @@ impl WorkspaceApp {
             duplicating_saved_connection_id: None,
             saved_connection_prompt_action: None,
             open_new_connection_select: None,
+            rendered_new_connection_select: None,
+            new_connection_select_frozen_anchor: None,
+            new_connection_select_presence: oxideterm_gpui_ui::motion::ExitPresence::visible(),
             new_connection_select_focus_origin: None,
             new_connection_caret_visible: true,
             host_key_challenge: None,

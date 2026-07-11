@@ -111,6 +111,7 @@ impl WorkspaceApp {
                         && !checked
                     {
                         this.cloud_sync.view.confirm = Some(CloudSyncConfirm::EnableSensitiveSync);
+                        this.cloud_sync.view.confirm_presence.reopen();
                         // Pointer-opened confirms should not paint a footer focus state
                         // until keyboard navigation explicitly enters the footer.
                         this.cloud_sync.view.confirm_focused_action = None;
@@ -298,6 +299,7 @@ impl WorkspaceApp {
                             key: secret_key.to_string(),
                             label: label.clone(),
                         });
+                        this.cloud_sync.view.confirm_presence.reopen();
                         // Pointer-opened confirms should not paint a footer focus state
                         // until keyboard navigation explicitly enters the footer.
                         this.cloud_sync.view.confirm_focused_action = None;
@@ -405,7 +407,15 @@ impl WorkspaceApp {
         }
     }
 
-    pub(super) fn toggle_cloud_sync_select_from_pointer(&mut self, select: CloudSyncSelect) {
+    pub(super) fn toggle_cloud_sync_select_from_pointer(
+        &mut self,
+        select: CloudSyncSelect,
+        cx: &mut Context<Self>,
+    ) {
+        if self.cloud_sync.view.open_select == Some(select) {
+            self.begin_cloud_sync_select_exit(cx);
+            return;
+        }
         let selected_index = self.cloud_sync_selected_option_index(select);
         browser_behavior::toggle_browser_highlighted_select_from_pointer(
             &mut self.cloud_sync.view.open_select,
@@ -415,6 +425,9 @@ impl WorkspaceApp {
             select,
             selected_index,
         );
+        self.cloud_sync.view.rendered_select = Some(select);
+        self.cloud_sync.view.select_frozen_anchor = None;
+        self.cloud_sync.view.select_presence.reopen();
     }
 
     pub(super) fn clear_cloud_sync_select_focus(&mut self) {
@@ -424,14 +437,68 @@ impl WorkspaceApp {
             &mut self.cloud_sync.view.select_focus_origin,
             &mut self.cloud_sync.view.select_highlighted,
         );
+        self.cloud_sync.view.rendered_select = None;
+        self.cloud_sync.view.select_frozen_anchor = None;
+        self.cloud_sync.view.select_presence.reopen();
     }
 
     pub(super) fn close_cloud_sync_select_for_scroll(&mut self) -> bool {
-        close_cloud_sync_select_on_container_scroll(
+        let changed = close_cloud_sync_select_on_container_scroll(
             &mut self.cloud_sync.view.open_select,
             &mut self.cloud_sync.view.focused_select,
             &mut self.cloud_sync.view.select_highlighted,
-        )
+        );
+        if changed || self.cloud_sync.view.rendered_select.is_some() {
+            // Scroll invalidates window-space trigger geometry, so it cannot animate safely.
+            self.cloud_sync.view.rendered_select = None;
+            self.cloud_sync.view.select_frozen_anchor = None;
+            self.cloud_sync.view.select_presence.reopen();
+            return true;
+        }
+        false
+    }
+
+    pub(super) fn begin_cloud_sync_select_exit(&mut self, cx: &mut Context<Self>) -> bool {
+        let Some(select) = self.cloud_sync.view.open_select.take() else {
+            return false;
+        };
+        self.cloud_sync.view.rendered_select = Some(select);
+        self.cloud_sync.view.select_highlighted = None;
+        self.cloud_sync.view.select_frozen_anchor = self
+            .select_anchors
+            .get(&Self::cloud_sync_select_anchor_id(select))
+            .copied();
+        let Some(generation) = self.cloud_sync.view.select_presence.begin_exit() else {
+            return false;
+        };
+        let delay = oxideterm_gpui_ui::motion::duration(
+            &self.tokens,
+            oxideterm_gpui_ui::motion::MotionDuration::Micro,
+        );
+        if delay.is_zero() || self.cloud_sync.view.select_frozen_anchor.is_none() {
+            self.finish_cloud_sync_select_exit(generation);
+            return true;
+        }
+        // Keep the rendered select and its frozen anchor stable for this short manual exit.
+        cx.spawn(async move |weak, cx| {
+            Timer::after(delay).await;
+            let _ = weak.update(cx, |this, cx| {
+                if this.finish_cloud_sync_select_exit(generation) {
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+        true
+    }
+
+    fn finish_cloud_sync_select_exit(&mut self, generation: u64) -> bool {
+        if !self.cloud_sync.view.select_presence.finish_exit(generation) {
+            return false;
+        }
+        self.cloud_sync.view.rendered_select = None;
+        self.cloud_sync.view.select_frozen_anchor = None;
+        true
     }
 
     pub(super) fn apply_cloud_sync_select_action(
@@ -464,7 +531,7 @@ impl WorkspaceApp {
                 CloudSyncSelect::ConflictStrategy
             }
         };
-        self.cloud_sync.view.open_select = None;
+        self.begin_cloud_sync_select_exit(cx);
         self.cloud_sync.view.focused_select = Some(trigger_select);
         self.cloud_sync.view.select_highlighted = None;
         cx.notify();
@@ -498,12 +565,30 @@ impl WorkspaceApp {
         else {
             return false;
         };
+        let previous_open_select = self.cloud_sync.view.open_select;
         self.cloud_sync.view.open_select = state.open_select;
         self.cloud_sync.view.focused_select = state.focused_select;
         self.cloud_sync.view.select_highlighted = state.highlighted_option;
         if keyboard_focus_origin {
             self.cloud_sync.view.select_focus_origin =
                 Some(browser_behavior::BrowserFocusOrigin::Keyboard);
+        }
+        if previous_open_select.is_some()
+            && state.open_select.is_none()
+            && event.keystroke.key.as_str() == "escape"
+        {
+            // Escape is a manual dismissal and keeps the frozen trigger geometry.
+            self.cloud_sync.view.open_select = previous_open_select;
+            self.begin_cloud_sync_select_exit(cx);
+        } else if previous_open_select.is_some() && state.open_select.is_none() {
+            // Focus traversal is a programmatic close and must not retain stale geometry.
+            self.cloud_sync.view.rendered_select = None;
+            self.cloud_sync.view.select_frozen_anchor = None;
+            self.cloud_sync.view.select_presence.reopen();
+        } else if let Some(select) = state.open_select {
+            self.cloud_sync.view.rendered_select = Some(select);
+            self.cloud_sync.view.select_frozen_anchor = None;
+            self.cloud_sync.view.select_presence.reopen();
         }
         if let (Some(select), Some(index)) =
             (self.cloud_sync.view.focused_select, selected_action_index)
@@ -589,7 +674,7 @@ impl WorkspaceApp {
             ),
             cx.listener(
                 move |this: &mut WorkspaceApp, _event, _window, cx: &mut Context<WorkspaceApp>| {
-                    this.toggle_cloud_sync_select_from_pointer(select);
+                    this.toggle_cloud_sync_select_from_pointer(select, cx);
                     cx.stop_propagation();
                     cx.notify();
                 },
@@ -601,9 +686,14 @@ impl WorkspaceApp {
         &self,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
-        let select = self.cloud_sync.view.open_select?;
+        let select = self.cloud_sync.view.rendered_select?;
+        let phase = self.cloud_sync.view.select_presence.phase();
         let anchor_id = Self::cloud_sync_select_anchor_id(select);
-        let anchor = *self.select_anchors.get(&anchor_id)?;
+        let anchor = browser_behavior::anchored_overlay_render_value(
+            phase,
+            self.cloud_sync.view.select_frozen_anchor,
+            self.select_anchors.get(&anchor_id).copied(),
+        )?;
         let width =
             f32::from(anchor.bounds.size.width).max(self.tokens.metrics.ui_select_min_width);
         let mut popup = select_panel_overlay_popup_with_max_height(
@@ -640,8 +730,7 @@ impl WorkspaceApp {
                 false,
                 false,
                 cx.listener(move |this, _event, _window, cx| {
-                    this.cloud_sync.view.open_select = None;
-                    this.cloud_sync.view.select_highlighted = None;
+                    this.begin_cloud_sync_select_exit(cx);
                     this.cloud_sync.view.select_focus_origin =
                         Some(browser_behavior::BrowserFocusOrigin::Pointer);
                     this.apply_cloud_sync_select_action(action.clone(), cx);
@@ -651,7 +740,7 @@ impl WorkspaceApp {
             ));
         }
         // Highlight changes redraw the select without restarting its entrance.
-        let popup = oxideterm_gpui_ui::motion::fade_in(
+        let popup = oxideterm_gpui_ui::motion::fade(
             &self.tokens,
             (
                 gpui::SharedString::from(format!("cloud-sync-select-enter-{select:?}")),
@@ -659,6 +748,7 @@ impl WorkspaceApp {
             ),
             overlay_content_boundary(popup),
             oxideterm_gpui_ui::motion::MotionDuration::Micro,
+            phase == oxideterm_gpui_ui::motion::ExitPhase::Visible,
         );
 
         Some(
@@ -666,6 +756,7 @@ impl WorkspaceApp {
                 .on_mouse_down(
                     MouseButton::Left,
                     cx.listener(|this, _event, window, cx| {
+                        this.begin_cloud_sync_select_exit(cx);
                         this.dismiss_transient_workspace_overlays_from_outside_pointer(window, cx);
                         cx.stop_propagation();
                     }),
@@ -673,6 +764,7 @@ impl WorkspaceApp {
                 .on_mouse_down(
                     MouseButton::Right,
                     cx.listener(|this, _event, window, cx| {
+                        this.begin_cloud_sync_select_exit(cx);
                         this.dismiss_transient_workspace_overlays_from_outside_pointer(window, cx);
                         cx.stop_propagation();
                     }),

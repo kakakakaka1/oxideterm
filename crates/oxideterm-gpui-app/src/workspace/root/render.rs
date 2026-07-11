@@ -1242,21 +1242,157 @@ impl WorkspaceApp {
         id
     }
 
-    pub(in crate::workspace) fn dismiss_workspace_toast(&mut self, toast_id: u64) -> bool {
-        let previous_len = self.workspace_toasts.len();
-        self.workspace_toasts.retain(|toast| toast.id != toast_id);
-        previous_len != self.workspace_toasts.len()
+    pub(in crate::workspace) fn dismiss_workspace_toast(
+        &mut self,
+        toast_id: u64,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(toast) = self
+            .workspace_toasts
+            .iter_mut()
+            .find(|toast| toast.id == toast_id)
+        else {
+            return false;
+        };
+        let Some(generation) = toast.presence.begin_exit() else {
+            return false;
+        };
+        let delay = oxideterm_gpui_ui::motion::duration(
+            &self.tokens,
+            oxideterm_gpui_ui::motion::MotionDuration::Control,
+        );
+        if delay.is_zero() {
+            self.workspace_toasts.retain(|toast| toast.id != toast_id);
+            return true;
+        }
+        // Logical dismissal happens now; payload removal waits for the visual exit.
+        cx.spawn(async move |weak, cx| {
+            Timer::after(delay).await;
+            let _ = weak.update(cx, |workspace, cx| {
+                workspace.workspace_toasts.retain(|toast| {
+                    toast.id != toast_id || !toast.presence.finish_exit(generation)
+                });
+                cx.notify();
+            });
+        })
+        .detach();
+        true
+    }
+
+    pub(in crate::workspace) fn dismiss_plugin_progress_toast(
+        &mut self,
+        toast_key: &str,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(toast) = self.plugin_progress_toasts.get_mut(toast_key) else {
+            return false;
+        };
+        let Some(generation) = toast.presence.begin_exit() else {
+            return false;
+        };
+        let delay = oxideterm_gpui_ui::motion::duration(
+            &self.tokens,
+            oxideterm_gpui_ui::motion::MotionDuration::Control,
+        );
+        if delay.is_zero() {
+            self.plugin_progress_toasts.remove(toast_key);
+            return true;
+        }
+        let toast_key = toast_key.to_string();
+        cx.spawn(async move |weak, cx| {
+            Timer::after(delay).await;
+            let _ = weak.update(cx, |workspace, cx| {
+                let remove = workspace
+                    .plugin_progress_toasts
+                    .get(&toast_key)
+                    .is_some_and(|toast| toast.presence.finish_exit(generation));
+                if remove {
+                    workspace.plugin_progress_toasts.remove(&toast_key);
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+        true
+    }
+
+    pub(in crate::workspace) fn dismiss_connection_trace_toast(
+        &mut self,
+        attempt_id: &str,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(trace) = self.connection_trace_toasts.get_mut(attempt_id) else {
+            return false;
+        };
+        let Some(generation) = trace.presence.begin_exit() else {
+            return false;
+        };
+        let delay = oxideterm_gpui_ui::motion::duration(
+            &self.tokens,
+            oxideterm_gpui_ui::motion::MotionDuration::Control,
+        );
+        if delay.is_zero() {
+            self.connection_trace_toasts.remove(attempt_id);
+            return true;
+        }
+        let attempt_id = attempt_id.to_string();
+        cx.spawn(async move |weak, cx| {
+            Timer::after(delay).await;
+            let _ = weak.update(cx, |workspace, cx| {
+                let remove = workspace
+                    .connection_trace_toasts
+                    .get(&attempt_id)
+                    .is_some_and(|trace| trace.presence.finish_exit(generation));
+                if remove {
+                    workspace.connection_trace_toasts.remove(&attempt_id);
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+        true
     }
 
     pub(in crate::workspace) fn poll_terminal_notices(&mut self, cx: &mut Context<Self>) {
         const WORKSPACE_TOAST_TTL: Duration = Duration::from_secs(4);
 
         let now = Instant::now();
-        self.workspace_toasts.retain(|toast| toast.expires_at > now);
-        self.plugin_progress_toasts
-            .retain(|_, toast| toast.expires_at > now);
-        self.connection_trace_toasts
-            .retain(|_, trace| trace.expires_at.map_or(true, |expires_at| expires_at > now));
+        let expired_toast_ids = self
+            .workspace_toasts
+            .iter()
+            .filter(|toast| {
+                toast.expires_at <= now
+                    && toast.presence.phase() == oxideterm_gpui_ui::motion::ExitPhase::Visible
+            })
+            .map(|toast| toast.id)
+            .collect::<Vec<_>>();
+        for toast_id in expired_toast_ids {
+            self.dismiss_workspace_toast(toast_id, cx);
+        }
+        let expired_plugin_toast_keys = self
+            .plugin_progress_toasts
+            .iter()
+            .filter(|(_, toast)| {
+                toast.expires_at <= now
+                    && toast.presence.phase() == oxideterm_gpui_ui::motion::ExitPhase::Visible
+            })
+            .map(|(key, _)| key.clone())
+            .collect::<Vec<_>>();
+        for toast_key in expired_plugin_toast_keys {
+            self.dismiss_plugin_progress_toast(&toast_key, cx);
+        }
+        let expired_trace_ids = self
+            .connection_trace_toasts
+            .iter()
+            .filter(|(_, trace)| {
+                trace.expires_at.is_some_and(|expires_at| expires_at <= now)
+                    && trace.presence.phase() == oxideterm_gpui_ui::motion::ExitPhase::Visible
+            })
+            .map(|(attempt_id, _)| attempt_id.clone())
+            .collect::<Vec<_>>();
+        for attempt_id in expired_trace_ids {
+            self.dismiss_connection_trace_toast(&attempt_id, cx);
+        }
 
         let mut added = false;
         while let Ok(notice) = self.terminal_notice_rx.try_recv() {
@@ -1265,6 +1401,7 @@ impl WorkspaceApp {
                 id,
                 notice,
                 expires_at: now + WORKSPACE_TOAST_TTL,
+                presence: oxideterm_gpui_ui::motion::ExitPresence::visible(),
             });
             added = true;
         }
@@ -1274,12 +1411,32 @@ impl WorkspaceApp {
                 Timer::after(WORKSPACE_TOAST_TTL).await;
                 let _ = weak.update(cx, |workspace, cx| {
                     let now = Instant::now();
-                    workspace
+                    let expired_toast_ids = workspace
                         .workspace_toasts
-                        .retain(|toast| toast.expires_at > now);
-                    workspace
+                        .iter()
+                        .filter(|toast| {
+                            toast.expires_at <= now
+                                && toast.presence.phase()
+                                    == oxideterm_gpui_ui::motion::ExitPhase::Visible
+                        })
+                        .map(|toast| toast.id)
+                        .collect::<Vec<_>>();
+                    for toast_id in expired_toast_ids {
+                        workspace.dismiss_workspace_toast(toast_id, cx);
+                    }
+                    let expired_plugin_toast_keys = workspace
                         .plugin_progress_toasts
-                        .retain(|_, toast| toast.expires_at > now);
+                        .iter()
+                        .filter(|(_, toast)| {
+                            toast.expires_at <= now
+                                && toast.presence.phase()
+                                    == oxideterm_gpui_ui::motion::ExitPhase::Visible
+                        })
+                        .map(|(key, _)| key.clone())
+                        .collect::<Vec<_>>();
+                    for toast_key in expired_plugin_toast_keys {
+                        workspace.dismiss_plugin_progress_toast(&toast_key, cx);
+                    }
                     cx.notify();
                 });
             })
@@ -1306,6 +1463,8 @@ impl WorkspaceApp {
             let toast_id = toast.id;
             let workspace = workspace.clone();
             ToastView {
+                id: format!("workspace-{}", toast.id),
+                phase: toast.presence.phase(),
                 title: toast.notice.title.clone(),
                 description: toast.notice.description.clone(),
                 status_text: toast.notice.status_text.clone(),
@@ -1315,7 +1474,7 @@ impl WorkspaceApp {
                     toast_close(&self.tokens)
                         .on_mouse_down(MouseButton::Left, move |_event, _window, cx| {
                             let _ = workspace.update(cx, |this, cx| {
-                                if this.dismiss_workspace_toast(toast_id) {
+                                if this.dismiss_workspace_toast(toast_id, cx) {
                                     cx.notify();
                                 }
                             });
@@ -1332,6 +1491,8 @@ impl WorkspaceApp {
                     let toast_key = toast_key.clone();
                     let workspace = workspace.clone();
                     ToastView {
+                        id: format!("plugin-{toast_key}"),
+                        phase: toast.presence.phase(),
                         title: toast.notice.title.clone(),
                         description: toast.notice.description.clone(),
                         status_text: toast.notice.status_text.clone(),
@@ -1341,8 +1502,7 @@ impl WorkspaceApp {
                             toast_close(&self.tokens)
                                 .on_mouse_down(MouseButton::Left, move |_event, _window, cx| {
                                     let _ = workspace.update(cx, |this, cx| {
-                                        if this.plugin_progress_toasts.remove(&toast_key).is_some()
-                                        {
+                                        if this.dismiss_plugin_progress_toast(&toast_key, cx) {
                                             cx.notify();
                                         }
                                     });
@@ -1357,11 +1517,13 @@ impl WorkspaceApp {
             .iter()
             .filter_map(|(attempt_id, trace)| {
                 let event = trace.displayed.as_ref()?;
-                Some((attempt_id.clone(), event))
+                Some((attempt_id.clone(), event, trace.presence.phase()))
             })
-            .map(|(attempt_id, event)| {
+            .map(|(attempt_id, event, phase)| {
                 let workspace = workspace.clone();
                 ToastView {
+                    id: format!("connection-{attempt_id}"),
+                    phase,
                     title: self.connection_trace_title(event),
                     description: self.connection_trace_description(event),
                     status_text: Some(self.connection_trace_status_text(event)),
@@ -1375,7 +1537,7 @@ impl WorkspaceApp {
                         toast_close(&self.tokens)
                             .on_mouse_down(MouseButton::Left, move |_event, _window, cx| {
                                 let _ = workspace.update(cx, |this, cx| {
-                                    if this.connection_trace_toasts.remove(&attempt_id).is_some() {
+                                    if this.dismiss_connection_trace_toast(&attempt_id, cx) {
                                         cx.notify();
                                     }
                                 });
@@ -1412,7 +1574,11 @@ impl WorkspaceApp {
                     show_generation: 0,
                     flush_generation: 0,
                     expires_at: None,
+                    presence: oxideterm_gpui_ui::motion::ExitPresence::visible(),
                 });
+            if trace.presence.phase() == oxideterm_gpui_ui::motion::ExitPhase::Exiting {
+                trace.presence.reopen();
+            }
             trace.latest = event.clone();
             trace.expires_at = None;
 
@@ -1460,7 +1626,7 @@ impl WorkspaceApp {
                         cx.spawn(async move |weak, cx| {
                             Timer::after(SUCCESS_DISMISS).await;
                             let _ = weak.update(cx, |workspace, cx| {
-                                workspace.connection_trace_toasts.remove(&attempt_id);
+                                workspace.dismiss_connection_trace_toast(&attempt_id, cx);
                                 cx.notify();
                             });
                         })
@@ -1482,7 +1648,7 @@ impl WorkspaceApp {
                     cx.spawn(async move |weak, cx| {
                         Timer::after(FAILURE_DISMISS).await;
                         let _ = weak.update(cx, |workspace, cx| {
-                            workspace.connection_trace_toasts.remove(&attempt_id);
+                            workspace.dismiss_connection_trace_toast(&attempt_id, cx);
                             cx.notify();
                         });
                     })
@@ -1490,7 +1656,11 @@ impl WorkspaceApp {
                     changed = true;
                 }
                 ConnectionTraceStatus::Cancelled => {
-                    self.connection_trace_toasts.remove(&attempt_id);
+                    if trace.displayed.is_some() {
+                        self.dismiss_connection_trace_toast(&attempt_id, cx);
+                    } else {
+                        self.connection_trace_toasts.remove(&attempt_id);
+                    }
                     changed = true;
                 }
             }

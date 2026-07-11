@@ -59,7 +59,7 @@ impl WorkspaceApp {
             trigger.cursor_pointer().on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |this, _event, _window, cx| {
-                    this.open_settings_select_from_pointer(select_id);
+                    this.open_settings_select_from_pointer(select_id, cx);
                     cx.stop_propagation();
                     cx.notify();
                 }),
@@ -951,6 +951,52 @@ impl WorkspaceApp {
             &mut self.open_settings_select,
             &mut self.settings_select_focus_origin,
         );
+        self.rendered_settings_select = None;
+        self.settings_select_frozen_anchor = None;
+        self.settings_select_presence.reopen();
+    }
+
+    pub(in crate::workspace) fn begin_settings_select_exit(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(select) = self.open_settings_select.take() else {
+            return false;
+        };
+        self.settings_select_focus_origin = None;
+        self.rendered_settings_select = Some(select);
+        self.settings_select_frozen_anchor = self.select_anchors.get(&select.anchor_id()).copied();
+        let Some(generation) = self.settings_select_presence.begin_exit() else {
+            return false;
+        };
+        let delay = oxideterm_gpui_ui::motion::duration(
+            &self.tokens,
+            oxideterm_gpui_ui::motion::MotionDuration::Micro,
+        );
+        if delay.is_zero() || self.settings_select_frozen_anchor.is_none() {
+            self.finish_settings_select_exit(generation);
+            return true;
+        }
+        // The frozen window-space anchor is valid only for this short manual exit.
+        cx.spawn(async move |weak, cx| {
+            Timer::after(delay).await;
+            let _ = weak.update(cx, |this, cx| {
+                if this.finish_settings_select_exit(generation) {
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+        true
+    }
+
+    fn finish_settings_select_exit(&mut self, generation: u64) -> bool {
+        if !self.settings_select_presence.finish_exit(generation) {
+            return false;
+        }
+        self.rendered_settings_select = None;
+        self.settings_select_frozen_anchor = None;
+        true
     }
 
     pub(in crate::workspace) fn clear_settings_input_draft(&mut self, input: SettingsInput) {

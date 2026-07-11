@@ -767,8 +767,7 @@ impl WorkspaceApp {
                         this.ai.chat.model_switch_warning_percentage = None;
                     }
                     AiContextWarningAction::Summarize => {
-                        this.ai.chat.summarize_confirm_open = true;
-                        this.reset_standard_confirm_focus();
+                        this.open_ai_summarize_confirm(cx);
                     }
                 }
                 cx.stop_propagation();
@@ -798,8 +797,10 @@ impl WorkspaceApp {
         &self,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        confirm_dialog_with_focus(
+        oxideterm_gpui_ui::confirm::confirm_dialog_with_focus_motion(
             &self.tokens,
+            "ai-summarize-confirm-motion",
+            self.ai.chat.summarize_confirm_presence.phase(),
             ConfirmDialogView {
                 variant: ConfirmDialogVariant::Default,
                 title: div()
@@ -836,16 +837,16 @@ impl WorkspaceApp {
             },
             self.standard_confirm_focus(),
             cx.listener(|this, _event, _window, cx| {
-                this.ai.chat.summarize_confirm_open = false;
-                this.clear_standard_confirm_focus();
+                this.begin_ai_summarize_confirm_exit(cx);
                 cx.stop_propagation();
                 cx.notify();
             }),
             cx.listener(|this, _event, _window, cx| {
-                this.ai.chat.summarize_confirm_open = false;
-                this.clear_standard_confirm_focus();
-                this.start_ai_summarize_conversation(cx);
+                if this.begin_ai_summarize_confirm_exit(cx) {
+                    this.start_ai_summarize_conversation(cx);
+                }
                 cx.stop_propagation();
+                cx.notify();
             }),
         )
     }
@@ -854,8 +855,10 @@ impl WorkspaceApp {
         &self,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        confirm_dialog_with_focus(
+        oxideterm_gpui_ui::confirm::confirm_dialog_with_focus_motion(
             &self.tokens,
+            "ai-clear-all-confirm-motion",
+            self.ai_clear_all_confirm_presence.phase(),
             ConfirmDialogView {
                 variant: ConfirmDialogVariant::Danger,
                 title: div()
@@ -892,14 +895,14 @@ impl WorkspaceApp {
             },
             self.standard_confirm_focus(),
             cx.listener(|this, _event, _window, cx| {
-                this.ai.chat.clear_all_confirm_open = false;
-                this.clear_standard_confirm_focus();
+                this.begin_ai_clear_all_confirm_exit(cx);
                 cx.stop_propagation();
                 cx.notify();
             }),
             cx.listener(|this, _event, _window, cx| {
-                this.clear_standard_confirm_focus();
-                this.clear_ai_conversations();
+                if this.begin_ai_clear_all_confirm_exit(cx) {
+                    this.clear_ai_conversations();
+                }
                 cx.stop_propagation();
                 cx.notify();
             }),
@@ -910,8 +913,10 @@ impl WorkspaceApp {
         &self,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        confirm_dialog_with_focus(
+        oxideterm_gpui_ui::confirm::confirm_dialog_with_focus_motion(
             &self.tokens,
+            "ai-delete-message-confirm-motion",
+            self.ai_delete_message_confirm_presence.phase(),
             ConfirmDialogView {
                 variant: ConfirmDialogVariant::Danger,
                 title: div()
@@ -948,17 +953,16 @@ impl WorkspaceApp {
             },
             self.standard_confirm_focus(),
             cx.listener(|this, _event, _window, cx| {
-                this.ai.chat.delete_message_confirm = None;
-                this.clear_standard_confirm_focus();
+                this.begin_ai_delete_message_confirm_exit(cx);
                 cx.stop_propagation();
                 cx.notify();
             }),
             cx.listener(|this, _event, _window, cx| {
-                this.clear_standard_confirm_focus();
-                if let Some(message_id) = this.ai.chat.delete_message_confirm.take() {
+                let message_id = this.ai.chat.delete_message_confirm.clone();
+                if this.begin_ai_delete_message_confirm_exit(cx)
+                    && let Some(message_id) = message_id
+                {
                     this.delete_ai_message(&message_id, cx);
-                } else {
-                    cx.notify();
                 }
                 cx.stop_propagation();
             }),

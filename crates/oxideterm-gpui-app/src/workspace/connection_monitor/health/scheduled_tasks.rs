@@ -1143,16 +1143,19 @@ impl WorkspaceApp {
             );
             return;
         }
-        self.connection_monitor.host_schedule_pending_confirm = Some(HostScheduleActionRequest {
-            connection_id,
-            task_id: task.id.clone(),
-            task_name: task.name.clone(),
-            unit: task.unit.clone(),
-            action: ScheduledTaskActionKind::RunNow {
-                id: task.id,
-                unit: task.unit,
+        HostToolConfirmState::open(
+            &mut self.connection_monitor.host_schedule_pending_confirm,
+            HostScheduleActionRequest {
+                connection_id,
+                task_id: task.id.clone(),
+                task_name: task.name.clone(),
+                unit: task.unit.clone(),
+                action: ScheduledTaskActionKind::RunNow {
+                    id: task.id,
+                    unit: task.unit,
+                },
             },
-        });
+        );
         self.reset_standard_confirm_focus();
         cx.notify();
     }
@@ -1187,13 +1190,16 @@ impl WorkspaceApp {
                 source: task.source.clone(),
             }
         };
-        self.connection_monitor.host_schedule_pending_confirm = Some(HostScheduleActionRequest {
-            connection_id,
-            task_id: task.id,
-            task_name: task.name,
-            unit: task.unit,
-            action,
-        });
+        HostToolConfirmState::open(
+            &mut self.connection_monitor.host_schedule_pending_confirm,
+            HostScheduleActionRequest {
+                connection_id,
+                task_id: task.id,
+                task_name: task.name,
+                unit: task.unit,
+                action,
+            },
+        );
         self.reset_standard_confirm_focus();
         cx.notify();
     }
@@ -1321,9 +1327,7 @@ impl WorkspaceApp {
         }
         match self.handle_standard_confirm_key(event, cx) {
             Some(ConfirmKeyboardAction::Cancel) => {
-                self.connection_monitor.host_schedule_pending_confirm = None;
-                self.clear_standard_confirm_focus();
-                cx.notify();
+                self.begin_host_schedule_confirm_exit(cx);
                 true
             }
             Some(ConfirmKeyboardAction::Confirm) => {
@@ -1336,11 +1340,56 @@ impl WorkspaceApp {
     }
 
     pub(super) fn confirm_host_schedule_action(&mut self, cx: &mut Context<Self>) {
-        let Some(request) = self.connection_monitor.host_schedule_pending_confirm.take() else {
+        let Some(request) = self
+            .connection_monitor
+            .host_schedule_pending_confirm
+            .as_ref()
+            .map(|state| state.request.clone())
+        else {
             return;
         };
+        if self.begin_host_schedule_confirm_exit(cx) {
+            self.start_host_schedule_action(request, cx);
+        }
+    }
+
+    /// Keeps the request mounted until the current exit generation completes.
+    fn begin_host_schedule_confirm_exit(&mut self, cx: &mut Context<Self>) -> bool {
+        let Some(generation) = self
+            .connection_monitor
+            .host_schedule_pending_confirm
+            .as_mut()
+            .and_then(|state| state.presence.begin_exit())
+        else {
+            return false;
+        };
         self.clear_standard_confirm_focus();
-        self.start_host_schedule_action(request, cx);
+        let delay = oxideterm_gpui_ui::motion::duration(
+            &self.tokens,
+            oxideterm_gpui_ui::motion::MotionDuration::Control,
+        );
+        if delay.is_zero() {
+            self.connection_monitor.host_schedule_pending_confirm = None;
+            cx.notify();
+            return true;
+        }
+        cx.spawn(async move |weak, cx| {
+            Timer::after(delay).await;
+            let _ = weak.update(cx, |this, cx| {
+                if this
+                    .connection_monitor
+                    .host_schedule_pending_confirm
+                    .as_ref()
+                    .is_some_and(|state| state.presence.finish_exit(generation))
+                {
+                    this.connection_monitor.host_schedule_pending_confirm = None;
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+        cx.notify();
+        true
     }
 
     pub(super) fn start_host_schedule_action(
@@ -1701,6 +1750,7 @@ impl WorkspaceApp {
             .connection_monitor
             .host_schedule_pending_confirm
             .as_ref()?;
+        let request = &request.request;
         let title = self.i18n.t("sidebar.host_schedules.confirm.title");
         let description = self.i18n_replace(
             host_schedule_confirm_description_key(&request.action),
@@ -1710,8 +1760,14 @@ impl WorkspaceApp {
             ],
         );
         Some(
-            confirm_dialog_with_focus(
+            oxideterm_gpui_ui::confirm::confirm_dialog_with_focus_motion(
                 &self.tokens,
+                "host-schedule-confirm-motion",
+                self.connection_monitor
+                    .host_schedule_pending_confirm
+                    .as_ref()?
+                    .presence
+                    .phase(),
                 ConfirmDialogView {
                     variant: ConfirmDialogVariant::Default,
                     title: div().child(title).into_any_element(),
@@ -1728,9 +1784,7 @@ impl WorkspaceApp {
                 },
                 self.standard_confirm_focus(),
                 cx.listener(|this, _event, _window, cx| {
-                    this.connection_monitor.host_schedule_pending_confirm = None;
-                    this.clear_standard_confirm_focus();
-                    cx.notify();
+                    this.begin_host_schedule_confirm_exit(cx);
                 }),
                 cx.listener(|this, _event, _window, cx| {
                     this.confirm_host_schedule_action(cx);

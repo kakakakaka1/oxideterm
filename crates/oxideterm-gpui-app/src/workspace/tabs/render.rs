@@ -233,8 +233,10 @@ impl WorkspaceApp {
             .i18n
             .t("common.confirm.disconnect_node")
             .replace("{{name}}", &confirm.display_name);
-        confirm_dialog_with_focus(
+        oxideterm_gpui_ui::confirm::confirm_dialog_with_focus_motion(
             &self.tokens,
+            "node-disconnect-confirm-motion",
+            self.node_disconnect_confirm_presence.phase(),
             ConfirmDialogView {
                 variant: ConfirmDialogVariant::Danger,
                 title: div().child(title).into_any_element(),
@@ -281,8 +283,10 @@ impl WorkspaceApp {
                     .replace("{{count}}", &tab_ids.len().to_string()),
             ),
         };
-        confirm_dialog_with_focus(
+        oxideterm_gpui_ui::confirm::confirm_dialog_with_focus_motion(
             &self.tokens,
+            "tab-close-confirm-motion",
+            self.tab_close_confirm_presence.phase(),
             ConfirmDialogView {
                 variant: ConfirmDialogVariant::Danger,
                 title: div().child(self.i18n.t(title_key)).into_any_element(),

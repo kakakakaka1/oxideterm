@@ -6,9 +6,14 @@ impl WorkspaceApp {
         window: &Window,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
-        let select_id = self.open_new_connection_select?;
+        let select_id = self.rendered_new_connection_select?;
+        let phase = self.new_connection_select_presence.phase();
         let anchor_id = Self::new_connection_select_anchor_id(select_id);
-        let anchor = *self.select_anchors.get(&anchor_id)?;
+        let anchor = browser_behavior::anchored_overlay_render_value(
+            phase,
+            self.new_connection_select_frozen_anchor,
+            self.select_anchors.get(&anchor_id).copied(),
+        )?;
         let width =
             f32::from(anchor.bounds.size.width).max(self.tokens.metrics.ui_select_min_width);
         let viewport_height = f32::from(window.viewport_size().height);
@@ -38,6 +43,7 @@ impl WorkspaceApp {
                     false,
                     false,
                     cx.listener(move |this, _event, _window, cx| {
+                        this.begin_new_connection_select_exit(cx);
                         this.set_new_connection_group(ungrouped_label.clone(), cx);
                         cx.stop_propagation();
                     }),
@@ -51,6 +57,7 @@ impl WorkspaceApp {
                         false,
                         false,
                         cx.listener(move |this, _event, _window, cx| {
+                            this.begin_new_connection_select_exit(cx);
                             this.set_new_connection_group(group.clone(), cx);
                             cx.stop_propagation();
                         }),
@@ -89,6 +96,7 @@ impl WorkspaceApp {
                     false,
                     false,
                     cx.listener(|this, _event, _window, cx| {
+                        this.begin_new_connection_select_exit(cx);
                         this.clear_new_connection_jump_saved_connection(cx);
                         cx.stop_propagation();
                     }),
@@ -105,6 +113,7 @@ impl WorkspaceApp {
                         false,
                         false,
                         cx.listener(move |this, _event, _window, cx| {
+                            this.begin_new_connection_select_exit(cx);
                             this.set_new_connection_jump_saved_connection(
                                 connection_id.clone(),
                                 cx,
@@ -140,6 +149,7 @@ impl WorkspaceApp {
                         false,
                         false,
                         cx.listener(move |this, _event, _window, cx| {
+                            this.begin_new_connection_select_exit(cx);
                             this.set_new_connection_key_auth_source(select_id, source, cx);
                             cx.stop_propagation();
                         }),
@@ -168,6 +178,7 @@ impl WorkspaceApp {
                         false,
                         false,
                         cx.listener(move |this, _event, _window, cx| {
+                            this.begin_new_connection_select_exit(cx);
                             this.set_new_connection_managed_key(select_id, key_id.clone(), cx);
                             cx.stop_propagation();
                         }),
@@ -199,6 +210,7 @@ impl WorkspaceApp {
                         false,
                         false,
                         cx.listener(move |this, _event, _window, cx| {
+                            this.begin_new_connection_select_exit(cx);
                             this.set_new_connection_upstream_proxy_policy(policy, cx);
                             cx.stop_propagation();
                         }),
@@ -226,6 +238,7 @@ impl WorkspaceApp {
                         false,
                         false,
                         cx.listener(move |this, _event, _window, cx| {
+                            this.begin_new_connection_select_exit(cx);
                             this.set_new_connection_upstream_proxy_protocol(protocol, cx);
                             cx.stop_propagation();
                         }),
@@ -253,6 +266,7 @@ impl WorkspaceApp {
                         false,
                         false,
                         cx.listener(move |this, _event, _window, cx| {
+                            this.begin_new_connection_select_exit(cx);
                             this.set_new_connection_upstream_proxy_auth(auth, cx);
                             cx.stop_propagation();
                         }),
@@ -278,6 +292,7 @@ impl WorkspaceApp {
                         false,
                         false,
                         cx.listener(move |this, _event, _window, cx| {
+                            this.begin_new_connection_select_exit(cx);
                             this.set_new_connection_serial_port(port_path.clone(), cx);
                             cx.stop_propagation();
                         }),
@@ -307,6 +322,7 @@ impl WorkspaceApp {
                         false,
                         false,
                         cx.listener(move |this, _event, _window, cx| {
+                            this.begin_new_connection_select_exit(cx);
                             this.set_new_connection_serial_u8(select_id, value, cx);
                             cx.stop_propagation();
                         }),
@@ -333,6 +349,7 @@ impl WorkspaceApp {
                         false,
                         false,
                         cx.listener(move |this, _event, _window, cx| {
+                            this.begin_new_connection_select_exit(cx);
                             this.set_new_connection_serial_parity(parity, cx);
                             cx.stop_propagation();
                         }),
@@ -359,6 +376,7 @@ impl WorkspaceApp {
                         false,
                         false,
                         cx.listener(move |this, _event, _window, cx| {
+                            this.begin_new_connection_select_exit(cx);
                             this.set_new_connection_serial_flow_control(flow, cx);
                             cx.stop_propagation();
                         }),
@@ -384,6 +402,7 @@ impl WorkspaceApp {
                         false,
                         false,
                         cx.listener(move |this, _event, _window, cx| {
+                            this.begin_new_connection_select_exit(cx);
                             this.set_new_connection_raw_tcp_line_ending(option.clone(), cx);
                             cx.stop_propagation();
                         }),
@@ -408,6 +427,7 @@ impl WorkspaceApp {
                         false,
                         false,
                         cx.listener(move |this, _event, _window, cx| {
+                            this.begin_new_connection_select_exit(cx);
                             this.set_new_connection_raw_tcp_display_mode(option.clone(), cx);
                             cx.stop_propagation();
                         }),
@@ -431,6 +451,7 @@ impl WorkspaceApp {
                         false,
                         false,
                         cx.listener(move |this, _event, _window, cx| {
+                            this.begin_new_connection_select_exit(cx);
                             this.set_new_connection_raw_tcp_send_mode(option.clone(), cx);
                             cx.stop_propagation();
                         }),
@@ -456,6 +477,7 @@ impl WorkspaceApp {
                         false,
                         false,
                         cx.listener(move |this, _event, _window, cx| {
+                            this.begin_new_connection_select_exit(cx);
                             this.set_new_connection_raw_udp_line_ending(option.clone(), cx);
                             cx.stop_propagation();
                         }),
@@ -480,6 +502,7 @@ impl WorkspaceApp {
                         false,
                         false,
                         cx.listener(move |this, _event, _window, cx| {
+                            this.begin_new_connection_select_exit(cx);
                             this.set_new_connection_raw_udp_display_mode(option.clone(), cx);
                             cx.stop_propagation();
                         }),
@@ -503,6 +526,7 @@ impl WorkspaceApp {
                         false,
                         false,
                         cx.listener(move |this, _event, _window, cx| {
+                            this.begin_new_connection_select_exit(cx);
                             this.set_new_connection_raw_udp_send_mode(option.clone(), cx);
                             cx.stop_propagation();
                         }),
@@ -526,6 +550,7 @@ impl WorkspaceApp {
                         false,
                         false,
                         cx.listener(move |this, _event, _window, cx| {
+                            this.begin_new_connection_select_exit(cx);
                             this.set_new_connection_raw_tcp_tls_mode(option.clone(), cx);
                             cx.stop_propagation();
                         }),
@@ -549,6 +574,7 @@ impl WorkspaceApp {
                         false,
                         false,
                         cx.listener(move |this, _event, _window, cx| {
+                            this.begin_new_connection_select_exit(cx);
                             this.set_new_connection_raw_tcp_tls_verification(option.clone(), cx);
                             cx.stop_propagation();
                         }),
@@ -567,7 +593,7 @@ impl WorkspaceApp {
             (Corner::TopLeft, anchor.bounds.bottom_left(), popup_gap)
         };
         // Keep the timeline stable across option highlighting and form redraws.
-        let popup = oxideterm_gpui_ui::motion::fade_in(
+        let popup = oxideterm_gpui_ui::motion::fade(
             &self.tokens,
             (
                 gpui::SharedString::from(format!("new-connection-select-enter-{select_id:?}")),
@@ -575,6 +601,7 @@ impl WorkspaceApp {
             ),
             popup,
             oxideterm_gpui_ui::motion::MotionDuration::Micro,
+            phase == oxideterm_gpui_ui::motion::ExitPhase::Visible,
         );
 
         Some(
@@ -582,7 +609,7 @@ impl WorkspaceApp {
                 .on_mouse_down(
                     MouseButton::Left,
                     cx.listener(|this, _event, _window, cx| {
-                        this.close_new_connection_select();
+                        this.begin_new_connection_select_exit(cx);
                         cx.stop_propagation();
                         cx.notify();
                     }),
@@ -590,7 +617,7 @@ impl WorkspaceApp {
                 .on_mouse_down(
                     MouseButton::Right,
                     cx.listener(|this, _event, _window, cx| {
-                        this.close_new_connection_select();
+                        this.begin_new_connection_select_exit(cx);
                         cx.stop_propagation();
                         cx.notify();
                     }),
@@ -668,13 +695,11 @@ impl WorkspaceApp {
                             .on_scroll_wheel(cx.listener(|this, _event, _window, cx| {
                                 // Keep native anchored selects aligned with Tauri/Radix:
                                 // scrolling the modal body closes popup content tied to a moved trigger.
-                                let had_open_select =
-                                browser_behavior::close_browser_trigger_select_on_container_scroll(
-                                    &mut this.open_new_connection_select,
-                                    &mut this.new_connection_select_focus_origin,
-                                );
-                                this.clear_new_connection_select_anchor();
-                                if had_open_select {
+                                if this.open_new_connection_select.is_some()
+                                    || this.rendered_new_connection_select.is_some()
+                                {
+                                    this.close_new_connection_select();
+                                    this.clear_new_connection_select_anchor();
                                     cx.notify();
                                 }
                             }))
