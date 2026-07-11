@@ -82,6 +82,17 @@ pub(in crate::workspace) fn tokens_from_settings(settings: &PersistedSettings) -
         lg: radius + 4.0,
         active_indicator: 2.0_f32.min(radius.max(1.0)),
     };
+    tokens.apply_density(match settings.appearance.ui_density {
+        oxideterm_settings::UiDensity::Compact => UiDensityProfile::Compact,
+        oxideterm_settings::UiDensity::Comfortable => UiDensityProfile::Comfortable,
+        oxideterm_settings::UiDensity::Spacious => UiDensityProfile::Spacious,
+    });
+    tokens.apply_motion(match settings.appearance.animation_speed {
+        oxideterm_settings::AnimationSpeed::Off => UiMotionProfile::Off,
+        oxideterm_settings::AnimationSpeed::Reduced => UiMotionProfile::Reduced,
+        oxideterm_settings::AnimationSpeed::Normal => UiMotionProfile::Normal,
+        oxideterm_settings::AnimationSpeed::Fast => UiMotionProfile::Fast,
+    });
     tokens
 }
 
@@ -1403,6 +1414,59 @@ pub(in crate::workspace) fn format_algorithm_list(algorithms: &[String]) -> Stri
 #[cfg(test)]
 mod helper_tests {
     use super::*;
+
+    #[test]
+    fn appearance_settings_reach_density_motion_and_radius_tokens() {
+        let mut settings = PersistedSettings::default();
+        settings.appearance.ui_density = oxideterm_settings::UiDensity::Compact;
+        settings.appearance.animation_speed = oxideterm_settings::AnimationSpeed::Off;
+        settings.appearance.border_radius = 2;
+
+        let tokens = tokens_from_settings(&settings);
+
+        assert_eq!(tokens.density, UiDensityProfile::Compact);
+        assert!(!tokens.motion.enabled);
+        assert_eq!(tokens.radii.md, 2.0);
+        assert_eq!(tokens.radii.xs, 0.0);
+    }
+
+    #[test]
+    fn representative_appearance_matrix_reaches_render_tokens() {
+        let themes = [
+            "default",
+            "paper-oxide",
+            "github-dark",
+            "nord",
+            "solarized-light",
+        ];
+        let densities = [
+            oxideterm_settings::UiDensity::Compact,
+            oxideterm_settings::UiDensity::Comfortable,
+            oxideterm_settings::UiDensity::Spacious,
+        ];
+        let radii = [0_i64, 6, 16];
+
+        for theme_id in themes {
+            for density in densities {
+                for radius in radii {
+                    let mut settings = PersistedSettings::default();
+                    settings.terminal.theme = theme_id.to_string();
+                    settings.appearance.ui_density = density;
+                    settings.appearance.border_radius = radius;
+                    settings.appearance.animation_speed = oxideterm_settings::AnimationSpeed::Off;
+
+                    let tokens = tokens_from_settings(&settings);
+
+                    assert_eq!(
+                        tokens.terminal,
+                        oxideterm_theme::theme_by_id(theme_id).terminal
+                    );
+                    assert_eq!(tokens.radii.md, radius as f32);
+                    assert!(!tokens.motion.enabled);
+                }
+            }
+        }
+    }
 
     #[test]
     pub(in crate::workspace) fn classifies_ssh_rsa_host_key_as_specific_legacy_case() {

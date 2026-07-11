@@ -171,7 +171,7 @@ impl WorkspaceApp {
             ai_stop_button(
                 &self.tokens,
                 self.i18n.t("ai.input.stop"),
-                Self::render_lucide_icon(LucideIcon::StopCircle, 12.0, rgb(0xef4444)),
+                Self::render_lucide_icon(LucideIcon::StopCircle, 12.0, rgb(self.tokens.ui.error)),
                 action_focused,
             )
         } else {
@@ -222,7 +222,6 @@ impl WorkspaceApp {
                 row.child(
                     div()
                         .text_size(px(9.0))
-                        .font_family(settings_ui_font_family(""))
                         .text_color(rgba((self.tokens.ui.text_muted << 8) | 0x33))
                         .child("SHIFT+ENTER"),
                 )
@@ -279,7 +278,7 @@ impl WorkspaceApp {
                         icon,
                         10.0,
                         rgb(if mode == AiSafetyMode::Bypass {
-                            0xfcd34d
+                            self.tokens.ui.warning
                         } else {
                             self.tokens.ui.accent
                         }),
@@ -397,7 +396,7 @@ impl WorkspaceApp {
             LucideIcon::ShieldCheck
         };
         let title_color = if bypass {
-            0xfcd34d
+            self.tokens.ui.warning
         } else {
             self.tokens.ui.text
         };
@@ -412,7 +411,7 @@ impl WorkspaceApp {
                 icon,
                 14.0,
                 rgb(if bypass {
-                    0xfcd34d
+                    self.tokens.ui.warning
                 } else {
                     self.tokens.ui.accent
                 }),
@@ -625,9 +624,9 @@ impl WorkspaceApp {
                 LucideIcon::Info,
                 12.0,
                 rgb(if usage.danger {
-                    0xef4444
+                    self.tokens.ui.error
                 } else if usage.warning {
-                    0xf59e0b
+                    self.tokens.ui.warning
                 } else {
                     self.tokens.ui.text_muted
                 }),
@@ -843,7 +842,6 @@ impl WorkspaceApp {
             .child(
                 div()
                     .text_size(px(11.0))
-                    .font_family(settings_ui_font_family(""))
                     .text_color(rgb(self.tokens.ui.text))
                     .child(self.render_selectable_text_scoped(
                         "ai-context-breakdown-value",
@@ -996,7 +994,7 @@ impl WorkspaceApp {
                         LucideIcon::SplitSquareHorizontal,
                         12.0,
                         rgb(if self.ai.chat.include_all_panes {
-                            0x3b82f6
+                            self.tokens.ui.info
                         } else {
                             self.tokens.ui.text_muted
                         }),
@@ -1018,7 +1016,7 @@ impl WorkspaceApp {
                 self.i18n.t("ai.input.ide_context"),
                 AiTone::Emerald,
                 true,
-                Self::render_lucide_icon(LucideIcon::Code2, 12.0, rgb(0x10b981)),
+                Self::render_lucide_icon(LucideIcon::Code2, 12.0, rgb(self.tokens.ui.success)),
             ));
         }
         if self.ai_has_sftp_context() {
@@ -1027,7 +1025,7 @@ impl WorkspaceApp {
                 self.i18n.t("ai.input.sftp_context"),
                 AiTone::Orange,
                 true,
-                Self::render_lucide_icon(LucideIcon::FolderOpen, 12.0, rgb(0xf97316)),
+                Self::render_lucide_icon(LucideIcon::FolderOpen, 12.0, rgb(self.tokens.ui.warning)),
             ));
         }
         chips.into_any_element()

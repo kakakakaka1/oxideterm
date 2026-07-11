@@ -213,7 +213,8 @@ use oxideterm_terminal::{
     TerminalLifecycle, scan_shells,
 };
 use oxideterm_theme::{
-    AppUiColors, TerminalTheme, ThemeTokens, UiRadii, derive_ui_colors_from_terminal, theme_by_id,
+    AppUiColors, TerminalTheme, ThemeTokens, UiDensityProfile, UiMotionProfile, UiRadii,
+    derive_ui_colors_from_terminal, theme_by_id,
 };
 use oxideterm_workspace::{
     ActiveSessionNode, ActiveSessionReadiness, ActiveSessionStatus,

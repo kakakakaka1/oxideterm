@@ -167,12 +167,12 @@ impl WorkspaceApp {
             .rounded(px(self.tokens.radii.md))
             .border_1()
             .border_color(if newer {
-                rgb(0x16a34a)
+                rgb(theme.success)
             } else {
                 rgb(theme.border)
             })
             .bg(if newer {
-                rgba((0x052e16 << 8) | SFTP_CONFLICT_NEWER_BG_ALPHA)
+                rgba((theme.success << 8) | SFTP_CONFLICT_NEWER_BG_ALPHA)
             } else {
                 rgb(theme.bg_panel)
             })
@@ -189,7 +189,7 @@ impl WorkspaceApp {
                         label.child(
                             div()
                                 .ml(px(8.0))
-                                .text_color(rgb(SFTP_GREEN))
+                                .text_color(rgb(theme.success))
                                 .child(self.i18n.t("sftp.conflict.newer")),
                         )
                     }),

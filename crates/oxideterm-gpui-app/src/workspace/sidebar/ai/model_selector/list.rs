@@ -151,7 +151,11 @@ impl WorkspaceApp {
                 Self::render_lucide_icon(
                     LucideIcon::Key,
                     10.0,
-                    rgb(if has_key { 0x34d399 } else { 0xfbbf24 }),
+                    rgb(if has_key {
+                        self.tokens.ui.success
+                    } else {
+                        self.tokens.ui.warning
+                    }),
                 ),
                 if has_key {
                     self.i18n.t("ai.model_selector.ok")

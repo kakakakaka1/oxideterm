@@ -753,7 +753,7 @@ impl WorkspaceApp {
                 )
                 .child(
                     div()
-                        .rounded_full()
+                        .rounded(px(self.tokens.radii.sm))
                         .bg(theme_input_bg(theme.bg, has_background))
                         .px_2()
                         .py(px(1.0))
@@ -931,7 +931,7 @@ impl WorkspaceApp {
                         LucideIcon::Play,
                         MANAGER_ROW_ACTION_BUTTON,
                         12.0,
-                        rgb(0x4ade80),
+                        rgb(self.tokens.ui.accent),
                         has_background,
                         move |this, _event, window, cx| {
                             this.open_saved_connection(&open_id, window, cx);
@@ -979,7 +979,7 @@ impl WorkspaceApp {
                         LucideIcon::Trash2,
                         MANAGER_ROW_ACTION_BUTTON,
                         12.0,
-                        rgb(0xf87171),
+                        rgb(self.tokens.ui.error),
                         has_background,
                         move |this, _event, _window, cx| {
                             this.request_delete_connection(&delete_id, cx);
@@ -999,7 +999,7 @@ impl WorkspaceApp {
                         LucideIcon::Play,
                         MANAGER_ROW_ACTION_BUTTON,
                         12.0,
-                        rgb(0x4ade80),
+                        rgb(self.tokens.ui.accent),
                         has_background,
                         move |this, _event, window, cx| {
                             this.open_saved_serial_profile(&open_id, window, cx);
@@ -1011,7 +1011,7 @@ impl WorkspaceApp {
                         LucideIcon::Trash2,
                         MANAGER_ROW_ACTION_BUTTON,
                         12.0,
-                        rgb(0xf87171),
+                        rgb(self.tokens.ui.error),
                         has_background,
                         move |this, _event, _window, cx| {
                             this.request_delete_serial_profile(&delete_id, cx);
@@ -1031,7 +1031,7 @@ impl WorkspaceApp {
                         LucideIcon::Play,
                         MANAGER_ROW_ACTION_BUTTON,
                         12.0,
-                        rgb(0x4ade80),
+                        rgb(self.tokens.ui.accent),
                         has_background,
                         move |this, _event, window, cx| {
                             this.open_saved_telnet_profile(&open_id, window, cx);
@@ -1043,7 +1043,7 @@ impl WorkspaceApp {
                         LucideIcon::Trash2,
                         MANAGER_ROW_ACTION_BUTTON,
                         12.0,
-                        rgb(0xf87171),
+                        rgb(self.tokens.ui.error),
                         has_background,
                         move |this, _event, _window, cx| {
                             this.request_delete_telnet_profile(&delete_id, cx);
@@ -1064,7 +1064,7 @@ impl WorkspaceApp {
                         LucideIcon::Play,
                         MANAGER_ROW_ACTION_BUTTON,
                         12.0,
-                        rgb(0x4ade80),
+                        rgb(self.tokens.ui.accent),
                         has_background,
                         move |this, _event, window, cx| {
                             this.open_saved_raw_tcp_profile(&open_id, window, cx);
@@ -1088,7 +1088,7 @@ impl WorkspaceApp {
                         LucideIcon::Trash2,
                         MANAGER_ROW_ACTION_BUTTON,
                         12.0,
-                        rgb(0xf87171),
+                        rgb(self.tokens.ui.error),
                         has_background,
                         move |this, _event, _window, cx| {
                             this.request_delete_raw_tcp_profile(&delete_id, cx);
@@ -1109,7 +1109,7 @@ impl WorkspaceApp {
                         LucideIcon::Play,
                         MANAGER_ROW_ACTION_BUTTON,
                         12.0,
-                        rgb(0x4ade80),
+                        rgb(self.tokens.ui.accent),
                         has_background,
                         move |this, _event, window, cx| {
                             this.open_saved_raw_udp_profile(&open_id, window, cx);
@@ -1133,7 +1133,7 @@ impl WorkspaceApp {
                         LucideIcon::Trash2,
                         MANAGER_ROW_ACTION_BUTTON,
                         12.0,
-                        rgb(0xf87171),
+                        rgb(self.tokens.ui.error),
                         has_background,
                         move |this, _event, _window, cx| {
                             this.request_delete_raw_udp_profile(&delete_id, cx);

@@ -174,28 +174,8 @@ impl WorkspaceApp {
         filter: FilesystemFilter,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let theme = self.tokens.ui;
         let active = self.connection_monitor.host_filesystem_filter == filter;
-        div()
-            .flex_none()
-            .h(px(24.0))
-            .px_2()
-            .flex()
-            .items_center()
-            .rounded(px(12.0))
-            .cursor_pointer()
-            .bg(if active {
-                rgb(theme.bg_hover)
-            } else {
-                rgba(0x00000000)
-            })
-            .text_size(px(11.0))
-            .text_color(if active {
-                rgb(theme.text)
-            } else {
-                rgb(theme.text_muted)
-            })
-            .hover(move |chip| chip.bg(rgb(theme.bg_hover)))
+        self.host_tools_filter_chip(active)
             .child(self.i18n.t(filesystem_filter_label_key(filter)))
             .on_mouse_down(
                 MouseButton::Left,

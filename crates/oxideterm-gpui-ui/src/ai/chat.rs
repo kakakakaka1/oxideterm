@@ -274,7 +274,7 @@ pub fn ai_stop_button(
         .py(px(tokens.spacing.one / 2.0))
         .rounded(px(tokens.radii.md))
         .bg(tone_bg(tokens, AiTone::Red, AI_CHIP_BG_ALPHA))
-        .text_color(rgb(AI_TW_RED))
+        .text_color(rgb(tokens.ui.error))
         .text_size(px(AI_TEXT_10))
         .font_weight(FontWeight::BOLD)
         .when(focus_visible, |button| {
@@ -330,7 +330,6 @@ pub fn ai_autocomplete_item(
         .child(
             div()
                 .flex_none()
-                .font_family(ai_font_family())
                 .text_color(bg_alpha(tokens, tokens.ui.accent, 0x99))
                 .child(format!("{}{}", prefix.into(), label.into())),
         )
@@ -374,7 +373,6 @@ pub fn ai_message_time(tokens: &ThemeTokens, label: impl Into<String>, user: boo
     div()
         .flex_none()
         .text_size(px(AI_TEXT_10))
-        .font_family(ai_font_family())
         .text_color(muted_text(tokens, AI_MUTED_TEXT_25_ALPHA))
         .when(user, |time| time.mr_auto())
         .when(!user, |time| time.ml_auto())
@@ -437,7 +435,7 @@ pub fn ai_message_action(
     danger: bool,
 ) -> Div {
     let color = if danger {
-        rgb(AI_TW_RED)
+        rgb(tokens.ui.error)
     } else {
         muted_text(tokens, AI_MUTED_TEXT_40_ALPHA)
     };
@@ -564,7 +562,6 @@ pub fn ai_thinking_header(
                 div()
                     .ml_auto()
                     .text_size(px(AI_TEXT_10))
-                    .font_family(ai_font_family())
                     .text_color(bg_alpha(tokens, tokens.ui.accent, 0x99))
                     .child("..."),
             )
@@ -584,7 +581,6 @@ pub fn ai_thinking_content(
         .pb(px(tokens.spacing.three))
         .text_size(px(AI_TEXT_12))
         .line_height(px(20.0))
-        .font_family(ai_font_family())
         .text_color(muted_text(tokens, AI_MUTED_TEXT_80_ALPHA))
         .whitespace_normal()
         .child(content.into())
@@ -649,7 +645,7 @@ pub fn ai_guardrail_block(
         .px(px(tokens.spacing.three))
         .py(px(tokens.spacing.two))
         .text_color(if strong {
-            rgb(0xfef3c7)
+            rgb(tokens.ui.warning)
         } else {
             rgb(tokens.ui.text_muted)
         })
@@ -690,7 +686,6 @@ pub fn ai_raw_block(
         .px(px(tokens.spacing.two))
         .py(px(tokens.spacing.one + tokens.spacing.one / 2.0))
         .text_size(px(AI_TEXT_10))
-        .font_family(ai_font_family())
         .text_color(muted_text(tokens, 0.65))
         .whitespace_normal()
         .child(content.into())

@@ -510,7 +510,6 @@ pub fn ai_agent_code_badge(tokens: &ThemeTokens, label: impl Into<String>) -> Di
         .px(px(tokens.spacing.one + tokens.spacing.one / 2.0))
         .py(px(tokens.spacing.one / 2.0))
         .text_size(px(AI_TEXT_12))
-        .font_family(ai_font_family())
         .text_color(rgb(tokens.ui.accent))
         .child(label.into())
 }
@@ -518,7 +517,6 @@ pub fn ai_agent_code_badge(tokens: &ThemeTokens, label: impl Into<String>) -> Di
 pub fn ai_agent_pre(tokens: &ThemeTokens, content: impl Into<String>, clamped: bool) -> Div {
     div()
         .text_size(px(AI_TEXT_12))
-        .font_family(ai_font_family())
         .text_color(rgb(tokens.ui.text_muted))
         .whitespace_normal()
         .when(clamped, |pre| pre.max_h(px(80.0)).overflow_hidden())
@@ -588,7 +586,6 @@ pub fn ai_agent_approval_args(
         .bg(rgb(tokens.ui.bg))
         .p(px(tokens.spacing.one + tokens.spacing.one / 2.0))
         .text_size(px(AI_TEXT_10))
-        .font_family(ai_font_family())
         .text_color(rgb(tokens.ui.text_muted))
         .whitespace_normal()
         .child(content.into())
@@ -636,7 +633,7 @@ pub fn ai_agent_progress_stack(
                         .h_full()
                         .rounded_full()
                         .bg(if failed {
-                            rgb(AI_TW_RED)
+                            rgb(tokens.ui.error)
                         } else {
                             rgb(tokens.ui.accent)
                         })

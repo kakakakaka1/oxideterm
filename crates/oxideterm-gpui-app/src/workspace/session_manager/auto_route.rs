@@ -511,11 +511,11 @@ impl WorkspaceApp {
         div()
             .rounded(px(self.tokens.radii.md))
             .border_1()
-            .border_color(rgba(0xef444433))
-            .bg(rgba(0xef44441a))
+            .border_color(rgba((self.tokens.ui.error << 8) | 0x33))
+            .bg(rgba((self.tokens.ui.error << 8) | 0x1a))
             .p_3()
             .text_size(px(self.tokens.metrics.ui_text_xs))
-            .text_color(rgb(0xf87171))
+            .text_color(rgb(self.tokens.ui.error))
             .child(error.to_string())
             .into_any_element()
     }
@@ -704,7 +704,7 @@ impl WorkspaceApp {
                             .bg(rgba((theme.bg << 8) | 0x80))
                             .px_2()
                             .py_1()
-                            .font_family("monospace")
+                            .font_family(settings_mono_font_family(self.settings_store.settings()))
                             .child(self.render_selectable_text_scoped(
                                 "auto-route-connection-info",
                                 &node.id,
@@ -726,13 +726,13 @@ impl WorkspaceApp {
                     )))
                     .when(node.auth_type == TopologyAuthType::Password, |details| {
                         details.child(
-                            div().text_color(rgb(0xf59e0b)).child(
+                            div().text_color(rgb(self.tokens.ui.warning)).child(
                                 self.render_selectable_text_scoped(
                                     "auto-route-password-warning",
                                     &node.id,
                                     self.i18n
                                         .t("sessionManager.auto_route.auth.password_warning"),
-                                    0xf59e0b,
+                                    self.tokens.ui.warning,
                                     cx,
                                 ),
                             ),

@@ -38,3 +38,4 @@ AGENTS.md
 tasks/*
 .deepseek/*
 docs/design/*
+docs/testing/visual-appearance-matrix.md

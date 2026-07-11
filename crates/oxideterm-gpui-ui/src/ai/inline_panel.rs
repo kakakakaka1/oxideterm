@@ -67,7 +67,6 @@ pub fn ai_inline_prompt_slot(tokens: &ThemeTokens, input: impl IntoElement) -> D
         .flex_1()
         .min_w_0()
         .text_size(px(tokens.metrics.ui_text_sm))
-        .font_family(ai_font_family())
         .text_color(rgb(tokens.ui.text))
         .child(input)
 }
@@ -97,7 +96,6 @@ pub fn ai_inline_kbd_hint(
                 .px(px(tokens.spacing.one))
                 .py(px(tokens.spacing.one / 2.0))
                 .text_size(px(AI_INLINE_KBD_TEXT_SIZE))
-                .font_family(ai_font_family())
                 .child(key.into()),
         )
         .child(label.into())
@@ -162,7 +160,6 @@ pub fn ai_inline_command_preview(
         .px(px(tokens.spacing.three))
         .py(px(tokens.spacing.two))
         .text_size(px(tokens.metrics.ui_text_sm))
-        .font_family(ai_font_family())
         .text_color(rgb(tokens.ui.accent))
         .whitespace_normal()
         .child(content)

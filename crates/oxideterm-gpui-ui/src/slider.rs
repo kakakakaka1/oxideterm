@@ -51,8 +51,8 @@ pub fn slider(tokens: &ThemeTokens, view: SliderView) -> Div {
                 .size(px(thumb))
                 .rounded_full()
                 .border_1()
-                .border_color(rgba(0x00000033))
-                .bg(rgb(0xffffff))
+                .border_color(rgb(tokens.ui.border))
+                .bg(rgb(tokens.ui.bg_elevated))
                 .left(relative(pct))
                 .ml(px(-thumb / 2.0)),
         )

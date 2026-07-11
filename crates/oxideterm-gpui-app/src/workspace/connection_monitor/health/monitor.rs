@@ -429,7 +429,7 @@ impl WorkspaceApp {
                         div()
                             .min_w(px(0.0))
                             .truncate()
-                            .font_family("monospace")
+                            .font_family(settings_mono_font_family(self.settings_store.settings()))
                             .child(self.render_monitor_text(
                                 !compact,
                                 "monitor-metric-source",
@@ -717,7 +717,7 @@ impl WorkspaceApp {
                     .flex_none()
                     .max_w(relative(COMPACT_MONITOR_VALUE_MAX_WIDTH_RATIO))
                     .truncate()
-                    .font_family("monospace")
+                    .font_family(settings_mono_font_family(self.settings_store.settings()))
                     .text_align(gpui::TextAlign::Right)
                     .text_color(rgb(value_color))
                     .child(value),
@@ -776,7 +776,7 @@ impl WorkspaceApp {
                     .items_center()
                     .justify_end()
                     .gap(px(8.0))
-                    .font_family("monospace")
+                    .font_family(settings_mono_font_family(self.settings_store.settings()))
                     .child(
                         div()
                             .flex_none()
@@ -833,7 +833,7 @@ impl WorkspaceApp {
             .min_w_0()
             .px(px(COMPACT_MONITOR_ROW_SIDE_PADDING))
             .text_size(px(11.0))
-            .font_family("monospace")
+            .font_family(settings_mono_font_family(self.settings_store.settings()))
             .child(
                 div()
                     .w_full()
@@ -909,7 +909,7 @@ impl WorkspaceApp {
                     )
                     .child(
                         div()
-                            .font_family("monospace")
+                            .font_family(settings_mono_font_family(self.settings_store.settings()))
                             .text_size(px(12.0))
                             .text_color(rgb(color))
                             .child(self.render_monitor_text(
@@ -1009,7 +1009,7 @@ impl WorkspaceApp {
                     .flex()
                     .items_center()
                     .justify_between()
-                    .font_family("monospace")
+                    .font_family(settings_mono_font_family(self.settings_store.settings()))
                     .text_size(px(12.0))
                     .child(
                         div()
@@ -1167,7 +1167,7 @@ impl WorkspaceApp {
                             .flex_1()
                             .truncate()
                             .whitespace_nowrap()
-                            .font_family("monospace")
+                            .font_family(settings_mono_font_family(self.settings_store.settings()))
                             .text_color(rgb(theme.text))
                             .child(self.render_monitor_text(
                                 selectable,
@@ -1184,7 +1184,7 @@ impl WorkspaceApp {
                             .max_w(px(180.0))
                             .truncate()
                             .whitespace_nowrap()
-                            .font_family("monospace")
+                            .font_family(settings_mono_font_family(self.settings_store.settings()))
                             .text_color(rgb(value_color))
                             .child(self.render_monitor_text(
                                 selectable,
@@ -1236,7 +1236,7 @@ impl WorkspaceApp {
             )
             .child(
                 div()
-                    .font_family("monospace")
+                    .font_family(settings_mono_font_family(self.settings_store.settings()))
                     .text_size(px(12.0))
                     .text_color(rgb(value_color))
                     .child(self.render_monitor_text(

@@ -328,14 +328,14 @@ impl WorkspaceApp {
                                             .gap(px(4.0))
                                             .rounded(px(self.tokens.radii.md))
                                             .border_1()
-                                            .border_color(rgba(0xf973164d))
-                                            .bg(rgba(0xf973161a))
+                                            .border_color(rgba((theme.accent << 8) | 0x4d))
+                                            .bg(rgba((theme.accent << 8) | 0x1a))
                                             .text_size(px(11.0))
-                                            .text_color(rgba(0xfdba74ff))
+                                            .text_color(rgb(theme.accent))
                                             .child(Self::render_lucide_icon(
                                                 LucideIcon::Radio,
                                                 12.0,
-                                                rgba(0xfdba74ff),
+                                                rgb(theme.accent),
                                             ))
                                             .child(broadcast_label),
                                     )
@@ -379,13 +379,13 @@ impl WorkspaceApp {
                                 self.terminal_command_action_button(
                                     LucideIcon::Radio,
                                     if self.terminal_broadcast_enabled {
-                                        rgba(0xfb923cff)
+                                        rgb(theme.accent)
                                     } else {
                                         rgb(theme.text_muted)
                                     },
                                     false,
                                     Some(if self.terminal_broadcast_enabled {
-                                        rgba(0xf9731626)
+                                        rgba((theme.accent << 8) | 0x26)
                                     } else {
                                         rgba((theme.bg_hover << 8) | 0x00)
                                     }),
@@ -432,13 +432,13 @@ impl WorkspaceApp {
                             .child(self.terminal_command_action_button(
                                 LucideIcon::Clock,
                                 if timestamps_active {
-                                    rgba(0x22d3eeff)
+                                    rgb(theme.accent)
                                 } else {
                                     rgb(theme.text_muted)
                                 },
                                 false,
                                 Some(if timestamps_active {
-                                    rgba(0x22d3ee26)
+                                    rgba((theme.accent << 8) | 0x26)
                                 } else {
                                     rgba(0x00000000)
                                 }),
@@ -458,14 +458,14 @@ impl WorkspaceApp {
                                         .gap(px(4.0))
                                         .rounded(px(self.tokens.radii.md))
                                         .border_1()
-                                        .border_color(rgba(0xef44444d))
-                                        .bg(rgba(0xef44441a))
+                                        .border_color(rgba((theme.error << 8) | 0x4d))
+                                        .bg(rgba((theme.error << 8) | 0x1a))
                                         .text_size(px(11.0))
-                                        .text_color(rgba(0xfca5a5ff))
+                                        .text_color(rgb(theme.error))
                                         .child(Self::render_lucide_icon(
                                             LucideIcon::Circle,
                                             10.0,
-                                            rgba(0xfca5a5ff),
+                                            rgb(theme.error),
                                         ))
                                         .child(format_recording_elapsed(recording_status.elapsed)),
                                 )
@@ -476,13 +476,13 @@ impl WorkspaceApp {
                                     _ => LucideIcon::Circle,
                                 },
                                 if recording_active {
-                                    rgba(0xf87171ff)
+                                    rgb(theme.error)
                                 } else {
                                     rgb(theme.text_muted)
                                 },
                                 false,
                                 Some(if recording_active {
-                                    rgba(0xef444426)
+                                    rgba((theme.error << 8) | 0x26)
                                 } else {
                                     rgba(0x00000000)
                                 }),
@@ -506,7 +506,7 @@ impl WorkspaceApp {
                                 actions
                                     .child(self.terminal_command_action_button(
                                         LucideIcon::Square,
-                                        rgba(0xf87171ff),
+                                        rgb(theme.error),
                                         false,
                                         None,
                                         |this, _event, _window, cx| {
@@ -517,7 +517,7 @@ impl WorkspaceApp {
                                     ))
                                     .child(self.terminal_command_action_button(
                                         LucideIcon::Trash2,
-                                        rgba(0xf87171ff),
+                                        rgb(theme.error),
                                         false,
                                         None,
                                         |this, _event, _window, cx| {
@@ -768,12 +768,12 @@ impl WorkspaceApp {
                     .rounded(px(self.tokens.radii.md))
                     .text_color(row_color)
                     .child(if checked {
-                        Self::render_lucide_icon(LucideIcon::Check, 12.0, rgba(0xfb923cff))
+                        Self::render_lucide_icon(LucideIcon::Check, 12.0, rgb(theme.accent))
                     } else if is_current {
                         div()
                             .size(px(12.0))
                             .rounded_full()
-                            .bg(rgba(0xfb923cff))
+                            .bg(rgb(theme.accent))
                             .into_any_element()
                     } else {
                         div().size(px(12.0)).into_any_element()
@@ -798,8 +798,8 @@ impl WorkspaceApp {
                                 .py(px(1.0))
                                 .rounded(px(self.tokens.radii.md))
                                 .text_size(px(10.0))
-                                .text_color(rgba(0xfb923cff))
-                                .bg(rgba(0xf9731626))
+                                .text_color(rgb(theme.accent))
+                                .bg(rgba((theme.accent << 8) | 0x26))
                                 .child(self.i18n.t("terminal.broadcast.current")),
                         )
                     });
@@ -871,7 +871,7 @@ impl WorkspaceApp {
                         footer.child(
                             div()
                                 .text_size(px(10.0))
-                                .text_color(rgba(0xfb923cff))
+                                .text_color(rgb(theme.accent))
                                 .child(self.i18n.t("terminal.broadcast.target_count")),
                         )
                     }),

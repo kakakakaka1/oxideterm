@@ -63,10 +63,7 @@ pub fn entity_list_row(
     badges: Vec<AnyElement>,
     trailing: Vec<AnyElement>,
 ) -> Div {
-    let min_height = match options.density {
-        EntityListRowDensity::Compact => 32.0,
-        EntityListRowDensity::Normal => 42.0,
-    };
+    let min_height = entity_list_row_min_height(tokens, options.density);
     let padding = match options.density {
         EntityListRowDensity::Compact => SurfacePadding::Compact,
         EntityListRowDensity::Normal => SurfacePadding::Normal,
@@ -130,6 +127,15 @@ pub fn entity_list_row(
     row
 }
 
+fn entity_list_row_min_height(tokens: &ThemeTokens, density: EntityListRowDensity) -> f32 {
+    match density {
+        EntityListRowDensity::Compact => tokens.metrics.ui_button_sm_height + tokens.spacing.one,
+        EntityListRowDensity::Normal => {
+            tokens.metrics.ui_button_default_height + tokens.spacing.one + tokens.spacing.one / 2.0
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -155,5 +161,21 @@ mod tests {
         assert!(options.disabled);
         assert_eq!(options.density, EntityListRowDensity::Compact);
         assert!(options.has_background_image);
+    }
+
+    #[test]
+    fn entity_list_row_height_follows_theme_density() {
+        let comfortable = oxideterm_theme::default_tokens();
+        let mut compact = comfortable;
+        compact.apply_density(oxideterm_theme::UiDensityProfile::Compact);
+
+        assert_eq!(
+            entity_list_row_min_height(&comfortable, EntityListRowDensity::Normal),
+            42.0
+        );
+        assert!(
+            entity_list_row_min_height(&compact, EntityListRowDensity::Normal)
+                < entity_list_row_min_height(&comfortable, EntityListRowDensity::Normal)
+        );
     }
 }

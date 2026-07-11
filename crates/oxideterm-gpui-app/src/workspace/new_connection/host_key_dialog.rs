@@ -244,18 +244,22 @@ impl WorkspaceApp {
                                     .rounded(px(self.tokens.radii.md))
                                     .border_1()
                                     .border_color(if changed {
-                                        rgba(0xef444480)
+                                        rgba((theme.error << 8) | 0x80)
                                     } else {
-                                        rgba(0xf59e0b80)
+                                        rgba((theme.warning << 8) | 0x80)
                                     })
                                     .bg(if changed {
-                                        rgba(0x7f1d1d66)
+                                        rgba((theme.error << 8) | 0x18)
                                     } else {
-                                        rgba(0x78350f44)
+                                        rgba((theme.warning << 8) | 0x14)
                                     })
                                     .p(px(12.0))
                                     .text_size(px(self.tokens.metrics.form_text_font_size))
-                                    .text_color(rgb(theme.text))
+                                    .text_color(rgb(if changed {
+                                        theme.error
+                                    } else {
+                                        theme.warning
+                                    }))
                                     .child(message),
                             )
                             .when(!key_type.is_empty(), |body| {

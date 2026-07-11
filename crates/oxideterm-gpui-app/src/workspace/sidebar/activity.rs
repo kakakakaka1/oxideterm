@@ -99,10 +99,19 @@ impl WorkspaceApp {
                     .bg(rgb(theme.divider)),
             );
 
+        let mut primary_items = div()
+            .id("activity-primary-items")
+            .min_h_0()
+            .flex_1()
+            .w_full()
+            .overflow_y_scroll()
+            .flex()
+            .flex_col()
+            .items_center();
         for (section, icon) in top_items_before_plugins {
-            bar = bar.child(self.render_activity_icon(section, icon, cx));
+            primary_items = primary_items.child(self.render_activity_icon(section, icon, cx));
         }
-        bar = bar.child(self.render_activity_icon(
+        primary_items = primary_items.child(self.render_activity_icon(
             SidebarSection::Extensions,
             LucideIcon::Puzzle,
             cx,
@@ -115,10 +124,11 @@ impl WorkspaceApp {
             .contributions()
             .runtime_sidebar_panels()
         {
-            bar = bar.child(self.render_plugin_sidebar_activity_icon(panel, cx));
+            primary_items =
+                primary_items.child(self.render_plugin_sidebar_activity_icon(panel, cx));
         }
         for (section, icon) in top_items_after_plugins {
-            bar = bar.child(self.render_activity_icon(section, icon, cx));
+            primary_items = primary_items.child(self.render_activity_icon(section, icon, cx));
         }
 
         let mut bottom = div()
@@ -141,7 +151,7 @@ impl WorkspaceApp {
             bottom = bottom.child(popover);
         }
 
-        bar.child(div().flex_1()).child(bottom).into_any_element()
+        bar.child(primary_items).child(bottom).into_any_element()
     }
 
     pub(in crate::workspace) fn render_activity_icon(
@@ -217,12 +227,17 @@ impl WorkspaceApp {
                 || (!self.notification_center.event_log.dnd_enabled
                     && self.notification_center.event_log.unread_errors > 0));
         let badge_color = if badge_is_error {
-            0xef4444
+            theme.error
         } else if section == SidebarSection::Workspace && !self.detached_local_terminals.is_empty()
         {
-            0xf59e0b
+            theme.warning
         } else {
             theme.accent
+        };
+        let badge_text_color = if badge_color == theme.accent {
+            theme.accent_text
+        } else {
+            theme.bg
         };
 
         // Tauri renders activity entries through the shared Button primitive:
@@ -282,7 +297,7 @@ impl WorkspaceApp {
                         .justify_center()
                         .rounded_full()
                         .bg(rgb(badge_color))
-                        .text_color(rgb(0xffffff))
+                        .text_color(rgb(badge_text_color))
                         .text_size(px(9.0))
                         .child(if badge_count > 99 {
                             "99+".to_string()

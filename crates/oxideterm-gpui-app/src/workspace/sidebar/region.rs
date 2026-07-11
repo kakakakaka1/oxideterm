@@ -546,8 +546,16 @@ impl WorkspaceApp {
                         .items_center()
                         .justify_center()
                         .rounded_full()
-                        .bg(rgb(if badge_error { 0xef4444 } else { theme.accent }))
-                        .text_color(rgb(0xffffff))
+                        .bg(rgb(if badge_error {
+                            theme.error
+                        } else {
+                            theme.accent
+                        }))
+                        .text_color(rgb(if badge_error {
+                            theme.bg
+                        } else {
+                            theme.accent_text
+                        }))
                         .text_size(px(9.0))
                         .child(if badge_count > 99 {
                             "99+".to_string()
@@ -626,16 +634,16 @@ impl WorkspaceApp {
                         div()
                             .border_b_1()
                             .border_color(rgb(theme.border))
-                            .bg(rgba(0xf59e0b1a))
+                            .bg(rgba((theme.warning << 8) | 0x1a))
                             .px_3()
                             .py_2()
                             .text_size(px(11.0))
-                            .text_color(rgb(0xfbbf24))
+                            .text_color(rgb(theme.warning))
                             .child(self.render_selectable_display_text(
                                 "notifications-dnd",
                                 (),
                                 "Do Not Disturb is on".to_string(),
-                                0xfbbf24,
+                                theme.warning,
                                 cx,
                             )),
                     )
@@ -807,16 +815,16 @@ impl WorkspaceApp {
                     div()
                         .border_b_1()
                         .border_color(rgb(theme.border))
-                        .bg(rgba(0xf59e0b1a))
+                        .bg(rgba((theme.warning << 8) | 0x1a))
                         .px_3()
                         .py_2()
                         .text_size(px(11.0))
-                        .text_color(rgb(0xfbbf24))
+                        .text_color(rgb(theme.warning))
                         .child(self.render_selectable_display_text(
                             "event-log-dnd",
                             (),
                             self.i18n.t("event_log.dnd.on"),
-                            0xfbbf24,
+                            theme.warning,
                             cx,
                         )),
                 )
@@ -919,10 +927,15 @@ impl WorkspaceApp {
                     .items_center()
                     .gap(px(6.0))
                     .text_size(px(10.0))
-                    .child(self.render_count_chip(LucideIcon::AlertCircle, 0xef4444, counts.2, cx))
+                    .child(self.render_count_chip(
+                        LucideIcon::AlertCircle,
+                        theme.error,
+                        counts.2,
+                        cx,
+                    ))
                     .child(self.render_count_chip(
                         LucideIcon::AlertTriangle,
-                        0xf59e0b,
+                        theme.warning,
                         counts.1,
                         cx,
                     ))
@@ -1092,9 +1105,9 @@ impl WorkspaceApp {
         let id = entry.id;
         let (icon, accent) = match entry.severity {
             WorkspaceNotificationSeverity::Info => (LucideIcon::Info, theme.accent),
-            WorkspaceNotificationSeverity::Warning => (LucideIcon::AlertTriangle, 0xf59e0b),
-            WorkspaceNotificationSeverity::Error => (LucideIcon::AlertCircle, 0xef4444),
-            WorkspaceNotificationSeverity::Critical => (LucideIcon::Shield, 0xef4444),
+            WorkspaceNotificationSeverity::Warning => (LucideIcon::AlertTriangle, theme.warning),
+            WorkspaceNotificationSeverity::Error => (LucideIcon::AlertCircle, theme.error),
+            WorkspaceNotificationSeverity::Critical => (LucideIcon::Shield, theme.error),
         };
         let kind = notification_kind_label(entry.kind);
         let status_unread = entry.status == WorkspaceNotificationStatus::Unread;
@@ -1254,8 +1267,8 @@ impl WorkspaceApp {
         let theme = self.tokens.ui;
         let (icon, accent) = match entry.severity {
             WorkspaceEventSeverity::Info => (LucideIcon::Info, theme.accent),
-            WorkspaceEventSeverity::Warn => (LucideIcon::AlertTriangle, 0xf59e0b),
-            WorkspaceEventSeverity::Error => (LucideIcon::AlertCircle, 0xef4444),
+            WorkspaceEventSeverity::Warn => (LucideIcon::AlertTriangle, theme.warning),
+            WorkspaceEventSeverity::Error => (LucideIcon::AlertCircle, theme.error),
         };
         let category = match entry.category {
             WorkspaceEventCategory::Connection => "connection",

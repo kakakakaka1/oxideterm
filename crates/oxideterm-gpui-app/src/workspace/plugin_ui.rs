@@ -561,7 +561,9 @@ impl WorkspaceApp {
             .py(px(8.0))
             .text_size(px(self.tokens.metrics.ui_text_sm))
             .text_color(rgb(theme.text))
-            .when(code, |block| block.font_family("monospace"))
+            .when(code, |block| {
+                block.font_family(settings_mono_font_family(self.settings_store.settings()))
+            })
             .child(native_plugin_control_text(control))
             .into_any_element()
     }

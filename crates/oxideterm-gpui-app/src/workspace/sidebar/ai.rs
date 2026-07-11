@@ -57,7 +57,6 @@ use oxideterm_gpui_ui::{
     button::{ButtonRadius, ButtonVariant, IconButtonOptions, ToolbarButtonOptions},
     context_menu::{ContextMenuActionableStyle, context_menu_action, context_menu_actionable_row},
     modal::overlay_content_boundary,
-    tauri_ui_font_family as settings_ui_font_family,
     text_input::{
         text_caret, text_input, text_input_anchor_probe, text_input_value_segments_with_color,
     },

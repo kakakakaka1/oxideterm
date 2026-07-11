@@ -1347,7 +1347,7 @@ impl WorkspaceApp {
             .px(px(6.0))
             .py(px(2.0))
             .text_size(px(12.0))
-            .font_family("monospace")
+            .font_family(settings_mono_font_family(self.settings_store.settings()))
             .font_weight(gpui::FontWeight::SEMIBOLD)
             .text_color(rgb(self.tokens.ui.accent))
             .child(match mode {

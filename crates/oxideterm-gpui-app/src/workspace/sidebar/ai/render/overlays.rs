@@ -365,7 +365,6 @@ impl WorkspaceApp {
                     .child(
                         div()
                             .text_size(px(9.0))
-                            .font_family(settings_ui_font_family(""))
                             .text_color(rgba((self.tokens.ui.text_muted << 8) | 0x66))
                             .child(meta),
                     ),
@@ -380,8 +379,8 @@ impl WorkspaceApp {
                     .text_color(rgb(self.tokens.ui.text_muted))
                     .hover(|style| {
                         style
-                            .bg(rgba((0xef4444_u32 << 8) | 0x1a))
-                            .text_color(rgb(0xef4444))
+                            .bg(rgba((self.tokens.ui.error << 8) | 0x1a))
+                            .text_color(rgb(self.tokens.ui.error))
                     })
                     .child(Self::render_lucide_icon(
                         LucideIcon::Trash2,
@@ -452,7 +451,7 @@ impl WorkspaceApp {
             .py(px(7.0))
             .text_size(px(12.0))
             .text_color(if destructive {
-                rgb(0xef4444)
+                rgb(self.tokens.ui.error)
             } else {
                 rgb(self.tokens.ui.text_muted)
             })
@@ -460,7 +459,7 @@ impl WorkspaceApp {
                 icon,
                 14.0,
                 if destructive {
-                    rgb(0xef4444)
+                    rgb(self.tokens.ui.error)
                 } else {
                     rgb(self.tokens.ui.text_muted)
                 },
@@ -473,7 +472,7 @@ impl WorkspaceApp {
                     label.clone(),
                     label,
                     if destructive {
-                        0xef4444
+                        self.tokens.ui.error
                     } else {
                         self.tokens.ui.text_muted
                     },
@@ -487,7 +486,7 @@ impl WorkspaceApp {
             false,
             false,
             Some(if destructive {
-                rgba((0xef4444_u32 << 8) | 0x1a)
+                rgba((self.tokens.ui.error << 8) | 0x1a)
             } else {
                 rgba((self.tokens.ui.border << 8) | 0x1a)
             }),

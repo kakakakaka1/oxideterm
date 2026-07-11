@@ -1,4 +1,4 @@
-use gpui::{Div, ParentElement, SharedString, Styled, div, px, rgb, rgba};
+use gpui::{Div, ParentElement, Styled, div, px, rgb, rgba};
 use oxideterm_theme::ThemeTokens;
 
 pub const FONT_SIZE_HUD_DURATION_MS: u64 = 1200;
@@ -26,7 +26,7 @@ pub fn font_size_hud(tokens: &ThemeTokens, size: f32) -> Div {
                     div()
                         .flex()
                         .items_end()
-                        .font_family(SharedString::from("SF Mono"))
+                        // Inherit the configured terminal font from the HUD owner.
                         .text_size(px(tokens.metrics.ui_text_2xl))
                         .font_weight(gpui::FontWeight::SEMIBOLD)
                         .text_color(rgb(tokens.ui.text))

@@ -22,6 +22,19 @@ pub struct TauriTableMetrics {
     pub header_text_size: f32,
 }
 
+impl TauriTableMetrics {
+    pub fn from_tokens(tokens: &ThemeTokens) -> Self {
+        // Table geometry follows the active density while type remains stable.
+        Self {
+            header_min_height: tokens.metrics.ui_button_default_height,
+            row_min_height: tokens.metrics.ui_button_default_height,
+            padding_x: tokens.spacing.two,
+            padding_y: tokens.spacing.one + tokens.spacing.one / 2.0,
+            header_text_size: tokens.metrics.ui_text_xs,
+        }
+    }
+}
+
 impl Default for TauriTableMetrics {
     fn default() -> Self {
         Self {
@@ -164,9 +177,44 @@ pub fn tauri_table_sort_header(
         .pl(px(options.padding_left))
         .flex()
         .items_center()
-        .gap(px(4.0))
+        .gap(px(tokens.spacing.one))
         .cursor_pointer()
         .hover(move |cell| cell.text_color(rgb(tokens.ui.text)))
         .child(div().truncate().child(label.into()))
         .child(icon)
+}
+
+#[cfg(test)]
+mod tests {
+    use oxideterm_theme::{UiDensityProfile, default_tokens};
+
+    use super::*;
+
+    #[test]
+    fn table_metrics_follow_theme_density() {
+        let comfortable = default_tokens();
+        let mut compact = comfortable;
+        compact.apply_density(UiDensityProfile::Compact);
+
+        let comfortable_metrics = TauriTableMetrics::from_tokens(&comfortable);
+        let compact_metrics = TauriTableMetrics::from_tokens(&compact);
+
+        assert!(compact_metrics.row_min_height < comfortable_metrics.row_min_height);
+        assert!(compact_metrics.padding_x < comfortable_metrics.padding_x);
+        assert_eq!(
+            compact_metrics.header_text_size,
+            comfortable_metrics.header_text_size
+        );
+    }
+
+    #[test]
+    fn legacy_default_table_metrics_remain_compatible() {
+        let metrics = TauriTableMetrics::default();
+
+        assert_eq!(metrics.header_min_height, 35.0);
+        assert_eq!(metrics.row_min_height, 36.0);
+        assert_eq!(metrics.padding_x, 8.0);
+        assert_eq!(metrics.padding_y, 6.0);
+        assert_eq!(metrics.header_text_size, 12.0);
+    }
 }

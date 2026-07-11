@@ -305,7 +305,6 @@ impl WorkspaceApp {
                             .min_w(px(28.0))
                             .text_align(gpui::TextAlign::Center)
                             .text_size(px(10.0))
-                            .font_family(settings_ui_font_family(""))
                             .text_color(rgba((self.tokens.ui.text_muted << 8) | 0x80))
                             .child(self.render_display_text_with_role_and_alpha(
                                 SelectableTextRole::PlainDocument,
@@ -853,7 +852,7 @@ impl WorkspaceApp {
             Self::render_lucide_icon(
                 LucideIcon::AlertTriangle,
                 14.0,
-                rgba((0xf59e0b << 8) | 0xe6),
+                rgba((self.tokens.ui.warning << 8) | 0xe6),
             ),
         );
         if let Some(raw_text) = raw_text {
@@ -1337,7 +1336,11 @@ impl WorkspaceApp {
                         &self.tokens,
                         self.i18n.t("ai.tool_use.approve"),
                         true,
-                        Self::render_lucide_icon(LucideIcon::Check, 11.0, rgb(0x22c55e)),
+                        Self::render_lucide_icon(
+                            LucideIcon::Check,
+                            11.0,
+                            rgb(self.tokens.ui.success),
+                        ),
                     )
                     .on_mouse_down(
                         MouseButton::Left,
@@ -1350,7 +1353,7 @@ impl WorkspaceApp {
                         &self.tokens,
                         self.i18n.t("ai.tool_use.reject"),
                         false,
-                        Self::render_lucide_icon(LucideIcon::X, 11.0, rgb(0xef4444)),
+                        Self::render_lucide_icon(LucideIcon::X, 11.0, rgb(self.tokens.ui.error)),
                     )
                     .on_mouse_down(
                         MouseButton::Left,
@@ -1952,12 +1955,12 @@ pub(in crate::workspace) fn ai_tool_status_color(
     status: AiToolStatus,
 ) -> u32 {
     match status {
-        AiToolStatus::Completed => 0x22c55e,
-        AiToolStatus::Error => 0xef4444,
+        AiToolStatus::Completed => tokens.ui.success,
+        AiToolStatus::Error => tokens.ui.error,
         AiToolStatus::Rejected => tokens.ui.text_muted,
-        AiToolStatus::PendingApproval => 0xf59e0b,
+        AiToolStatus::PendingApproval => tokens.ui.warning,
         AiToolStatus::Running | AiToolStatus::Approved => tokens.ui.accent,
-        AiToolStatus::Pending => 0xeab308,
+        AiToolStatus::Pending => tokens.ui.warning,
     }
 }
 

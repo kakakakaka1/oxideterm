@@ -1,16 +1,6 @@
 use gpui::{Rgba, rgba};
 use oxideterm_theme::ThemeTokens;
 
-pub(super) const AI_TW_RED: u32 = 0xef4444;
-pub(super) const AI_TW_AMBER: u32 = 0xf59e0b;
-pub(super) const AI_TW_YELLOW: u32 = 0xeab308;
-pub(super) const AI_TW_GREEN: u32 = 0x22c55e;
-pub(super) const AI_TW_EMERALD: u32 = 0x10b981;
-pub(super) const AI_TW_SKY: u32 = 0x0ea5e9;
-pub(super) const AI_TW_BLUE: u32 = 0x3b82f6;
-pub(super) const AI_TW_ORANGE: u32 = 0xf97316;
-pub(super) const AI_TW_VIOLET: u32 = 0x8b5cf6;
-
 pub(super) const AI_PANEL_BORDER_ALPHA: u32 = 0x80; // Tauri border-theme-border/50.
 pub(super) const AI_HEADER_BORDER_ALPHA: u32 = 0x4d; // Tauri border-theme-border/30.
 pub(super) const AI_CHAT_INPUT_BORDER_ALPHA: u32 = 0x66; // Tauri border-theme-border/40.
@@ -141,16 +131,12 @@ pub struct AiToolCallView {
 pub(super) fn tone_color(tokens: &ThemeTokens, tone: AiTone) -> u32 {
     match tone {
         AiTone::Accent => tokens.ui.accent,
-        AiTone::Amber => AI_TW_AMBER,
-        AiTone::Blue => AI_TW_BLUE,
-        AiTone::Emerald => AI_TW_EMERALD,
-        AiTone::Green => AI_TW_GREEN,
+        AiTone::Amber | AiTone::Orange | AiTone::Yellow => tokens.ui.warning,
+        AiTone::Blue | AiTone::Sky => tokens.ui.info,
+        AiTone::Emerald | AiTone::Green => tokens.ui.success,
         AiTone::Muted => tokens.ui.text_muted,
-        AiTone::Orange => AI_TW_ORANGE,
-        AiTone::Red => AI_TW_RED,
-        AiTone::Sky => AI_TW_SKY,
-        AiTone::Violet => AI_TW_VIOLET,
-        AiTone::Yellow => AI_TW_YELLOW,
+        AiTone::Red => tokens.ui.error,
+        AiTone::Violet => tokens.ui.accent_secondary,
     }
 }
 
@@ -171,10 +157,6 @@ pub(super) fn muted_text(tokens: &ThemeTokens, opacity: f32) -> Rgba {
     rgba((tokens.ui.text_muted << 8) | ((opacity.clamp(0.0, 1.0) * 255.0).round() as u32))
 }
 
-pub(super) fn ai_font_family() -> gpui::SharedString {
-    crate::tauri_ui_font_family("")
-}
-
 pub(super) fn risk_tone(risk: AiToolRisk) -> AiTone {
     match risk {
         AiToolRisk::Read => AiTone::Sky,
@@ -185,6 +167,26 @@ pub(super) fn risk_tone(risk: AiToolRisk) -> AiTone {
         AiToolRisk::NetworkExpose => AiTone::Orange,
         AiToolRisk::SettingsChange => AiTone::Yellow,
         AiToolRisk::CredentialSensitive => AiTone::Red,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use oxideterm_theme::default_tokens;
+
+    #[test]
+    fn ai_tones_follow_theme_semantic_colors() {
+        let tokens = default_tokens();
+
+        assert_eq!(tone_color(&tokens, AiTone::Red), tokens.ui.error);
+        assert_eq!(tone_color(&tokens, AiTone::Amber), tokens.ui.warning);
+        assert_eq!(tone_color(&tokens, AiTone::Sky), tokens.ui.info);
+        assert_eq!(tone_color(&tokens, AiTone::Green), tokens.ui.success);
+        assert_eq!(
+            tone_color(&tokens, AiTone::Violet),
+            tokens.ui.accent_secondary
+        );
     }
 }
 

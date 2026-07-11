@@ -239,7 +239,7 @@ impl WorkspaceApp {
             .child(div().flex_1())
             .child(
                 div()
-                    .font_family("monospace")
+                    .font_family(settings_mono_font_family(self.settings_store.settings()))
                     .text_size(px(10.0))
                     .text_color(rgb(theme.text_muted))
                     .child(format!("{filtered_count} distros")),
@@ -481,7 +481,9 @@ impl WorkspaceApp {
                                     .py(px(2.0))
                                     .rounded(px(self.tokens.radii.sm))
                                     .bg(rgba((theme.accent << 8) | LAUNCHER_WSL_ACCENT_ALPHA_20))
-                                    .font_family("monospace")
+                                    .font_family(settings_mono_font_family(
+                                        self.settings_store.settings(),
+                                    ))
                                     .text_size(px(LAUNCHER_WSL_BADGE_TEXT_SIZE))
                                     .text_color(rgb(theme.accent))
                                     .child("DEFAULT"),
@@ -755,7 +757,9 @@ impl WorkspaceApp {
                         text.child(
                             div()
                                 .mt(px(4.0))
-                                .font_family("monospace")
+                                .font_family(settings_mono_font_family(
+                                    self.settings_store.settings(),
+                                ))
                                 .text_size(px(10.0))
                                 .text_color(rgba(
                                     (theme.text_muted << 8) | LAUNCHER_TEXT_MUTED_60_ALPHA,
@@ -847,7 +851,9 @@ impl WorkspaceApp {
                             .gap(px(4.0))
                             .child(
                                 div()
-                                    .font_family("monospace")
+                                    .font_family(settings_mono_font_family(
+                                        self.settings_store.settings(),
+                                    ))
                                     .text_size(px(10.0))
                                     .text_color(rgba((theme.text_muted << 8) | 0x80))
                                     .child(launcher_core::count_label(

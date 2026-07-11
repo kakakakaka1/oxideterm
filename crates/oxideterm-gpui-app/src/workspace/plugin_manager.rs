@@ -33,10 +33,6 @@ const PLUGIN_MANAGER_TW_ALPHA_50: u32 = 0x80;
 const PLUGIN_MANAGER_BG_ACTIVE_THEME_ALPHA: u32 = 0x66;
 const PLUGIN_MANAGER_BG_ACTIVE_BORDER_ALPHA: u32 = 0xbf;
 const PLUGIN_MANAGER_BG_ACTIVE_BORDER_HALF_ALPHA: u32 = 0x60;
-const PLUGIN_MANAGER_TW_GREEN_400: u32 = 0x4ade80;
-const PLUGIN_MANAGER_TW_GREEN_500: u32 = 0x22c55e;
-const PLUGIN_MANAGER_TW_RED_400: u32 = 0xf87171;
-const PLUGIN_MANAGER_TW_RED_500: u32 = 0xef4444;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum NativePluginManagerOperationStatus {
@@ -311,10 +307,7 @@ impl WorkspaceApp {
                                     .child(Self::render_lucide_icon(
                                         LucideIcon::CheckCircle,
                                         14.0,
-                                        plugin_manager_palette_alpha(
-                                            PLUGIN_MANAGER_TW_GREEN_400,
-                                            0xff,
-                                        ),
+                                        rgb(theme.success),
                                     ))
                                     .child(
                                         self.i18n
@@ -1562,7 +1555,7 @@ impl WorkspaceApp {
         let toggle_color = if next_enabled {
             theme.text_muted
         } else if is_active {
-            PLUGIN_MANAGER_TW_GREEN_500
+            theme.success
         } else {
             theme.text_muted
         };
@@ -1772,11 +1765,11 @@ impl WorkspaceApp {
                     .rounded(px(self.tokens.radii.md))
                     .border_1()
                     .border_color(plugin_manager_palette_alpha(
-                        PLUGIN_MANAGER_TW_RED_500,
+                        theme.error,
                         PLUGIN_MANAGER_TW_ALPHA_20,
                     ))
                     .bg(plugin_manager_palette_alpha(
-                        PLUGIN_MANAGER_TW_RED_500,
+                        theme.error,
                         PLUGIN_MANAGER_TW_ALPHA_10,
                     ))
                     .px(px(12.0))
@@ -1786,14 +1779,11 @@ impl WorkspaceApp {
                     .gap(px(8.0))
                     .text_size(px(self.tokens.metrics.ui_text_xs))
                     .line_height(px(18.0))
-                    .text_color(plugin_manager_palette_alpha(
-                        PLUGIN_MANAGER_TW_RED_400,
-                        0xff,
-                    ))
+                    .text_color(rgb(theme.error))
                     .child(Self::render_lucide_icon(
                         LucideIcon::AlertTriangle,
                         14.0,
-                        plugin_manager_palette_alpha(PLUGIN_MANAGER_TW_RED_400, 0xff),
+                        rgb(theme.error),
                     ))
                     .child(
                         div()
@@ -1816,7 +1806,7 @@ impl WorkspaceApp {
                     })
                     .child(self.render_native_plugin_row_icon_button(
                         LucideIcon::Copy,
-                        PLUGIN_MANAGER_TW_RED_400,
+                        theme.error,
                         Some(cx.listener(move |this, _event, _window, cx| {
                             cx.write_to_clipboard(ClipboardItem::new_string(
                                 copy_error_message.clone(),
@@ -1922,7 +1912,7 @@ impl WorkspaceApp {
                         .child(div().flex().flex_wrap().gap(px(6.0)).children(
                             contribution_labels.into_iter().map(|label| {
                                 div()
-                                    .rounded_full()
+                                    .rounded(px(self.tokens.radii.sm))
                                     .bg(plugin_manager_theme_alpha(
                                         theme.accent,
                                         PLUGIN_MANAGER_TW_ALPHA_10,

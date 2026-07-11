@@ -569,7 +569,7 @@ impl WorkspaceApp {
                     .border_color(rgb(theme.border))
                     .bg(rgba((theme.bg_panel << 8) | 0xcc))
                     .text_size(px(12.0))
-                    .font_family("monospace")
+                    .font_family(settings_mono_font_family(self.settings_store.settings()))
                     .text_color(rgb(theme.text_muted))
                     .shadow_sm()
                     .child(self.render_display_text_with_role(
@@ -587,7 +587,7 @@ impl WorkspaceApp {
                     .bottom(px(16.0))
                     .left(px(16.0))
                     .text_size(px(10.0))
-                    .font_family("monospace")
+                    .font_family(settings_mono_font_family(self.settings_store.settings()))
                     .text_color(rgba(
                         (theme.text_muted << 8) | TOPOLOGY_INSTRUCTION_ALPHA_60,
                     ))
@@ -718,7 +718,7 @@ impl WorkspaceApp {
                         div()
                             .max_w(px(120.0 * scale))
                             .truncate()
-                            .font_family("monospace")
+                            .font_family(settings_mono_font_family(self.settings_store.settings()))
                             .text_size(px(9.0 * scale))
                             .text_color(rgba(
                                 (theme.text_muted << 8) | TOPOLOGY_MUTED_TEXT_ALPHA_70,
@@ -862,7 +862,7 @@ impl WorkspaceApp {
                 )
                 .child(
                     div()
-                        .font_family("monospace")
+                        .font_family(settings_mono_font_family(self.settings_store.settings()))
                         .text_size(px(10.0))
                         .text_color(rgb(theme.text_muted))
                         .child(self.render_display_text_with_role(

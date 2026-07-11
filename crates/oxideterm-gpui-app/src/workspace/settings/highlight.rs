@@ -523,7 +523,7 @@ impl WorkspaceApp {
             .rounded(px(self.tokens.radii.lg))
             .border_1()
             .border_color(rgb(self.tokens.ui.border))
-            .bg(rgb(0x071018))
+            .bg(rgb(self.tokens.ui.bg_panel))
             .p(px(16.0))
             .flex()
             .flex_col()
@@ -567,8 +567,8 @@ impl WorkspaceApp {
             .overflow_hidden()
             .rounded(px(self.tokens.radii.md))
             .border_1()
-            .border_color(rgba(0xffffff0d))
-            .bg(rgb(0x020617))
+            .border_color(rgb(self.tokens.ui.border))
+            .bg(rgb(self.tokens.terminal.background))
             .p(px(12.0))
             .flex()
             .flex_col()
@@ -576,7 +576,7 @@ impl WorkspaceApp {
             .font_family(settings_mono_font_family(self.settings_store.settings()))
             .text_size(px(self.tokens.metrics.ui_text_xs))
             .line_height(px(24.0))
-            .text_color(rgb(0xe2e8f0));
+            .text_color(rgb(self.tokens.terminal.foreground));
         for line in lines {
             sample = sample.child(self.highlight_preview_line(&line, rules));
         }

@@ -384,12 +384,12 @@ impl WorkspaceApp {
                                     .rounded(px(self.tokens.radii.sm))
                                     .border_1()
                                     .border_color(if seconds_left <= 15 {
-                                        rgba(0xef444480)
+                                        rgba((theme.error << 8) | 0x80)
                                     } else {
                                         rgb(theme.border)
                                     })
                                     .bg(if seconds_left <= 15 {
-                                        rgba(0x7f1d1d40)
+                                        rgba((theme.error << 8) | 0x18)
                                     } else {
                                         rgba((theme.bg_hover << 8) | 0x80)
                                     })
@@ -397,7 +397,7 @@ impl WorkspaceApp {
                                     .py(px(8.0))
                                     .text_size(px(self.tokens.metrics.form_text_font_size))
                                     .text_color(if seconds_left <= 15 {
-                                        rgb(0xef4444)
+                                        rgb(theme.error)
                                     } else {
                                         rgb(theme.text_muted)
                                     })

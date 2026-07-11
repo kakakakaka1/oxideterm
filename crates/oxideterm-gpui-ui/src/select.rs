@@ -7,7 +7,10 @@ use gpui::{
 };
 use oxideterm_theme::ThemeTokens;
 
-use crate::button::tauri_focus_visible_ring;
+use crate::{
+    button::tauri_focus_visible_ring,
+    menu::{menu_item_chrome, menu_surface_chrome},
+};
 
 const TAURI_SELECT_TRIGGER_BG_ALPHA: u32 = 0x80;
 const TAURI_INLINE_SELECT_SELECTED_BG_ALPHA: u32 = 0x1f;
@@ -532,18 +535,12 @@ pub fn select_popup_with_max_height(
 ) -> Stateful<Div> {
     // Radix SelectContent is portal-hosted and pointer/wheel input inside it
     // does not bubble to the trigger row, scroll container, or terminal behind.
-    div()
+    menu_surface_chrome(tokens)
         .id("select-popup-scroll")
         .min_w(px(width.max(tokens.metrics.ui_select_min_width)))
         .max_h(px(max_height))
         .overflow_y_scroll()
-        .rounded(px(tokens.radii.md))
-        .border_1()
-        .border_color(rgb(tokens.ui.border))
-        .bg(elevated_background(tokens))
         .p(px(tokens.metrics.ui_menu_padding))
-        .text_color(rgb(tokens.ui.text))
-        .shadow_lg()
         .on_mouse_down(MouseButton::Left, |_event, _window, cx| {
             cx.stop_propagation();
         })
@@ -636,47 +633,35 @@ pub fn select_option_action(
 }
 
 pub fn select_content(tokens: &ThemeTokens) -> Div {
-    div()
+    menu_surface_chrome(tokens)
         .relative()
         .max_h(px(tokens.metrics.ui_select_max_height))
         .min_w(px(tokens.metrics.ui_select_min_width))
-        .overflow_hidden()
-        .rounded(px(tokens.radii.md))
-        .border_1()
-        .border_color(rgb(tokens.ui.border))
-        .bg(rgba((tokens.ui.bg_elevated << 8) | 0xf2))
-        .text_color(rgb(tokens.ui.text))
-        .shadow_lg()
         .child(div().p(px(tokens.metrics.ui_menu_padding)))
 }
 
 pub fn select_item(tokens: &ThemeTokens, label: impl Into<String>, selected: bool) -> Div {
-    div()
-        .relative()
-        .flex()
-        .w_full()
-        .min_w(px(0.0))
-        .items_center()
-        .rounded(px(tokens.radii.xs))
-        .py(px(tokens.metrics.ui_menu_item_padding_y))
-        .pl(px(tokens.metrics.ui_menu_item_padding_x))
-        .pr(px(tokens.metrics.ui_menu_inset_padding_left))
-        .text_size(px(tokens.metrics.ui_text_sm))
-        .text_color(rgb(tokens.ui.text))
-        .when(selected, |item| {
-            item.bg(rgba((tokens.ui.bg_hover << 8) | 0x80))
-        })
-        .child(
-            div()
-                .absolute()
-                .right(px(tokens.metrics.ui_menu_item_padding_x))
-                .size(px(tokens.metrics.ui_select_check_size))
-                .flex()
-                .items_center()
-                .justify_center()
-                .child(if selected { "✓" } else { "" }),
-        )
-        .child(label.into())
+    menu_item_chrome(
+        tokens,
+        tokens.metrics.ui_menu_item_padding_x,
+        tokens.metrics.ui_menu_inset_padding_left,
+    )
+    .w_full()
+    .min_w(px(0.0))
+    .when(selected, |item| {
+        item.bg(rgba((tokens.ui.bg_hover << 8) | 0x80))
+    })
+    .child(
+        div()
+            .absolute()
+            .right(px(tokens.metrics.ui_menu_item_padding_x))
+            .size(px(tokens.metrics.ui_select_check_size))
+            .flex()
+            .items_center()
+            .justify_center()
+            .child(if selected { "✓" } else { "" }),
+    )
+    .child(label.into())
 }
 
 pub fn select_label(tokens: &ThemeTokens, label: impl Into<String>) -> Div {
@@ -696,10 +681,6 @@ pub fn select_separator(tokens: &ThemeTokens) -> Div {
         .my(px(tokens.metrics.ui_menu_padding))
         .h(px(1.0))
         .bg(rgb(tokens.ui.border))
-}
-
-fn elevated_background(tokens: &ThemeTokens) -> gpui::Rgba {
-    rgba((tokens.ui.bg_elevated << 8) | 0xf2)
 }
 
 #[cfg(test)]

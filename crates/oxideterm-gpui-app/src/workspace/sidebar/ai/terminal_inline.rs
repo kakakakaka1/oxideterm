@@ -344,18 +344,18 @@ impl WorkspaceApp {
                         |panel| panel.child(self.render_terminal_ai_inline_notice(
                             LucideIcon::AlertCircle,
                             self.i18n.t("terminal.ai.api_key_hint"),
-                            rgba((0xf59e0b << 8) | 0x1a),
-                            rgba((0xf59e0b << 8) | 0x4d),
-                            rgba(0xfbbf24ff),
+                            rgba((self.tokens.ui.warning << 8) | 0x1a),
+                            rgba((self.tokens.ui.warning << 8) | 0x4d),
+                            rgb(self.tokens.ui.warning),
                         )),
                     )
                     .when_some(self.ai.chat.inline_panel.error.as_ref(), |panel, error| {
                         panel.child(self.render_terminal_ai_inline_notice(
                             LucideIcon::AlertCircle,
                             error.clone(),
-                            rgba((0xef4444 << 8) | 0x1a),
-                            rgba((0xef4444 << 8) | 0x4d),
-                            rgba(0xfca5a5ff),
+                            rgba((self.tokens.ui.error << 8) | 0x1a),
+                            rgba((self.tokens.ui.error << 8) | 0x4d),
+                            rgb(self.tokens.ui.error),
                         ))
                     })
                     .when(

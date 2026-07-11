@@ -346,7 +346,7 @@ impl WorkspaceApp {
         count: usize,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        const AI_TRIM_NOTICE_COLOR: u32 = 0xf59e0b;
+        let warning_color = self.tokens.ui.warning;
         div()
             .flex()
             .items_center()
@@ -354,18 +354,18 @@ impl WorkspaceApp {
             .px(px(12.0))
             .py(px(6.0))
             .border_b_1()
-            .border_color(rgba((AI_TRIM_NOTICE_COLOR << 8) | 0x33))
-            .bg(rgba((AI_TRIM_NOTICE_COLOR << 8) | 0x1a))
+            .border_color(rgba((warning_color << 8) | 0x33))
+            .bg(rgba((warning_color << 8) | 0x1a))
             .child(Self::render_lucide_icon(
                 LucideIcon::Scissors,
                 12.0,
-                rgb(AI_TRIM_NOTICE_COLOR),
+                rgb(warning_color),
             ))
             .child(
                 div()
                     .flex_1()
                     .text_size(px(10.0))
-                    .text_color(rgb(0xfbbf24))
+                    .text_color(rgb(warning_color))
                     .child(
                         self.render_display_text_with_role(
                             SelectableTextRole::PlainDocument,
@@ -374,7 +374,7 @@ impl WorkspaceApp {
                             self.i18n
                                 .t("ai.context.messages_trimmed")
                                 .replace("{{count}}", &count.to_string()),
-                            0xfbbf24,
+                            warning_color,
                             cx,
                         ),
                     ),
@@ -407,11 +407,11 @@ impl WorkspaceApp {
                     .rounded(px(self.tokens.radii.md))
                     .items_center()
                     .justify_center()
-                    .bg(rgba(0xef44441a))
+                    .bg(rgba((self.tokens.ui.error << 8) | 0x1a))
                     .child(Self::render_lucide_icon(
                         LucideIcon::AlertTriangle,
                         20.0,
-                        rgb(0xff6b6b),
+                        rgb(self.tokens.ui.error),
                     )),
             )
             .child(
@@ -640,8 +640,7 @@ impl WorkspaceApp {
         model_switch: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        // Tauri banner uses bg-amber-500/10 and border-amber-500/20.
-        const AI_CONTEXT_WARNING_COLOR: u32 = 0xf59e0b;
+        let warning_color = self.tokens.ui.warning;
         div()
             .flex_none()
             .flex()
@@ -650,25 +649,25 @@ impl WorkspaceApp {
             .px(px(12.0))
             .py(px(8.0))
             .border_t_1()
-            .border_color(rgba((AI_CONTEXT_WARNING_COLOR << 8) | 0x33))
-            .bg(rgba((AI_CONTEXT_WARNING_COLOR << 8) | 0x1a))
+            .border_color(rgba((warning_color << 8) | 0x33))
+            .bg(rgba((warning_color << 8) | 0x1a))
             .child(Self::render_lucide_icon(
                 LucideIcon::AlertTriangle,
                 14.0,
-                rgb(AI_CONTEXT_WARNING_COLOR),
+                rgb(warning_color),
             ))
             .child(
                 div()
                     .flex_1()
                     .min_w_0()
                     .text_size(px(11.0))
-                    .text_color(rgb(0xfbbf24))
+                    .text_color(rgb(warning_color))
                     .child(self.render_display_text_with_role(
                         SelectableTextRole::PlainDocument,
                         "ai-context-warning",
                         label.clone(),
                         label,
-                        0xfbbf24,
+                        warning_color,
                         cx,
                     )),
             )
@@ -726,7 +725,7 @@ impl WorkspaceApp {
         const AI_CONTEXT_WARNING_BUTTON_TEXT: f32 = 10.0; // Tauri inline warning actions text-[10px].
 
         let label = label.into();
-        let text_color = if disabled { 0xb78322 } else { 0xfbbf24 };
+        let text_color = self.tokens.ui.warning;
         let mut options = ToolbarButtonOptions::compact_text(
             ButtonVariant::Ghost,
             ButtonRadius::Md,
@@ -737,14 +736,18 @@ impl WorkspaceApp {
         options.button.disabled = disabled;
         options.icon_gap = Some(4.0);
         options.text_color = Some(rgb(text_color));
-        options.hover_background = Some(rgba((0xf59e0b << 8) | 0x1a));
-        options.hover_text_color = Some(rgb(0xfcd34d));
+        options.hover_background = Some(rgba((self.tokens.ui.warning << 8) | 0x1a));
+        options.hover_text_color = Some(rgb(self.tokens.ui.warning));
         // Context warning buttons are compact inline actions rather than full
         // footer buttons, but they still share disabled activation, hover, and
         // focus semantics with the workspace toolbar action primitive.
         self.workspace_toolbar_action_button(
             label,
-            Some(Self::render_lucide_icon(icon, 12.0, rgb(0xfbbf24))),
+            Some(Self::render_lucide_icon(
+                icon,
+                12.0,
+                rgb(self.tokens.ui.warning),
+            )),
             options,
             cx.listener(move |this, _event, _window, cx| {
                 match action {

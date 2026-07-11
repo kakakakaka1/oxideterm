@@ -762,6 +762,49 @@ mod tests {
     use super::*;
 
     #[test]
+    fn appearance_matrix_values_survive_sanitization() {
+        for density in ["compact", "comfortable", "spacious"] {
+            for frosted_glass in ["off", "native", "system", "mica", "acrylic"] {
+                let sanitized = sanitize_settings_value(json!({
+                    "appearance": {
+                        "uiDensity": density,
+                        "animationSpeed": "off",
+                        "borderRadius": 16,
+                        "frostedGlass": frosted_glass
+                    },
+                    "terminal": {
+                        "backgroundBlur": 20,
+                        "backgroundOpacity": 0.15
+                    }
+                }))
+                .expect("sanitize appearance matrix settings");
+
+                assert_eq!(
+                    serde_json::to_value(sanitized.settings.appearance.ui_density)
+                        .expect("serialize density"),
+                    json!(density)
+                );
+                assert_eq!(sanitized.settings.appearance.border_radius, 16);
+                assert_eq!(sanitized.settings.terminal.background_blur, 20);
+            }
+        }
+    }
+
+    #[test]
+    fn legacy_css_frosted_glass_falls_back_to_off() {
+        let sanitized = sanitize_settings_value(json!({
+            "appearance": { "frostedGlass": "css" }
+        }))
+        .expect("sanitize legacy frosted glass setting");
+
+        assert_eq!(
+            sanitized.settings.appearance.frosted_glass,
+            crate::FrostedGlassMode::Off
+        );
+        assert!(!sanitized.validation_warnings.is_empty());
+    }
+
+    #[test]
     fn migrates_empty_ai_providers_to_tauri_builtin_defaults() {
         let sanitized = sanitize_settings_value(json!({
             "ai": {

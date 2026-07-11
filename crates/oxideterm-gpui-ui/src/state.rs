@@ -1,15 +1,9 @@
 use gpui::{
-    AnyElement, Div, FontWeight, InteractiveElement, IntoElement, ParentElement, Styled, TextAlign,
-    div, prelude::*, px, rgb, rgba,
+    AnyElement, Div, FontWeight, IntoElement, ParentElement, Styled, TextAlign, div, prelude::*,
+    px, rgb, rgba,
 };
 use oxideterm_theme::ThemeTokens;
 
-const STATE_PADDING: f32 = 24.0;
-const STATE_ICON_BOX_SIZE: f32 = 48.0;
-const STATE_TITLE_SIZE: f32 = 13.0;
-const STATE_DESCRIPTION_SIZE: f32 = 12.0;
-const STATE_DESCRIPTION_LINE_HEIGHT: f32 = 18.0;
-const STATE_DESCRIPTION_MAX_WIDTH: f32 = 220.0;
 const STATE_ICON_BG_ALPHA: u32 = 0x0d;
 const STATE_LOADING_ICON_BG_ALPHA: u32 = 0x1a;
 const STATE_ERROR_ICON_BG_ALPHA: u32 = 0x1a;
@@ -77,14 +71,14 @@ pub fn state_shell(tokens: &ThemeTokens) -> Div {
         .flex_col()
         .items_center()
         .justify_center()
-        .p(px(STATE_PADDING))
+        .p(px(tokens.spacing.three * 2.0))
         .text_align(TextAlign::Center)
         .text_color(rgb(tokens.ui.text_muted))
 }
 
 pub fn state_icon_box(tokens: &ThemeTokens, tone: UiStateTone, background_alpha: u32) -> Div {
     div()
-        .size(px(STATE_ICON_BOX_SIZE))
+        .size(px(tokens.metrics.ui_button_lg_height + tokens.spacing.two))
         .flex()
         .items_center()
         .justify_center()
@@ -98,7 +92,7 @@ pub fn state_icon_box(tokens: &ThemeTokens, tone: UiStateTone, background_alpha:
 pub fn state_title(tokens: &ThemeTokens, title: impl Into<String>) -> Div {
     div()
         .mt(px(tokens.spacing.three + tokens.spacing.one))
-        .text_size(px(STATE_TITLE_SIZE))
+        .text_size(px(tokens.metrics.ui_text_sm))
         .font_weight(FontWeight::BOLD)
         .text_color(rgb(tokens.ui.text))
         .child(title.into())
@@ -107,29 +101,16 @@ pub fn state_title(tokens: &ThemeTokens, title: impl Into<String>) -> Div {
 pub fn state_description(tokens: &ThemeTokens, description: impl Into<String>) -> Div {
     div()
         .mt(px(tokens.spacing.one))
-        .max_w(px(STATE_DESCRIPTION_MAX_WIDTH))
-        .text_size(px(STATE_DESCRIPTION_SIZE))
-        .line_height(px(STATE_DESCRIPTION_LINE_HEIGHT))
+        .max_w(px(tokens.metrics.settings_nav_width))
+        .text_size(px(tokens.metrics.ui_text_xs))
+        .line_height(px(tokens.metrics.ui_text_xs * 1.5))
         .text_color(rgb(tokens.ui.text_muted))
         .child(description.into())
 }
 
 pub fn state_primary_action(tokens: &ThemeTokens, label: impl Into<String>) -> Div {
-    div()
+    crate::button(tokens, label.into(), crate::ButtonTone::Primary)
         .mt(px(tokens.spacing.three + tokens.spacing.one))
-        .h(px(tokens.metrics.ui_button_sm_height))
-        .px(px(tokens.metrics.ui_button_sm_padding_x))
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded(px(tokens.radii.md))
-        .bg(rgb(tokens.ui.accent))
-        .text_size(px(STATE_DESCRIPTION_SIZE))
-        .font_weight(FontWeight::BOLD)
-        .text_color(rgb(tokens.ui.bg))
-        .cursor_pointer()
-        .hover(|style| style.opacity(0.9))
-        .child(label.into())
 }
 
 pub fn inline_empty_state(tokens: &ThemeTokens, label: impl Into<String>) -> Div {
@@ -181,7 +162,7 @@ pub fn state_notice(
                     body.child(
                         div()
                             .text_size(px(tokens.metrics.ui_text_xs))
-                            .line_height(px(STATE_DESCRIPTION_LINE_HEIGHT))
+                            .line_height(px(tokens.metrics.ui_text_xs * 1.5))
                             .text_color(rgb(tokens.ui.text_muted))
                             .child(description),
                     )

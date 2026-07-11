@@ -1,13 +1,14 @@
 use gpui::{
     App, CursorStyle, Div, FontWeight, InteractiveElement, IntoElement, MouseButton,
-    MouseDownEvent, ParentElement, Rgba, Styled, Window, div, prelude::*, px, rgb, rgba,
+    MouseDownEvent, ParentElement, Rgba, Styled, Window, div, prelude::*, px, rgb,
 };
 use oxideterm_theme::ThemeTokens;
 
-use crate::modal::popover_backdrop;
+use crate::{
+    menu::{menu_item_chrome, menu_surface_chrome},
+    modal::popover_backdrop,
+};
 
-// Tauri uses bg-theme-bg-elevated/95 for menu surfaces.
-const CONTEXT_MENU_SURFACE_ALPHA: u32 = 0xf2;
 const CONTEXT_MENU_DISABLED_OPACITY: f32 = 0.5;
 const CONTEXT_MENU_RADIO_DOT_SIZE: f32 = 8.0;
 const CONTEXT_MENU_LINE_HEIGHT_RATIO: f32 = 1.35;
@@ -128,18 +129,11 @@ pub fn context_menu_pointer_event_boundary(menu: Div) -> Div {
 }
 
 pub fn context_menu_content(tokens: &ThemeTokens) -> Div {
-    div()
+    menu_surface_chrome(tokens)
         .min_w(px(tokens.metrics.ui_menu_min_width))
-        .overflow_hidden()
-        .rounded(px(tokens.radii.md))
-        .border_1()
-        .border_color(rgb(tokens.ui.border))
-        .bg(rgba(
-            (tokens.ui.bg_elevated << 8) | CONTEXT_MENU_SURFACE_ALPHA,
-        ))
         .p(px(tokens.metrics.ui_menu_padding))
         .line_height(px(context_menu_line_height(tokens)))
-        .text_color(rgb(tokens.ui.text))
+        // Context menus float above other overlays and need stronger elevation.
         .shadow_xl()
 }
 
@@ -291,17 +285,8 @@ pub fn context_menu_item_row(
     };
     let hover_bg = rgb(tokens.ui.bg_hover);
 
-    let item = div()
-        .relative()
-        .flex()
-        .items_center()
-        .rounded(px(tokens.radii.sm))
-        .px(px(tokens.metrics.ui_menu_item_padding_x))
-        .pl(px(left_padding))
-        .py(px(tokens.metrics.ui_menu_item_padding_y))
-        .text_size(px(tokens.metrics.ui_text_sm))
+    let item = menu_item_chrome(tokens, left_padding, tokens.metrics.ui_menu_item_padding_x)
         .line_height(px(context_menu_line_height(tokens)))
-        .text_color(rgb(tokens.ui.text))
         .opacity(if disabled {
             CONTEXT_MENU_DISABLED_OPACITY
         } else {

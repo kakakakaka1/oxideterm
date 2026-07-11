@@ -1556,7 +1556,9 @@ impl WorkspaceApp {
         let theme = self.tokens.ui;
         let (text_color, hover_bg) = match variant {
             SessionActionVariant::Primary => (theme.accent, theme.bg_hover),
-            SessionActionVariant::Danger => (0xef4444, mix_rgb(theme.bg_hover, 0xef4444, 0.10)),
+            SessionActionVariant::Danger => {
+                (theme.error, mix_rgb(theme.bg_hover, theme.error, 0.10))
+            }
         };
         let selection_group_id = crate::workspace::selectable_text::selectable_text_id(
             "session-sidebar-action",
@@ -1623,29 +1625,29 @@ impl WorkspaceApp {
         match status {
             ActiveSessionStatus::Connecting => SessionStatusStyle {
                 icon: LucideIcon::LoaderCircle,
-                text_color: 0x3b82f6,
-                dot_color: 0x3b82f6,
+                text_color: self.tokens.ui.info,
+                dot_color: self.tokens.ui.info,
                 opacity: 1.0,
                 ring: false,
             },
             ActiveSessionStatus::Active => SessionStatusStyle {
                 icon: LucideIcon::Server,
-                text_color: 0x059669,
-                dot_color: 0x10b981,
+                text_color: self.tokens.ui.success,
+                dot_color: self.tokens.ui.success,
                 opacity: 1.0,
                 ring: true,
             },
             ActiveSessionStatus::Connected => SessionStatusStyle {
                 icon: LucideIcon::Server,
-                text_color: 0x10b981,
-                dot_color: 0x10b981,
+                text_color: self.tokens.ui.success,
+                dot_color: self.tokens.ui.success,
                 opacity: 1.0,
                 ring: true,
             },
             ActiveSessionStatus::Error => SessionStatusStyle {
                 icon: LucideIcon::WifiOff,
-                text_color: 0xef4444,
-                dot_color: 0xef4444,
+                text_color: self.tokens.ui.error,
+                dot_color: self.tokens.ui.error,
                 opacity: 1.0,
                 ring: false,
             },

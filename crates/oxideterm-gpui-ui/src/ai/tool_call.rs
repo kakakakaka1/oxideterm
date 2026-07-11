@@ -151,7 +151,6 @@ pub fn ai_tool_item_header(
                 div()
                     .flex_none()
                     .text_size(px(AI_TEXT_9))
-                    .font_family(ai_font_family())
                     .text_color(muted_text(tokens, AI_MUTED_TEXT_30_ALPHA))
                     .child(duration),
             )
@@ -277,7 +276,6 @@ pub fn ai_tool_pre(
         .max_h(px(max_height))
         .overflow_hidden()
         .track_scroll(scroll_handle)
-        .rounded(px(tokens.radii.md))
         .bg(bg_alpha(tokens, tokens.ui.bg, 0x80))
         .px(px(tokens.spacing.one + tokens.spacing.one / 2.0))
         .py(px(tokens.spacing.one))

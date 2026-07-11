@@ -107,7 +107,7 @@ impl WorkspaceApp {
                     .gap(px(self.tokens.metrics.tab_gap))
                     .border_r_1()
                     .border_color(if show_reconnect_progress {
-                        rgb(0xf59e0b)
+                        rgb(theme.warning)
                     } else {
                         rgb(theme.border)
                     })
@@ -160,7 +160,7 @@ impl WorkspaceApp {
                                 .right_0()
                                 .h(px(self.tokens.metrics.tab_active_accent_height))
                                 .bg(rgb(if show_reconnect_progress {
-                                    0xf59e0b
+                                    theme.warning
                                 } else {
                                     theme.accent
                                 })),
@@ -376,11 +376,11 @@ impl WorkspaceApp {
             .items_center()
             .gap(px(4.0))
             .text_size(px(10.0))
-            .text_color(rgb(0xf59e0b))
+            .text_color(rgb(theme.warning))
             .child(Self::render_lucide_icon(
                 LucideIcon::RefreshCw,
                 12.0,
-                rgb(0xf59e0b),
+                rgb(theme.warning),
             ))
             .child(self.render_reconnect_phase_strip(job))
             .child(div().max_w(px(72.0)).truncate().child(phase_text))
@@ -400,7 +400,7 @@ impl WorkspaceApp {
                     .child(Self::render_lucide_icon(
                         LucideIcon::X,
                         self.tokens.metrics.tab_close_icon_size,
-                        rgb(0xf59e0b),
+                        rgb(theme.warning),
                     ))
                     .on_mouse_move(cx.listener({
                         let label = self.i18n.t("sessions.tree.actions.cancel_reconnect");
@@ -456,10 +456,10 @@ impl WorkspaceApp {
                     .find(|event| event.phase == phase)
                     .map(|event| event.result);
                 let color = match result {
-                    Some(PhaseResult::Ok) => 0x10b981,
-                    Some(PhaseResult::Failed) => 0xef4444,
+                    Some(PhaseResult::Ok) => self.tokens.ui.success,
+                    Some(PhaseResult::Failed) => self.tokens.ui.error,
                     Some(PhaseResult::Skipped) => self.tokens.ui.text_muted,
-                    Some(PhaseResult::Running) => 0xf59e0b,
+                    Some(PhaseResult::Running) => self.tokens.ui.warning,
                     None => self.tokens.ui.border,
                 };
                 div()

@@ -23,9 +23,6 @@ const CONFIRM_BODY_PAD_BOTTOM: f32 = 16.0; // Tauri pb-4
 const CONFIRM_BODY_GAP: f32 = 12.0; // Tauri gap-3
 const CONFIRM_ACTION_HEIGHT: f32 = 40.0; // Tauri py-2.5 text-sm
 const TW_BLACK: u32 = 0x000000;
-const TW_RED_300: u32 = 0xfca5a5;
-const TW_RED_400: u32 = 0xf87171;
-const TW_RED_500: u32 = 0xef4444;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ConfirmDialogVariant {
@@ -70,10 +67,14 @@ pub fn confirm_dialog_with_focus(
     } else {
         "lucide/help-circle.svg"
     };
-    let accent = if is_danger { TW_RED_500 } else { theme.accent };
-    let icon_color = if is_danger { TW_RED_400 } else { theme.accent };
-    let confirm_color = if is_danger { TW_RED_400 } else { theme.accent };
-    let confirm_hover_color = if is_danger { TW_RED_300 } else { theme.accent };
+    let accent = if is_danger { theme.error } else { theme.accent };
+    let icon_color = accent;
+    let confirm_color = accent;
+    let confirm_hover_color = if is_danger {
+        theme.error
+    } else {
+        theme.accent_hover
+    };
     let on_cancel = Rc::new(on_cancel);
     let on_backdrop_cancel = on_cancel.clone();
 

@@ -5,8 +5,8 @@ use gpui::{
 use oxideterm_theme::ThemeTokens;
 
 use super::tokens::{
-    AI_HOVER_BG_ALPHA, AI_MUTED_TEXT_70_ALPHA, AI_TEXT_9, AI_TEXT_10, AI_TEXT_12, AI_TW_AMBER,
-    AI_TW_EMERALD, ai_font_family, bg_alpha, muted_text,
+    AI_HOVER_BG_ALPHA, AI_MUTED_TEXT_70_ALPHA, AI_TEXT_9, AI_TEXT_10, AI_TEXT_12, AiTone, bg_alpha,
+    muted_text, tone_color,
 };
 use crate::button::button_focus_visible;
 
@@ -63,9 +63,13 @@ pub fn ai_model_selector_no_provider_button(
         .py(px(tokens.spacing.one / 2.0))
         .text_size(px(AI_TEXT_10))
         .font_weight(FontWeight::MEDIUM)
-        .text_color(rgb(AI_TW_AMBER))
+        .text_color(rgb(tokens.ui.warning))
         .cursor_pointer()
-        .hover(|style| style.bg(rgba((AI_TW_AMBER << 8) | MODEL_SELECTOR_OPEN_BG_ALPHA)))
+        .hover(|style| {
+            style.bg(rgba(
+                (tokens.ui.warning << 8) | MODEL_SELECTOR_OPEN_BG_ALPHA,
+            ))
+        })
         .child(icon)
         .child(label.into())
 }
@@ -115,7 +119,11 @@ pub fn ai_model_selector_trigger_compact(
                 .flex_none()
                 .size(px(MODEL_SELECTOR_TRIGGER_DOT_SIZE))
                 .rounded_full()
-                .bg(rgb(if ready { AI_TW_EMERALD } else { AI_TW_AMBER })),
+                .bg(rgb(if ready {
+                    tokens.ui.success
+                } else {
+                    tokens.ui.warning
+                })),
         )
         .child(div().min_w_0().flex_1().truncate().child(label.into()))
         .child(div().flex_none().child(chevron));
@@ -136,7 +144,6 @@ pub fn ai_model_selector_dropdown(
         .border_1()
         .border_color(rgb(tokens.ui.border))
         .bg(rgb(tokens.ui.bg_elevated))
-        .font_family(ai_font_family())
         .shadow_lg()
         // Tauri dropdown menus are wheel boundaries: scrolling over the model
         // selector must never move the chat/sidebar underneath the overlay.
@@ -332,7 +339,11 @@ pub fn ai_model_selector_key_status(
         .items_center()
         .gap(px(tokens.spacing.one / 2.0))
         .text_size(px(AI_TEXT_9))
-        .text_color(rgb(if has_key { AI_TW_EMERALD } else { AI_TW_AMBER }))
+        .text_color(rgb(if has_key {
+            tokens.ui.success
+        } else {
+            tokens.ui.warning
+        }))
         .child(
             div()
                 .size(px(MODEL_SELECTOR_REFRESH_ICON_SIZE))
@@ -360,7 +371,7 @@ pub fn ai_model_selector_provider_message(
             rgb(tokens.ui.text_muted)
         }
         AiModelSelectorProviderState::MissingKey => {
-            rgba((AI_TW_AMBER << 8) | MODEL_SELECTOR_NO_KEY_TEXT_ALPHA)
+            rgba((tokens.ui.warning << 8) | MODEL_SELECTOR_NO_KEY_TEXT_ALPHA)
         }
     };
     let message = div()
@@ -504,8 +515,8 @@ fn ai_model_selector_status_label(
     dot: bool,
 ) -> Div {
     let color = match state {
-        AiModelSelectorProviderState::Ready => AI_TW_EMERALD,
-        AiModelSelectorProviderState::MissingKey => AI_TW_AMBER,
+        AiModelSelectorProviderState::Ready => tone_color(tokens, AiTone::Green),
+        AiModelSelectorProviderState::MissingKey => tone_color(tokens, AiTone::Amber),
         AiModelSelectorProviderState::Offline => tokens.ui.text_muted,
     };
     div()

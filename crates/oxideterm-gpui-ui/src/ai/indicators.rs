@@ -62,7 +62,7 @@ pub fn ai_safety_indicator(
         .text_size(px(AI_TEXT_10))
         .font_weight(FontWeight::MEDIUM)
         .text_color(if bypass {
-            rgb(AI_TW_AMBER)
+            rgb(tokens.ui.warning)
         } else {
             rgb(tokens.ui.text_muted)
         })
@@ -126,7 +126,6 @@ pub fn ai_context_usage_indicator(
         .child(
             div()
                 .text_size(px(AI_TEXT_9))
-                .font_family(ai_font_family())
                 .opacity(0.6)
                 .child(label.into()),
         )
@@ -180,14 +179,12 @@ pub fn ai_context_popover_header(
                 .child(
                     div()
                         .text_size(px(AI_TEXT_12))
-                        .font_family(ai_font_family())
                         .text_color(rgb(tokens.ui.text))
                         .child(value_label.into()),
                 )
                 .child(
                     div()
                         .text_size(px(AI_TEXT_11))
-                        .font_family(ai_font_family())
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(rgb(tone_color(tokens, tone)))
                         .child(format!("{}%", usage.percentage.round() as i64)),
@@ -258,7 +255,7 @@ pub fn ai_model_selector_trigger(
                 ),
         )
         .child(div().size(px(6.0)).rounded_full().bg(if ready {
-            rgb(AI_TW_GREEN)
+            rgb(tokens.ui.success)
         } else {
             rgb(tokens.ui.text_muted)
         }))

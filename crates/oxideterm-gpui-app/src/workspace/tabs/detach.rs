@@ -272,10 +272,14 @@ impl WorkspaceApp {
                             .text_color(rgb(accent))
                             .child(self.i18n.t("tabbar.return_to_main_window")),
                     ),
-            )
-            .with_animation(
+            );
+        let hint = if self.tokens.motion.enabled {
+            hint.with_animation(
                 ("detached-tab-return-drop-hint", drag.tab_id.0),
-                Animation::new(Duration::from_millis(840)).repeat(),
+                Animation::new(Duration::from_millis(
+                    self.tokens.motion.scaled_duration_ms(840),
+                ))
+                .repeat(),
                 |hint, delta| {
                     let pulse = if delta < 0.5 {
                         delta * 2.0
@@ -284,9 +288,13 @@ impl WorkspaceApp {
                     };
                     hint.opacity(0.74 + pulse * 0.2)
                 },
-            );
+            )
+            .into_any_element()
+        } else {
+            hint.opacity(0.9).into_any_element()
+        };
 
-        Some(hint.into_any_element())
+        Some(hint)
     }
 
     pub(in crate::workspace) fn render_tab_detach_drag_preview(
@@ -363,21 +371,30 @@ impl WorkspaceApp {
                             .text_color(rgb(accent))
                             .child(self.i18n.t("tabbar.detach_to_window")),
                     ),
-            )
-            .with_animation(
-                ("tab-detach-drag-preview", drag.tab_id.0),
-                Animation::new(Duration::from_millis(760)).repeat(),
-                |preview, delta| {
-                    let pulse = if delta < 0.5 {
-                        delta * 2.0
-                    } else {
-                        (1.0 - delta) * 2.0
-                    };
-                    preview.opacity(0.82 + pulse * 0.16)
-                },
             );
+        let preview = if self.tokens.motion.enabled {
+            preview
+                .with_animation(
+                    ("tab-detach-drag-preview", drag.tab_id.0),
+                    Animation::new(Duration::from_millis(
+                        self.tokens.motion.scaled_duration_ms(760),
+                    ))
+                    .repeat(),
+                    |preview, delta| {
+                        let pulse = if delta < 0.5 {
+                            delta * 2.0
+                        } else {
+                            (1.0 - delta) * 2.0
+                        };
+                        preview.opacity(0.82 + pulse * 0.16)
+                    },
+                )
+                .into_any_element()
+        } else {
+            preview.opacity(0.96).into_any_element()
+        };
 
-        Some(preview.into_any_element())
+        Some(preview)
     }
 
     fn render_detached_tab_return_drag_preview(
@@ -453,21 +470,30 @@ impl WorkspaceApp {
                             .text_color(rgb(accent))
                             .child(self.i18n.t("tabbar.return_to_main_window")),
                     ),
-            )
-            .with_animation(
-                ("detached-tab-return-drag-preview", drag.tab_id.0),
-                Animation::new(Duration::from_millis(760)).repeat(),
-                |preview, delta| {
-                    let pulse = if delta < 0.5 {
-                        delta * 2.0
-                    } else {
-                        (1.0 - delta) * 2.0
-                    };
-                    preview.opacity(0.82 + pulse * 0.16)
-                },
             );
+        let preview = if self.tokens.motion.enabled {
+            preview
+                .with_animation(
+                    ("detached-tab-return-drag-preview", drag.tab_id.0),
+                    Animation::new(Duration::from_millis(
+                        self.tokens.motion.scaled_duration_ms(760),
+                    ))
+                    .repeat(),
+                    |preview, delta| {
+                        let pulse = if delta < 0.5 {
+                            delta * 2.0
+                        } else {
+                            (1.0 - delta) * 2.0
+                        };
+                        preview.opacity(0.82 + pulse * 0.16)
+                    },
+                )
+                .into_any_element()
+        } else {
+            preview.opacity(0.96).into_any_element()
+        };
 
-        Some(preview.into_any_element())
+        Some(preview)
     }
 
     pub(in crate::workspace) fn render_tab_context_menu(

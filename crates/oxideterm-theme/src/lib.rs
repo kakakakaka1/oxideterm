@@ -455,6 +455,74 @@ pub struct UiSpacing {
     pub icon_gap: f32,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum UiDensityProfile {
+    Compact,
+    Comfortable,
+    Spacious,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum UiMotionProfile {
+    Off,
+    Reduced,
+    Normal,
+    Fast,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct UiMotion {
+    pub enabled: bool,
+    pub short_duration_ms: u64,
+    pub normal_duration_ms: u64,
+    pub long_duration_ms: u64,
+}
+
+impl UiMotion {
+    pub const fn normal() -> Self {
+        Self {
+            enabled: true,
+            short_duration_ms: 120,
+            normal_duration_ms: 200,
+            long_duration_ms: 300,
+        }
+    }
+
+    pub const fn from_profile(profile: UiMotionProfile) -> Self {
+        match profile {
+            UiMotionProfile::Off => Self {
+                enabled: false,
+                short_duration_ms: 0,
+                normal_duration_ms: 0,
+                long_duration_ms: 0,
+            },
+            UiMotionProfile::Reduced => Self {
+                enabled: true,
+                short_duration_ms: 80,
+                normal_duration_ms: 120,
+                long_duration_ms: 150,
+            },
+            UiMotionProfile::Normal => Self::normal(),
+            UiMotionProfile::Fast => Self {
+                enabled: true,
+                short_duration_ms: 70,
+                normal_duration_ms: 110,
+                long_duration_ms: 160,
+            },
+        }
+    }
+
+    pub fn scaled_duration_ms(self, baseline_ms: u64) -> u64 {
+        if !self.enabled {
+            return 0;
+        }
+
+        // Existing animations declare their normal-speed duration. Scaling
+        // against the normal long duration preserves their relative cadence.
+        baseline_ms.saturating_mul(self.long_duration_ms) / Self::normal().long_duration_ms
+    }
+}
+
 impl UiSpacing {
     pub const fn tauri_default() -> Self {
         Self {
@@ -473,11 +541,13 @@ pub struct ThemeTokens {
     pub metrics: UiMetrics,
     pub radii: UiRadii,
     pub spacing: UiSpacing,
+    pub density: UiDensityProfile,
+    pub motion: UiMotion,
 }
 
 impl ThemeTokens {
     pub fn from_builtin(theme: BuiltInTheme) -> Self {
-        let ui = apply_tauri_ui_overrides(
+        let mut ui = apply_tauri_ui_overrides(
             if theme.id == "default" {
                 "neutral"
             } else {
@@ -485,13 +555,132 @@ impl ThemeTokens {
             },
             derive_ui_colors_from_terminal(theme.terminal),
         );
+        if color_contrast_ratio(ui.accent_text, ui.accent) < 4.5 {
+            // Built-in themes must provide readable text on accent-filled
+            // controls even when their source palette did not define one.
+            ui.accent_text = highest_contrast_across(
+                [ui.accent],
+                [
+                    ui.bg,
+                    ui.text,
+                    theme.terminal.bright_white,
+                    theme.terminal.black,
+                    0xffffff,
+                    0x000000,
+                ],
+            );
+        }
+        if color_contrast_ratio(ui.text, ui.bg).min(color_contrast_ratio(ui.text, ui.bg_panel))
+            < 4.5
+        {
+            // Prefer colors already present in the terminal palette before
+            // falling back to absolute black or white.
+            ui.text = highest_contrast_across(
+                [ui.bg, ui.bg_panel],
+                [
+                    ui.text,
+                    ui.text_heading,
+                    theme.terminal.bright_white,
+                    theme.terminal.black,
+                ],
+            );
+        }
+        ui.success = ensure_minimum_contrast(ui.success, ui.bg, 3.0);
+        ui.warning = ensure_minimum_contrast(ui.warning, ui.bg, 3.0);
+        ui.error = ensure_minimum_contrast(ui.error, ui.bg, 3.0);
+        ui.info = ensure_minimum_contrast(ui.info, ui.bg, 3.0);
         Self {
             terminal: theme.terminal,
             ui,
             metrics: UiMetrics::tauri_default(),
             radii: UiRadii::tauri_default(),
             spacing: UiSpacing::tauri_default(),
+            density: UiDensityProfile::Comfortable,
+            motion: UiMotion::normal(),
         }
+    }
+
+    pub fn apply_density(&mut self, density: UiDensityProfile) {
+        let scale = match density {
+            UiDensityProfile::Compact => 0.82,
+            UiDensityProfile::Comfortable => 1.0,
+            UiDensityProfile::Spacious => 1.18,
+        };
+        self.density = density;
+        self.spacing = UiSpacing {
+            one: scaled_metric(UiSpacing::tauri_default().one, scale),
+            two: scaled_metric(UiSpacing::tauri_default().two, scale),
+            three: scaled_metric(UiSpacing::tauri_default().three, scale),
+            icon_gap: scaled_metric(UiSpacing::tauri_default().icon_gap, scale),
+        };
+        apply_density_to_metrics(&mut self.metrics, scale);
+    }
+
+    pub fn apply_motion(&mut self, profile: UiMotionProfile) {
+        self.motion = UiMotion::from_profile(profile);
+    }
+}
+
+fn scaled_metric(value: f32, scale: f32) -> f32 {
+    (value * scale * 2.0).round() / 2.0
+}
+
+fn apply_density_to_metrics(metrics: &mut UiMetrics, scale: f32) {
+    // Density changes spatial rhythm and control hitboxes while preserving the
+    // user's font sizes, window bounds, and terminal geometry preferences.
+    for value in [
+        &mut metrics.tabbar_height,
+        &mut metrics.tab_padding_x,
+        &mut metrics.tab_gap,
+        &mut metrics.new_tab_button_width,
+        &mut metrics.new_tab_button_height,
+        &mut metrics.activity_icon_size,
+        &mut metrics.activity_indicator_inset,
+        &mut metrics.sidebar_header_height,
+        &mut metrics.sidebar_action_size,
+        &mut metrics.searchbar_height,
+        &mut metrics.search_input_height,
+        &mut metrics.modal_header_padding_x,
+        &mut metrics.modal_header_padding_y,
+        &mut metrics.modal_body_padding,
+        &mut metrics.modal_body_gap,
+        &mut metrics.modal_section_gap,
+        &mut metrics.modal_field_gap,
+        &mut metrics.modal_footer_height,
+        &mut metrics.modal_footer_padding_x,
+        &mut metrics.form_input_height,
+        &mut metrics.form_input_padding_x,
+        &mut metrics.form_button_height,
+        &mut metrics.form_button_padding_x,
+        &mut metrics.auth_tab_height,
+        &mut metrics.auth_tab_padding,
+        &mut metrics.ui_button_sm_height,
+        &mut metrics.ui_button_default_height,
+        &mut metrics.ui_button_lg_height,
+        &mut metrics.ui_button_sm_padding_x,
+        &mut metrics.ui_button_default_padding_x,
+        &mut metrics.ui_button_lg_padding_x,
+        &mut metrics.ui_control_height,
+        &mut metrics.ui_control_padding_x,
+        &mut metrics.ui_tabs_list_height,
+        &mut metrics.ui_tabs_list_padding,
+        &mut metrics.ui_tabs_trigger_padding_x,
+        &mut metrics.ui_tabs_trigger_padding_y,
+        &mut metrics.ui_menu_padding,
+        &mut metrics.ui_menu_item_padding_x,
+        &mut metrics.ui_menu_item_padding_y,
+        &mut metrics.ui_tooltip_padding_x,
+        &mut metrics.ui_tooltip_padding_y,
+        &mut metrics.ui_toast_padding,
+        &mut metrics.ui_command_input_height,
+        &mut metrics.ui_command_list_max_height,
+        &mut metrics.settings_content_padding,
+        &mut metrics.settings_row_gap,
+        &mut metrics.settings_page_gap,
+        &mut metrics.settings_card_padding,
+        &mut metrics.settings_card_gap,
+    ] {
+        *value = scaled_metric(*value, scale);
     }
 }
 
@@ -552,6 +741,63 @@ fn mix(c1: u32, c2: u32, ratio: f32) -> u32 {
     (r.min(255) << 16) | (g.min(255) << 8) | b.min(255)
 }
 
+fn color_relative_luminance(color: u32) -> f32 {
+    let channel = |shift: u32| {
+        let value = ((color >> shift) & 0xff_u32) as f32 / 255.0;
+        if value <= 0.04045 {
+            value / 12.92
+        } else {
+            ((value + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    0.2126 * channel(16) + 0.7152 * channel(8) + 0.0722 * channel(0)
+}
+
+fn color_contrast_ratio(foreground: u32, background: u32) -> f32 {
+    let foreground = color_relative_luminance(foreground);
+    let background = color_relative_luminance(background);
+    let (lighter, darker) = if foreground >= background {
+        (foreground, background)
+    } else {
+        (background, foreground)
+    };
+    (lighter + 0.05) / (darker + 0.05)
+}
+
+fn highest_contrast_across<const B: usize, const C: usize>(
+    backgrounds: [u32; B],
+    candidates: [u32; C],
+) -> u32 {
+    candidates
+        .into_iter()
+        .max_by(|left, right| {
+            let left_ratio = backgrounds
+                .iter()
+                .map(|background| color_contrast_ratio(*left, *background))
+                .fold(f32::INFINITY, f32::min);
+            let right_ratio = backgrounds
+                .iter()
+                .map(|background| color_contrast_ratio(*right, *background))
+                .fold(f32::INFINITY, f32::min);
+            left_ratio.total_cmp(&right_ratio)
+        })
+        .unwrap_or(0xffffff)
+}
+
+fn ensure_minimum_contrast(color: u32, background: u32, minimum: f32) -> u32 {
+    if color_contrast_ratio(color, background) >= minimum {
+        return color;
+    }
+    let target = highest_contrast_across([background], [0x000000, 0xffffff]);
+    for step in 1..=20 {
+        let adjusted = mix(target, color, step as f32 / 20.0);
+        if color_contrast_ratio(adjusted, background) >= minimum {
+            return adjusted;
+        }
+    }
+    target
+}
+
 fn clamp_channel(value: i32) -> u32 {
     value.clamp(0, 255) as u32
 }
@@ -562,10 +808,16 @@ include!("generated_ui.rs");
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
 
     #[test]
     fn has_all_tauri_builtin_themes() {
         assert_eq!(BUILT_IN_THEMES.len(), 31);
+        let unique_ids = BUILT_IN_THEMES
+            .iter()
+            .map(|theme| theme.id)
+            .collect::<HashSet<_>>();
+        assert_eq!(unique_ids.len(), BUILT_IN_THEMES.len());
         assert_eq!(theme_by_id("default").terminal.background, 0x09090b);
         assert_eq!(theme_by_id("spring-green").terminal.cursor, 0x16a34a);
     }
@@ -591,5 +843,83 @@ mod tests {
         assert_eq!(github.bg_panel, 0x161b22);
         assert_eq!(github.bg_elevated, 0x1c2332);
         assert_eq!(github.accent, 0x58a6ff);
+    }
+
+    #[test]
+    fn density_profiles_change_spatial_metrics_without_changing_type_or_color() {
+        let mut compact = default_tokens();
+        let comfortable = default_tokens();
+        compact.apply_density(UiDensityProfile::Compact);
+        let mut spacious = default_tokens();
+        spacious.apply_density(UiDensityProfile::Spacious);
+
+        assert!(compact.metrics.ui_control_height < comfortable.metrics.ui_control_height);
+        assert!(spacious.metrics.ui_control_height > comfortable.metrics.ui_control_height);
+        assert!(compact.spacing.two < comfortable.spacing.two);
+        assert_eq!(compact.metrics.ui_text_sm, comfortable.metrics.ui_text_sm);
+        assert_eq!(compact.ui, comfortable.ui);
+    }
+
+    #[test]
+    fn every_builtin_theme_preserves_colors_across_density_profiles() {
+        for theme in BUILT_IN_THEMES {
+            let comfortable = ThemeTokens::from_builtin(*theme);
+            let mut compact = comfortable;
+            compact.apply_density(UiDensityProfile::Compact);
+            let mut spacious = comfortable;
+            spacious.apply_density(UiDensityProfile::Spacious);
+
+            assert_eq!(compact.ui, comfortable.ui, "{} compact colors", theme.id);
+            assert_eq!(spacious.ui, comfortable.ui, "{} spacious colors", theme.id);
+            assert!(
+                compact.metrics.ui_control_height < comfortable.metrics.ui_control_height,
+                "{} compact controls",
+                theme.id
+            );
+            assert!(
+                spacious.metrics.ui_control_height > comfortable.metrics.ui_control_height,
+                "{} spacious controls",
+                theme.id
+            );
+        }
+    }
+
+    #[test]
+    fn every_builtin_theme_meets_core_text_and_status_contrast() {
+        for theme in BUILT_IN_THEMES {
+            let ui = ThemeTokens::from_builtin(*theme).ui;
+            for (label, foreground, background, minimum) in [
+                ("text/background", ui.text, ui.bg, 4.5),
+                ("text/panel", ui.text, ui.bg_panel, 4.5),
+                ("accent text/accent", ui.accent_text, ui.accent, 4.5),
+                ("success/background", ui.success, ui.bg, 3.0),
+                ("warning/background", ui.warning, ui.bg, 3.0),
+                ("error/background", ui.error, ui.bg, 3.0),
+                ("info/background", ui.info, ui.bg, 3.0),
+            ] {
+                let ratio = color_contrast_ratio(foreground, background);
+                assert!(
+                    ratio >= minimum,
+                    "{} {label} contrast {ratio:.2} is below {minimum:.1}",
+                    theme.id
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn motion_profiles_provide_explicit_reduced_and_disabled_timings() {
+        let mut tokens = default_tokens();
+        tokens.apply_motion(UiMotionProfile::Reduced);
+        assert!(tokens.motion.enabled);
+        assert!(tokens.motion.normal_duration_ms < UiMotion::normal().normal_duration_ms);
+
+        tokens.apply_motion(UiMotionProfile::Off);
+        assert!(!tokens.motion.enabled);
+        assert_eq!(tokens.motion.long_duration_ms, 0);
+        assert_eq!(tokens.motion.scaled_duration_ms(840), 0);
+
+        tokens.apply_motion(UiMotionProfile::Fast);
+        assert!(tokens.motion.scaled_duration_ms(840) < 840);
     }
 }

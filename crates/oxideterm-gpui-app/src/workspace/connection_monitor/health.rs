@@ -1,5 +1,6 @@
 use super::*;
 
+use gpui::Div;
 use oxideterm_gpui_ui::select::{
     select_event_boundary, select_option_action, select_option_highlighted,
 };
@@ -51,6 +52,31 @@ mod services;
 mod tmux;
 
 impl WorkspaceApp {
+    // Keep Host Tools filter chips visually consistent across resource panels.
+    fn host_tools_filter_chip(&self, active: bool) -> Div {
+        let theme = self.tokens.ui;
+        div()
+            .flex_none()
+            .h(px(self.tokens.metrics.ui_button_sm_height * 0.75))
+            .px(px(self.tokens.spacing.two))
+            .flex()
+            .items_center()
+            .rounded(px(self.tokens.radii.md))
+            .cursor_pointer()
+            .bg(if active {
+                rgb(theme.bg_hover)
+            } else {
+                rgba(0x00000000)
+            })
+            .text_size(px(self.tokens.metrics.ui_text_xs))
+            .text_color(if active {
+                rgb(theme.text)
+            } else {
+                rgb(theme.text_muted)
+            })
+            .hover(move |chip| chip.bg(rgb(theme.bg_hover)))
+    }
+
     pub(in crate::workspace) fn render_host_tools_context_panel(
         &mut self,
         cx: &mut Context<Self>,
@@ -663,7 +689,7 @@ impl WorkspaceApp {
                     .truncate()
                     .whitespace_nowrap()
                     .text_size(px(13.0))
-                    .font_family("monospace")
+                    .font_family(settings_mono_font_family(self.settings_store.settings()))
                     .text_color(rgb(theme.text))
                     .child(self.render_display_text_with_role(
                         SelectableTextRole::PlainDocument,
@@ -719,7 +745,7 @@ impl WorkspaceApp {
                         selected,
                         highlighted,
                     )
-                    .font_family("monospace")
+                    .font_family(settings_mono_font_family(self.settings_store.settings()))
                     .on_mouse_move(cx.listener(move |this, _event, _window, cx| {
                         if this.connection_monitor.selector_highlighted_index != Some(index) {
                             this.connection_monitor.selector_highlighted_index = Some(index);
