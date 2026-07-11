@@ -30,16 +30,6 @@
   <img src="docs/media/oxideterm-native-hero.png" alt="OxideTerm feature overview" width="920">
 </p>
 
-<div align="center">
-
-<a href="docs/media/ai-terminal-demo.mp4">
-  <img src="docs/media/ai-terminal-demo.gif" alt="OxideSens opening a terminal inside OxideTerm" width="920">
-</a>
-
-*Watch OxideSens follow a user request and open a terminal inside OxideTerm.*
-
-</div>
-
 ---
 
 ## What OxideTerm Is
@@ -112,6 +102,18 @@ OxideTerm keeps terminal rendering, connection state, reconnect orchestration, f
 | **Host Operations & Remote Desktop** | Host monitoring, processes, services, logs, ports, tasks, disks, packages, containers, tmux, built-in RDP and VNC, clipboard, input, reconnect, and viewport-aware sizing |
 | **OxideSens & Automation** | BYOK providers, MCP, local RAG, approved workspace actions, command policy, chat history, encrypted cloud sync, portable `.oxide` bundles, and a standalone CLI for automation and diagnostics |
 | **Extensions & Personalization** | Capability-scoped WASM plugins, custom tabs and settings, Quick Commands, themes, background images, configurable shortcuts, and 11 interface languages |
+
+---
+
+<div align="center">
+
+<a href="docs/media/ai-terminal-demo.mp4">
+  <img src="docs/media/ai-terminal-demo.gif" alt="OxideSens opening a terminal inside OxideTerm" width="920">
+</a>
+
+*Watch OxideSens follow a user request and open a terminal inside OxideTerm.*
+
+</div>
 
 ---
 

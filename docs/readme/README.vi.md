@@ -31,16 +31,6 @@
   <img src="../../docs/media/oxideterm-native-hero.png" alt="Tổng quan tính năng của OxideTerm" width="920">
 </p>
 
-<div align="center">
-
-<a href="../../docs/media/ai-terminal-demo.mp4">
-  <img src="../../docs/media/ai-terminal-demo.gif" alt="OxideSens mở terminal bên trong OxideTerm" width="920">
-</a>
-
-*OxideSens làm theo yêu cầu của người dùng và mở một terminal bên trong OxideTerm.*
-
-</div>
-
 ---
 
 ## OxideTerm là gì
@@ -99,6 +89,18 @@ OxideTerm giữ kết nối, tệp, chuyển tiếp, công cụ máy chủ, tự
 | **Vận hành máy chủ và màn hình từ xa** | Giám sát, tiến trình, dịch vụ, log, cổng, tác vụ, đĩa, gói, container, tmux, RDP và VNC |
 | **OxideSens và tự động hóa** | Nhà cung cấp AI riêng, MCP, RAG cục bộ, hành động được duyệt, đồng bộ mã hóa và CLI |
 | **Mở rộng và cá nhân hóa** | Plugin WASM, tab tùy chỉnh, lệnh nhanh, chủ đề, hình nền, phím tắt và 11 ngôn ngữ |
+
+---
+
+<div align="center">
+
+<a href="../../docs/media/ai-terminal-demo.mp4">
+  <img src="../../docs/media/ai-terminal-demo.gif" alt="OxideSens mở terminal bên trong OxideTerm" width="920">
+</a>
+
+*OxideSens làm theo yêu cầu của người dùng và mở một terminal bên trong OxideTerm.*
+
+</div>
 
 ---
 

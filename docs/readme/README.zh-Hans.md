@@ -31,16 +31,6 @@
   <img src="../../docs/media/oxideterm-native-hero.png" alt="OxideTerm 功能概览" width="920">
 </p>
 
-<div align="center">
-
-<a href="../../docs/media/ai-terminal-demo.mp4">
-  <img src="../../docs/media/ai-terminal-demo.gif" alt="OxideSens 在 OxideTerm 中打开终端" width="920">
-</a>
-
-*观看 OxideSens 按照用户请求在 OxideTerm 中打开一个终端。*
-
-</div>
-
 ---
 
 ## OxideTerm 是什么
@@ -99,6 +89,18 @@ OxideTerm 将连接、文件、转发、主机工具、自动化与 AI 上下文
 | **主机运维与远程桌面** | 监控、进程、服务、日志、端口、任务、磁盘、软件包、容器、tmux、RDP 与 VNC |
 | **OxideSens 与自动化** | 自有 AI 服务商、MCP、本地 RAG、已批准操作、加密云同步与 CLI |
 | **扩展与个性化** | WASM 插件、自定义标签页、快速命令、主题、背景图片、快捷键与 11 种界面语言 |
+
+---
+
+<div align="center">
+
+<a href="../../docs/media/ai-terminal-demo.mp4">
+  <img src="../../docs/media/ai-terminal-demo.gif" alt="OxideSens 在 OxideTerm 中打开终端" width="920">
+</a>
+
+*观看 OxideSens 按照用户请求在 OxideTerm 中打开一个终端。*
+
+</div>
 
 ---
 

@@ -31,16 +31,6 @@
   <img src="../../docs/media/oxideterm-native-hero.png" alt="OxideTerm 功能概覽" width="920">
 </p>
 
-<div align="center">
-
-<a href="../../docs/media/ai-terminal-demo.mp4">
-  <img src="../../docs/media/ai-terminal-demo.gif" alt="OxideSens 在 OxideTerm 中開啟終端" width="920">
-</a>
-
-*觀看 OxideSens 依照使用者請求，在 OxideTerm 中開啟一個終端。*
-
-</div>
-
 ---
 
 ## OxideTerm 是什麼
@@ -99,6 +89,18 @@ OxideTerm 將連線、檔案、轉發、主機工具、自動化與 AI 上下文
 | **主機維運與遠端桌面** | 監控、行程、服務、日誌、連接埠、工作、磁碟、套件、容器、tmux、RDP 與 VNC |
 | **OxideSens 與自動化** | 自有 AI 服務商、MCP、本機 RAG、已核准操作、加密雲端同步與 CLI |
 | **擴充與個人化** | WASM 插件、自訂分頁、快速命令、主題、背景圖片、快捷鍵與 11 種介面語言 |
+
+---
+
+<div align="center">
+
+<a href="../../docs/media/ai-terminal-demo.mp4">
+  <img src="../../docs/media/ai-terminal-demo.gif" alt="OxideSens 在 OxideTerm 中開啟終端" width="920">
+</a>
+
+*觀看 OxideSens 依照使用者請求，在 OxideTerm 中開啟一個終端。*
+
+</div>
 
 ---
 

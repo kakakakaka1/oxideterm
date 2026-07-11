@@ -31,16 +31,6 @@
   <img src="../../docs/media/oxideterm-native-hero.png" alt="Visão geral dos recursos do OxideTerm" width="920">
 </p>
 
-<div align="center">
-
-<a href="../../docs/media/ai-terminal-demo.mp4">
-  <img src="../../docs/media/ai-terminal-demo.gif" alt="OxideSens abre um terminal dentro do OxideTerm" width="920">
-</a>
-
-*OxideSens segue um pedido do usuário e abre um terminal dentro do OxideTerm.*
-
-</div>
-
 ---
 
 ## O que é o OxideTerm
@@ -99,6 +89,18 @@ OxideTerm mantém conexões, arquivos, encaminhamentos, ferramentas do host, aut
 | **Operações do host e desktop remoto** | Monitoramento, processos, serviços, logs, portas, tarefas, discos, pacotes, contêineres, tmux, RDP e VNC |
 | **OxideSens e automação** | Provedores de IA próprios, MCP, RAG local, ações aprovadas, sincronização criptografada e CLI |
 | **Extensões e personalização** | Plugins WASM, abas personalizadas, comandos rápidos, temas, fundos, atalhos e 11 idiomas |
+
+---
+
+<div align="center">
+
+<a href="../../docs/media/ai-terminal-demo.mp4">
+  <img src="../../docs/media/ai-terminal-demo.gif" alt="OxideSens abre um terminal dentro do OxideTerm" width="920">
+</a>
+
+*OxideSens segue um pedido do usuário e abre um terminal dentro do OxideTerm.*
+
+</div>
 
 ---
 

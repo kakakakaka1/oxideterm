@@ -31,16 +31,6 @@
   <img src="../../docs/media/oxideterm-native-hero.png" alt="OxideTerm の機能概要" width="920">
 </p>
 
-<div align="center">
-
-<a href="../../docs/media/ai-terminal-demo.mp4">
-  <img src="../../docs/media/ai-terminal-demo.gif" alt="OxideSens が OxideTerm 内でターミナルを開くデモ" width="920">
-</a>
-
-*OxideSens がユーザーの依頼に従い、OxideTerm 内でターミナルを開く様子です。*
-
-</div>
-
 ---
 
 ## OxideTerm とは
@@ -99,6 +89,18 @@ OxideTerm は接続、ファイル、転送、ホストツール、自動化、A
 | **ホスト運用とリモートデスクトップ** | 監視、プロセス、サービス、ログ、ポート、タスク、ディスク、パッケージ、コンテナ、tmux、RDP、VNC |
 | **OxideSens と自動化** | 自分の AI プロバイダー、MCP、ローカル RAG、承認済み操作、暗号化同期、CLI |
 | **拡張とカスタマイズ** | WASM プラグイン、カスタムタブ、クイックコマンド、テーマ、背景、ショートカット、11 言語 |
+
+---
+
+<div align="center">
+
+<a href="../../docs/media/ai-terminal-demo.mp4">
+  <img src="../../docs/media/ai-terminal-demo.gif" alt="OxideSens が OxideTerm 内でターミナルを開くデモ" width="920">
+</a>
+
+*OxideSens がユーザーの依頼に従い、OxideTerm 内でターミナルを開く様子です。*
+
+</div>
 
 ---
 
