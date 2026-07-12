@@ -353,7 +353,9 @@ class LinuxPackagingTests(unittest.TestCase):
             ):
                 document = root / name
                 document.write_text(f"{name}\n", encoding="utf-8")
-                release_documents.append(document)
+                # Production documents carry an explicit package filename so
+                # sources outside the repository root can be renamed safely.
+                release_documents.append((document, name))
 
             binary = root / "oxideterm-native"
             shutil.copy2("/bin/true", binary)
