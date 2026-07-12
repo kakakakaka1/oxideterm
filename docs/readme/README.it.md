@@ -270,6 +270,10 @@ cargo run -p oxideterm-cli -- report --bundle ./oxideterm-report.zip
 | Scritture CLI | dry-run plans, guardie `--yes`, rollback backups |
 | Plugins | isolamento wasmtime e basata su capacità API host |
 
+## Avviso sull’uso legittimo
+
+OxideTerm è distribuito con licenza GPL-3.0-only senza ulteriori restrizioni di licenza. Durante l’utilizzo, accedere esclusivamente a sistemi, reti e dispositivi di proprietà dell’utente o per i quali si dispone di un’autorizzazione esplicita, nel rispetto delle leggi applicabili. Non utilizzare OxideTerm per accessi non autorizzati, interruzioni di servizi o per aggirare i controlli di accesso.
+
 ## Contribuire
 
 Sono benvenuti contributi a codice, documentazione, traduzioni, plugin, test e segnalazioni. Discuti le modifiche più ampie in una issue oppure invia una pull request mirata per una correzione ben delimitata.

@@ -270,6 +270,10 @@ cargo run -p oxideterm-cli -- report --bundle ./oxideterm-report.zip
 | CLI 寫入 | dry-run 計畫、`--yes` 保護和回滾備份 |
 | 外掛 | wasmtime 隔離與基於能力的宿主 API |
 
+## 合法使用提醒
+
+OxideTerm 依 GPL-3.0-only 授權發布，不附加額外的授權限制。使用時，請僅存取你擁有或已取得明確授權的系統、網路和裝置，並遵守適用法律。請勿使用 OxideTerm 從事未經授權的存取、服務干擾或規避存取控制。
+
 ## 貢獻
 
 歡迎貢獻程式碼、文件、翻譯、插件、測試與問題重現。較大的改動請先透過 Issue 討論，範圍明確的修正可以直接提交 Pull Request。

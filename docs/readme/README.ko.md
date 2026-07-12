@@ -270,6 +270,10 @@ cargo run -p oxideterm-cli -- report --bundle ./oxideterm-report.zip
 | CLI writes | dry-run 계획, `--yes` 보호, 롤백 백업 |
 | Plugins | wasmtime 격리와 능력 기반 호스트 API |
 
+## 적법한 사용 안내
+
+OxideTerm은 추가 라이선스 제한 없이 GPL-3.0-only로 배포됩니다. 사용할 때에는 본인이 소유하거나 명시적인 접근 권한을 받은 시스템, 네트워크 및 장치에만 접근하고 관련 법률을 준수하십시오. 무단 접근, 서비스 방해 또는 접근 통제 우회에 OxideTerm을 사용하지 마십시오.
+
 ## 기여
 
 코드, 문서, 번역, 플러그인, 테스트, 버그 재현 기여를 환영합니다. 큰 변경은 Issue에서 먼저 논의하고, 범위가 명확한 수정은 Pull Request로 보내 주세요.

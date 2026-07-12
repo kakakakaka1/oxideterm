@@ -273,6 +273,10 @@ cargo run -p oxideterm-cli -- --config-dir ./fixture-config doctor --strict
 | CLI 写操作 | dry-run 计划、`--yes` 保护和回滚备份 |
 | 插件 | wasmtime 隔离与基于能力的宿主 API |
 
+## 合法使用提醒
+
+OxideTerm 按 GPL-3.0-only 许可发布，不附加额外的许可证限制。使用时，请仅访问你拥有或已获得明确授权的系统、网络和设备，并遵守适用法律。请勿使用 OxideTerm 实施未经授权的访问、服务干扰或访问控制规避。
+
 ## 贡献
 
 欢迎贡献代码、文档、翻译、插件、测试与问题复现。较大的改动请先通过 Issue 讨论，范围明确的修复可以直接提交 Pull Request。

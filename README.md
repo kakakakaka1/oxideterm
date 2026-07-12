@@ -331,6 +331,12 @@ cargo run -p oxideterm-cli -- --config-dir ./fixture-config doctor --strict
 
 ---
 
+## Lawful Use Notice
+
+OxideTerm is licensed under GPL-3.0-only without additional license restrictions. When using it, access only systems, networks, and devices that you own or are explicitly authorized to access, and comply with applicable law. Do not use OxideTerm for unauthorized access, service disruption, or bypassing access controls.
+
+---
+
 ## Contributing
 
 Contributions are welcome across Rust code, documentation, translations, plugins, testing, and issue reproduction. Open an issue to discuss larger changes, or send a focused pull request for a well-scoped fix.

@@ -270,6 +270,10 @@ cargo run -p oxideterm-cli -- report --bundle ./oxideterm-report.zip
 | Ghi bằng CLI | Kế hoạch chạy thử, bảo vệ `--yes`, bản sao lưu khôi phục |
 | Plugin | Cách ly wasmtime và API máy chủ dựa trên năng lực |
 
+## Lưu ý về sử dụng hợp pháp
+
+OxideTerm được cấp phép theo GPL-3.0-only và không kèm hạn chế giấy phép bổ sung. Khi sử dụng, chỉ truy cập các hệ thống, mạng và thiết bị thuộc sở hữu của bạn hoặc bạn được cấp quyền rõ ràng, đồng thời tuân thủ pháp luật hiện hành. Không sử dụng OxideTerm để truy cập trái phép, gây gián đoạn dịch vụ hoặc vượt qua cơ chế kiểm soát truy cập.
+
 ## Đóng góp
 
 Chúng tôi hoan nghênh đóng góp về mã nguồn, tài liệu, bản dịch, plugin, kiểm thử và tái hiện lỗi. Hãy thảo luận thay đổi lớn trong issue hoặc gửi pull request tập trung cho một bản sửa lỗi có phạm vi rõ ràng.
