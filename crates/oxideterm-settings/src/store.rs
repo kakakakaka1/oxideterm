@@ -519,7 +519,7 @@ mod tests {
     };
 
     #[test]
-    fn defaults_match_tauri_settings_store_values() {
+    fn defaults_match_expected_settings_store_values() {
         let settings = PersistedSettings::default();
         assert_eq!(settings.version, SETTINGS_SCHEMA_VERSION);
         assert_eq!(settings.general.language, Language::ZhCn);
@@ -530,7 +530,10 @@ mod tests {
         assert_eq!(
             settings.terminal.command_bar.focus_handoff_commands,
             [
+                "agy",
                 "btop",
+                "claude",
+                "codex",
                 "emacs",
                 "fzf",
                 "htop",
@@ -541,6 +544,7 @@ mod tests {
                 "micro",
                 "nano",
                 "nvim",
+                "opencode",
                 "ranger",
                 "screen",
                 "ssh",

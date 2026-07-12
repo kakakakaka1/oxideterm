@@ -13,8 +13,8 @@ use oxideterm_ai::{
 use oxideterm_settings::{
     DEFAULT_AI_TOOL_MAX_CALLS_PER_ROUND, DEFAULT_AI_TOOL_MAX_ROUNDS,
     MAX_AI_TOOL_MAX_CALLS_PER_ROUND, MAX_AI_TOOL_MAX_ROUNDS, MIN_AI_TOOL_MAX_CALLS_PER_ROUND,
-    MIN_AI_TOOL_MAX_ROUNDS, PersistedSettings, SettingsUpstreamProxyAuth, UpdateProxyMode,
-    reindex_highlight_rules,
+    MIN_AI_TOOL_MAX_ROUNDS, PersistedSettings, RECOMMENDED_FOCUS_HANDOFF_COMMANDS,
+    SettingsUpstreamProxyAuth, UpdateProxyMode, reindex_highlight_rules,
 };
 
 use crate::{
@@ -36,6 +36,7 @@ pub fn persisted_settings_input_value(
     let value = match input {
         SettingsInput::TerminalCustomFontFamily => settings.terminal.custom_font_family.clone(),
         SettingsInput::TerminalFontSize => settings.terminal.font_size.to_string(),
+        SettingsInput::TerminalScrollback => settings.terminal.scrollback.to_string(),
         SettingsInput::TerminalLineHeight => compact_decimal(settings.terminal.line_height),
         SettingsInput::IdeFontSize => settings
             .ide
@@ -118,7 +119,11 @@ pub fn persisted_settings_input_value(
             .terminal
             .command_bar
             .focus_handoff_commands
-            .join("\n"),
+            .iter()
+            .filter(|command| !RECOMMENDED_FOCUS_HANDOFF_COMMANDS.contains(&command.as_str()))
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(", "),
         SettingsInput::HighlightLabel(index) => settings
             .terminal
             .highlight_rules
@@ -282,6 +287,9 @@ pub fn apply_persisted_settings_input_draft(
         SettingsInput::TerminalFontSize => parse_i64(draft)
             .map(|value| settings.terminal.font_size = value.clamp(8, 32))
             .into(),
+        SettingsInput::TerminalScrollback => parse_i64(draft)
+            .map(|value| settings.terminal.scrollback = value.clamp(500, 20_000))
+            .into(),
         SettingsInput::TerminalLineHeight => parse_f64(draft)
             .map(|value| settings.terminal.line_height = value.clamp(0.8, 2.0))
             .into(),
@@ -382,8 +390,20 @@ pub fn apply_persisted_settings_input_draft(
             .map(|value| settings.terminal.in_band_transfer.max_total_bytes = value.max(1024))
             .into(),
         SettingsInput::TerminalCommandBarFocusHandoff => {
-            settings.terminal.command_bar.focus_handoff_commands =
-                parse_focus_handoff_command_list(draft);
+            let mut commands = settings
+                .terminal
+                .command_bar
+                .focus_handoff_commands
+                .iter()
+                .filter(|command| RECOMMENDED_FOCUS_HANDOFF_COMMANDS.contains(&command.as_str()))
+                .cloned()
+                .collect::<Vec<_>>();
+            for command in parse_focus_handoff_command_list(draft) {
+                if !RECOMMENDED_FOCUS_HANDOFF_COMMANDS.contains(&command.as_str()) {
+                    commands.push(command);
+                }
+            }
+            settings.terminal.command_bar.focus_handoff_commands = commands;
             SettingsInputDraftApply::Applied
         }
         SettingsInput::HighlightLabel(index) => edit_highlight_rule(settings, index, |rule| {
@@ -697,6 +717,16 @@ mod tests {
         );
 
         assert_eq!(settings.terminal.font_size, 32);
+
+        assert_eq!(
+            apply_persisted_settings_input_draft(
+                &mut settings,
+                SettingsInput::TerminalScrollback,
+                "99999",
+            ),
+            SettingsInputDraftApply::Applied
+        );
+        assert_eq!(settings.terminal.scrollback, 20_000);
     }
 
     #[test]
@@ -715,6 +745,42 @@ mod tests {
         assert_eq!(
             settings.terminal.custom_font_family,
             "'Sarasa Fixed SC', monospace"
+        );
+    }
+
+    #[test]
+    fn focus_handoff_custom_draft_preserves_selected_presets() {
+        let mut settings = PersistedSettings::default();
+        settings
+            .terminal
+            .command_bar
+            .focus_handoff_commands
+            .retain(|command| command == "codex" || command == "vim");
+        settings
+            .terminal
+            .command_bar
+            .focus_handoff_commands
+            .push("custom-old".to_string());
+
+        assert_eq!(
+            persisted_settings_input_value(
+                &settings,
+                SettingsInput::TerminalCommandBarFocusHandoff,
+            )
+            .as_deref(),
+            Some("custom-old")
+        );
+        assert_eq!(
+            apply_persisted_settings_input_draft(
+                &mut settings,
+                SettingsInput::TerminalCommandBarFocusHandoff,
+                "custom-new, codex",
+            ),
+            SettingsInputDraftApply::Applied
+        );
+        assert_eq!(
+            settings.terminal.command_bar.focus_handoff_commands,
+            ["codex", "vim", "custom-new"]
         );
     }
 

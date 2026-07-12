@@ -548,6 +548,9 @@ impl WorkspaceApp {
         let mut options = self.localized_markdown_options();
         options.base_font_size = 13.0;
         options.block_gap = 8.0;
+        // AI markdown lives directly above the window image in the companion
+        // sidebar, so its code surfaces must use the same translucent contract.
+        options.background_surface_active = self.window_background_preferences().is_some();
         let content = ai_visible_suggestion_content(&message.content);
         let cached = self.cached_ai_markdown_document(&content, &options, !message.is_streaming);
         let group_id = crate::workspace::selectable_text::selectable_text_id(

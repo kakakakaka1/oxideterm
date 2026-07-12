@@ -39,7 +39,7 @@ use oxideterm_gpui_ui::{
         AiContextUsage, AiModelSelectorPlacement, AiModelSelectorProviderState, AiSafetyMode,
         AiTone, AiToolCallView, AiToolRisk, AiToolStatus, ai_autocomplete_item,
         ai_autocomplete_popup, ai_chat_input_chips, ai_chat_input_editor, ai_chat_input_footer,
-        ai_chat_input_frame, ai_chat_input_root, ai_chat_panel, ai_context_chip,
+        ai_chat_input_frame, ai_chat_input_root_with_background, ai_chat_panel, ai_context_chip,
         ai_context_popover, ai_context_popover_header, ai_context_usage_indicator,
         ai_guardrail_block, ai_message_action, ai_message_author, ai_message_body,
         ai_message_model_badge, ai_message_time, ai_model_selector_dropdown,

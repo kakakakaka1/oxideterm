@@ -8,6 +8,8 @@ use oxideterm_theme::ThemeTokens;
 
 use crate::options::MarkdownOptions;
 
+const BACKGROUND_SURFACE_CODE_ALPHA: f32 = 0.4; // Match the application-wide image-background surface opacity.
+
 // ── colour helpers ──────────────────────────────────────────────────────
 
 /// Convert a `0xRRGGBB` hex value to a GPUI `Hsla` colour at full opacity.
@@ -36,12 +38,12 @@ pub fn accent_color(tokens: &ThemeTokens) -> Hsla {
     hex_to_hsla(tokens.ui.accent)
 }
 
-pub fn code_bg_color(tokens: &ThemeTokens) -> Hsla {
-    hex_to_hsla(tokens.ui.bg_elevated)
+pub fn code_bg_color(tokens: &ThemeTokens, opts: &MarkdownOptions) -> Hsla {
+    background_surface_color(tokens.ui.bg_elevated, opts)
 }
 
-pub fn code_block_bg_color(tokens: &ThemeTokens) -> Hsla {
-    hex_to_hsla(tokens.ui.bg_panel)
+pub fn code_block_bg_color(tokens: &ThemeTokens, opts: &MarkdownOptions) -> Hsla {
+    background_surface_color(tokens.ui.bg_panel, opts)
 }
 
 pub fn code_block_border_color(tokens: &ThemeTokens) -> Hsla {
@@ -50,8 +52,16 @@ pub fn code_block_border_color(tokens: &ThemeTokens) -> Hsla {
     c
 }
 
-pub fn code_block_header_bg_color(tokens: &ThemeTokens) -> Hsla {
-    hex_to_hsla(tokens.ui.bg_panel)
+pub fn code_block_header_bg_color(tokens: &ThemeTokens, opts: &MarkdownOptions) -> Hsla {
+    background_surface_color(tokens.ui.bg_panel, opts)
+}
+
+fn background_surface_color(color: u32, opts: &MarkdownOptions) -> Hsla {
+    let mut color = hex_to_hsla(color);
+    if opts.background_surface_active {
+        color.a = BACKGROUND_SURFACE_CODE_ALPHA;
+    }
+    color
 }
 
 pub fn code_block_header_border_color(tokens: &ThemeTokens) -> Hsla {
@@ -92,8 +102,8 @@ pub fn table_border_color(tokens: &ThemeTokens) -> Hsla {
 }
 
 /// Background colour for inline code spans (semantically separate from code blocks).
-pub fn inline_code_bg_color(tokens: &ThemeTokens) -> Hsla {
-    hex_to_hsla(tokens.ui.bg_elevated)
+pub fn inline_code_bg_color(tokens: &ThemeTokens, opts: &MarkdownOptions) -> Hsla {
+    background_surface_color(tokens.ui.bg_elevated, opts)
 }
 
 // ── fonts ───────────────────────────────────────────────────────────────
@@ -167,4 +177,27 @@ pub fn code_label_font_size(opts: &MarkdownOptions) -> AbsoluteLength {
 
 pub fn footnote_font_size(opts: &MarkdownOptions) -> AbsoluteLength {
     AbsoluteLength::Pixels(gpui::px(opts.base_font_size * opts.footnote_font_scale))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn code_surfaces_only_become_translucent_for_background_contexts() {
+        let tokens = oxideterm_theme::default_tokens();
+        let opaque = MarkdownOptions::from_theme(&tokens);
+        let mut translucent = opaque.clone();
+        translucent.background_surface_active = true;
+
+        assert_eq!(code_block_bg_color(&tokens, &opaque).a, 1.0);
+        assert_eq!(
+            code_block_bg_color(&tokens, &translucent).a,
+            BACKGROUND_SURFACE_CODE_ALPHA
+        );
+        assert_eq!(
+            inline_code_bg_color(&tokens, &translucent).a,
+            BACKGROUND_SURFACE_CODE_ALPHA
+        );
+    }
 }

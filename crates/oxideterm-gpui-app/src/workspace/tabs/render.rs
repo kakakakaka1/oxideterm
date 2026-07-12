@@ -126,11 +126,11 @@ impl WorkspaceApp {
                 } else {
                     rgb(theme.border)
                 })
-                .bg(if active {
-                    rgb(theme.bg_panel)
+                .bg(self.workspace_chrome_background(if active {
+                    theme.bg_panel
                 } else {
-                    rgb(theme.bg)
-                })
+                    theme.bg
+                }))
                 .text_color(if active {
                     rgb(theme.text)
                 } else {
@@ -394,7 +394,7 @@ impl WorkspaceApp {
             .gap(px(self.tokens.metrics.tab_gap))
             .border_r_1()
             .border_color(rgb(theme.border))
-            .bg(rgb(if closing.was_active {
+            .bg(self.workspace_chrome_background(if closing.was_active {
                 theme.bg_panel
             } else {
                 theme.bg

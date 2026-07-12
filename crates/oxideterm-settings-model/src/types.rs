@@ -107,6 +107,7 @@ pub enum SettingsSelect {
 pub enum SettingsInput {
     TerminalCustomFontFamily,
     TerminalFontSize,
+    TerminalScrollback,
     TerminalLineHeight,
     IdeFontSize,
     IdeLineHeight,
@@ -411,6 +412,7 @@ impl SettingsInput {
         match self {
             Self::TerminalCustomFontFamily => 19,
             Self::TerminalFontSize => 1,
+            Self::TerminalScrollback => 33_000,
             Self::TerminalLineHeight => 2,
             Self::IdeFontSize => 3,
             Self::IdeLineHeight => 4,

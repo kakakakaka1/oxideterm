@@ -243,7 +243,10 @@ impl WorkspaceApp {
             footer_leading,
             footer_trailing,
         ));
-        ai_chat_input_root(&self.tokens)
+        ai_chat_input_root_with_background(
+            &self.tokens,
+            self.context_sidebar_content_background(self.tokens.ui.bg),
+        )
             .relative()
             .when(self.ai_should_show_context_chips(cx), |root| {
                 root.child(self.render_ai_context_chips(cx))

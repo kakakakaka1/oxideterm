@@ -879,7 +879,7 @@ fn render_mermaid_block(
         .overflow_hidden()
         .border_1()
         .border_color(style::code_block_border_color(tokens))
-        .bg(style::code_block_bg_color(tokens))
+        .bg(style::code_block_bg_color(tokens, opts))
         .rounded(px(tokens.radii.md))
         .child(render_mermaid_header(
             code,
@@ -910,7 +910,7 @@ fn render_mermaid_header(
         .py(px(4.0))
         .border_b_1()
         .border_color(style::code_block_header_border_color(tokens))
-        .bg(style::code_block_header_bg_color(tokens))
+        .bg(style::code_block_header_bg_color(tokens, opts))
         // Mermaid uses the same painted shell as code blocks; the header owns
         // its top radius so GPUI cannot leak rectangular child backgrounds.
         .rounded_t(px(tokens.radii.md))
@@ -1006,7 +1006,7 @@ fn render_mermaid_body(
                     .rounded(px(tokens.radii.sm))
                     .border_1()
                     .border_color(style::code_block_border_color(tokens))
-                    .bg(style::code_bg_color(tokens))
+                    .bg(style::code_bg_color(tokens, opts))
                     .p(px(8.0))
                     .text_size(style::code_font_size(opts))
                     .text_color(style::muted_color(tokens))
@@ -1043,7 +1043,7 @@ fn render_code_block_shell(
         .overflow_hidden()
         .border_1()
         .border_color(style::code_block_border_color(tokens))
-        .bg(style::code_block_bg_color(tokens))
+        .bg(style::code_block_bg_color(tokens, opts))
         .rounded(px(tokens.radii.md))
         .child(render_code_block_header(
             language,
@@ -1085,7 +1085,7 @@ fn render_code_block_header(
         .py(px(4.0))
         .border_b_1()
         .border_color(style::code_block_header_border_color(tokens))
-        .bg(style::code_block_header_bg_color(tokens))
+        .bg(style::code_block_header_bg_color(tokens, opts))
         // GPUI does not always clip child backgrounds to the parent radius;
         // Tauri relies on md-code-block overflow-hidden, so mirror that by
         // rounding the painted header corners explicitly.
@@ -1244,7 +1244,7 @@ fn render_blockquote_with_code_actions(
             div()
                 .flex_1()
                 .pl(px(opts.list_indent))
-                .bg(style::code_bg_color(tokens))
+                .bg(style::code_bg_color(tokens, opts))
                 .rounded(px(tokens.radii.sm))
                 .when_some(kind, |content, kind| {
                     content.child(render_callout_label(kind, accent, tokens, opts))
@@ -1283,7 +1283,7 @@ fn render_selectable_blockquote(
             div()
                 .flex_1()
                 .pl(px(opts.list_indent))
-                .bg(style::code_bg_color(tokens))
+                .bg(style::code_bg_color(tokens, opts))
                 .rounded(px(tokens.radii.sm))
                 .when_some(kind, |content, kind| {
                     content.child(render_callout_label(kind, accent, tokens, opts))
@@ -2305,7 +2305,7 @@ fn text_run_for_flat(
     };
 
     let background_color: Option<Hsla> = if run.code {
-        Some(style::inline_code_bg_color(tokens))
+        Some(style::inline_code_bg_color(tokens, opts))
     } else {
         None
     };

@@ -1450,36 +1450,13 @@ impl WorkspaceApp {
         &self,
         label_key: &str,
         hint_key: &str,
+        input: SettingsInput,
         value: i64,
-        step: i64,
-        min: i64,
-        max: i64,
-        setter: fn(&mut PersistedSettings, i64),
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let control = div()
-            .h(px(self.tokens.metrics.ui_control_height))
-            .w(px(112.0))
-            .px(px(self.tokens.metrics.ui_control_padding_x))
-            .flex()
-            .items_center()
-            .justify_center()
-            .rounded(px(self.tokens.radii.md))
-            .border_1()
-            .border_color(rgb(self.tokens.ui.border))
-            .bg(rgb(self.tokens.ui.bg))
-            .text_size(px(self.tokens.metrics.ui_text_sm))
-            .text_color(rgb(self.tokens.ui.text))
-            .cursor_pointer()
-            .child(value.to_string())
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(move |this, _event, _window, cx| {
-                    let next = if value >= max { min } else { value + step };
-                    this.edit_settings(|settings| setter(settings, next.clamp(min, max)), cx);
-                }),
-            )
-            .into_any_element();
+        // Numeric rows use the same focus, IME, caret, and draft pipeline as
+        // every other settings text field instead of simulating a click stepper.
+        let control = self.number_input(input, value.to_string(), 112.0, cx);
         self.setting_row(label_key, hint_key, control, cx)
     }
 

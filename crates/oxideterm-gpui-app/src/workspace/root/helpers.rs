@@ -146,7 +146,13 @@ pub(in crate::workspace) fn render_profile_from_env() -> Option<RenderProfile> {
 pub(in crate::workspace) fn workspace_background(
     tokens: &ThemeTokens,
     mode: NativeVibrancyMode,
+    has_window_background: bool,
 ) -> Rgba {
+    // A window-scoped image may have its own opacity, but it must blend with an
+    // opaque app color instead of sampling the macOS desktop through the window.
+    if has_window_background {
+        return rgb(tokens.ui.bg);
+    }
     match mode {
         NativeVibrancyMode::Off => rgb(tokens.ui.bg),
         NativeVibrancyMode::System | NativeVibrancyMode::Mica | NativeVibrancyMode::Acrylic => {
@@ -1544,6 +1550,20 @@ mod helper_tests {
         assert_eq!(
             context_sidebar_inner_surface_background(0x112233, false),
             rgb(0x112233)
+        );
+    }
+
+    #[test]
+    fn window_image_background_uses_an_opaque_app_base() {
+        let tokens = oxideterm_theme::default_tokens();
+
+        assert_eq!(
+            workspace_background(&tokens, NativeVibrancyMode::System, true),
+            rgb(tokens.ui.bg)
+        );
+        assert_ne!(
+            workspace_background(&tokens, NativeVibrancyMode::System, false),
+            rgb(tokens.ui.bg)
         );
     }
 

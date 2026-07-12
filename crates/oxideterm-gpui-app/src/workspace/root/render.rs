@@ -127,6 +127,7 @@ impl Render for WorkspaceApp {
             cx,
         );
         let window_background_layer = self.render_workspace_window_background(window, cx);
+        let has_window_background = window_background_layer.is_some();
         let toast_layer = self.render_workspace_toasts(cx);
         let zen_mode = self.settings_store.settings().sidebar_ui.zen_mode;
         let titlebar_visible = !window.is_fullscreen();
@@ -143,7 +144,11 @@ impl Render for WorkspaceApp {
             .relative()
             .flex()
             .flex_col()
-            .bg(workspace_background(&self.tokens, vibrancy_mode))
+            .bg(workspace_background(
+                &self.tokens,
+                vibrancy_mode,
+                has_window_background,
+            ))
             .text_color(rgb(self.tokens.ui.text))
             .font_family(settings_ui_font_family(
                 &self.settings_store.settings().appearance.ui_font_family,

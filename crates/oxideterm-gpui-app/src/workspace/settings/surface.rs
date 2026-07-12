@@ -713,16 +713,21 @@ impl WorkspaceApp {
             .items_center()
             .gap_3()
             .rounded(px(self.tokens.radii.md))
-            .border_l_2()
+            .border_1()
             .border_color(if active {
-                rgb(theme.accent)
+                rgb(theme.border)
             } else {
                 rgba(0x00000000)
             })
             .bg(if active {
-                rgba((theme.accent << 8) | 0x1f)
+                self.settings_panel_background(theme.bg_panel)
             } else {
                 rgba(0x00000000)
+            })
+            .when(active, |item| {
+                // Restore the earlier outlined, raised selection treatment while
+                // keeping image-background translucency in the shared color path.
+                oxideterm_gpui_ui::theme_card_surface_shadow(item, &self.tokens)
             })
             .text_size(px(self.tokens.metrics.ui_text_sm))
             .font_weight(gpui::FontWeight::NORMAL)

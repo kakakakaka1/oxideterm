@@ -784,11 +784,8 @@ impl WorkspaceApp {
                 vec![self.number_row(
                     "settings_view.terminal.scrollback",
                     "settings_view.terminal.scrollback_hint",
+                    SettingsInput::TerminalScrollback,
                     settings.terminal.scrollback,
-                    500,
-                    500,
-                    20000,
-                    set_terminal_scrollback,
                     cx,
                 )],
             ),
@@ -856,19 +853,16 @@ impl WorkspaceApp {
         let value = if focused {
             self.settings_input_draft.clone()
         } else {
-            settings
-                .terminal
-                .command_bar
-                .focus_handoff_commands
-                .join("\n")
+            self.current_settings_input_value(input)
         };
         let target = WorkspaceImeTarget::Settings(input);
         let workspace = cx.entity();
         let theme = self.tokens.ui;
         let line_height = input.textarea_line_height();
-        let mut textarea = div()
+        let mut command_editor = div()
             .w_full()
-            .min_h(px(96.0))
+            .h(px(44.0))
+            .overflow_hidden()
             .rounded(px(self.tokens.radii.md))
             .border_1()
             .border_color(if focused {
@@ -906,16 +900,16 @@ impl WorkspaceApp {
             );
 
         if value.is_empty() {
-            textarea = self.render_settings_multiline_textarea_lines(
-                textarea,
+            command_editor = self.render_settings_multiline_textarea_lines(
+                command_editor,
                 target,
-                "vim\nnvim\nlazygit",
+                "aider, custom-tui",
                 true,
                 line_height,
             );
         } else {
-            textarea = self.render_settings_multiline_textarea_lines(
-                textarea,
+            command_editor = self.render_settings_multiline_textarea_lines(
+                command_editor,
                 target,
                 &value,
                 false,
@@ -924,7 +918,7 @@ impl WorkspaceApp {
         }
 
         if let Some(marked) = self.marked_text_for_target(target) {
-            textarea = textarea.child(
+            command_editor = command_editor.child(
                 div()
                     .underline()
                     .text_color(rgb(theme.text))
@@ -932,12 +926,87 @@ impl WorkspaceApp {
             );
         }
 
-        let control =
-            text_input_anchor_probe(target.anchor_id(), textarea, move |anchor, _window, cx| {
+        let control = text_input_anchor_probe(
+            target.anchor_id(),
+            command_editor,
+            move |anchor, _window, cx| {
                 let _ = workspace.update(cx, |this, cx| {
                     this.update_text_input_anchor(anchor, cx);
                 });
-            });
+            },
+        );
+
+        let mut presets = div().w_full().flex().flex_row().flex_wrap().gap(px(8.0));
+        for command in RECOMMENDED_FOCUS_HANDOFF_COMMANDS {
+            let enabled = settings
+                .terminal
+                .command_bar
+                .focus_handoff_commands
+                .iter()
+                .any(|candidate| candidate == command);
+            let command_name = (*command).to_string();
+            let theme = self.tokens.ui;
+            let chip = div()
+                .h(px(32.0))
+                .px(px(12.0))
+                .rounded(px(self.tokens.radii.md))
+                .border_1()
+                .border_color(if enabled {
+                    rgba((theme.accent << 8) | 0x99)
+                } else {
+                    rgba((theme.border << 8) | 0x99)
+                })
+                .bg(if enabled {
+                    rgba((theme.accent << 8) | 0x20)
+                } else {
+                    rgba(0x00000000)
+                })
+                .flex()
+                .items_center()
+                .gap(px(6.0))
+                .cursor_pointer()
+                .text_size(px(self.tokens.metrics.ui_text_sm))
+                .font_family(settings_mono_font_family(self.settings_store.settings()))
+                .text_color(if enabled {
+                    rgb(theme.accent)
+                } else {
+                    rgb(theme.text_muted)
+                })
+                .hover(move |style| {
+                    style
+                        .border_color(rgba((theme.accent << 8) | 0x88))
+                        .bg(rgb(theme.bg_hover))
+                        .text_color(rgb(theme.text))
+                })
+                .when(enabled, |chip| chip.child("✓"))
+                .child(command_name.clone())
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(move |this, _event, _window, cx| {
+                        if let Some(input) = this.focused_settings_input.take() {
+                            this.clear_settings_input_draft(input);
+                        }
+                        let command_name = command_name.clone();
+                        this.edit_settings(
+                            move |settings| {
+                                let commands =
+                                    &mut settings.terminal.command_bar.focus_handoff_commands;
+                                if let Some(index) = commands
+                                    .iter()
+                                    .position(|candidate| candidate == &command_name)
+                                {
+                                    commands.remove(index);
+                                } else {
+                                    commands.push(command_name);
+                                }
+                            },
+                            cx,
+                        );
+                        cx.stop_propagation();
+                    }),
+                );
+            presets = presets.child(chip);
+        }
 
         div()
             .flex()
@@ -955,17 +1024,42 @@ impl WorkspaceApp {
                             .text_color(rgb(theme.text))
                             .child(
                                 self.i18n
-                                    .t("settings_view.terminal.command_bar_focus_handoff"),
+                                    .t("settings_view.terminal.command_bar_focus_handoff_presets"),
                             ),
                     )
                     .child(
                         div()
                             .text_size(px(self.tokens.metrics.ui_text_xs))
                             .text_color(rgb(theme.text_muted))
+                            .child(self.i18n.t(
+                                "settings_view.terminal.command_bar_focus_handoff_presets_hint",
+                            )),
+                    ),
+            )
+            .child(presets)
+            .child(self.card_separator())
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(2.0))
+                    .child(
+                        div()
+                            .text_size(px(self.tokens.metrics.ui_text_sm))
+                            .font_weight(gpui::FontWeight::MEDIUM)
+                            .text_color(rgb(theme.text))
                             .child(
                                 self.i18n
-                                    .t("settings_view.terminal.command_bar_focus_handoff_hint"),
+                                    .t("settings_view.terminal.command_bar_focus_handoff_advanced"),
                             ),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(self.tokens.metrics.ui_text_xs))
+                            .text_color(rgb(theme.text_muted))
+                            .child(self.i18n.t(
+                                "settings_view.terminal.command_bar_focus_handoff_advanced_hint",
+                            )),
                     ),
             )
             .child(control)

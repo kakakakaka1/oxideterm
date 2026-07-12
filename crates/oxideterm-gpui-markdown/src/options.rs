@@ -43,6 +43,9 @@ pub struct MarkdownOptions {
     /// Internal padding of fenced code blocks, in pixels.
     pub code_block_padding: f32,
 
+    /// Whether markdown surfaces are rendered above a window background image.
+    pub background_surface_active: bool,
+
     /// Enable GFM table rendering.
     pub enable_tables: bool,
 
@@ -130,6 +133,7 @@ impl MarkdownOptions {
             block_gap: metrics.markdown_block_gap,
             list_indent: metrics.markdown_list_indent,
             code_block_padding: metrics.markdown_code_block_padding,
+            background_surface_active: false,
             enable_tables: true,
             enable_task_lists: true,
             enable_smart_punctuation: true,

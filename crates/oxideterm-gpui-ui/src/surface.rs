@@ -10,7 +10,7 @@ const LOW_SURFACE_SEPARATION: f32 = 0.035;
 const MEDIUM_SURFACE_SEPARATION: f32 = 0.08;
 const SEMANTIC_SURFACE_STRONG_ALPHA: u32 = 0xf2;
 const SEMANTIC_SURFACE_PANEL_ALPHA: u32 = 0xe6;
-const SEMANTIC_SURFACE_SOFT_ALPHA: u32 = 0xcc;
+const SEMANTIC_SURFACE_CARD_BACKGROUND_ALPHA: u32 = 0x66; // Tauri [data-bg-active] card fill uses 40% opacity.
 const SEMANTIC_SURFACE_INSET_ALPHA: u32 = 0x99;
 const SEMANTIC_SURFACE_BORDER_ALPHA: u32 = 0x80;
 const SEMANTIC_SURFACE_STRONG_BORDER_ALPHA: u32 = 0x99;
@@ -165,7 +165,7 @@ pub fn surface_chrome(tokens: &ThemeTokens, options: SurfaceOptions) -> SurfaceC
         ),
         SurfaceKind::Inspector => (
             theme.bg_card,
-            SEMANTIC_SURFACE_SOFT_ALPHA,
+            SEMANTIC_SURFACE_CARD_BACKGROUND_ALPHA,
             elevation.card_border_alpha,
             tokens.radii.lg,
             None,
@@ -443,6 +443,23 @@ mod tests {
         assert_eq!(row.border, rgba(0x00000000));
         assert!(!row.bordered);
         assert_eq!(row.padding, tokens.spacing.two);
+    }
+
+    #[test]
+    fn inspector_surface_matches_background_image_card_opacity() {
+        let tokens = oxideterm_theme::default_tokens();
+        let plain = surface_chrome(&tokens, SurfaceOptions::new(SurfaceKind::Inspector));
+        let background = surface_chrome(
+            &tokens,
+            SurfaceOptions::new(SurfaceKind::Inspector).has_background_image(true),
+        );
+
+        assert_eq!(plain.background, rgb(tokens.ui.bg_card));
+        assert_eq!(
+            background.background,
+            rgba((tokens.ui.bg_card << 8) | SEMANTIC_SURFACE_CARD_BACKGROUND_ALPHA)
+        );
+        assert!(background.bordered);
     }
 
     #[test]

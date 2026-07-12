@@ -64,6 +64,34 @@ pub struct TerminalCommandBarSettings {
     pub extra: ExtraFields,
 }
 
+/// Commands that normally take over terminal input after launch.
+pub const RECOMMENDED_FOCUS_HANDOFF_COMMANDS: &[&str] = &[
+    "agy",
+    "btop",
+    "claude",
+    "codex",
+    "emacs",
+    "fzf",
+    "htop",
+    "lazydocker",
+    "lazygit",
+    "less",
+    "man",
+    "micro",
+    "nano",
+    "nvim",
+    "opencode",
+    "ranger",
+    "screen",
+    "ssh",
+    "tig",
+    "tmux",
+    "top",
+    "vi",
+    "vim",
+    "yazi",
+];
+
 impl Default for TerminalCommandBarSettings {
     fn default() -> Self {
         Self {
@@ -75,31 +103,10 @@ impl Default for TerminalCommandBarSettings {
             quick_commands_enabled: true,
             quick_commands_confirm_before_run: false,
             quick_commands_show_toast: true,
-            focus_handoff_commands: [
-                "btop",
-                "emacs",
-                "fzf",
-                "htop",
-                "lazydocker",
-                "lazygit",
-                "less",
-                "man",
-                "micro",
-                "nano",
-                "nvim",
-                "ranger",
-                "screen",
-                "ssh",
-                "tig",
-                "tmux",
-                "top",
-                "vi",
-                "vim",
-                "yazi",
-            ]
-            .into_iter()
-            .map(str::to_string)
-            .collect(),
+            focus_handoff_commands: RECOMMENDED_FOCUS_HANDOFF_COMMANDS
+                .iter()
+                .map(|command| (*command).to_string())
+                .collect(),
             extra: ExtraFields::new(),
         }
     }

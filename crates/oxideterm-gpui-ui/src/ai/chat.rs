@@ -1,5 +1,5 @@
 use gpui::{
-    Div, ElementId, FontWeight, InteractiveElement, IntoElement, ParentElement, Stateful,
+    Div, ElementId, FontWeight, InteractiveElement, IntoElement, ParentElement, Rgba, Stateful,
     StatefulInteractiveElement, Styled, div, prelude::*, px, rgb, rgba,
 };
 use oxideterm_theme::ThemeTokens;
@@ -136,12 +136,18 @@ pub fn ai_context_chip(
 }
 
 pub fn ai_chat_input_root(tokens: &ThemeTokens) -> Div {
+    ai_chat_input_root_with_background(tokens, rgb(tokens.ui.bg))
+}
+
+pub fn ai_chat_input_root_with_background(tokens: &ThemeTokens, background: Rgba) -> Div {
+    // The sidebar caller resolves image-background transparency while previews
+    // and standalone consumers keep the default opaque chat surface.
     div()
         .w_full()
         .min_w_0()
         .flex_none()
         .overflow_hidden()
-        .bg(rgb(tokens.ui.bg))
+        .bg(background)
         .border_t_1()
         .border_color(bg_alpha(
             tokens,
