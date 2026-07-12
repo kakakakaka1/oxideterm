@@ -7,8 +7,8 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use keyring::Entry;
 use oxideterm_portable_runtime::keystore::{self as portable_keystore, PortableKeystoreError};
+use oxideterm_secret_store::NativeSecretStore;
 use zeroize::Zeroizing;
 
 use crate::{AuthMode, BackendType, CLOUD_SYNC_PLUGIN_ID, secret_keys};
@@ -132,9 +132,8 @@ impl CloudSyncKeychainSecretProvider {
             );
         }
 
-        // keyring's apple-native backend keeps the secret out of process argv.
-        Entry::new(&self.service, &account)?
-            .set_password(value)
+        NativeSecretStore::new(&self.service)
+            .store(&account, value)
             .with_context(|| format!("failed to store cloud sync secret {key}"))
     }
 
@@ -156,29 +155,18 @@ impl CloudSyncKeychainSecretProvider {
             };
         }
 
-        match Entry::new(&self.service, &account)
-            .map_err(|error| CloudSyncSecretError::AccessFailed(error.to_string()))?
-            .get_password()
-        {
-            // Move the backend-owned String directly into a zeroizing owner.
-            Ok(value) => Ok(Some(Zeroizing::new(value))),
-            Err(keyring::Error::NoEntry) => Ok(None),
-            Err(error) => Err(CloudSyncSecretError::AccessFailed(error.to_string())),
-        }
+        NativeSecretStore::new(&self.service)
+            .get_and_relax(&account)
+            .map_err(|error| CloudSyncSecretError::AccessFailed(error.to_string()))
     }
 
     fn get_legacy_secret(
         &self,
         key: &str,
     ) -> Result<Option<CloudSyncSecretValue>, CloudSyncSecretError> {
-        match Entry::new(&self.legacy_service, &self.legacy_account(key))
-            .map_err(|error| CloudSyncSecretError::AccessFailed(error.to_string()))?
-            .get_password()
-        {
-            Ok(value) => Ok(Some(Zeroizing::new(value))),
-            Err(keyring::Error::NoEntry) => Ok(None),
-            Err(error) => Err(CloudSyncSecretError::AccessFailed(error.to_string())),
-        }
+        NativeSecretStore::new(&self.legacy_service)
+            .get_and_relax(&self.legacy_account(key))
+            .map_err(|error| CloudSyncSecretError::AccessFailed(error.to_string()))
     }
 
     fn delete_current_secret(&self, key: &str) -> Result<()> {
@@ -191,20 +179,15 @@ impl CloudSyncKeychainSecretProvider {
             });
         }
 
-        match Entry::new(&self.service, &account)?.delete_credential() {
-            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-            Err(error) => {
-                Err(error).with_context(|| format!("failed to delete cloud sync secret {key}"))
-            }
-        }
+        NativeSecretStore::new(&self.service)
+            .delete(&account)
+            .with_context(|| format!("failed to delete cloud sync secret {key}"))
     }
 
     fn delete_legacy_secret(&self, key: &str) -> Result<()> {
-        match Entry::new(&self.legacy_service, &self.legacy_account(key))?.delete_credential() {
-            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-            Err(error) => Err(error)
-                .with_context(|| format!("failed to delete legacy cloud sync secret {key}")),
-        }
+        NativeSecretStore::new(&self.legacy_service)
+            .delete(&self.legacy_account(key))
+            .with_context(|| format!("failed to delete legacy cloud sync secret {key}"))
     }
 }
 
@@ -608,10 +591,10 @@ mod tests {
     }
 
     #[test]
-    fn native_secret_store_does_not_spawn_the_macos_security_cli() {
-        // This source-level invariant avoids touching the real keychain while
-        // preventing secrets from being reintroduced into child-process argv.
+    fn cloud_sync_delegates_native_secrets_to_the_shared_store() {
+        // Cloud sync must not fork its own keychain policy beside the shared store.
         let source = include_str!("secrets.rs");
+        assert!(source.contains("NativeSecretStore"));
         for keychain_command in [
             ["add-generic", "-password"].concat(),
             ["find-generic", "-password"].concat(),

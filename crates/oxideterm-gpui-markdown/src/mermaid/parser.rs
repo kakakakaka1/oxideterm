@@ -6,10 +6,10 @@
 use std::{borrow::Cow, collections::HashMap};
 
 use crate::mermaid::model::{
-    GanttDiagram, GanttSection, GanttTask, GanttTaskStatus, GraphDiagram, GraphDirection,
-    GraphEdge, GraphEdgeKind, GraphNode, GraphNodeShape, GraphSubgraph, MermaidDiagram, PieDiagram,
-    PieSlice, SequenceDiagram, SequenceMessage, SequenceMessageKind, SequenceParticipant,
-    SequenceParticipantKind,
+    GanttDiagram, GanttSection, GanttTask, GanttTaskStatus, GraphClassDefinition, GraphClassStyle,
+    GraphDiagram, GraphDirection, GraphEdge, GraphEdgeKind, GraphNode, GraphNodeShape,
+    GraphSubgraph, MermaidDiagram, PieDiagram, PieSlice, SequenceDiagram, SequenceMessage,
+    SequenceMessageKind, SequenceParticipant, SequenceParticipantKind,
 };
 
 const MAX_MERMAID_STATEMENTS: usize = 240;
@@ -347,6 +347,8 @@ fn parse_graph(header: &str, body: &[String]) -> Result<MermaidDiagram, String> 
     let mut edges = Vec::new();
     let mut subgraphs = Vec::new();
     let mut subgraph_stack = Vec::<usize>::new();
+    let mut class_definitions = Vec::new();
+    let mut class_assignments = Vec::<(Vec<String>, String)>::new();
 
     for statement in body {
         let statement = normalize_graph_statement(statement);
@@ -364,6 +366,23 @@ fn parse_graph(header: &str, body: &[String]) -> Result<MermaidDiagram, String> 
             if subgraph_stack.pop().is_none() {
                 return Err("subgraph end without matching subgraph".to_string());
             }
+            continue;
+        }
+
+        if statement
+            .split_whitespace()
+            .next()
+            .is_some_and(|keyword| keyword.eq_ignore_ascii_case("classDef"))
+        {
+            class_definitions.push(parse_graph_class_definition(statement)?);
+            continue;
+        }
+        if statement
+            .split_whitespace()
+            .next()
+            .is_some_and(|keyword| keyword.eq_ignore_ascii_case("class"))
+        {
+            class_assignments.push(parse_graph_class_assignment(statement)?);
             continue;
         }
 
@@ -389,11 +408,15 @@ fn parse_graph(header: &str, body: &[String]) -> Result<MermaidDiagram, String> 
         return Err("graph contains no supported edges".to_string());
     }
 
+    apply_graph_class_assignments(&mut nodes, &class_assignments)?;
+    validate_graph_node_classes(&nodes, &class_definitions)?;
+
     Ok(MermaidDiagram::Graph(GraphDiagram {
         direction,
         nodes,
         edges,
         subgraphs,
+        class_definitions,
     }))
 }
 
@@ -413,11 +436,110 @@ fn reject_unsupported_graph_statement(statement: &str) -> Result<(), String> {
         .unwrap_or_default()
         .to_ascii_lowercase();
     match keyword.as_str() {
-        "click" | "classdef" | "class" | "style" | "linkstyle" => {
-            Err(format!("unsupported graph statement: {keyword}"))
-        }
+        "click" | "style" | "linkstyle" => Err(format!("unsupported graph statement: {keyword}")),
         _ => Ok(()),
     }
+}
+
+fn parse_graph_class_definition(statement: &str) -> Result<GraphClassDefinition, String> {
+    let mut parts = statement.splitn(3, char::is_whitespace);
+    let _keyword = parts.next();
+    let name = parts.next().unwrap_or_default().trim();
+    validate_identifier(name, "graph class")?;
+    let properties = parts.next().unwrap_or_default().trim();
+    if properties.is_empty() {
+        return Err(format!("graph class has no style properties: {name}"));
+    }
+
+    let mut style = GraphClassStyle::default();
+    for property in properties.split(',') {
+        let Some((name, value)) = property.split_once(':') else {
+            return Err(format!("invalid graph class property: {property}"));
+        };
+        let name = name.trim().to_ascii_lowercase();
+        let value = value.trim();
+        match name.as_str() {
+            "fill" => style.fill = Some(parse_graph_color(value)?),
+            "stroke" => style.stroke = Some(parse_graph_color(value)?),
+            "color" => style.color = Some(parse_graph_color(value)?),
+            "stroke-width" => style.stroke_width = Some(parse_graph_stroke_width(value)?),
+            _ => return Err(format!("unsupported graph class property: {name}")),
+        }
+    }
+    Ok(GraphClassDefinition {
+        name: name.to_string(),
+        style,
+    })
+}
+
+fn parse_graph_class_assignment(statement: &str) -> Result<(Vec<String>, String), String> {
+    let mut parts = statement.split_whitespace();
+    let _keyword = parts.next();
+    let node_list = parts.next().unwrap_or_default();
+    let class_name = parts.next().unwrap_or_default();
+    if parts.next().is_some() || node_list.is_empty() || class_name.is_empty() {
+        return Err(format!("invalid graph class assignment: {statement}"));
+    }
+    validate_identifier(class_name, "graph class")?;
+    let mut node_ids = Vec::new();
+    for node_id in node_list.split(',').map(str::trim) {
+        validate_identifier(node_id, "graph node")?;
+        node_ids.push(node_id.to_string());
+    }
+    Ok((node_ids, class_name.to_string()))
+}
+
+fn parse_graph_color(value: &str) -> Result<String, String> {
+    let digits = value
+        .strip_prefix('#')
+        .ok_or_else(|| format!("graph class color must be hexadecimal: {value}"))?;
+    if !matches!(digits.len(), 3 | 4 | 6 | 8) || !digits.chars().all(|ch| ch.is_ascii_hexdigit()) {
+        return Err(format!("invalid graph class color: {value}"));
+    }
+    Ok(format!("#{}", digits.to_ascii_lowercase()))
+}
+
+fn parse_graph_stroke_width(value: &str) -> Result<f32, String> {
+    let value = value.strip_suffix("px").unwrap_or(value).trim();
+    let width = value
+        .parse::<f32>()
+        .map_err(|_| format!("invalid graph class stroke width: {value}"))?;
+    if !width.is_finite() || !(0.0..=16.0).contains(&width) {
+        return Err(format!("invalid graph class stroke width: {value}"));
+    }
+    Ok(width)
+}
+
+fn apply_graph_class_assignments(
+    nodes: &mut [GraphNode],
+    assignments: &[(Vec<String>, String)],
+) -> Result<(), String> {
+    for (node_ids, class_name) in assignments {
+        for node_id in node_ids {
+            let Some(node) = nodes.iter_mut().find(|node| node.id == *node_id) else {
+                return Err(format!("graph class references unknown node: {node_id}"));
+            };
+            if !node.class_names.contains(class_name) {
+                node.class_names.push(class_name.clone());
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_graph_node_classes(
+    nodes: &[GraphNode],
+    definitions: &[GraphClassDefinition],
+) -> Result<(), String> {
+    for class_name in nodes.iter().flat_map(|node| &node.class_names) {
+        if !definitions
+            .iter()
+            .any(|definition| definition.name == *class_name)
+        {
+            return Err(format!("undefined graph class: {class_name}"));
+        }
+    }
+    Ok(())
 }
 
 fn parse_subgraph_header(input: &str, fallback_index: usize) -> Result<GraphSubgraph, String> {
@@ -429,6 +551,7 @@ fn parse_subgraph_header(input: &str, fallback_index: usize) -> Result<GraphSubg
         label: input.to_string(),
         shape: GraphNodeShape::Rectangle,
         explicit_label: true,
+        class_names: Vec::new(),
     });
     Ok(GraphSubgraph {
         id: parsed.id,
@@ -471,17 +594,27 @@ fn parse_graph_edges(
         } else {
             (rest.trim(), None)
         };
-        let targets = parse_graph_node_group(target_segment, nodes)?;
-        for from in &current_sources {
-            for to in &targets {
-                edges.push(GraphEdge {
-                    from: from.id.clone(),
-                    to: to.id.clone(),
-                    label: label.clone(),
-                    kind: current_kind,
-                });
-            }
+        let target_steps = parse_graph_target_sequence(target_segment, nodes)?;
+        append_graph_edges(
+            &mut edges,
+            &current_sources,
+            &target_steps[0],
+            label,
+            current_kind,
+        );
+        for adjacent_targets in target_steps.windows(2) {
+            append_graph_edges(
+                &mut edges,
+                &adjacent_targets[0],
+                &adjacent_targets[1],
+                None,
+                current_kind,
+            );
         }
+        let targets = target_steps
+            .last()
+            .cloned()
+            .expect("target sequence is non-empty");
 
         let Some((next_operator, next_kind, next_rest)) = next_tail else {
             break;
@@ -493,6 +626,75 @@ fn parse_graph_edges(
     }
 
     Ok(edges)
+}
+
+fn append_graph_edges(
+    edges: &mut Vec<GraphEdge>,
+    sources: &[ParsedGraphNode],
+    targets: &[ParsedGraphNode],
+    label: Option<String>,
+    kind: GraphEdgeKind,
+) {
+    for from in sources {
+        for to in targets {
+            edges.push(GraphEdge {
+                from: from.id.clone(),
+                to: to.id.clone(),
+                label: label.clone(),
+                kind,
+            });
+        }
+    }
+}
+
+fn parse_graph_target_sequence(
+    input: &str,
+    nodes: &mut Vec<GraphNode>,
+) -> Result<Vec<Vec<ParsedGraphNode>>, String> {
+    if let Ok(targets) = parse_graph_node_group(input, nodes) {
+        return Ok(vec![targets]);
+    }
+
+    let node_refs = split_top_level_graph_nodes(input)?;
+    if node_refs.len() < 2 {
+        return Err(format!("unsupported graph node sequence: {input}"));
+    }
+    node_refs
+        .into_iter()
+        .map(|node_ref| parse_graph_node_group(node_ref, nodes))
+        .collect()
+}
+
+fn split_top_level_graph_nodes(input: &str) -> Result<Vec<&str>, String> {
+    let mut parts = Vec::new();
+    let mut start = 0;
+    let mut depth = 0_i32;
+    for (index, ch) in input.char_indices() {
+        match ch {
+            '[' | '(' | '{' => depth += 1,
+            '>' if depth == 0 => depth += 1,
+            ']' | ')' | '}' => depth -= 1,
+            ch if ch.is_whitespace() && depth == 0 => {
+                let part = input[start..index].trim();
+                if !part.is_empty() {
+                    parts.push(part);
+                }
+                start = index + ch.len_utf8();
+            }
+            _ => {}
+        }
+        if depth < 0 {
+            return Err(format!("unbalanced graph node sequence: {input}"));
+        }
+    }
+    if depth != 0 {
+        return Err(format!("unbalanced graph node sequence: {input}"));
+    }
+    let tail = input[start..].trim();
+    if !tail.is_empty() {
+        parts.push(tail);
+    }
+    Ok(parts)
 }
 
 fn parse_optional_edge_label(input: &str) -> Result<(Option<String>, &str), String> {
@@ -536,11 +738,25 @@ fn parse_graph_node_group(
 
     let mut parsed_nodes = Vec::new();
     for node_ref in refs {
-        let parsed = parse_graph_node_ref(node_ref)?;
+        let mut parsed = parse_graph_node_ref(node_ref)?;
+        if parsed.id.is_empty() {
+            parsed.id = next_anonymous_graph_node_id(nodes);
+        }
         upsert_graph_node(nodes, &parsed);
         parsed_nodes.push(parsed);
     }
     Ok(parsed_nodes)
+}
+
+fn next_anonymous_graph_node_id(nodes: &[GraphNode]) -> String {
+    let mut index = nodes.len() + 1;
+    loop {
+        let id = format!("anonymous_node_{index}");
+        if !nodes.iter().any(|node| node.id == id) {
+            return id;
+        }
+        index += 1;
+    }
 }
 
 fn split_graph_node_group(input: &str) -> Result<Vec<&str>, String> {
@@ -550,6 +766,7 @@ fn split_graph_node_group(input: &str) -> Result<Vec<&str>, String> {
     for (index, ch) in input.char_indices() {
         match ch {
             '[' | '(' | '{' => depth += 1,
+            '>' if depth == 0 => depth += 1,
             ']' | ')' | '}' => depth -= 1,
             '&' if depth == 0 => {
                 let part = input[start..index].trim();
@@ -574,32 +791,41 @@ fn split_graph_node_group(input: &str) -> Result<Vec<&str>, String> {
     Ok(parts)
 }
 
+#[derive(Clone)]
 struct ParsedGraphNode {
     id: String,
     label: String,
     shape: GraphNodeShape,
     explicit_label: bool,
+    class_names: Vec<String>,
 }
 
 fn parse_graph_node_ref(input: &str) -> Result<ParsedGraphNode, String> {
-    let input = input.trim();
+    let (input, class_names) = parse_inline_graph_classes(input.trim())?;
     if input.is_empty() {
         return Err("empty graph node reference".to_string());
     }
 
-    if let Some(parsed) = parse_wrapped_graph_node(input, "([", "])", GraphNodeShape::Stadium)? {
+    if let Some(mut parsed) = parse_wrapped_graph_node(input, "([", "])", GraphNodeShape::Stadium)?
+    {
+        parsed.class_names = class_names;
         return Ok(parsed);
     }
-    if let Some(parsed) = parse_wrapped_graph_node(input, "((", "))", GraphNodeShape::Circle)? {
+    if let Some(mut parsed) = parse_wrapped_graph_node(input, "((", "))", GraphNodeShape::Circle)? {
+        parsed.class_names = class_names;
         return Ok(parsed);
     }
-    if let Some(parsed) = parse_wrapped_graph_node(input, "[[", "]]", GraphNodeShape::Subroutine)? {
+    if let Some(mut parsed) =
+        parse_wrapped_graph_node(input, "[[", "]]", GraphNodeShape::Subroutine)?
+    {
+        parsed.class_names = class_names;
         return Ok(parsed);
     }
-    if let Some(parsed) = parse_wrapped_graph_node(input, "[(", ")]", GraphNodeShape::Database)? {
+    if let Some(mut parsed) = parse_wrapped_graph_node(input, "[(", ")]", GraphNodeShape::Database)?
+    {
+        parsed.class_names = class_names;
         return Ok(parsed);
     }
-
     let shape = input.char_indices().find_map(|(index, ch)| match ch {
         '[' => Some((index, "]", GraphNodeShape::Rectangle)),
         '(' => Some((index, ")", GraphNodeShape::Rounded)),
@@ -612,7 +838,9 @@ fn parse_graph_node_ref(input: &str) -> Result<ParsedGraphNode, String> {
             return Err(format!("unterminated graph node label: {input}"));
         }
         let id = input[..open_index].trim();
-        validate_identifier(id, "graph node")?;
+        if !id.is_empty() {
+            validate_identifier(id, "graph node")?;
+        }
         let label = input[open_index + 1..input.len() - close.len()].trim();
         return Ok(ParsedGraphNode {
             id: id.to_string(),
@@ -623,7 +851,14 @@ fn parse_graph_node_ref(input: &str) -> Result<ParsedGraphNode, String> {
             },
             shape,
             explicit_label: true,
+            class_names,
         });
+    }
+
+    if let Some(mut parsed) = parse_wrapped_graph_node(input, ">", "]", GraphNodeShape::Asymmetric)?
+    {
+        parsed.class_names = class_names;
+        return Ok(parsed);
     }
 
     validate_identifier(input, "graph node")?;
@@ -632,7 +867,20 @@ fn parse_graph_node_ref(input: &str) -> Result<ParsedGraphNode, String> {
         label: input.to_string(),
         shape: GraphNodeShape::Rectangle,
         explicit_label: false,
+        class_names,
     })
+}
+
+fn parse_inline_graph_classes(input: &str) -> Result<(&str, Vec<String>), String> {
+    let Some((node_ref, classes)) = input.rsplit_once(":::") else {
+        return Ok((input, Vec::new()));
+    };
+    let mut class_names = Vec::new();
+    for class_name in classes.split(',').map(str::trim) {
+        validate_identifier(class_name, "graph class")?;
+        class_names.push(class_name.to_string());
+    }
+    Ok((node_ref.trim(), class_names))
 }
 
 fn parse_wrapped_graph_node(
@@ -648,7 +896,9 @@ fn parse_wrapped_graph_node(
         return Err(format!("unterminated graph node label: {input}"));
     }
     let id = input[..open_index].trim();
-    validate_identifier(id, "graph node")?;
+    if !id.is_empty() {
+        validate_identifier(id, "graph node")?;
+    }
     let label = input[open_index + open.len()..input.len() - close.len()].trim();
     Ok(Some(ParsedGraphNode {
         id: id.to_string(),
@@ -659,6 +909,7 @@ fn parse_wrapped_graph_node(
         },
         shape,
         explicit_label: true,
+        class_names: Vec::new(),
     }))
 }
 
@@ -668,6 +919,11 @@ fn upsert_graph_node(nodes: &mut Vec<GraphNode>, parsed: &ParsedGraphNode) {
             existing.label = parsed.label.clone();
             existing.shape = parsed.shape;
         }
+        for class_name in &parsed.class_names {
+            if !existing.class_names.contains(class_name) {
+                existing.class_names.push(class_name.clone());
+            }
+        }
         return;
     }
 
@@ -675,6 +931,7 @@ fn upsert_graph_node(nodes: &mut Vec<GraphNode>, parsed: &ParsedGraphNode) {
         id: parsed.id.clone(),
         label: parsed.label.clone(),
         shape: parsed.shape,
+        class_names: parsed.class_names.clone(),
     });
 }
 
@@ -984,6 +1241,30 @@ mod tests {
     }
 
     #[test]
+    fn parses_anonymous_nodes_and_implicit_ai_node_chains() {
+        let MermaidDiagram::Graph(graph) = parse(
+            "flowchart LR\n\
+             ((开始)) -->[提交代码] B{判断}\n\
+             B -->|是| C[处理中]\n\
+             B -->|否| D>异常结束]\n\
+             C --> E((正常结束))",
+        )
+        .expect("AI-style anonymous node graph should parse") else {
+            panic!("expected graph");
+        };
+
+        assert_eq!(graph.nodes.len(), 6);
+        assert_eq!(graph.edges.len(), 5);
+        assert_eq!(graph.nodes[0].label, "开始");
+        assert_eq!(graph.nodes[0].shape, GraphNodeShape::Circle);
+        assert_eq!(graph.nodes[1].label, "提交代码");
+        assert_eq!(graph.edges[0].to, graph.nodes[1].id);
+        assert_eq!(graph.edges[1].from, graph.nodes[1].id);
+        assert_eq!(graph.edges[1].to, "B");
+        assert_eq!(graph.nodes[4].shape, GraphNodeShape::Asymmetric);
+    }
+
+    #[test]
     fn parses_gantt_sections_statuses_and_durations() {
         let MermaidDiagram::Gantt(gantt) = parse(
             "gantt\n\
@@ -1102,9 +1383,43 @@ mod tests {
     }
 
     #[test]
-    fn rejects_unsupported_syntax() {
-        let error = parse("flowchart TD\nclassDef red fill:#f00").unwrap_err();
-        assert!(error.contains("unsupported graph statement"));
+    fn parses_graph_class_definitions_assignments_and_inline_classes() {
+        let MermaidDiagram::Graph(graph) = parse(
+            "flowchart TD\n\
+             A[Start]:::startend --> B{Test}\n\
+             B --> C[Success]\n\
+             classDef startend fill:#4a90e2,stroke:#333,stroke-width:2px,color:#fff\n\
+             classDef success fill:#7ed321,stroke:#333\n\
+             class C success",
+        )
+        .expect("graph classes should parse") else {
+            panic!("expected graph");
+        };
+
+        assert_eq!(graph.class_definitions.len(), 2);
+        assert_eq!(
+            graph.class_definitions[0].style.fill.as_deref(),
+            Some("#4a90e2")
+        );
+        assert_eq!(graph.class_definitions[0].style.stroke_width, Some(2.0));
+        assert_eq!(graph.nodes[0].class_names, vec!["startend"]);
+        assert_eq!(graph.nodes[2].class_names, vec!["success"]);
+    }
+
+    #[test]
+    fn accepts_unused_graph_class_definitions() {
+        let diagram = parse(
+            "flowchart TD\nA --> B\nclassDef startend fill:#4a90e2\nclassDef error fill:#d0021b",
+        );
+
+        assert!(diagram.is_ok());
+    }
+
+    #[test]
+    fn rejects_unsafe_graph_class_properties() {
+        let error = parse("flowchart TD\nA --> B\nclassDef red filter:url(bad)").unwrap_err();
+
+        assert!(error.contains("unsupported graph class property"));
     }
 
     #[test]

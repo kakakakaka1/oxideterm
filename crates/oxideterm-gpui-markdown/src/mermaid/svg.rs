@@ -12,8 +12,8 @@ use crate::mermaid::layout::{
     LaidOutPie, LaidOutSequence, NodeBox, SubgraphBox,
 };
 use crate::mermaid::model::{
-    GanttTaskStatus, GraphEdgeKind, GraphNodeShape, PieSlice, SequenceMessageKind,
-    SequenceParticipantKind,
+    GanttTaskStatus, GraphClassStyle, GraphEdgeKind, GraphNode, GraphNodeShape, PieSlice,
+    SequenceMessageKind, SequenceParticipantKind,
 };
 use crate::options::MarkdownOptions;
 
@@ -190,8 +190,36 @@ fn render_graph(
         let Some(bounds) = graph.nodes.get(&node.id) else {
             continue;
         };
-        render_graph_node(svg, bounds, node.shape, &node.label, tokens, opts);
+        let style = resolve_graph_node_style(graph, node);
+        render_graph_node(svg, bounds, node.shape, &node.label, &style, tokens, opts);
     }
+}
+
+fn resolve_graph_node_style(graph: &LaidOutGraph, node: &GraphNode) -> GraphClassStyle {
+    let mut resolved = GraphClassStyle::default();
+    for class_name in &node.class_names {
+        let Some(definition) = graph
+            .diagram
+            .class_definitions
+            .iter()
+            .find(|definition| definition.name == *class_name)
+        else {
+            continue;
+        };
+        if definition.style.fill.is_some() {
+            resolved.fill.clone_from(&definition.style.fill);
+        }
+        if definition.style.stroke.is_some() {
+            resolved.stroke.clone_from(&definition.style.stroke);
+        }
+        if definition.style.stroke_width.is_some() {
+            resolved.stroke_width = definition.style.stroke_width;
+        }
+        if definition.style.color.is_some() {
+            resolved.color.clone_from(&definition.style.color);
+        }
+    }
+    resolved
 }
 
 fn render_gantt(
@@ -466,18 +494,26 @@ fn render_graph_node(
     bounds: &NodeBox,
     shape: GraphNodeShape,
     label: &str,
+    style: &GraphClassStyle,
     tokens: &ThemeTokens,
     opts: &MarkdownOptions,
 ) {
-    let fill = hex(tokens.ui.bg_elevated);
-    let stroke = hex(tokens.ui.border);
+    let fill = style
+        .fill
+        .clone()
+        .unwrap_or_else(|| hex(tokens.ui.bg_elevated));
+    let stroke = style
+        .stroke
+        .clone()
+        .unwrap_or_else(|| hex(tokens.ui.border));
+    let stroke_width = style.stroke_width.unwrap_or(1.2);
     match shape {
         GraphNodeShape::Rectangle | GraphNodeShape::Subroutine => svg.push_str(&format!(
-            r#"<rect x="{:.1}" y="{:.1}" width="{:.1}" height="{:.1}" rx="5" fill="{fill}" stroke="{stroke}" stroke-width="1.2"/>"#,
+            r#"<rect x="{:.1}" y="{:.1}" width="{:.1}" height="{:.1}" rx="5" fill="{fill}" stroke="{stroke}" stroke-width="{stroke_width:.1}"/>"#,
             bounds.x, bounds.y, bounds.width, bounds.height
         )),
         GraphNodeShape::Rounded | GraphNodeShape::Stadium => svg.push_str(&format!(
-            r#"<rect x="{:.1}" y="{:.1}" width="{:.1}" height="{:.1}" rx="16" fill="{fill}" stroke="{stroke}" stroke-width="1.2"/>"#,
+            r#"<rect x="{:.1}" y="{:.1}" width="{:.1}" height="{:.1}" rx="16" fill="{fill}" stroke="{stroke}" stroke-width="{stroke_width:.1}"/>"#,
             bounds.x, bounds.y, bounds.width, bounds.height
         )),
         GraphNodeShape::Circle => {
@@ -485,7 +521,7 @@ fn render_graph_node(
             let cy = bounds.y + bounds.height * 0.5;
             let radius = bounds.height.max(bounds.width.min(bounds.height * 1.6)) * 0.5;
             svg.push_str(&format!(
-                r#"<ellipse cx="{cx:.1}" cy="{cy:.1}" rx="{:.1}" ry="{:.1}" fill="{fill}" stroke="{stroke}" stroke-width="1.2"/>"#,
+                r#"<ellipse cx="{cx:.1}" cy="{cy:.1}" rx="{:.1}" ry="{:.1}" fill="{fill}" stroke="{stroke}" stroke-width="{stroke_width:.1}"/>"#,
                 radius,
                 bounds.height * 0.5
             ));
@@ -494,7 +530,7 @@ fn render_graph_node(
             let cx = bounds.x + bounds.width * 0.5;
             let cy = bounds.y + bounds.height * 0.5;
             svg.push_str(&format!(
-                r#"<polygon points="{cx:.1},{:.1} {:.1},{cy:.1} {cx:.1},{:.1} {:.1},{cy:.1}" fill="{fill}" stroke="{stroke}" stroke-width="1.2"/>"#,
+                r#"<polygon points="{cx:.1},{:.1} {:.1},{cy:.1} {cx:.1},{:.1} {:.1},{cy:.1}" fill="{fill}" stroke="{stroke}" stroke-width="{stroke_width:.1}"/>"#,
                 bounds.y,
                 bounds.x + bounds.width,
                 bounds.y + bounds.height,
@@ -505,7 +541,7 @@ fn render_graph_node(
             let top = bounds.y + 8.0;
             let bottom = bounds.y + bounds.height - 8.0;
             svg.push_str(&format!(
-                r#"<path d="M{:.1} {top:.1} C{:.1} {:.1} {:.1} {:.1} {:.1} {top:.1} L{:.1} {bottom:.1} C{:.1} {:.1} {:.1} {:.1} {:.1} {bottom:.1} Z" fill="{fill}" stroke="{stroke}" stroke-width="1.2"/><path d="M{:.1} {top:.1} C{:.1} {:.1} {:.1} {:.1} {:.1} {top:.1}" fill="none" stroke="{stroke}" stroke-width="1.2"/>"#,
+                r#"<path d="M{:.1} {top:.1} C{:.1} {:.1} {:.1} {:.1} {:.1} {top:.1} L{:.1} {bottom:.1} C{:.1} {:.1} {:.1} {:.1} {:.1} {bottom:.1} Z" fill="{fill}" stroke="{stroke}" stroke-width="{stroke_width:.1}"/><path d="M{:.1} {top:.1} C{:.1} {:.1} {:.1} {:.1} {:.1} {top:.1}" fill="none" stroke="{stroke}" stroke-width="{stroke_width:.1}"/>"#,
                 bounds.x,
                 bounds.x,
                 bounds.y,
@@ -526,6 +562,22 @@ fn render_graph_node(
                 bounds.x + bounds.width
             ));
         }
+        GraphNodeShape::Asymmetric => {
+            let notch = 14.0_f32.min(bounds.width * 0.18);
+            svg.push_str(&format!(
+                r#"<polygon points="{:.1},{:.1} {:.1},{:.1} {:.1},{:.1} {:.1},{:.1} {:.1},{:.1}" fill="{fill}" stroke="{stroke}" stroke-width="{stroke_width:.1}"/>"#,
+                bounds.x,
+                bounds.y,
+                bounds.x + bounds.width,
+                bounds.y,
+                bounds.x + bounds.width,
+                bounds.y + bounds.height,
+                bounds.x,
+                bounds.y + bounds.height,
+                bounds.x + notch,
+                bounds.y + bounds.height * 0.5,
+            ));
+        }
     }
     if shape == GraphNodeShape::Subroutine {
         svg.push_str(&format!(
@@ -540,12 +592,13 @@ fn render_graph_node(
             bounds.y + bounds.height
         ));
     }
-    render_centered_text(
+    let text_color = style.color.clone().unwrap_or_else(|| hex(tokens.ui.text));
+    render_centered_text_with_color(
         svg,
         bounds.x + bounds.width * 0.5,
         bounds.y + bounds.height * 0.5,
         label,
-        tokens,
+        &text_color,
         opts,
     );
 }
@@ -754,9 +807,21 @@ fn render_centered_text(
     tokens: &ThemeTokens,
     opts: &MarkdownOptions,
 ) {
+    let color = hex(tokens.ui.text);
+    render_centered_text_with_color(svg, x, y, label, &color, opts);
+}
+
+fn render_centered_text_with_color(
+    svg: &mut String,
+    x: f32,
+    y: f32,
+    label: &str,
+    color: &str,
+    opts: &MarkdownOptions,
+) {
     svg.push_str(&format!(
         r#"<text x="{x:.1}" y="{y:.1}" text-anchor="middle" dominant-baseline="middle" fill="{}" font-size="{:.1}">{}</text>"#,
-        hex(tokens.ui.text),
+        color,
         opts.base_font_size,
         escape_text(label)
     ));
@@ -847,6 +912,24 @@ mod tests {
         assert!(rendered.svg.contains("data-subgraph-id=\"cluster\""));
         assert!(rendered.svg.contains("Cluster"));
         assert!(rendered.svg.contains("<path d=\"M"));
+    }
+
+    #[test]
+    fn renders_graph_class_styles() {
+        let tokens = default_tokens();
+        let opts = MarkdownOptions::from_theme(&tokens);
+        let diagram = parser::parse(
+            "flowchart TD\nA[Start]:::startend --> B[Done]\n\
+             classDef startend fill:#4a90e2,stroke:#333,stroke-width:2px,color:#fff",
+        )
+        .expect("styled graph should parse");
+        let layout = layout::layout(diagram, &opts);
+        let rendered = render(&layout, &tokens, &opts);
+
+        assert!(rendered.svg.contains("fill=\"#4a90e2\""));
+        assert!(rendered.svg.contains("stroke=\"#333\""));
+        assert!(rendered.svg.contains("stroke-width=\"2.0\""));
+        assert!(rendered.svg.contains("fill=\"#fff\""));
     }
 
     #[test]

@@ -55,6 +55,21 @@ pub struct GraphDiagram {
     pub nodes: Vec<GraphNode>,
     pub edges: Vec<GraphEdge>,
     pub subgraphs: Vec<GraphSubgraph>,
+    pub class_definitions: Vec<GraphClassDefinition>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct GraphClassDefinition {
+    pub name: String,
+    pub style: GraphClassStyle,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct GraphClassStyle {
+    pub fill: Option<String>,
+    pub stroke: Option<String>,
+    pub stroke_width: Option<f32>,
+    pub color: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -69,6 +84,7 @@ pub struct GraphNode {
     pub id: String,
     pub label: String,
     pub shape: GraphNodeShape,
+    pub class_names: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -80,6 +96,7 @@ pub enum GraphNodeShape {
     Stadium,
     Subroutine,
     Database,
+    Asymmetric,
 }
 
 #[derive(Clone, Debug, PartialEq)]

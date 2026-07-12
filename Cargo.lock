@@ -6984,16 +6984,15 @@ dependencies = [
  "futures",
  "futures-util",
  "instant-distance",
- "keyring",
  "oxideterm-atomic-file",
  "oxideterm-portable-runtime",
+ "oxideterm-secret-store",
  "parking_lot",
  "redb",
  "regex",
  "reqwest",
  "rmp-serde",
  "rust-stemmers",
- "security-framework 3.7.0",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -7048,12 +7047,12 @@ dependencies = [
  "base64",
  "chrono",
  "hmac 0.12.1",
- "keyring",
  "oxideterm-atomic-file",
  "oxideterm-connections",
  "oxideterm-forwarding",
  "oxideterm-portable-runtime",
  "oxideterm-quick-commands",
+ "oxideterm-secret-store",
  "oxideterm-settings",
  "rand 0.8.6",
  "reqwest",
@@ -7083,22 +7082,17 @@ dependencies = [
  "anyhow",
  "argon2 0.5.3",
  "base64",
- "block2",
  "chacha20poly1305",
  "chrono",
  "dirs 5.0.1",
  "encoding_rs",
- "keyring",
- "objc2",
- "objc2-foundation",
  "oxideterm-atomic-file",
  "oxideterm-portable-runtime",
+ "oxideterm-secret-store",
  "rand 0.10.1",
  "rand 0.8.6",
  "rmp-serde",
  "russh",
- "security-framework 3.7.0",
- "security-framework-sys",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -7660,6 +7654,18 @@ name = "oxideterm-render-policy"
 version = "2.0.0-gpui-preview.16"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "oxideterm-secret-store"
+version = "2.0.0-gpui-preview.16"
+dependencies = [
+ "anyhow",
+ "block2",
+ "keyring",
+ "objc2",
+ "objc2-foundation",
+ "zeroize",
 ]
 
 [[package]]

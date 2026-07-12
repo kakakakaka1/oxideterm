@@ -16,9 +16,9 @@ rand.workspace = true
 rmp-serde.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-keyring.workspace = true
 oxideterm-atomic-file = { path = "../oxideterm-atomic-file" }
 oxideterm-portable-runtime = { path = "../oxideterm-portable-runtime" }
+oxideterm-secret-store = { path = "../oxideterm-secret-store" }
 russh = { path = "../russh" }
 sha2.workspace = true
 thiserror.workspace = true
@@ -29,10 +29,3 @@ zip.workspace = true
 
 [dev-dependencies]
 rand10.workspace = true
-
-[target.'cfg(target_os = "macos")'.dependencies]
-block2 = "0.6"
-objc2 = "0.6"
-objc2-foundation = { version = "0.3", features = ["NSError", "NSString"] }
-security-framework = { version = "3.7", features = ["OSX_10_15"] }
-security-framework-sys = "2.17"

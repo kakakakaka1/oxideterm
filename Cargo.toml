@@ -36,6 +36,7 @@ members = [
   "crates/oxideterm-forwarding",
   "crates/oxideterm-preview",
   "crates/oxideterm-portable-runtime",
+  "crates/oxideterm-secret-store",
   "crates/oxideterm-update",
   "crates/oxideterm-i18n",
   "crates/oxideterm-launcher",

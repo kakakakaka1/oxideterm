@@ -4,16 +4,14 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow};
-use keyring::Entry;
 use oxideterm_portable_runtime::keystore::{self as portable_keystore, PortableKeystoreError};
+use oxideterm_secret_store::NativeSecretStore;
 use parking_lot::RwLock;
 use zeroize::Zeroizing;
 
 const AI_KEYCHAIN_SERVICE: &str = "com.oxideterm.ai";
 #[cfg(target_os = "macos")]
-const MACOS_KEYCHAIN_COMMAND_TIMEOUT_SECS: u64 = 30;
-#[cfg(target_os = "macos")]
-const MACOS_SECURITY_ITEM_NOT_FOUND_EXIT_CODE: i32 = 44;
+const AI_KEYCHAIN_AUTHENTICATION_REASON: &str = "OxideTerm needs to access your AI API key";
 
 #[derive(Clone)]
 pub struct AiProviderKeyStore {
@@ -108,12 +106,30 @@ impl AiProviderKeyStore {
             return Ok(secrets);
         }
 
-        for provider_id in missing {
-            if let Some(secret) = self.get_provider_key(&provider_id)? {
-                secrets.push((provider_id, secret));
+        #[cfg(target_os = "macos")]
+        {
+            oxideterm_secret_store::authenticate_device_owner(AI_KEYCHAIN_AUTHENTICATION_REASON)
+                .context("failed to authenticate AI provider key export")?;
+            for provider_id in missing {
+                if let Some(secret) = self.load_provider_key_from_native(&provider_id)? {
+                    self.cache
+                        .write()
+                        .insert(provider_id.clone(), Zeroizing::new(secret.to_string()));
+                    secrets.push((provider_id, secret));
+                }
             }
+            return Ok(secrets);
         }
-        Ok(secrets)
+
+        #[cfg(not(target_os = "macos"))]
+        {
+            for provider_id in missing {
+                if let Some(secret) = self.get_provider_key(&provider_id)? {
+                    secrets.push((provider_id, secret));
+                }
+            }
+            Ok(secrets)
+        }
     }
 
     fn begin_provider_key_read(&self, provider_id: &str) -> ProviderKeyReadTicket {
@@ -152,8 +168,8 @@ impl AiProviderKeyStore {
             Ok(false) => {}
             Err(_) => return false,
         }
-        self.entry(provider_id)
-            .map(|entry| credential_exists_without_secret_read(&entry))
+        NativeSecretStore::new(&self.service)
+            .exists(&self.account(provider_id))
             .unwrap_or(false)
     }
 
@@ -168,16 +184,9 @@ impl AiProviderKeyStore {
                 });
         }
 
-        #[cfg(target_os = "macos")]
-        return delete_macos_provider_key(&self.service, &self.account(provider_id))
-            .with_context(|| format!("failed to delete AI provider key for {provider_id}"));
-
-        #[cfg(not(target_os = "macos"))]
-        match self.entry(provider_id)?.delete_credential() {
-            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-            Err(error) => Err(error)
-                .with_context(|| format!("failed to delete AI provider key for {provider_id}")),
-        }
+        NativeSecretStore::new(&self.service)
+            .delete(&self.account(provider_id))
+            .with_context(|| format!("failed to delete AI provider key for {provider_id}"))
     }
 
     pub fn store_acp_auth_token(&self, agent_id: &str, token: Zeroizing<String>) -> Result<()> {
@@ -200,17 +209,21 @@ impl AiProviderKeyStore {
         }
 
         #[cfg(target_os = "macos")]
-        return self.load_provider_key_from_macos(provider_id);
+        oxideterm_secret_store::authenticate_device_owner(AI_KEYCHAIN_AUTHENTICATION_REASON)
+            .with_context(|| {
+                format!("failed to authenticate AI provider key access for {provider_id}")
+            })?;
 
-        #[cfg(not(target_os = "macos"))]
-        {
-            match self.entry(provider_id)?.get_password() {
-                Ok(secret) => Ok(Some(Zeroizing::new(secret))),
-                Err(keyring::Error::NoEntry) => Ok(None),
-                Err(error) => Err(error)
-                    .with_context(|| format!("failed to load AI provider key for {provider_id}")),
-            }
-        }
+        self.load_provider_key_from_native(provider_id)
+    }
+
+    fn load_provider_key_from_native(
+        &self,
+        provider_id: &str,
+    ) -> Result<Option<Zeroizing<String>>> {
+        NativeSecretStore::new(&self.service)
+            .get_and_relax(&self.account(provider_id))
+            .with_context(|| format!("failed to load AI provider key for {provider_id}"))
     }
 
     fn load_provider_key_from_portable(
@@ -228,20 +241,6 @@ impl AiProviderKeyStore {
         }
     }
 
-    #[cfg(target_os = "macos")]
-    fn load_provider_key_from_macos(&self, provider_id: &str) -> Result<Option<Zeroizing<String>>> {
-        let account = self.account(provider_id);
-        let Some(secret) = read_macos_provider_key(&self.service, &account)? else {
-            return Ok(None);
-        };
-
-        // Rewriting once per process removes the executable ACL left by older
-        // builds. The session cache prevents additional keychain work per chat.
-        store_macos_permissive_provider_key(&self.service, &account, secret.as_str())
-            .with_context(|| format!("failed to migrate AI provider key for {provider_id}"))?;
-        Ok(Some(secret))
-    }
-
     fn store_provider_key_to_os(&self, provider_id: &str, api_key: &str) -> Result<()> {
         if portable_keychain_enabled()? {
             return portable_keystore::store_secret(
@@ -254,176 +253,13 @@ impl AiProviderKeyStore {
             });
         }
 
-        #[cfg(target_os = "macos")]
-        return store_macos_permissive_provider_key(
-            &self.service,
-            &self.account(provider_id),
-            api_key,
-        )
-        .with_context(|| format!("failed to save AI provider key for {provider_id}"));
-
-        #[cfg(not(target_os = "macos"))]
-        // Native keyring backends keep the secret out of process argv.
-        self.entry(provider_id)?
-            .set_password(api_key)
+        NativeSecretStore::new(&self.service)
+            .store(&self.account(provider_id), api_key)
             .with_context(|| format!("failed to save AI provider key for {provider_id}"))
     }
 
     fn account(&self, provider_id: &str) -> String {
         format!("{}@{}", whoami::username(), provider_id)
-    }
-
-    fn entry(&self, provider_id: &str) -> Result<Entry> {
-        Entry::new(&self.service, &self.account(provider_id))
-            .with_context(|| format!("failed to open AI keychain entry for {provider_id}"))
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn read_macos_provider_key(service: &str, account: &str) -> Result<Option<Zeroizing<String>>> {
-    let output = run_macos_security_command(
-        macos_find_provider_key_args(service, account),
-        None,
-        "read AI provider key",
-    )?;
-    if output.status.success() {
-        // Command output owns the secret, so move it directly into zeroizing
-        // storage before validating or trimming the trailing newline.
-        let output = Zeroizing::new(output.stdout);
-        let secret = std::str::from_utf8(output.as_slice())
-            .context("AI provider key from macOS keychain is not UTF-8")?;
-        return Ok(Some(Zeroizing::new(
-            secret.trim_end_matches(['\r', '\n']).to_owned(),
-        )));
-    }
-    if output.status.code() == Some(MACOS_SECURITY_ITEM_NOT_FOUND_EXIT_CODE) {
-        return Ok(None);
-    }
-    Err(anyhow!(
-        "failed to read AI provider key from macOS keychain"
-    ))
-}
-
-#[cfg(target_os = "macos")]
-fn store_macos_permissive_provider_key(service: &str, account: &str, secret: &str) -> Result<()> {
-    let output = run_macos_security_command(
-        macos_add_provider_key_args(service, account),
-        Some(secret),
-        "store AI provider key",
-    )?;
-    if output.status.success() {
-        Ok(())
-    } else {
-        Err(anyhow!("failed to store AI provider key in macOS keychain"))
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn delete_macos_provider_key(service: &str, account: &str) -> Result<()> {
-    let output = run_macos_security_command(
-        macos_delete_provider_key_args(service, account),
-        None,
-        "delete AI provider key",
-    )?;
-    if output.status.success()
-        || output.status.code() == Some(MACOS_SECURITY_ITEM_NOT_FOUND_EXIT_CODE)
-    {
-        Ok(())
-    } else {
-        Err(anyhow!(
-            "failed to delete AI provider key from macOS keychain"
-        ))
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn macos_find_provider_key_args(service: &str, account: &str) -> Vec<String> {
-    ["find-generic-password", "-s", service, "-a", account, "-w"]
-        .into_iter()
-        .map(str::to_owned)
-        .collect()
-}
-
-#[cfg(target_os = "macos")]
-fn macos_add_provider_key_args(service: &str, account: &str) -> Vec<String> {
-    [
-        "add-generic-password",
-        "-U",
-        "-A",
-        "-s",
-        service,
-        "-a",
-        account,
-        "-w",
-    ]
-    .into_iter()
-    .map(str::to_owned)
-    .collect()
-}
-
-#[cfg(target_os = "macos")]
-fn macos_delete_provider_key_args(service: &str, account: &str) -> Vec<String> {
-    ["delete-generic-password", "-s", service, "-a", account]
-        .into_iter()
-        .map(str::to_owned)
-        .collect()
-}
-
-#[cfg(target_os = "macos")]
-fn run_macos_security_command(
-    args: Vec<String>,
-    stdin_secret: Option<&str>,
-    action: &str,
-) -> Result<std::process::Output> {
-    use std::io::Write as _;
-
-    let mut command = std::process::Command::new("/usr/bin/security");
-    command
-        .args(args)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped());
-    if stdin_secret.is_some() {
-        command.stdin(std::process::Stdio::piped());
-    }
-    let mut child = command
-        .spawn()
-        .with_context(|| format!("failed to run macOS security command to {action}"))?;
-
-    if let Some(secret) = stdin_secret {
-        let mut stdin = child
-            .stdin
-            .take()
-            .ok_or_else(|| anyhow!("macOS security command stdin is unavailable"))?;
-        // `security ... -w` asks for the value and confirmation. Both writes
-        // stay in the anonymous pipe and never enter argv or diagnostics.
-        for _ in 0..2 {
-            stdin
-                .write_all(secret.as_bytes())
-                .and_then(|()| stdin.write_all(b"\n"))
-                .context("failed to send AI provider key to macOS keychain")?;
-        }
-    }
-
-    let deadline = std::time::Instant::now()
-        + std::time::Duration::from_secs(MACOS_KEYCHAIN_COMMAND_TIMEOUT_SECS);
-    loop {
-        if child
-            .try_wait()
-            .with_context(|| format!("failed to poll macOS security command to {action}"))?
-            .is_some()
-        {
-            return child
-                .wait_with_output()
-                .with_context(|| format!("failed to collect macOS security command for {action}"));
-        }
-        if std::time::Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(anyhow!(
-                "macOS security command timed out while trying to {action}"
-            ));
-        }
-        std::thread::sleep(std::time::Duration::from_millis(25));
     }
 }
 
@@ -496,55 +332,6 @@ fn clone_provider_key_read_result(result: &ProviderKeyReadResult) -> ProviderKey
         .map_err(Clone::clone)
 }
 
-fn credential_exists_without_secret_read(entry: &Entry) -> bool {
-    // Tauri's has_ai_provider_api_key intentionally checks existence without
-    // reading the secret, so model selector status probes do not trigger
-    // Touch ID/keychain unlock prompts. Use keyring's platform credential
-    // lookup when available and fall back to get_password only on stores that
-    // do not expose an existence probe.
-    platform_credential_exists(entry).unwrap_or_else(|| match entry.get_password() {
-        Ok(secret) => {
-            // Some backends do not expose metadata-only lookup. Move their
-            // temporary String into a zeroizing owner immediately.
-            let _secret = Zeroizing::new(secret);
-            true
-        }
-        Err(keyring::Error::Ambiguous(_)) => true,
-        Err(_) => false,
-    })
-}
-
-#[cfg(target_os = "macos")]
-fn platform_credential_exists(entry: &Entry) -> Option<bool> {
-    use security_framework::item::{ItemClass, ItemSearchOptions};
-
-    let credential = entry
-        .get_credential()
-        .downcast_ref::<keyring::macos::MacCredential>()?;
-    let mut search = ItemSearchOptions::new();
-    search
-        .class(ItemClass::generic_password())
-        .service(&credential.service)
-        .account(&credential.account)
-        .load_attributes(true)
-        .limit(1)
-        .skip_authenticated_items(true);
-    Some(search.search().is_ok_and(|items| !items.is_empty()))
-}
-
-#[cfg(target_os = "windows")]
-fn platform_credential_exists(entry: &Entry) -> Option<bool> {
-    entry
-        .get_credential()
-        .downcast_ref::<keyring::windows::WinCredential>()
-        .map(|credential| credential.get_credential().is_ok())
-}
-
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
-fn platform_credential_exists(_entry: &Entry) -> Option<bool> {
-    None
-}
-
 fn portable_keychain_enabled() -> Result<bool> {
     oxideterm_portable_runtime::is_portable_mode()
         .context("failed to determine OxideTerm portable mode")
@@ -595,16 +382,5 @@ mod tests {
         store.finish_provider_key_read(&provider_id);
         waiter.join().expect("waiter thread");
         assert!(acquired.load(Ordering::SeqCst));
-    }
-
-    #[test]
-    fn macos_keychain_secret_stays_out_of_command_arguments() {
-        // Keep the secret on stdin even though development builds use the
-        // rebuild-friendly `security -A` access model.
-        let source = include_str!("key_store.rs");
-        assert!(source.contains("stdin_secret"));
-        assert!(source.contains("\"-A\""));
-        let forbidden_argument = [".arg(", "api_key", ")"].concat();
-        assert!(!source.contains(&forbidden_argument));
     }
 }
