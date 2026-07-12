@@ -709,7 +709,9 @@ impl WorkspaceApp {
             .items_center()
             .justify_center()
             .px(px(16.0))
-            .bg(self.workspace_chrome_background(theme.bg))
+            // Match both sidebars at the top-level content layer. Fixed tab
+            // chrome keeps its stronger tint independently for readability.
+            .bg(self.workspace_sidebar_background(theme.bg))
             .text_color(rgb(theme.text_muted))
             .font_family(settings_ui_font_family(
                 &self.settings_store.settings().appearance.ui_font_family,

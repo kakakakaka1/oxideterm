@@ -4,7 +4,7 @@ use std::hash::{Hash, Hasher};
 use serde::{Deserialize, Serialize};
 
 use crate::capture::capture_failure_message;
-use crate::shell::{powershell_quote, shell_quote};
+use crate::shell::{posix_shell_command, powershell_quote, shell_quote};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -128,15 +128,15 @@ const SCHEDULED_TASK_CAPABILITY_MARKER: &str = "__OXIDE_SCHEDULE_CAPABILITY__";
 pub fn build_scheduled_task_snapshot_command(os_type: &str) -> ScheduledTaskCaptureCommand {
     let (command, capability) = match scheduled_task_os(os_type) {
         ScheduledTaskOs::Linux | ScheduledTaskOs::Unknown => (
-            build_linux_scheduled_task_snapshot_command(),
+            posix_shell_command(&build_linux_scheduled_task_snapshot_command()),
             ScheduledTaskCapability::Full,
         ),
         ScheduledTaskOs::MacOs => (
-            build_macos_scheduled_task_snapshot_command(),
+            posix_shell_command(&build_macos_scheduled_task_snapshot_command()),
             ScheduledTaskCapability::Partial,
         ),
         ScheduledTaskOs::Bsd => (
-            build_bsd_scheduled_task_snapshot_command(),
+            posix_shell_command(&build_bsd_scheduled_task_snapshot_command()),
             ScheduledTaskCapability::Partial,
         ),
         ScheduledTaskOs::Windows => (
@@ -531,7 +531,7 @@ fn build_linux_scheduled_task_snapshot_command() -> String {
         "if command -v systemctl >/dev/null 2>&1; then ",
         "echo '__OXIDE_SCHEDULE_CAPABILITY__\tfull\tlinux_systemd'; ",
         "oxide_timers=$(systemctl list-timers --all --no-legend --no-pager --plain 2>&1); oxide_timer_status=$?; ",
-        "if [ \"$oxide_timer_status\" -eq 0 ]; then printf '%s\\n' \"$oxide_timers\" | awk 'NF >= 5 { unit=$(NF-1); activates=$NF; last=$3\" \"$4; next=$1\" \"$2; left=\"\"; passed=\"\"; if (NF >= 7) { left=$3; passed=$(NF-3) }; printf \"SYSTEMD\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\n\", unit, activates, next, left, last, passed }'; ",
+        "if [ \"$oxide_timer_status\" -eq 0 ]; then printf '%s\\n' \"$oxide_timers\" | awk 'NF >= 5 { unit=$(NF-1); activates=$NF; last=$3\" \"$4; next_at=$1\" \"$2; left=\"\"; passed=\"\"; if (NF >= 7) { left=$3; passed=$(NF-3) }; printf \"SYSTEMD\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\n\", unit, activates, next_at, left, last, passed }'; ",
         "printf '%s\\n' \"$oxide_timers\" | awk 'NF >= 5 { printf \"%s\\n\", $(NF-1) }' | while IFS= read -r oxide_timer; do ",
         "[ -n \"$oxide_timer\" ] || continue; ",
         "systemctl show \"$oxide_timer\" --no-pager --property=Id,Description,Unit,ActiveState,SubState,UnitFileState,NextElapseUSecRealtime,LastTriggerUSec,Result 2>/dev/null | awk 'BEGIN { printf \"SHOW\" } { gsub(/\\t/, \" \"); printf \"\\t%s\", $0 } END { printf \"\\n\" }'; ",
@@ -1102,6 +1102,11 @@ mod tests {
         let windows = build_scheduled_task_snapshot_command("Windows");
 
         assert!(linux.command.contains("systemctl list-timers"));
+        assert!(linux.command.starts_with("/bin/sh -c "));
+        assert!(mac.command.starts_with("/bin/sh -c "));
+        assert!(bsd.command.starts_with("/bin/sh -c "));
+        assert!(linux.command.contains("next_at=$1"));
+        assert!(!linux.command.contains(" next=$1"));
         assert_eq!(linux.capability, ScheduledTaskCapability::Full);
         assert!(mac.command.contains("launchctl list"));
         assert_eq!(mac.capability, ScheduledTaskCapability::Partial);

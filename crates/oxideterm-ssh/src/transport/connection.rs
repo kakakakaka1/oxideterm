@@ -410,7 +410,11 @@ impl SshConnectionHandle {
                     } => {
                         exit_status = Some(status);
                     }
-                    ChannelMsg::Eof | ChannelMsg::Close => break,
+                    // RFC 4254 allows the exit status to arrive after EOF.
+                    // Keep the capture channel alive until Close so successful
+                    // host-tool probes are not reported with an unknown status.
+                    ChannelMsg::Eof => {}
+                    ChannelMsg::Close => break,
                     _ => {}
                 }
             }

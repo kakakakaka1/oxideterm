@@ -4,7 +4,7 @@ use std::hash::{Hash, Hasher};
 use serde::{Deserialize, Serialize};
 
 use crate::capture::capture_failure_message;
-use crate::shell::{powershell_quote, shell_quote};
+use crate::shell::{posix_shell_command, powershell_quote, shell_quote};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -173,7 +173,7 @@ pub fn build_tmux_snapshot_command(os_type: &str) -> TmuxCaptureCommand {
     let command = if is_windows_os(os_type) {
         build_windows_tmux_snapshot_command()
     } else {
-        build_unix_tmux_snapshot_command()
+        posix_shell_command(&build_unix_tmux_snapshot_command())
     };
     TmuxCaptureCommand {
         command,
@@ -1029,6 +1029,7 @@ mod tests {
         let mac = build_tmux_snapshot_command("macOS");
         let windows = build_tmux_snapshot_command("Windows");
 
+        assert!(linux.command.starts_with("/bin/sh -c "));
         assert!(linux.command.contains("command -v tmux"));
         assert_eq!(linux.command, mac.command);
         assert!(windows.command.contains("Get-Command tmux"));

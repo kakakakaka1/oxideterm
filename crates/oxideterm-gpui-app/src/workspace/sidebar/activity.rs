@@ -42,7 +42,9 @@ impl WorkspaceApp {
             .flex_col()
             .items_center()
             .pb_2()
-            .bg(self.workspace_chrome_background(theme.bg))
+            // Full-height workspace columns share one translucent tint so the
+            // window background does not alternate between opaque and glassy.
+            .bg(self.workspace_sidebar_background(theme.bg))
             .border_r_1()
             .border_color(rgb(theme.border));
 

@@ -6,6 +6,12 @@ pub(crate) fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\"'\"'"))
 }
 
+/// Run a generated Unix probe with a stable POSIX parser instead of the
+/// account's interactive login shell, which may be Fish, Csh, Tcsh, or Nushell.
+pub(crate) fn posix_shell_command(script: &str) -> String {
+    format!("/bin/sh -c {}", shell_quote(script))
+}
+
 /// Quote one value for use as a single PowerShell string argument.
 pub(crate) fn powershell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "''"))
@@ -20,5 +26,13 @@ mod tests {
         assert_eq!(shell_quote("Oxide Term"), "'Oxide Term'");
         assert_eq!(shell_quote("it's-ready"), "'it'\"'\"'s-ready'");
         assert_eq!(powershell_quote("it's-ready"), "'it''s-ready'");
+    }
+
+    #[test]
+    fn posix_probes_bypass_non_posix_login_shell_parsers() {
+        let command = posix_shell_command("printf '%s\\n' \"ready\"");
+
+        assert!(command.starts_with("/bin/sh -c "));
+        assert!(command.contains("'\"'\"'%s\\n'\"'\"'"));
     }
 }

@@ -4,6 +4,7 @@ use std::hash::{Hash, Hasher};
 use serde::{Deserialize, Serialize};
 
 use crate::capture::capture_failure_message;
+use crate::shell::posix_shell_command;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -98,15 +99,15 @@ pub fn build_filesystem_snapshot_command(os_type: &str) -> FilesystemCaptureComm
             FilesystemCommandCapability::Partial,
         ),
         FilesystemOs::MacOs => (
-            build_macos_filesystem_snapshot_command(),
+            posix_shell_command(&build_macos_filesystem_snapshot_command()),
             FilesystemCommandCapability::Partial,
         ),
         FilesystemOs::Bsd => (
-            build_bsd_filesystem_snapshot_command(),
+            posix_shell_command(&build_bsd_filesystem_snapshot_command()),
             FilesystemCommandCapability::Partial,
         ),
         FilesystemOs::Linux | FilesystemOs::Unknown => (
-            build_linux_filesystem_snapshot_command(),
+            posix_shell_command(&build_linux_filesystem_snapshot_command()),
             FilesystemCommandCapability::Full,
         ),
     };
@@ -1202,6 +1203,9 @@ mod tests {
         let bsd = build_filesystem_snapshot_command("FreeBSD");
         let windows = build_filesystem_snapshot_command("Windows");
 
+        assert!(linux.command.starts_with("/bin/sh -c "));
+        assert!(mac.command.starts_with("/bin/sh -c "));
+        assert!(bsd.command.starts_with("/bin/sh -c "));
         assert!(linux.command.contains("df -PTB1"));
         assert!(linux.command.contains("findmnt -rnP"));
         assert!(linux.command.contains("lsblk -b -P"));
