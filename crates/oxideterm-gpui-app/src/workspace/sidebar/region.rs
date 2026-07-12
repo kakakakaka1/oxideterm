@@ -216,7 +216,7 @@ impl WorkspaceApp {
                                     .hover(move |button| button.bg(rgb(theme.bg_hover)))
                                     .child(Self::render_lucide_icon(
                                         LucideIcon::PanelRightClose,
-                                        16.0,
+                                        self.tokens.metrics.sidebar_collapse_icon_size,
                                         rgb(theme.text_muted),
                                     ))
                                     .on_mouse_move(cx.listener({
@@ -384,7 +384,9 @@ impl WorkspaceApp {
         };
         let title = plugin_panel_title.unwrap_or_else(|| self.i18n.t(title_key).to_uppercase());
         let mut header = div()
-            .h(px(self.tokens.metrics.sidebar_header_height))
+            // Align sidebar titles with the neighboring workspace tab bar.
+            .h(px(self.tokens.metrics.tabbar_height))
+            .flex_none()
             .flex()
             .flex_row()
             .items_center()

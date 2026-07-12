@@ -32,6 +32,8 @@ impl WorkspaceApp {
             // independent activity-bar tool.
             bottom_items.insert(2, (SidebarSection::Monitor, LucideIcon::Monitor));
         }
+        let activity_divider_left =
+            (self.tokens.metrics.activity_bar_width - self.tokens.metrics.divider_width) * 0.5;
 
         let mut bar = div()
             .w(px(self.tokens.metrics.activity_bar_width))
@@ -39,65 +41,77 @@ impl WorkspaceApp {
             .flex()
             .flex_col()
             .items_center()
-            .py_2()
+            .pb_2()
             .bg(self.workspace_chrome_background(theme.bg))
             .border_r_1()
             .border_color(rgb(theme.border));
 
-        bar = bar
-            .child(
-                div()
-                    .id("activity-sidebar-toggle")
-                    .size(px(self.tokens.metrics.activity_icon_size))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .rounded(px(self.tokens.radii.md))
-                    .cursor_pointer()
-                    .child(Self::render_lucide_icon(
-                        if self.sidebar_collapsed {
-                            LucideIcon::PanelLeft
-                        } else {
-                            LucideIcon::PanelLeftClose
-                        },
-                        self.tokens.metrics.activity_icon_glyph_size,
-                        rgb(theme.text_heading),
-                    ))
-                    .on_mouse_move(cx.listener({
-                        let label = self.i18n.t(if self.sidebar_collapsed {
-                            "sidebar.actions.expand"
-                        } else {
-                            "sidebar.actions.collapse"
-                        });
-                        move |this, event: &MouseMoveEvent, _window, cx| {
-                            this.queue_workspace_tooltip(
-                                "activity-sidebar-toggle",
-                                label.clone(),
-                                f32::from(event.position.x) + 12.0,
-                                f32::from(event.position.y) + 16.0,
-                                cx,
-                            );
-                        }
-                    }))
-                    .on_hover(cx.listener(|this, hovered: &bool, _window, cx| {
-                        if !*hovered {
-                            this.clear_workspace_tooltip("activity-sidebar-toggle", cx);
-                        }
-                    }))
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(|this, _event, _window, cx| {
-                            this.toggle_sidebar(cx);
-                        }),
-                    ),
-            )
-            .child(
-                div()
-                    .w(px(self.tokens.metrics.divider_width))
-                    .h(px(self.tokens.metrics.divider_height))
-                    .my_1()
-                    .bg(rgb(theme.divider)),
-            );
+        bar = bar.child(
+            div()
+                .relative()
+                .flex_none()
+                .w_full()
+                .h(px(self.tokens.metrics.tabbar_height))
+                .flex()
+                .items_center()
+                .justify_center()
+                // Keep the activity toggle's lower rule on the tab bar baseline.
+                .child(
+                    div()
+                        .id("activity-sidebar-toggle")
+                        .size(px(self.tokens.metrics.activity_icon_size))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded(px(self.tokens.radii.md))
+                        .cursor_pointer()
+                        .child(Self::render_lucide_icon(
+                            if self.sidebar_collapsed {
+                                LucideIcon::PanelLeft
+                            } else {
+                                LucideIcon::PanelLeftClose
+                            },
+                            self.tokens.metrics.sidebar_collapse_icon_size,
+                            rgb(theme.text_muted),
+                        ))
+                        .on_mouse_move(cx.listener({
+                            let label = self.i18n.t(if self.sidebar_collapsed {
+                                "sidebar.actions.expand"
+                            } else {
+                                "sidebar.actions.collapse"
+                            });
+                            move |this, event: &MouseMoveEvent, _window, cx| {
+                                this.queue_workspace_tooltip(
+                                    "activity-sidebar-toggle",
+                                    label.clone(),
+                                    f32::from(event.position.x) + 12.0,
+                                    f32::from(event.position.y) + 16.0,
+                                    cx,
+                                );
+                            }
+                        }))
+                        .on_hover(cx.listener(|this, hovered: &bool, _window, cx| {
+                            if !*hovered {
+                                this.clear_workspace_tooltip("activity-sidebar-toggle", cx);
+                            }
+                        }))
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(|this, _event, _window, cx| {
+                                this.toggle_sidebar(cx);
+                            }),
+                        ),
+                )
+                .child(
+                    div()
+                        .absolute()
+                        .left(px(activity_divider_left))
+                        .bottom_0()
+                        .w(px(self.tokens.metrics.divider_width))
+                        .h(px(self.tokens.metrics.divider_height))
+                        .bg(rgb(theme.divider)),
+                ),
+        );
 
         let mut primary_items = div()
             .id("activity-primary-items")
@@ -364,7 +378,8 @@ impl WorkspaceApp {
                     } else if section == SidebarSection::Assistant {
                         let _ = this.toggle_ai_sidebar(cx);
                     } else if section == SidebarSection::HostTools {
-                        let _ = this.open_context_sidebar_panel(ContextSidebarPanel::HostTools, cx);
+                        let _ =
+                            this.toggle_context_sidebar_panel(ContextSidebarPanel::HostTools, cx);
                     } else if section == SidebarSection::CloudSync {
                         this.open_cloud_sync_tab(window, cx);
                     } else if section == SidebarSection::Extensions {

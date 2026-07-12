@@ -1,5 +1,13 @@
 use super::*;
 
+fn should_collapse_context_sidebar_panel(
+    sidebar_visible: bool,
+    active_panel: ContextSidebarPanel,
+    requested_panel: ContextSidebarPanel,
+) -> bool {
+    sidebar_visible && active_panel == requested_panel
+}
+
 impl WorkspaceApp {
     pub(in crate::workspace) fn set_sidebar_collapsed_with_motion(
         &mut self,
@@ -198,11 +206,24 @@ impl WorkspaceApp {
     }
 
     pub(in crate::workspace) fn toggle_ai_sidebar(&mut self, cx: &mut Context<Self>) -> bool {
-        if self.ai_sidebar_visible() {
+        self.toggle_context_sidebar_panel(ContextSidebarPanel::Assistant, cx)
+    }
+
+    pub(in crate::workspace) fn toggle_context_sidebar_panel(
+        &mut self,
+        panel: ContextSidebarPanel,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        // Clicking the currently visible context panel mirrors an ordinary toggle.
+        if should_collapse_context_sidebar_panel(
+            self.context_sidebar_visible(),
+            self.active_context_sidebar_panel,
+            panel,
+        ) {
             self.collapse_context_sidebar(cx);
             return true;
         }
-        self.open_context_sidebar_panel(ContextSidebarPanel::Assistant, cx)
+        self.open_context_sidebar_panel(panel, cx)
     }
 
     pub(in crate::workspace) fn open_context_sidebar_panel(
@@ -332,6 +353,30 @@ impl WorkspaceApp {
     ) -> f32 {
         let window_width = f32::from(window.inner_window_bounds().get_bounds().size.width);
         ai_sidebar_width_from_cursor_value(f32::from(cursor_x), window_width)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn context_sidebar_panel_click_collapses_only_the_visible_active_panel() {
+        assert!(should_collapse_context_sidebar_panel(
+            true,
+            ContextSidebarPanel::HostTools,
+            ContextSidebarPanel::HostTools,
+        ));
+        assert!(!should_collapse_context_sidebar_panel(
+            true,
+            ContextSidebarPanel::Assistant,
+            ContextSidebarPanel::HostTools,
+        ));
+        assert!(!should_collapse_context_sidebar_panel(
+            false,
+            ContextSidebarPanel::HostTools,
+            ContextSidebarPanel::HostTools,
+        ));
     }
 }
 

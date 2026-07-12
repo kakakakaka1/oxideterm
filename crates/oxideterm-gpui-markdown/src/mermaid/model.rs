@@ -85,6 +85,8 @@ pub struct GraphNode {
     pub label: String,
     pub shape: GraphNodeShape,
     pub class_names: Vec<String>,
+    /// Node-level Mermaid `style` properties override any assigned class styles.
+    pub style: GraphClassStyle,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

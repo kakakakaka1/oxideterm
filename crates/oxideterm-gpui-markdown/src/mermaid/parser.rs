@@ -349,6 +349,7 @@ fn parse_graph(header: &str, body: &[String]) -> Result<MermaidDiagram, String> 
     let mut subgraph_stack = Vec::<usize>::new();
     let mut class_definitions = Vec::new();
     let mut class_assignments = Vec::<(Vec<String>, String)>::new();
+    let mut node_style_assignments = Vec::<(String, GraphClassStyle)>::new();
 
     for statement in body {
         let statement = normalize_graph_statement(statement);
@@ -385,6 +386,14 @@ fn parse_graph(header: &str, body: &[String]) -> Result<MermaidDiagram, String> 
             class_assignments.push(parse_graph_class_assignment(statement)?);
             continue;
         }
+        if statement
+            .split_whitespace()
+            .next()
+            .is_some_and(|keyword| keyword.eq_ignore_ascii_case("style"))
+        {
+            node_style_assignments.push(parse_graph_node_style(statement)?);
+            continue;
+        }
 
         reject_unsupported_graph_statement(statement)?;
         let parsed_edges = parse_graph_edges(statement, &mut nodes)?;
@@ -409,6 +418,7 @@ fn parse_graph(header: &str, body: &[String]) -> Result<MermaidDiagram, String> 
     }
 
     apply_graph_class_assignments(&mut nodes, &class_assignments)?;
+    apply_graph_node_styles(&mut nodes, &node_style_assignments)?;
     validate_graph_node_classes(&nodes, &class_definitions)?;
 
     Ok(MermaidDiagram::Graph(GraphDiagram {
@@ -436,7 +446,7 @@ fn reject_unsupported_graph_statement(statement: &str) -> Result<(), String> {
         .unwrap_or_default()
         .to_ascii_lowercase();
     match keyword.as_str() {
-        "click" | "style" | "linkstyle" => Err(format!("unsupported graph statement: {keyword}")),
+        "click" | "linkstyle" => Err(format!("unsupported graph statement: {keyword}")),
         _ => Ok(()),
     }
 }
@@ -451,10 +461,38 @@ fn parse_graph_class_definition(statement: &str) -> Result<GraphClassDefinition,
         return Err(format!("graph class has no style properties: {name}"));
     }
 
+    let style = parse_graph_style_properties(properties, "graph class")?;
+    Ok(GraphClassDefinition {
+        name: name.to_string(),
+        style,
+    })
+}
+
+fn parse_graph_node_style(statement: &str) -> Result<(String, GraphClassStyle), String> {
+    let mut parts = statement.splitn(3, char::is_whitespace);
+    let _keyword = parts.next();
+    let node_id = parts.next().unwrap_or_default().trim();
+    validate_identifier(node_id, "graph node")?;
+    let properties = parts.next().unwrap_or_default().trim();
+    if properties.is_empty() {
+        return Err(format!("graph node has no style properties: {node_id}"));
+    }
+
+    Ok((
+        node_id.to_string(),
+        parse_graph_style_properties(properties, "graph node style")?,
+    ))
+}
+
+fn parse_graph_style_properties(
+    properties: &str,
+    property_owner: &str,
+) -> Result<GraphClassStyle, String> {
+    // Only inert paint properties are accepted because values are emitted into SVG attributes.
     let mut style = GraphClassStyle::default();
     for property in properties.split(',') {
         let Some((name, value)) = property.split_once(':') else {
-            return Err(format!("invalid graph class property: {property}"));
+            return Err(format!("invalid {property_owner} property: {property}"));
         };
         let name = name.trim().to_ascii_lowercase();
         let value = value.trim();
@@ -463,13 +501,10 @@ fn parse_graph_class_definition(statement: &str) -> Result<GraphClassDefinition,
             "stroke" => style.stroke = Some(parse_graph_color(value)?),
             "color" => style.color = Some(parse_graph_color(value)?),
             "stroke-width" => style.stroke_width = Some(parse_graph_stroke_width(value)?),
-            _ => return Err(format!("unsupported graph class property: {name}")),
+            _ => return Err(format!("unsupported {property_owner} property: {name}")),
         }
     }
-    Ok(GraphClassDefinition {
-        name: name.to_string(),
-        style,
-    })
+    Ok(style)
 }
 
 fn parse_graph_class_assignment(statement: &str) -> Result<(Vec<String>, String), String> {
@@ -525,6 +560,35 @@ fn apply_graph_class_assignments(
         }
     }
     Ok(())
+}
+
+fn apply_graph_node_styles(
+    nodes: &mut [GraphNode],
+    assignments: &[(String, GraphClassStyle)],
+) -> Result<(), String> {
+    for (node_id, style) in assignments {
+        let Some(node) = nodes.iter_mut().find(|node| node.id == *node_id) else {
+            return Err(format!("graph style references unknown node: {node_id}"));
+        };
+        // Later style statements override only the properties they specify.
+        merge_graph_style(&mut node.style, style);
+    }
+    Ok(())
+}
+
+fn merge_graph_style(target: &mut GraphClassStyle, source: &GraphClassStyle) {
+    if source.fill.is_some() {
+        target.fill.clone_from(&source.fill);
+    }
+    if source.stroke.is_some() {
+        target.stroke.clone_from(&source.stroke);
+    }
+    if source.stroke_width.is_some() {
+        target.stroke_width = source.stroke_width;
+    }
+    if source.color.is_some() {
+        target.color.clone_from(&source.color);
+    }
 }
 
 fn validate_graph_node_classes(
@@ -932,6 +996,7 @@ fn upsert_graph_node(nodes: &mut Vec<GraphNode>, parsed: &ParsedGraphNode) {
         label: parsed.label.clone(),
         shape: parsed.shape,
         class_names: parsed.class_names.clone(),
+        style: GraphClassStyle::default(),
     });
 }
 
@@ -1416,10 +1481,37 @@ mod tests {
     }
 
     #[test]
+    fn parses_node_style_statements() {
+        let MermaidDiagram::Graph(graph) = parse(
+            "flowchart TD\n\
+             A[代码提交] --> B{单元测试}\n\
+             B -->|失败| D[发送告警]\n\
+             style A fill:#4a90e2,stroke:#333,stroke-width:2px,color:#fff\n\
+             style D fill:#d0021b,stroke:#333,stroke-width:2px,color:#fff",
+        )
+        .expect("node styles should parse") else {
+            panic!("expected graph");
+        };
+
+        assert_eq!(graph.nodes[0].style.fill.as_deref(), Some("#4a90e2"));
+        assert_eq!(graph.nodes[0].style.stroke.as_deref(), Some("#333"));
+        assert_eq!(graph.nodes[0].style.stroke_width, Some(2.0));
+        assert_eq!(graph.nodes[0].style.color.as_deref(), Some("#fff"));
+        assert_eq!(graph.nodes[2].style.fill.as_deref(), Some("#d0021b"));
+    }
+
+    #[test]
     fn rejects_unsafe_graph_class_properties() {
         let error = parse("flowchart TD\nA --> B\nclassDef red filter:url(bad)").unwrap_err();
 
         assert!(error.contains("unsupported graph class property"));
+    }
+
+    #[test]
+    fn rejects_unsafe_node_style_properties() {
+        let error = parse("flowchart TD\nA --> B\nstyle A filter:url(bad)").unwrap_err();
+
+        assert!(error.contains("unsupported graph node style property"));
     }
 
     #[test]

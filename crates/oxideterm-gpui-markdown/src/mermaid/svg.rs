@@ -206,20 +206,26 @@ fn resolve_graph_node_style(graph: &LaidOutGraph, node: &GraphNode) -> GraphClas
         else {
             continue;
         };
-        if definition.style.fill.is_some() {
-            resolved.fill.clone_from(&definition.style.fill);
-        }
-        if definition.style.stroke.is_some() {
-            resolved.stroke.clone_from(&definition.style.stroke);
-        }
-        if definition.style.stroke_width.is_some() {
-            resolved.stroke_width = definition.style.stroke_width;
-        }
-        if definition.style.color.is_some() {
-            resolved.color.clone_from(&definition.style.color);
-        }
+        merge_graph_style(&mut resolved, &definition.style);
     }
+    // Mermaid node styles have higher precedence than class-assigned styles.
+    merge_graph_style(&mut resolved, &node.style);
     resolved
+}
+
+fn merge_graph_style(target: &mut GraphClassStyle, source: &GraphClassStyle) {
+    if source.fill.is_some() {
+        target.fill.clone_from(&source.fill);
+    }
+    if source.stroke.is_some() {
+        target.stroke.clone_from(&source.stroke);
+    }
+    if source.stroke_width.is_some() {
+        target.stroke_width = source.stroke_width;
+    }
+    if source.color.is_some() {
+        target.color.clone_from(&source.color);
+    }
 }
 
 fn render_gantt(
@@ -928,6 +934,25 @@ mod tests {
 
         assert!(rendered.svg.contains("fill=\"#4a90e2\""));
         assert!(rendered.svg.contains("stroke=\"#333\""));
+        assert!(rendered.svg.contains("stroke-width=\"2.0\""));
+        assert!(rendered.svg.contains("fill=\"#fff\""));
+    }
+
+    #[test]
+    fn renders_node_styles_over_class_styles() {
+        let tokens = default_tokens();
+        let opts = MarkdownOptions::from_theme(&tokens);
+        let diagram = parser::parse(
+            "flowchart TD\nA[Start]:::base --> B[Done]\n\
+             classDef base fill:#111,stroke:#222,color:#333\n\
+             style A fill:#4a90e2,stroke-width:2px,color:#fff",
+        )
+        .expect("node style should parse");
+        let layout = layout::layout(diagram, &opts);
+        let rendered = render(&layout, &tokens, &opts);
+
+        assert!(rendered.svg.contains("fill=\"#4a90e2\""));
+        assert!(rendered.svg.contains("stroke=\"#222\""));
         assert!(rendered.svg.contains("stroke-width=\"2.0\""));
         assert!(rendered.svg.contains("fill=\"#fff\""));
     }
