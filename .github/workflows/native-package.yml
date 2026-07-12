@@ -84,7 +84,7 @@ jobs:
         if: runner.os == 'Linux'
         uses: ./.github/actions/install-linux-deps
         with:
-          extra_packages: 'curl file patchelf desktop-file-utils dpkg-dev freerdp2-dev'
+          extra_packages: 'curl file patchelf desktop-file-utils dpkg-dev rpm freerdp2-dev'
 
       - name: Install Linux AppImage tooling
         if: runner.os == 'Linux'
@@ -253,6 +253,7 @@ jobs:
             dist/*.exe
             dist/*.AppImage
             dist/*.deb
+            dist/*.rpm
           if-no-files-found: error
 
   release:
@@ -362,7 +363,8 @@ jobs:
             -name '*.zip' -o \
             -name '*.exe' -o \
             -name '*.AppImage' -o \
-            -name '*.deb' \
+            -name '*.deb' -o \
+            -name '*.rpm' \
           \) | sort -u)
 
           if [[ "${#assets[@]}" -eq 0 ]]; then
@@ -392,7 +394,8 @@ jobs:
             -name '*.zip' -o \
             -name '*.exe' -o \
             -name '*.AppImage' -o \
-            -name '*.deb' \
+            -name '*.deb' -o \
+            -name '*.rpm' \
           \) | sort -u)
 
           if [[ "${#checksum_assets[@]}" -eq 0 ]]; then
@@ -413,6 +416,7 @@ jobs:
             dist-release/*.exe
             dist-release/*.AppImage
             dist-release/*.deb
+            dist-release/*.rpm
             dist-release/*.sig
             dist-release/sha256sums.txt
           tag_name: ${{ steps.release_meta.outputs.tag }}
@@ -532,6 +536,14 @@ jobs:
             await addAsset(
               ['linux-x86_64-deb'],
               `OxideTerm_${version}_linux_x64.deb`,
+            );
+            await addAsset(
+              ['linux-aarch64-rpm'],
+              `OxideTerm_${version}_linux_arm64.rpm`,
+            );
+            await addAsset(
+              ['linux-x86_64-rpm'],
+              `OxideTerm_${version}_linux_x64.rpm`,
             );
             await addAsset(
               ['windows-aarch64', 'windows-aarch64-nsis', 'aarch64-pc-windows-msvc', 'aarch64-pc-windows-msvc-nsis'],
@@ -745,9 +757,11 @@ jobs:
               `OxideTerm_${version}_macos_x64_portable.tar.gz`,
               `OxideTerm_${version}_linux_arm64.AppImage`,
               `OxideTerm_${version}_linux_arm64.deb`,
+              `OxideTerm_${version}_linux_arm64.rpm`,
               `OxideTerm_${version}_linux_arm64_portable.tar.gz`,
               `OxideTerm_${version}_linux_x64.AppImage`,
               `OxideTerm_${version}_linux_x64.deb`,
+              `OxideTerm_${version}_linux_x64.rpm`,
               `OxideTerm_${version}_linux_x64_portable.tar.gz`,
               `OxideTerm_${version}_windows_arm64-setup.exe`,
               `OxideTerm_${version}_windows_arm64_portable.zip`,

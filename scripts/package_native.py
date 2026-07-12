@@ -38,6 +38,7 @@ WINDOWS_UPDATE_STAGING_DIR = "install"
 WINDOWS_UPDATE_FLAG = "OXIDETERM_UPDATE"
 PORTABLE_MARKER_FILENAME = "portable"
 PACKAGE_VERSION_FILENAME = "VERSION"
+LINUX_PACKAGE_KIND_FILENAME = "PACKAGE_KIND"
 RELEASE_DOCUMENTS = (
     (ROOT_DIR / "LICENSE", "LICENSE"),
     (ROOT_DIR / "NOTICE", "NOTICE"),
@@ -909,6 +910,28 @@ def linux_deb_arch(target: str) -> str:
     return mapping[target]
 
 
+def linux_rpm_arch(target: str) -> str:
+    """Map Rust Linux targets to RPM architecture names."""
+    mapping = {
+        "x86_64-unknown-linux-gnu": "x86_64",
+        "aarch64-unknown-linux-gnu": "aarch64",
+    }
+    if target not in mapping:
+        raise RuntimeError(f"unsupported Linux rpm target: {target}")
+    return mapping[target]
+
+
+def linux_rpm_version_release(version: str) -> tuple[str, str]:
+    """Convert SemVer prereleases into RPM's Version and Release fields."""
+    if "-" not in version:
+        return version, "1"
+    upstream, prerelease = version.split("-", 1)
+    normalized_prerelease = "".join(
+        character if character.isalnum() else "." for character in prerelease
+    ).strip(".")
+    return upstream, f"0.{normalized_prerelease or 'preview'}"
+
+
 def parse_dpkg_shlibdeps_output(output: str) -> str:
     """Extract the dependency expression emitted by dpkg-shlibdeps."""
     prefix = "shlibs:Depends="
@@ -1078,6 +1101,7 @@ def create_linux_deb(
     copy_runtime_resources(app_root / "resources", target)
     copy_release_documents(app_root)
     write_package_version(app_root, version)
+    (app_root / LINUX_PACKAGE_KIND_FILENAME).write_text("deb\n", encoding="utf-8")
     document_root = deb_root / "usr" / "share" / "doc" / identity.linux_package_name
     copy_release_documents(document_root)
     write_package_version(document_root, version)
@@ -1111,6 +1135,88 @@ Description: OxideTerm native SSH workspace
     output = DIST_DIR / f"OxideTerm_{version}_{label}.deb"
     run(["dpkg-deb", "--build", "--root-owner-group", str(deb_root), str(output)])
     shutil.rmtree(deb_root)
+
+
+def create_linux_rpm(
+    binary: Path, target: str, version: str, label: str, identity: ReleaseIdentity
+) -> None:
+    """Build an installable RPM with the same /opt layout as the Debian package."""
+    rpmbuild = require_tool("rpmbuild")
+    rpm_root = DIST_DIR / f"rpm-{label}"
+    top_dir = rpm_root / "rpmbuild"
+    payload_root = rpm_root / "payload"
+    for directory in ("BUILD", "BUILDROOT", "RPMS", "SOURCES", "SPECS", "SRPMS"):
+        (top_dir / directory).mkdir(parents=True, exist_ok=True)
+
+    app_root = payload_root / "opt" / identity.linux_install_dir
+    app_root.mkdir(parents=True)
+    app_binary = app_root / APP_BIN
+    shutil.copy2(binary, app_binary)
+    make_executable(app_binary)
+    # Encode the two remote-agent ELFs so RPM dependency discovery only scans
+    # executables built for the package's own architecture.
+    copy_runtime_resources(app_root / "resources", target, encode_agent_binaries=True)
+    copy_release_documents(app_root)
+    write_package_version(app_root, version)
+    (app_root / LINUX_PACKAGE_KIND_FILENAME).write_text("rpm\n", encoding="utf-8")
+
+    document_root = payload_root / "usr" / "share" / "doc" / identity.linux_package_name
+    copy_release_documents(document_root)
+    write_package_version(document_root, version)
+    applications_dir = payload_root / "usr" / "share" / "applications"
+    applications_dir.mkdir(parents=True)
+    write_linux_desktop_file(
+        applications_dir / f"{identity.linux_desktop_id}.desktop",
+        identity,
+        f"/opt/{identity.linux_install_dir}/{APP_BIN}",
+    )
+    copy_linux_icons(payload_root, identity)
+
+    rpm_version, rpm_release = linux_rpm_version_release(version)
+    payload_path = str(payload_root.resolve()).replace("%", "%%")
+    spec = f"""Name: {identity.linux_package_name}
+Version: {rpm_version}
+Release: {rpm_release}
+Summary: OxideTerm SSH workspace
+License: GPL-3.0-only
+URL: https://oxideterm.app
+BuildArch: {linux_rpm_arch(target)}
+
+%description
+Local-first SSH workspace with terminal, SFTP, port forwarding, and AI context.
+
+%install
+rm -rf %{{buildroot}}
+mkdir -p %{{buildroot}}
+cp -a \"{payload_path}/.\" %{{buildroot}}/
+
+%files
+/opt/{identity.linux_install_dir}
+/usr/share/applications/{identity.linux_desktop_id}.desktop
+/usr/share/icons/hicolor/*/apps/{identity.linux_icon_name}.png
+/usr/share/doc/{identity.linux_package_name}
+"""
+    spec_path = top_dir / "SPECS" / f"{identity.linux_package_name}.spec"
+    spec_path.write_text(spec, encoding="utf-8")
+    run(
+        [
+            rpmbuild,
+            "--define",
+            f"_topdir {top_dir.resolve()}",
+            "--define",
+            "_build_id_links none",
+            "--define",
+            "debug_package %{nil}",
+            "-bb",
+            str(spec_path),
+        ]
+    )
+
+    built = list((top_dir / "RPMS" / linux_rpm_arch(target)).glob("*.rpm"))
+    if len(built) != 1:
+        raise RuntimeError(f"expected one RPM artifact, found {len(built)}")
+    shutil.copy2(built[0], DIST_DIR / f"OxideTerm_{version}_{label}.rpm")
+    shutil.rmtree(rpm_root)
 
 
 def main() -> None:
@@ -1149,6 +1255,7 @@ def main() -> None:
     if "linux" in target:
         create_linux_appimage(app_binary, target, version, label, identity)
         create_linux_deb(app_binary, target, version, label, identity)
+        create_linux_rpm(app_binary, target, version, label, identity)
 
     print("==> Package artifacts", flush=True)
     for path in sorted(DIST_DIR.iterdir()):

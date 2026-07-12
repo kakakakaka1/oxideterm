@@ -17,8 +17,7 @@ use oxideterm_ssh_launch::TemporarySshLaunch;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-const INSTANCE_LOCK_FILENAME: &str = "oxideterm-native-instance.lock";
-const INSTANCE_STATE_FILENAME: &str = "oxideterm-native-instance.json";
+const INSTANCE_FILENAME_PREFIX: &str = "oxideterm-native-instance";
 const FORWARD_RETRY_COUNT: usize = 40;
 const FORWARD_RETRY_DELAY: Duration = Duration::from_millis(50);
 const MAX_INSTANCE_REQUEST_BYTES: u64 = 64 * 1024;
@@ -71,13 +70,35 @@ impl Drop for SingleInstanceGuard {
 }
 
 impl InstancePaths {
-    fn for_data_dir(data_dir: impl Into<PathBuf>) -> Self {
+    fn for_data_dir(data_dir: impl Into<PathBuf>, scope: &str) -> Self {
         let data_dir = data_dir.into();
         Self {
-            lock_path: data_dir.join(INSTANCE_LOCK_FILENAME),
-            state_path: data_dir.join(INSTANCE_STATE_FILENAME),
+            lock_path: data_dir.join(format!("{INSTANCE_FILENAME_PREFIX}-{scope}.lock")),
+            state_path: data_dir.join(format!("{INSTANCE_FILENAME_PREFIX}-{scope}.json")),
         }
     }
+}
+
+fn instance_scope_for_build(version: &str, development: bool) -> &'static str {
+    // Development binaries must coexist with installed channels while each
+    // installed channel retains strict single-instance behavior of its own.
+    if development {
+        return "development";
+    }
+    if version.contains("gpui-preview")
+        || version.contains("native-preview")
+        || version.contains("rustnative-preview")
+    {
+        return "gpui-preview";
+    }
+    if version.contains("beta") {
+        return "beta";
+    }
+    "stable"
+}
+
+fn current_instance_scope() -> &'static str {
+    instance_scope_for_build(env!("CARGO_PKG_VERSION"), cfg!(debug_assertions))
 }
 
 pub(crate) fn acquire_or_forward(
@@ -88,7 +109,10 @@ pub(crate) fn acquire_or_forward(
         .parent()
         .unwrap_or_else(|| Path::new("."))
         .to_path_buf();
-    acquire_or_forward_with_paths(InstancePaths::for_data_dir(data_dir), ssh_launch_path)
+    acquire_or_forward_with_paths(
+        InstancePaths::for_data_dir(data_dir, current_instance_scope()),
+        ssh_launch_path,
+    )
 }
 
 fn acquire_or_forward_with_paths(
@@ -275,7 +299,7 @@ mod tests {
     fn forwards_second_launch_to_primary_instance() {
         let data_dir =
             std::env::temp_dir().join(format!("oxideterm-single-instance-test-{}", Uuid::new_v4()));
-        let paths = InstancePaths::for_data_dir(&data_dir);
+        let paths = InstancePaths::for_data_dir(&data_dir, "test");
 
         let SingleInstanceOutcome::Primary {
             _guard: guard,
@@ -298,6 +322,32 @@ mod tests {
 
         drop(guard);
         let _ = fs::remove_dir_all(data_dir);
+    }
+
+    #[test]
+    fn installed_channels_and_development_use_distinct_instance_paths() {
+        let data_dir = Path::new("/tmp/oxideterm-instance-scopes");
+        let development = InstancePaths::for_data_dir(data_dir, "development");
+        let preview = InstancePaths::for_data_dir(data_dir, "gpui-preview");
+        let stable = InstancePaths::for_data_dir(data_dir, "stable");
+
+        assert_ne!(development.lock_path, preview.lock_path);
+        assert_ne!(preview.lock_path, stable.lock_path);
+        assert_ne!(development.state_path, stable.state_path);
+    }
+
+    #[test]
+    fn build_versions_map_to_stable_instance_scopes() {
+        assert_eq!(instance_scope_for_build("2.0.0", false), "stable");
+        assert_eq!(
+            instance_scope_for_build("2.0.0-gpui-preview.16", false),
+            "gpui-preview"
+        );
+        assert_eq!(instance_scope_for_build("2.0.0-beta.1", false), "beta");
+        assert_eq!(
+            instance_scope_for_build("2.0.0-gpui-preview.16", true),
+            "development"
+        );
     }
 
     #[test]

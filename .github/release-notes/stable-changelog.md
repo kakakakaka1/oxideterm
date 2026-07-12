@@ -12,7 +12,8 @@ This release brings terminals, saved connections, SFTP, remote editing, port for
 ### Highlights
 
 - A new GPUI desktop workspace for macOS, Windows, and Linux, with no Electron or bundled browser runtime.
-- A direct Rust terminal and SSH data path built around `alacritty_terminal`, `portable-pty`, and `russh`.
+- Replaced the Tauri WebView and xterm.js terminal path with a direct Rust implementation built around `alacritty_terminal`, `portable-pty`, and `russh`, rendered by GPUI.
+- Reduced measured idle memory from roughly 300 MB in 1.x to just over 100 MB in the current 2.0 build.
 - One SSH node can now serve terminals, SFTP, remote editing, port forwarding, Host Tools, and downstream connections without tying their lifetime to one terminal tab.
 - Grace Period reconnect can preserve an existing SSH runtime across short network interruptions when the original connection recovers in time.
 - Host Tools add monitoring, processes, services, logs, ports, scheduled tasks, disks, packages, containers, and tmux workflows beside the active connection.
@@ -256,7 +257,7 @@ This release brings terminals, saved connections, SFTP, remote editing, port for
 - Added six release targets: macOS arm64/x64, Windows arm64/x64, and Linux arm64/x64.
 - Added macOS DMG, app archive, and portable archive outputs.
 - Added Windows NSIS installers and portable ZIP outputs.
-- Added Linux AppImage, Debian package, and portable archive outputs.
+- Added Linux AppImage, DEB, RPM, and portable archive outputs.
 - Added signed updater metadata and SHA-256 release checksums.
 - Added Windows installer options for Start Menu and optional desktop shortcuts.
 - Added a dedicated Windows update helper that stages the installer, waits for OxideTerm to exit, uses Restart Manager on a best-effort basis, keeps an `old` rollback directory, and completes replacement outside the running app.
@@ -309,7 +310,7 @@ This release brings terminals, saved connections, SFTP, remote editing, port for
 - Installed macOS releases can use the Stable update after 2.0 is promoted, using a compatibility archive understood by the 1.x updater.
 - Current-user Windows installations can use the Stable update; the 2.0 installer detects the existing per-user installation and upgrades it in place.
 - Linux AppImage installations can use the application update path, which replaces the AppImage after OxideTerm exits.
-- Linux DEB or RPM users should install a 2.0 package manually. OxideTerm 2.0 publishes DEB and AppImage packages, but no RPM package.
+- Linux DEB or RPM users should install the matching 2.0 package manually. OxideTerm 2.0 publishes both package formats alongside AppImage and portable archives.
 - Portable installations do not update themselves. Extract the 2.0 portable package separately and preserve the existing portable data directory before replacing files.
 - If a GPUI Preview is installed alongside 1.x, verify that the 1.x stable application is the one performing an automatic Stable upgrade.
 - Existing connection and settings data is migrated into the 2.0 storage model where supported, but review connections, authentication, cloud sync, plugins, and AI provider settings after first launch.

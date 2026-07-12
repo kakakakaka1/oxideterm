@@ -112,7 +112,7 @@ impl WorkspaceApp {
                 // Tauri only closes an open select on page scroll. When no select is
                 // visible, keep wheel scrolling free of state writes so large settings
                 // pages do not rebuild just to maintain stale overlay anchors.
-                if this.open_settings_select.is_some() || this.rendered_settings_select.is_some() {
+                if this.open_settings_select.is_some() {
                     this.close_settings_select();
                     this.clear_settings_select_anchors();
                     cx.notify();

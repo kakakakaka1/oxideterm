@@ -196,6 +196,12 @@ pub fn plan_native_install(
                 false,
                 "Open the Linux package with the desktop package installer.",
             ),
+            ("linux", InstallFlavor::LinuxRpm, InstallPackageKind::LinuxPackage) => (
+                InstallStrategy::LinuxOpenPackage,
+                InstallActionKind::OpenPackage,
+                false,
+                "Open the Linux package with the desktop package installer.",
+            ),
             _ => (
                 InstallStrategy::OpenPackage,
                 InstallActionKind::OpenPackage,
@@ -1004,6 +1010,23 @@ mod tests {
             &context(
                 "linux",
                 InstallFlavor::LinuxDeb,
+                "/opt/oxideterm/oxideterm-native",
+            ),
+        );
+
+        assert_eq!(plan.strategy, InstallStrategy::LinuxOpenPackage);
+        assert_eq!(plan.action, InstallActionKind::OpenPackage);
+        assert_eq!(plan.package_kind, InstallPackageKind::LinuxPackage);
+        assert!(!plan.requires_app_exit);
+    }
+
+    #[test]
+    fn linux_rpm_opens_with_the_package_installer() {
+        let plan = plan_native_install(
+            "/tmp/OxideTerm_linux_x64.rpm",
+            &context(
+                "linux",
+                InstallFlavor::LinuxRpm,
                 "/opt/oxideterm/oxideterm-native",
             ),
         );

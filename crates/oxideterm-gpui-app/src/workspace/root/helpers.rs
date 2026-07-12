@@ -1022,9 +1022,7 @@ impl WorkspaceApp {
             self.close_new_connection_select();
             changed = true;
         }
-        if self.cloud_sync.view.open_select.take().is_some()
-            || self.cloud_sync.view.rendered_select.take().is_some()
-        {
+        if self.cloud_sync.view.open_select.take().is_some() {
             self.cloud_sync.view.select_highlighted = None;
             changed = true;
         }

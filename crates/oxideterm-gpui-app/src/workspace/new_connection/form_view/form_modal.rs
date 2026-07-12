@@ -236,9 +236,7 @@ impl WorkspaceApp {
                                                 // scroll body moves its trigger. Native caches the
                                                 // trigger anchor explicitly, so clear both popup
                                                 // ownership and the stale group-select bounds here.
-                                                if this.open_new_connection_select.is_some()
-                                                    || this.rendered_new_connection_select.is_some()
-                                                {
+                                                if this.open_new_connection_select.is_some() {
                                                     this.close_new_connection_select();
                                                     this.clear_new_connection_select_anchor();
                                                     cx.notify();

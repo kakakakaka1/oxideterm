@@ -410,10 +410,10 @@ impl WorkspaceApp {
     pub(super) fn toggle_cloud_sync_select_from_pointer(
         &mut self,
         select: CloudSyncSelect,
-        cx: &mut Context<Self>,
+        _cx: &mut Context<Self>,
     ) {
         if self.cloud_sync.view.open_select == Some(select) {
-            self.begin_cloud_sync_select_exit(cx);
+            self.close_cloud_sync_select();
             return;
         }
         let selected_index = self.cloud_sync_selected_option_index(select);
@@ -425,7 +425,6 @@ impl WorkspaceApp {
             select,
             selected_index,
         );
-        self.cloud_sync.view.rendered_select = Some(select);
     }
 
     pub(super) fn clear_cloud_sync_select_focus(&mut self) {
@@ -435,7 +434,6 @@ impl WorkspaceApp {
             &mut self.cloud_sync.view.select_focus_origin,
             &mut self.cloud_sync.view.select_highlighted,
         );
-        self.cloud_sync.view.rendered_select = None;
     }
 
     pub(super) fn close_cloud_sync_select_for_scroll(&mut self) -> bool {
@@ -444,24 +442,13 @@ impl WorkspaceApp {
             &mut self.cloud_sync.view.focused_select,
             &mut self.cloud_sync.view.select_highlighted,
         );
-        if changed || self.cloud_sync.view.rendered_select.is_some() {
-            // Scroll invalidates window-space trigger geometry, so it cannot animate safely.
-            self.cloud_sync.view.rendered_select = None;
-            return true;
-        }
-        false
+        changed
     }
 
-    pub(super) fn begin_cloud_sync_select_exit(&mut self, _cx: &mut Context<Self>) -> bool {
-        if self.cloud_sync.view.open_select.is_none()
-            && self.cloud_sync.view.rendered_select.is_none()
-        {
-            return false;
-        }
+    pub(super) fn close_cloud_sync_select(&mut self) {
+        // Dropdown dismissal is synchronous and independent of motion settings.
         self.cloud_sync.view.open_select = None;
-        self.cloud_sync.view.rendered_select = None;
         self.cloud_sync.view.select_highlighted = None;
-        true
     }
 
     pub(super) fn apply_cloud_sync_select_action(
@@ -494,7 +481,7 @@ impl WorkspaceApp {
                 CloudSyncSelect::ConflictStrategy
             }
         };
-        self.begin_cloud_sync_select_exit(cx);
+        self.close_cloud_sync_select();
         self.cloud_sync.view.focused_select = Some(trigger_select);
         self.cloud_sync.view.select_highlighted = None;
         cx.notify();
@@ -540,14 +527,8 @@ impl WorkspaceApp {
             && state.open_select.is_none()
             && event.keystroke.key.as_str() == "escape"
         {
-            // Escape is a manual dismissal and keeps the frozen trigger geometry.
-            self.cloud_sync.view.open_select = previous_open_select;
-            self.begin_cloud_sync_select_exit(cx);
-        } else if previous_open_select.is_some() && state.open_select.is_none() {
-            // Focus traversal is a programmatic close and must not retain stale geometry.
-            self.cloud_sync.view.rendered_select = None;
-        } else if let Some(select) = state.open_select {
-            self.cloud_sync.view.rendered_select = Some(select);
+            // Escape closes the dropdown synchronously like pointer dismissal.
+            self.close_cloud_sync_select();
         }
         if let (Some(select), Some(index)) =
             (self.cloud_sync.view.focused_select, selected_action_index)
@@ -645,7 +626,9 @@ impl WorkspaceApp {
         &self,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
-        let select = self.cloud_sync.view.rendered_select?;
+        // Cloud Sync uses one open state so dropdown rendering cannot outlive
+        // logical dismissal or depend on the animation profile.
+        let select = self.cloud_sync.view.open_select?;
         let anchor_id = Self::cloud_sync_select_anchor_id(select);
         let anchor = self.select_anchors.get(&anchor_id).copied()?;
         let width =
@@ -684,7 +667,7 @@ impl WorkspaceApp {
                 false,
                 false,
                 cx.listener(move |this, _event, _window, cx| {
-                    this.begin_cloud_sync_select_exit(cx);
+                    this.close_cloud_sync_select();
                     this.cloud_sync.view.select_focus_origin =
                         Some(browser_behavior::BrowserFocusOrigin::Pointer);
                     this.apply_cloud_sync_select_action(action.clone(), cx);
@@ -700,7 +683,6 @@ impl WorkspaceApp {
                 .on_mouse_down(
                     MouseButton::Left,
                     cx.listener(|this, _event, window, cx| {
-                        this.begin_cloud_sync_select_exit(cx);
                         this.dismiss_transient_workspace_overlays_from_outside_pointer(window, cx);
                         cx.stop_propagation();
                     }),
@@ -708,7 +690,6 @@ impl WorkspaceApp {
                 .on_mouse_down(
                     MouseButton::Right,
                     cx.listener(|this, _event, window, cx| {
-                        this.begin_cloud_sync_select_exit(cx);
                         this.dismiss_transient_workspace_overlays_from_outside_pointer(window, cx);
                         cx.stop_propagation();
                     }),

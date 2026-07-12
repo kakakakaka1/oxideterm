@@ -68,6 +68,7 @@ def expected_artifact_names(target: str, version: str) -> set[str]:
             {
                 f"OxideTerm_{version}_{label}.AppImage",
                 f"OxideTerm_{version}_{label}.deb",
+                f"OxideTerm_{version}_{label}.rpm",
             }
         )
     return names
@@ -213,6 +214,34 @@ def verify_deb(path: Path, expected_version: str) -> None:
         )
 
 
+def verify_rpm(path: Path, target: str, expected_version: str) -> None:
+    rpm = shutil.which("rpm")
+    if not rpm:
+        raise RuntimeError("rpm is required for RPM package verification")
+    listing = run_checked([rpm, "-qpl", str(path)])
+    for name in REQUIRED_DOCUMENTS | {PACKAGE_VERSION_FILENAME, "PACKAGE_KIND"}:
+        if name not in listing:
+            raise RuntimeError(f"{path.name} does not contain {name}")
+    requirements = run_checked([rpm, "-qpR", str(path)])
+    if not any(".so" in requirement for requirement in requirements.splitlines()):
+        raise RuntimeError(f"{path.name} has no shared-library runtime requirements")
+    actual_version = run_checked([rpm, "-qp", "--qf", "%{VERSION}-%{RELEASE}", str(path)]).strip()
+    if "-" in expected_version:
+        upstream, prerelease = expected_version.split("-", 1)
+        normalized = "".join(character if character.isalnum() else "." for character in prerelease).strip(".")
+        expected_rpm_version = f"{upstream}-0.{normalized or 'preview'}"
+    else:
+        expected_rpm_version = f"{expected_version}-1"
+    if actual_version != expected_rpm_version:
+        raise RuntimeError(
+            f"{path.name} contains RPM version {actual_version!r}, expected {expected_rpm_version!r}"
+        )
+    expected_arch = "x86_64" if target.startswith("x86_64") else "aarch64"
+    actual_arch = run_checked([rpm, "-qp", "--qf", "%{ARCH}", str(path)]).strip()
+    if actual_arch != expected_arch:
+        raise RuntimeError(f"{path.name} contains RPM arch {actual_arch!r}, expected {expected_arch!r}")
+
+
 def verify_appimage(path: Path, expected_version: str) -> None:
     path.chmod(path.stat().st_mode | 0o111)
     with tempfile.TemporaryDirectory() as directory:
@@ -280,6 +309,7 @@ def verify_release(dist: Path, target: str, version: str) -> dict[str, object]:
     elif "linux" in target:
         verify_appimage(dist / f"OxideTerm_{version}_{label}.AppImage", version)
         verify_deb(dist / f"OxideTerm_{version}_{label}.deb", version)
+        verify_rpm(dist / f"OxideTerm_{version}_{label}.rpm", target, version)
 
     return {"target": target, "version": version, "artifacts": sorted(expected), "status": "ok"}
 

@@ -951,19 +951,6 @@ impl WorkspaceApp {
             &mut self.open_settings_select,
             &mut self.settings_select_focus_origin,
         );
-        self.rendered_settings_select = None;
-    }
-
-    pub(in crate::workspace) fn begin_settings_select_exit(
-        &mut self,
-        _cx: &mut Context<Self>,
-    ) -> bool {
-        if self.open_settings_select.is_none() && self.rendered_settings_select.is_none() {
-            return false;
-        }
-        // Select dismissal must release the full-window backdrop immediately.
-        self.close_settings_select();
-        true
     }
 
     pub(in crate::workspace) fn clear_settings_input_draft(&mut self, input: SettingsInput) {

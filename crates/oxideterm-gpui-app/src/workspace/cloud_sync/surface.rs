@@ -112,15 +112,15 @@ impl WorkspaceApp {
     }
 
     fn invalidate_cloud_sync_select_if_needed(&mut self) {
-        let Some(rendered_select) = self.cloud_sync.view.rendered_select else {
+        let Some(open_select) = self.cloud_sync.view.open_select else {
             return;
         };
         let anchor_valid = self
             .select_anchors
-            .contains_key(&Self::cloud_sync_select_anchor_id(rendered_select));
-        if self.cloud_sync.view.open_select.is_none() || !anchor_valid {
-            // Programmatic dismissal and invalid live geometry must unmount immediately.
-            self.cloud_sync.view.rendered_select = None;
+            .contains_key(&Self::cloud_sync_select_anchor_id(open_select));
+        if !anchor_valid {
+            // Invalid live geometry closes the dropdown immediately.
+            self.cloud_sync.view.open_select = None;
         }
     }
 

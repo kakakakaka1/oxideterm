@@ -682,7 +682,7 @@ impl WorkspaceApp {
 
         if self.active_surface == ActiveSurface::Settings && self.open_settings_select.is_some() {
             if key == "escape" && !modifiers.platform {
-                self.begin_settings_select_exit(cx);
+                self.close_settings_select();
                 cx.notify();
             }
             return;

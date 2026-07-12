@@ -105,6 +105,7 @@ mod tests {
             ("windows-x86_64-portable", "windows-portable.zip"),
             ("linux-x86_64-appimage", "linux.AppImage"),
             ("linux-x86_64-deb", "linux.deb"),
+            ("linux-x86_64-rpm", "linux.rpm"),
             ("linux-x86_64-portable", "linux-portable.tar.gz"),
         ]
         .into_iter()
@@ -157,6 +158,7 @@ mod tests {
                 "linux.AppImage",
             ),
             ("linux", "x86_64", InstallFlavor::LinuxDeb, "linux.deb"),
+            ("linux", "x86_64", InstallFlavor::LinuxRpm, "linux.rpm"),
             (
                 "linux",
                 "x86_64",

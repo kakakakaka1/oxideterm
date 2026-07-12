@@ -10,6 +10,7 @@ pub enum InstallFlavor {
     WindowsNsis,
     LinuxAppImage,
     LinuxDeb,
+    LinuxRpm,
     Portable,
     Standard,
 }
@@ -26,6 +27,7 @@ impl InstallFlavor {
             "macos" => Self::MacApp,
             "windows" => Self::WindowsNsis,
             "linux" if path_is_appimage(current_exe) => Self::LinuxAppImage,
+            "linux" if path_is_rpm_install(current_exe) => Self::LinuxRpm,
             "linux" => Self::LinuxDeb,
             _ => Self::Standard,
         }
@@ -80,6 +82,10 @@ impl PlatformTarget {
                 format!("linux-{arch}-deb"),
                 format!("{arch}-unknown-linux-gnu-deb"),
             ],
+            ("linux", InstallFlavor::LinuxRpm) => vec![
+                format!("linux-{arch}-rpm"),
+                format!("{arch}-unknown-linux-gnu-rpm"),
+            ],
             ("macos", InstallFlavor::Portable) => vec![
                 format!("darwin-{arch}-portable"),
                 format!("macos-{arch}-portable"),
@@ -106,6 +112,15 @@ fn path_is_appimage(path: &Path) -> bool {
         .and_then(|extension| extension.to_str())
         .map(|extension| extension.eq_ignore_ascii_case("appimage"))
         .unwrap_or(false)
+}
+
+fn path_is_rpm_install(current_exe: &Path) -> bool {
+    // Installed DEB and RPM packages share the /opt layout, so the package
+    // marker beside the executable is the only reliable runtime distinction.
+    current_exe
+        .parent()
+        .and_then(|parent| std::fs::read_to_string(parent.join("PACKAGE_KIND")).ok())
+        .is_some_and(|kind| kind.trim().eq_ignore_ascii_case("rpm"))
 }
 
 pub fn current_platform_target() -> PlatformTarget {
@@ -157,6 +172,25 @@ mod tests {
                 true,
             ),
             InstallFlavor::Portable
+        );
+    }
+
+    #[test]
+    fn rpm_marker_selects_rpm_install_flavor() {
+        let directory = tempfile::tempdir().unwrap();
+        let executable = directory.path().join("oxideterm-native");
+        std::fs::write(directory.path().join("PACKAGE_KIND"), "rpm\n").unwrap();
+
+        assert_eq!(
+            InstallFlavor::infer(&PlatformTarget::new("linux", "x86_64"), &executable, false,),
+            InstallFlavor::LinuxRpm
+        );
+        assert_eq!(
+            PlatformTarget::new("linux", "x86_64")
+                .candidate_keys(InstallFlavor::LinuxRpm)
+                .first()
+                .map(String::as_str),
+            Some("linux-x86_64-rpm")
         );
     }
 

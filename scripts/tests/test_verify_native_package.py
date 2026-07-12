@@ -38,9 +38,10 @@ class ArtifactNameTests(unittest.TestCase):
         names = verify_native_package.expected_artifact_names(
             "aarch64-unknown-linux-gnu", "2.0.0"
         )
-        self.assertEqual(len(names), 3)
+        self.assertEqual(len(names), 4)
         self.assertTrue(any(name.endswith(".AppImage") for name in names))
         self.assertTrue(any(name.endswith(".deb") for name in names))
+        self.assertTrue(any(name.endswith(".rpm") for name in names))
         self.assertTrue(any(name.endswith(".tar.gz") for name in names))
 
     def test_stable_macos_requires_tauri_bridge_archive(self) -> None:

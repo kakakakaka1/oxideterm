@@ -84,17 +84,16 @@ impl WorkspaceApp {
     fn open_new_connection_select_from_pointer(
         &mut self,
         select_id: NewConnectionSelect,
-        cx: &mut Context<Self>,
+        _cx: &mut Context<Self>,
     ) {
         // New-connection selects share browser focus-origin semantics with
         // settings selects: pointer-opened menus should not render a keyboard
         // focus-visible ring on the trigger.
         if self.open_new_connection_select == Some(select_id) {
-            self.begin_new_connection_select_exit(cx);
+            self.close_new_connection_select();
             return;
         }
         self.open_new_connection_select = Some(select_id);
-        self.rendered_new_connection_select = Some(select_id);
         self.new_connection_select_focus_origin =
             Some(browser_behavior::BrowserFocusOrigin::Pointer);
     }
@@ -104,21 +103,6 @@ impl WorkspaceApp {
             &mut self.open_new_connection_select,
             &mut self.new_connection_select_focus_origin,
         );
-        self.rendered_new_connection_select = None;
-    }
-
-    pub(in crate::workspace) fn begin_new_connection_select_exit(
-        &mut self,
-        _cx: &mut Context<Self>,
-    ) -> bool {
-        if self.open_new_connection_select.is_none()
-            && self.rendered_new_connection_select.is_none()
-        {
-            return false;
-        }
-        // Select dismissal must never retain an input-blocking backdrop.
-        self.close_new_connection_select();
-        true
     }
 
     pub(super) fn clear_new_connection_select_anchor(&mut self) {

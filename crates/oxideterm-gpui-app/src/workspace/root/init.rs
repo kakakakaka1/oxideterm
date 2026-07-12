@@ -275,7 +275,6 @@ impl WorkspaceApp {
             .measure_all(),
             active_session_sidebar_list_cache: RefCell::new(VirtualListSignatureCache::default()),
             open_settings_select: None,
-            rendered_settings_select: None,
             settings_select_focus_origin: None,
             // Settings tabs are variable-height browser sections, not a single
             // flex tree. Initialize the shared GPUI ListState here and let the
@@ -355,7 +354,6 @@ impl WorkspaceApp {
             duplicating_saved_connection_id: None,
             saved_connection_prompt_action: None,
             open_new_connection_select: None,
-            rendered_new_connection_select: None,
             new_connection_select_focus_origin: None,
             new_connection_caret_visible: true,
             host_key_challenge: None,

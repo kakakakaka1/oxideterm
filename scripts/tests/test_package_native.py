@@ -2,6 +2,8 @@
 """Tests for native release packaging helpers."""
 
 from pathlib import Path
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -198,6 +200,98 @@ class PlatformSigningTests(unittest.TestCase):
 
 
 class LinuxPackagingTests(unittest.TestCase):
+    def test_rpm_arch_and_prerelease_version_are_normalized(self) -> None:
+        self.assertEqual(
+            package_native.linux_rpm_arch("aarch64-unknown-linux-gnu"),
+            "aarch64",
+        )
+        self.assertEqual(
+            package_native.linux_rpm_version_release("2.0.0-gpui-preview.16"),
+            ("2.0.0", "0.gpui.preview.16"),
+        )
+        self.assertEqual(
+            package_native.linux_rpm_version_release("2.0.0"),
+            ("2.0.0", "1"),
+        )
+
+    @unittest.skipUnless(
+        shutil.which("rpmbuild") and shutil.which("rpm"),
+        "RPM build tools are not installed",
+    )
+    def test_rpm_package_contains_runtime_layout_and_metadata(self) -> None:
+        # Exercise the actual RPM spec with synthetic resources so Linux CI
+        # catches rpmbuild syntax and payload regressions before a release.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            dist_dir = root / "dist"
+            resource_dir = root / "resources"
+            dist_dir.mkdir()
+
+            for icon_name in (
+                "32x32.png",
+                "64x64.png",
+                "128x128.png",
+                "128x128@2x.png",
+            ):
+                icon_path = resource_dir / "icons" / icon_name
+                icon_path.parent.mkdir(parents=True, exist_ok=True)
+                icon_path.write_bytes(b"synthetic icon")
+
+            target = "x86_64-unknown-linux-gnu"
+            for relative_path in (
+                Path("cli-bin") / target / "oxideterm",
+                Path("helpers") / target / "oxideterm-rdp-helper",
+                Path("helpers") / target / "oxideterm-vnc-helper",
+            ):
+                destination = resource_dir / relative_path
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2("/bin/true", destination)
+
+            for agent_target in (
+                "x86_64-unknown-linux-musl",
+                "aarch64-unknown-linux-musl",
+            ):
+                agent_path = resource_dir / "agent-bin" / agent_target / "oxideterm-agent"
+                agent_path.parent.mkdir(parents=True, exist_ok=True)
+                agent_path.write_bytes(b"synthetic agent")
+
+            release_documents = []
+            for name in (
+                "LICENSE",
+                "NOTICE",
+                "README.md",
+                "THIRD_PARTY_NOTICES.md",
+                "AGENT_THIRD_PARTY_NOTICES.md",
+            ):
+                document = root / name
+                document.write_text(f"{name}\n", encoding="utf-8")
+                release_documents.append(document)
+
+            binary = root / "oxideterm-native"
+            shutil.copy2("/bin/true", binary)
+            identity = package_native.release_identity("v2.0.0", "2.0.0")
+            with (
+                patch.object(package_native, "DIST_DIR", dist_dir),
+                patch.object(package_native, "RESOURCE_DIR", resource_dir),
+                patch.object(package_native, "RELEASE_DOCUMENTS", release_documents),
+            ):
+                package_native.create_linux_rpm(
+                    binary,
+                    target,
+                    "2.0.0",
+                    "linux_x64",
+                    identity,
+                )
+
+            artifact = dist_dir / "OxideTerm_2.0.0_linux_x64.rpm"
+            self.assertTrue(artifact.is_file())
+            package_listing = subprocess.check_output(
+                ["rpm", "-qpl", str(artifact)],
+                text=True,
+            )
+            self.assertIn("/opt/oxideterm/PACKAGE_KIND", package_listing)
+            self.assertIn("/opt/oxideterm/oxideterm-native", package_listing)
+
     def test_dpkg_shlibdeps_output_requires_dependency_expression(self) -> None:
         dependencies = package_native.parse_dpkg_shlibdeps_output(
             "shlibs:Depends=libc6 (>= 2.35), libgcc-s1 (>= 3.0)\n"

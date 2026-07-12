@@ -40,6 +40,9 @@ chmod +x OxideTerm_*_linux_*.AppImage && ./OxideTerm_*_linux_*.AppImage
 
 # Debian/Ubuntu
 sudo dpkg -i OxideTerm_*_linux_*.deb && sudo apt-get install -f
+
+# Fedora/RHEL-compatible systems
+sudo dnf install ./OxideTerm_*_linux_*.rpm
 ```
 
 </details>
