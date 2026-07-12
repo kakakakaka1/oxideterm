@@ -267,7 +267,7 @@ impl WorkspaceApp {
         button
             .id(("activity-icon", section as u64))
             .relative()
-            .mb(px(self.tokens.spacing.icon_gap))
+            .mb(px(self.tokens.metrics.activity_icon_gap))
             .when(active, |icon_el| {
                 icon_el.child(
                     div()
@@ -451,7 +451,7 @@ impl WorkspaceApp {
                 native_plugin_sidebar_activity_id(&panel),
             ))
             .relative()
-            .mb(px(self.tokens.spacing.icon_gap))
+            .mb(px(self.tokens.metrics.activity_icon_gap))
             .when(active, |icon_el| {
                 icon_el.child(
                     div()
