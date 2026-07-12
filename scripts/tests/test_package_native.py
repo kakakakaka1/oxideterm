@@ -332,7 +332,14 @@ class LinuxPackagingTests(unittest.TestCase):
                 "x86_64-unknown-linux-musl",
                 "aarch64-unknown-linux-musl",
             ):
-                agent_path = resource_dir / "agent-bin" / agent_target / "oxideterm-agent"
+                # Follow the production resource contract so a directory rename
+                # cannot leave the RPM fixture silently testing a stale layout.
+                agent_path = (
+                    resource_dir
+                    / package_native.AGENT_RESOURCE_DIR
+                    / agent_target
+                    / "oxideterm-agent"
+                )
                 agent_path.parent.mkdir(parents=True, exist_ok=True)
                 agent_path.write_bytes(b"synthetic agent")
 
@@ -372,6 +379,14 @@ class LinuxPackagingTests(unittest.TestCase):
             )
             self.assertIn("/opt/oxideterm/PACKAGE_KIND", package_listing)
             self.assertIn("/opt/oxideterm/oxideterm-native", package_listing)
+            self.assertIn(
+                "/opt/oxideterm/resources/agents/x86_64-unknown-linux-musl/oxideterm-agent",
+                package_listing,
+            )
+            self.assertIn(
+                "/opt/oxideterm/resources/agents/aarch64-unknown-linux-musl/oxideterm-agent",
+                package_listing,
+            )
 
     def test_dpkg_shlibdeps_output_requires_dependency_expression(self) -> None:
         dependencies = package_native.parse_dpkg_shlibdeps_output(
