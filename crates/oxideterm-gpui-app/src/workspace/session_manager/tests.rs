@@ -121,14 +121,20 @@ pub(super) fn session_manager_table_width_matches_tauri_connection_table_columns
 }
 
 #[test]
-pub(super) fn session_menu_dismissal_closes_batch_move_popover() {
+pub(super) fn session_menu_dismissal_closes_all_manager_popovers() {
     let mut state = SessionManagerState {
         show_batch_move: true,
+        row_action_menu: Some(SessionManagerRowActionMenu {
+            target: SessionManagerRowActionTarget::Connection("connection-1".to_string()),
+            x: 120.0,
+            y: 80.0,
+        }),
         ..SessionManagerState::default()
     };
 
     assert!(close_session_menu_state(&mut state));
     assert!(!state.show_batch_move);
+    assert!(state.row_action_menu.is_none());
 }
 
 #[test]

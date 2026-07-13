@@ -87,6 +87,16 @@ pub(super) fn theme_hover_bg(color: u32, has_background: bool) -> Rgba {
     color_for_background(color, has_background, BG_ACTIVE_HOVER_ALPHA)
 }
 
+pub(super) fn theme_row_hover_bg(color: u32, has_background: bool) -> Rgba {
+    // Full-width rows need a lower-contrast hover than compact buttons and menus.
+    color_for_background_or_alpha(
+        color,
+        has_background,
+        BG_ACTIVE_ROW_HOVER_ALPHA,
+        ROW_HOVER_ALPHA,
+    )
+}
+
 pub(super) fn theme_input_bg(color: u32, has_background: bool) -> Rgba {
     color_for_background_or_alpha(color, has_background, BG_ACTIVE_THEME_ALPHA / 2, 0x80)
 }

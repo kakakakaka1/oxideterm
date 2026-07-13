@@ -343,7 +343,7 @@ impl WorkspaceApp {
             .child(self.render_session_manager_view_actions(false, has_background, cx));
 
         if !recent.is_empty() {
-            sections = sections.child(self.render_session_manager_grid_section(
+            sections = sections.child(self.render_session_manager_recent_section(
                 self.i18n.t("sessionManager.views.recent"),
                 recent,
                 has_background,
@@ -397,6 +397,104 @@ impl WorkspaceApp {
         }
         self.render_session_manager_section_header(title, count)
             .child(cards)
+    }
+
+    pub(super) fn render_session_manager_recent_section(
+        &self,
+        title: String,
+        items: Vec<SessionManagerDisplayItem>,
+        has_background: bool,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let count = items.len();
+        let mut shortcuts = div().flex().flex_wrap().gap(px(self.tokens.spacing.two));
+        for item in items {
+            shortcuts =
+                shortcuts.child(self.render_session_manager_recent_item(item, has_background, cx));
+        }
+        // Recent sessions are shortcuts, not a second full card collection.
+        self.render_session_manager_section_header(title, count)
+            .child(shortcuts)
+    }
+
+    pub(super) fn render_session_manager_recent_item(
+        &self,
+        item: SessionManagerDisplayItem,
+        has_background: bool,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let theme = self.tokens.ui;
+        let open_item = item.clone();
+        let open_button_item = item.clone();
+        let last_used = format_last_used(item.last_used().as_deref(), &self.i18n);
+        div()
+            .min_w(px(MANAGER_RECENT_ITEM_MIN_WIDTH))
+            .flex_basis(px(MANAGER_RECENT_ITEM_BASIS))
+            .rounded(px(self.tokens.radii.md))
+            .border_1()
+            .border_color(theme_border_half(theme.border, has_background))
+            .bg(theme_secondary_bg(theme.bg_secondary, has_background))
+            .px_2()
+            .py_1()
+            .flex()
+            .items_center()
+            .gap(px(self.tokens.spacing.two))
+            .hover(|shortcut| shortcut.bg(theme_row_hover_bg(theme.bg_hover, has_background)))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, event: &MouseDownEvent, window, cx| {
+                    if event.click_count == 2 {
+                        this.open_session_manager_display_item(open_item.clone(), window, cx);
+                    }
+                }),
+            )
+            .child(
+                div()
+                    .size(px(MANAGER_RECENT_ICON_SIZE))
+                    .flex_none()
+                    .rounded(px(self.tokens.radii.md))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .bg(rgba((theme.accent << 8) | MANAGER_RECENT_ACCENT_BG_ALPHA))
+                    .child(Self::render_lucide_icon(
+                        item.icon(),
+                        MANAGER_RECENT_ICON_GLYPH_SIZE,
+                        rgb(theme.accent),
+                    )),
+            )
+            .child(
+                div()
+                    .min_w(px(0.0))
+                    .flex_1()
+                    .child(
+                        div()
+                            .truncate()
+                            .text_size(px(MANAGER_ROW_TEXT_SIZE))
+                            .font_weight(gpui::FontWeight::MEDIUM)
+                            .text_color(rgb(theme.text))
+                            .child(item.name().to_string()),
+                    )
+                    .child(
+                        div()
+                            .truncate()
+                            .text_size(px(MANAGER_ROW_META_TEXT_SIZE))
+                            .text_color(rgb(theme.text_muted))
+                            .child(last_used),
+                    ),
+            )
+            .child(self.render_row_icon_button(
+                LucideIcon::Play,
+                MANAGER_ROW_ACTION_BUTTON,
+                MANAGER_ROW_ACTION_ICON_SIZE,
+                rgb(theme.accent),
+                has_background,
+                move |this, _event, window, cx| {
+                    this.open_session_manager_display_item(open_button_item.clone(), window, cx);
+                    cx.stop_propagation();
+                },
+                cx,
+            ))
     }
 
     pub(super) fn render_session_manager_section_header(&self, title: String, count: usize) -> Div {
@@ -530,11 +628,35 @@ impl WorkspaceApp {
                     .border_color(theme_border(theme.border, has_background))
                     .bg(theme_secondary_bg(theme.bg_secondary, has_background))
                     .px_3()
-                    .py_2()
+                    .py_1()
+                    .flex()
+                    .items_center()
+                    .gap(px(self.tokens.spacing.three))
                     .text_size(px(MANAGER_TABLE_HEADER_TEXT_SIZE))
                     .font_weight(gpui::FontWeight::SEMIBOLD)
                     .text_color(rgb(theme.text_muted))
-                    .child(self.i18n.t("sessionManager.views.list_header")),
+                    .child(div().w(px(MANAGER_SELECTION_COLUMN_WIDTH)).flex_none())
+                    .child(div().w(px(MANAGER_ROW_ICON_SIZE)).flex_none())
+                    .child(
+                        div()
+                            .min_w(px(0.0))
+                            .flex_1()
+                            .child(self.i18n.t("sessionManager.table.name")),
+                    )
+                    .child(
+                        div()
+                            .w(px(MANAGER_LIST_LAST_USED_WIDTH))
+                            .flex_none()
+                            .child(self.i18n.t("sessionManager.table.last_used")),
+                    )
+                    .child(
+                        div()
+                            .w(px(MANAGER_ROW_ACTIONS_WIDTH))
+                            .flex_none()
+                            .flex()
+                            .justify_end()
+                            .child(self.i18n.t("sessionManager.table.actions")),
+                    ),
             )
             .child(rows)
             .into_any_element()
@@ -596,9 +718,9 @@ impl WorkspaceApp {
             .gap(px(self.tokens.spacing.two))
             .border_b_1()
             .border_color(theme_border(theme.border, has_background))
-            .bg(theme_secondary_bg(theme.bg_secondary, has_background))
+            .bg(theme_bg(theme.bg, has_background))
             .px_3()
-            .py_2();
+            .py_1();
         if include_tree_controls {
             row = row
                 .child(self.render_tree_mode_action_button(
@@ -712,7 +834,7 @@ impl WorkspaceApp {
                 .flex()
                 .items_center()
                 .gap(px(self.tokens.spacing.two))
-                .hover(|row| row.bg(theme_hover_bg(theme.bg_hover, has_background)))
+                .hover(|row| row.bg(theme_row_hover_bg(theme.bg_hover, has_background)))
                 .on_mouse_down(
                     MouseButton::Left,
                     cx.listener(move |this, _event, _window, cx| {
@@ -739,7 +861,7 @@ impl WorkspaceApp {
                         LucideIcon::Folder
                     },
                     16.0,
-                    rgb(0xeab308),
+                    rgb(theme.warning),
                 ))
                 .child(
                     div()
@@ -795,6 +917,30 @@ impl WorkspaceApp {
         let theme = self.tokens.ui;
         let open_item = item.clone();
         let last_used = item.last_used();
+        let selection = if let SessionManagerDisplayItem::Connection(connection) = &item {
+            let id = connection.id.clone();
+            checkbox(
+                &self.tokens,
+                String::new(),
+                self.session_manager.selected_ids.contains(item.id()),
+            )
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, _event, _window, cx| {
+                    this.toggle_connection_selection(&id);
+                    cx.notify();
+                    cx.stop_propagation();
+                }),
+            )
+            .into_any_element()
+        } else {
+            // Non-SSH profiles keep the selection column reserved so all
+            // identity and metadata columns remain aligned.
+            div()
+                .size(px(MANAGER_SELECTION_COLUMN_WIDTH))
+                .flex_none()
+                .into_any_element()
+        };
         div()
             .border_b_1()
             .border_color(theme_border_half(theme.border, has_background))
@@ -804,7 +950,7 @@ impl WorkspaceApp {
             .flex()
             .items_center()
             .gap(px(self.tokens.spacing.three))
-            .hover(|row| row.bg(theme_hover_bg(theme.bg_hover, has_background)))
+            .hover(|row| row.bg(theme_row_hover_bg(theme.bg_hover, has_background)))
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |this, event: &MouseDownEvent, window, cx| {
@@ -813,27 +959,7 @@ impl WorkspaceApp {
                     }
                 }),
             )
-            .when(
-                matches!(item, SessionManagerDisplayItem::Connection(_)),
-                |row| {
-                    let id = item.id().to_string();
-                    row.child(
-                        checkbox(
-                            &self.tokens,
-                            String::new(),
-                            self.session_manager.selected_ids.contains(item.id()),
-                        )
-                        .on_mouse_down(
-                            MouseButton::Left,
-                            cx.listener(move |this, _event, _window, cx| {
-                                this.toggle_connection_selection(&id);
-                                cx.notify();
-                                cx.stop_propagation();
-                            }),
-                        ),
-                    )
-                },
-            )
+            .child(selection)
             .child(self.render_session_manager_item_icon(&item, theme.text))
             .child(
                 div()
@@ -857,7 +983,8 @@ impl WorkspaceApp {
             )
             .child(
                 div()
-                    .min_w(px(96.0))
+                    .w(px(MANAGER_LIST_LAST_USED_WIDTH))
+                    .flex_none()
                     .text_size(px(MANAGER_ROW_META_TEXT_SIZE))
                     .text_color(rgb(theme.text_muted))
                     .child(format_last_used(last_used.as_deref(), &self.i18n)),
@@ -895,8 +1022,8 @@ impl WorkspaceApp {
             SessionManagerDisplayItem::RawUdp(_) => rgb(0x67e8f9),
         };
         div()
-            .w(px(40.0))
-            .h(px(40.0))
+            .w(px(MANAGER_ROW_ICON_SIZE))
+            .h(px(MANAGER_ROW_ICON_SIZE))
             .flex_none()
             .rounded(px(self.tokens.radii.lg))
             .flex()
@@ -920,17 +1047,18 @@ impl WorkspaceApp {
             SessionManagerDisplayItem::Connection(connection) => {
                 let open_id = connection.id.clone();
                 let edit_id = connection.id.clone();
-                let test_id = connection.id.clone();
-                let duplicate_id = connection.id.clone();
-                let delete_id = connection.id.clone();
+                let menu_id = connection.id.clone();
                 div()
+                    .w(px(MANAGER_ROW_ACTIONS_WIDTH))
+                    .flex_none()
                     .flex()
                     .items_center()
-                    .gap(px(2.0))
+                    .justify_end()
+                    .gap(px(MANAGER_ROW_ACTION_GAP))
                     .child(self.render_row_icon_button(
                         LucideIcon::Play,
                         MANAGER_ROW_ACTION_BUTTON,
-                        12.0,
+                        MANAGER_ROW_ACTION_ICON_SIZE,
                         rgb(self.tokens.ui.accent),
                         has_background,
                         move |this, _event, window, cx| {
@@ -942,7 +1070,7 @@ impl WorkspaceApp {
                     .child(self.render_row_icon_button(
                         LucideIcon::Pencil,
                         MANAGER_ROW_ACTION_BUTTON,
-                        12.0,
+                        MANAGER_ROW_ACTION_ICON_SIZE,
                         rgb(self.tokens.ui.text),
                         has_background,
                         move |this, _event, window, cx| {
@@ -952,37 +1080,18 @@ impl WorkspaceApp {
                         cx,
                     ))
                     .child(self.render_row_icon_button(
-                        LucideIcon::Zap,
+                        LucideIcon::MoreVertical,
                         MANAGER_ROW_ACTION_BUTTON,
-                        12.0,
+                        MANAGER_ROW_ACTION_ICON_SIZE,
                         rgb(self.tokens.ui.text),
                         has_background,
-                        move |this, _event, window, cx| {
-                            this.test_connection(&test_id, window, cx);
-                            cx.stop_propagation();
-                        },
-                        cx,
-                    ))
-                    .child(self.render_row_icon_button(
-                        LucideIcon::Copy,
-                        MANAGER_ROW_ACTION_BUTTON,
-                        12.0,
-                        rgb(self.tokens.ui.text),
-                        has_background,
-                        move |this, _event, window, cx| {
-                            this.duplicate_connection(&duplicate_id, window, cx);
-                            cx.stop_propagation();
-                        },
-                        cx,
-                    ))
-                    .child(self.render_row_icon_button(
-                        LucideIcon::Trash2,
-                        MANAGER_ROW_ACTION_BUTTON,
-                        12.0,
-                        rgb(self.tokens.ui.error),
-                        has_background,
-                        move |this, _event, _window, cx| {
-                            this.request_delete_connection(&delete_id, cx);
+                        move |this, event, _window, cx| {
+                            this.open_session_manager_row_action_menu(
+                                SessionManagerRowActionTarget::Connection(menu_id.clone()),
+                                f32::from(event.position.x),
+                                f32::from(event.position.y),
+                                cx,
+                            );
                             cx.stop_propagation();
                         },
                         cx,
@@ -990,15 +1099,18 @@ impl WorkspaceApp {
             }
             SessionManagerDisplayItem::Serial(profile) => {
                 let open_id = profile.id.clone();
-                let delete_id = profile.id.clone();
+                let menu_id = profile.id.clone();
                 div()
+                    .w(px(MANAGER_ROW_ACTIONS_WIDTH))
+                    .flex_none()
                     .flex()
                     .items_center()
-                    .gap(px(2.0))
+                    .justify_end()
+                    .gap(px(MANAGER_ROW_ACTION_GAP))
                     .child(self.render_row_icon_button(
                         LucideIcon::Play,
                         MANAGER_ROW_ACTION_BUTTON,
-                        12.0,
+                        MANAGER_ROW_ACTION_ICON_SIZE,
                         rgb(self.tokens.ui.accent),
                         has_background,
                         move |this, _event, window, cx| {
@@ -1008,13 +1120,18 @@ impl WorkspaceApp {
                         cx,
                     ))
                     .child(self.render_row_icon_button(
-                        LucideIcon::Trash2,
+                        LucideIcon::MoreVertical,
                         MANAGER_ROW_ACTION_BUTTON,
-                        12.0,
-                        rgb(self.tokens.ui.error),
+                        MANAGER_ROW_ACTION_ICON_SIZE,
+                        rgb(self.tokens.ui.text),
                         has_background,
-                        move |this, _event, _window, cx| {
-                            this.request_delete_serial_profile(&delete_id, cx);
+                        move |this, event, _window, cx| {
+                            this.open_session_manager_row_action_menu(
+                                SessionManagerRowActionTarget::Serial(menu_id.clone()),
+                                f32::from(event.position.x),
+                                f32::from(event.position.y),
+                                cx,
+                            );
                             cx.stop_propagation();
                         },
                         cx,
@@ -1022,15 +1139,18 @@ impl WorkspaceApp {
             }
             SessionManagerDisplayItem::Telnet(profile) => {
                 let open_id = profile.id.clone();
-                let delete_id = profile.id.clone();
+                let menu_id = profile.id.clone();
                 div()
+                    .w(px(MANAGER_ROW_ACTIONS_WIDTH))
+                    .flex_none()
                     .flex()
                     .items_center()
-                    .gap(px(2.0))
+                    .justify_end()
+                    .gap(px(MANAGER_ROW_ACTION_GAP))
                     .child(self.render_row_icon_button(
                         LucideIcon::Play,
                         MANAGER_ROW_ACTION_BUTTON,
-                        12.0,
+                        MANAGER_ROW_ACTION_ICON_SIZE,
                         rgb(self.tokens.ui.accent),
                         has_background,
                         move |this, _event, window, cx| {
@@ -1040,13 +1160,18 @@ impl WorkspaceApp {
                         cx,
                     ))
                     .child(self.render_row_icon_button(
-                        LucideIcon::Trash2,
+                        LucideIcon::MoreVertical,
                         MANAGER_ROW_ACTION_BUTTON,
-                        12.0,
-                        rgb(self.tokens.ui.error),
+                        MANAGER_ROW_ACTION_ICON_SIZE,
+                        rgb(self.tokens.ui.text),
                         has_background,
-                        move |this, _event, _window, cx| {
-                            this.request_delete_telnet_profile(&delete_id, cx);
+                        move |this, event, _window, cx| {
+                            this.open_session_manager_row_action_menu(
+                                SessionManagerRowActionTarget::Telnet(menu_id.clone()),
+                                f32::from(event.position.x),
+                                f32::from(event.position.y),
+                                cx,
+                            );
                             cx.stop_propagation();
                         },
                         cx,
@@ -1055,15 +1180,18 @@ impl WorkspaceApp {
             SessionManagerDisplayItem::RawTcp(profile) => {
                 let open_id = profile.id.clone();
                 let edit_id = profile.id.clone();
-                let delete_id = profile.id.clone();
+                let menu_id = profile.id.clone();
                 div()
+                    .w(px(MANAGER_ROW_ACTIONS_WIDTH))
+                    .flex_none()
                     .flex()
                     .items_center()
-                    .gap(px(2.0))
+                    .justify_end()
+                    .gap(px(MANAGER_ROW_ACTION_GAP))
                     .child(self.render_row_icon_button(
                         LucideIcon::Play,
                         MANAGER_ROW_ACTION_BUTTON,
-                        12.0,
+                        MANAGER_ROW_ACTION_ICON_SIZE,
                         rgb(self.tokens.ui.accent),
                         has_background,
                         move |this, _event, window, cx| {
@@ -1075,7 +1203,7 @@ impl WorkspaceApp {
                     .child(self.render_row_icon_button(
                         LucideIcon::Pencil,
                         MANAGER_ROW_ACTION_BUTTON,
-                        12.0,
+                        MANAGER_ROW_ACTION_ICON_SIZE,
                         rgb(self.tokens.ui.text),
                         has_background,
                         move |this, _event, window, cx| {
@@ -1085,13 +1213,18 @@ impl WorkspaceApp {
                         cx,
                     ))
                     .child(self.render_row_icon_button(
-                        LucideIcon::Trash2,
+                        LucideIcon::MoreVertical,
                         MANAGER_ROW_ACTION_BUTTON,
-                        12.0,
-                        rgb(self.tokens.ui.error),
+                        MANAGER_ROW_ACTION_ICON_SIZE,
+                        rgb(self.tokens.ui.text),
                         has_background,
-                        move |this, _event, _window, cx| {
-                            this.request_delete_raw_tcp_profile(&delete_id, cx);
+                        move |this, event, _window, cx| {
+                            this.open_session_manager_row_action_menu(
+                                SessionManagerRowActionTarget::RawTcp(menu_id.clone()),
+                                f32::from(event.position.x),
+                                f32::from(event.position.y),
+                                cx,
+                            );
                             cx.stop_propagation();
                         },
                         cx,
@@ -1100,15 +1233,18 @@ impl WorkspaceApp {
             SessionManagerDisplayItem::RawUdp(profile) => {
                 let open_id = profile.id.clone();
                 let edit_id = profile.id.clone();
-                let delete_id = profile.id.clone();
+                let menu_id = profile.id.clone();
                 div()
+                    .w(px(MANAGER_ROW_ACTIONS_WIDTH))
+                    .flex_none()
                     .flex()
                     .items_center()
-                    .gap(px(2.0))
+                    .justify_end()
+                    .gap(px(MANAGER_ROW_ACTION_GAP))
                     .child(self.render_row_icon_button(
                         LucideIcon::Play,
                         MANAGER_ROW_ACTION_BUTTON,
-                        12.0,
+                        MANAGER_ROW_ACTION_ICON_SIZE,
                         rgb(self.tokens.ui.accent),
                         has_background,
                         move |this, _event, window, cx| {
@@ -1120,7 +1256,7 @@ impl WorkspaceApp {
                     .child(self.render_row_icon_button(
                         LucideIcon::Pencil,
                         MANAGER_ROW_ACTION_BUTTON,
-                        12.0,
+                        MANAGER_ROW_ACTION_ICON_SIZE,
                         rgb(self.tokens.ui.text),
                         has_background,
                         move |this, _event, window, cx| {
@@ -1130,19 +1266,168 @@ impl WorkspaceApp {
                         cx,
                     ))
                     .child(self.render_row_icon_button(
-                        LucideIcon::Trash2,
+                        LucideIcon::MoreVertical,
                         MANAGER_ROW_ACTION_BUTTON,
-                        12.0,
-                        rgb(self.tokens.ui.error),
+                        MANAGER_ROW_ACTION_ICON_SIZE,
+                        rgb(self.tokens.ui.text),
                         has_background,
-                        move |this, _event, _window, cx| {
-                            this.request_delete_raw_udp_profile(&delete_id, cx);
+                        move |this, event, _window, cx| {
+                            this.open_session_manager_row_action_menu(
+                                SessionManagerRowActionTarget::RawUdp(menu_id.clone()),
+                                f32::from(event.position.x),
+                                f32::from(event.position.y),
+                                cx,
+                            );
                             cx.stop_propagation();
                         },
                         cx,
                     ))
             }
         }
+    }
+
+    pub(super) fn render_session_manager_row_action_menu(
+        &self,
+        menu: SessionManagerRowActionMenu,
+        window: &Window,
+        has_background: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let viewport = window.viewport_size();
+        let menu_height = match &menu.target {
+            SessionManagerRowActionTarget::Connection(_) => {
+                MANAGER_ROW_ACTION_MENU_CONNECTION_HEIGHT
+            }
+            SessionManagerRowActionTarget::Serial(_)
+            | SessionManagerRowActionTarget::Telnet(_)
+            | SessionManagerRowActionTarget::RawTcp(_)
+            | SessionManagerRowActionTarget::RawUdp(_) => MANAGER_ROW_ACTION_MENU_PROFILE_HEIGHT,
+        };
+        let placement = browser_behavior::clamp_context_menu_position(
+            menu.x - MANAGER_ROW_ACTION_MENU_WIDTH + MANAGER_ROW_ACTION_BUTTON / 2.0,
+            menu.y + MANAGER_ROW_ACTION_BUTTON / 2.0,
+            f32::from(viewport.width),
+            f32::from(viewport.height),
+            MANAGER_ROW_ACTION_MENU_WIDTH,
+            menu_height,
+            self.tokens.spacing.two,
+        );
+        let mut popup = context_menu_event_boundary(
+            dropdown_menu_content(&self.tokens).w(px(MANAGER_ROW_ACTION_MENU_WIDTH)),
+        );
+
+        if let SessionManagerRowActionTarget::Connection(id) = &menu.target {
+            let test_id = id.clone();
+            popup = popup.child(self.render_session_manager_menu_action(
+                dropdown_menu_item(
+                    &self.tokens,
+                    self.i18n.t("sessionManager.actions.test_connection"),
+                    DropdownMenuItemKind::Plain,
+                    false,
+                    false,
+                ),
+                false,
+                false,
+                has_background,
+                move |this, _event, window, cx| {
+                    this.test_connection(&test_id, window, cx);
+                    cx.stop_propagation();
+                },
+                cx,
+            ));
+
+            let duplicate_id = id.clone();
+            popup = popup
+                .child(self.render_session_manager_menu_action(
+                    dropdown_menu_item(
+                        &self.tokens,
+                        self.i18n.t("sessionManager.actions.duplicate"),
+                        DropdownMenuItemKind::Plain,
+                        false,
+                        false,
+                    ),
+                    false,
+                    false,
+                    has_background,
+                    move |this, _event, window, cx| {
+                        this.duplicate_connection(&duplicate_id, window, cx);
+                        cx.stop_propagation();
+                    },
+                    cx,
+                ))
+                .child(dropdown_menu_separator(&self.tokens));
+        }
+
+        let delete_target = menu.target.clone();
+        let (delete_id, delete_label) = match &menu.target {
+            SessionManagerRowActionTarget::Connection(id) => {
+                (id.clone(), self.i18n.t("sessionManager.actions.delete"))
+            }
+            SessionManagerRowActionTarget::Serial(id) => (
+                id.clone(),
+                self.i18n.t("sessionManager.serial_profiles.delete"),
+            ),
+            SessionManagerRowActionTarget::Telnet(id) => (
+                id.clone(),
+                self.i18n.t("sessionManager.telnet_profiles.delete"),
+            ),
+            SessionManagerRowActionTarget::RawTcp(id) => (
+                id.clone(),
+                self.i18n.t("sessionManager.raw_tcp_profiles.delete"),
+            ),
+            SessionManagerRowActionTarget::RawUdp(id) => (
+                id.clone(),
+                self.i18n.t("sessionManager.raw_udp_profiles.delete"),
+            ),
+        };
+        popup = popup.child(
+            self.render_session_manager_menu_action(
+                dropdown_menu_item(
+                    &self.tokens,
+                    delete_label,
+                    DropdownMenuItemKind::Plain,
+                    false,
+                    false,
+                )
+                .text_color(rgb(self.tokens.ui.error)),
+                false,
+                false,
+                has_background,
+                move |this, _event, _window, cx| {
+                    match &delete_target {
+                        SessionManagerRowActionTarget::Connection(_) => {
+                            this.request_delete_connection(&delete_id, cx)
+                        }
+                        SessionManagerRowActionTarget::Serial(_) => {
+                            this.request_delete_serial_profile(&delete_id, cx)
+                        }
+                        SessionManagerRowActionTarget::Telnet(_) => {
+                            this.request_delete_telnet_profile(&delete_id, cx)
+                        }
+                        SessionManagerRowActionTarget::RawTcp(_) => {
+                            this.request_delete_raw_tcp_profile(&delete_id, cx)
+                        }
+                        SessionManagerRowActionTarget::RawUdp(_) => {
+                            this.request_delete_raw_udp_profile(&delete_id, cx)
+                        }
+                    }
+                    cx.stop_propagation();
+                },
+                cx,
+            ),
+        );
+
+        // The menu uses pointer coordinates because the same action renderer
+        // is shared by cards, list rows, and nested tree rows.
+        deferred(
+            anchored()
+                .anchor(Corner::TopLeft)
+                .position(gpui::point(px(placement.x), px(placement.y)))
+                .position_mode(AnchoredPositionMode::Window)
+                .child(overlay_content_boundary(popup)),
+        )
+        .with_priority(oxideterm_gpui_ui::modal::TAURI_POPOVER_LAYER_PRIORITY)
+        .into_any_element()
     }
 
     pub(super) fn render_session_manager_menu_action(

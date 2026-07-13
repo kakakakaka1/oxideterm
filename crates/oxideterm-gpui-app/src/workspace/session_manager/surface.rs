@@ -139,6 +139,20 @@ impl WorkspaceApp {
                 self.session_manager.delete_confirm.as_ref(),
                 |surface, _| surface.child(self.render_session_manager_delete_confirm(cx)),
             )
+            .when_some(
+                self.session_manager.row_action_menu.clone(),
+                |surface, menu| {
+                    surface.child(self.workspace_context_menu_backdrop(
+                        self.render_session_manager_row_action_menu(
+                            menu,
+                            window,
+                            has_background,
+                            cx,
+                        ),
+                        cx,
+                    ))
+                },
+            )
             .when(self.session_manager.view_mode_menu_open, |surface| {
                 surface.child(self.workspace_context_menu_backdrop(
                     self.render_session_manager_view_mode_menu(window, has_background, cx),

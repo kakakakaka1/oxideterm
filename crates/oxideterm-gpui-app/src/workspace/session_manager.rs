@@ -35,7 +35,9 @@ use oxideterm_gpui_ui::{
     },
     checkbox, confirm_dialog,
     context_menu::{ContextMenuActionableStyle, context_menu_event_boundary},
-    dropdown_menu::{DropdownMenuItemKind, dropdown_menu_content, dropdown_menu_item},
+    dropdown_menu::{
+        DropdownMenuItemKind, dropdown_menu_content, dropdown_menu_item, dropdown_menu_separator,
+    },
     modal::{dismissible_dialog_backdrop, modal_backdrop, overlay_content_boundary},
     surface::{color_for_background, color_for_background_or_alpha},
     text_input::{
@@ -57,6 +59,8 @@ const UNGROUPED_FILTER: &str = "__ungrouped__";
 const RECENT_FILTER: &str = "__recent__";
 const BG_ACTIVE_THEME_ALPHA: u32 = 0x66; // Tauri [data-bg-active] color-mix(... 40%, transparent)
 const BG_ACTIVE_HOVER_ALPHA: u32 = 0x80; // Tauri bg-hover 50%
+const BG_ACTIVE_ROW_HOVER_ALPHA: u32 = 0x4d; // Keep full-width row hover quieter than compact controls.
+const ROW_HOVER_ALPHA: u32 = 0x66; // Plain-theme rows use the same restrained hierarchy as image-backed rows.
 const BG_ACTIVE_BORDER_ALPHA: u32 = 0xbf; // Tauri border 75%
 const BG_ACTIVE_BORDER_HALF_ALPHA: u32 = 0x60; // Tauri border/50 after active border mix
 const SESSION_MANAGER_LIGHT_DIALOG_BACKDROP_ALPHA: u32 = 0x66; // Keep lightweight manager dialogs readable without heavy blur.
@@ -65,6 +69,20 @@ const MANAGER_ROW_TEXT_SIZE: f32 = 14.0;
 const MANAGER_ROW_META_TEXT_SIZE: f32 = 12.0;
 const MANAGER_TABLE_HEADER_TEXT_SIZE: f32 = 12.0;
 const MANAGER_ROW_ACTION_BUTTON: f32 = 24.0; // Tauri h-6 w-6
+const MANAGER_ROW_ACTION_ICON_SIZE: f32 = 12.0;
+const MANAGER_ROW_ACTION_GAP: f32 = 2.0;
+const MANAGER_ROW_ICON_SIZE: f32 = 40.0;
+const MANAGER_SELECTION_COLUMN_WIDTH: f32 = 16.0;
+const MANAGER_LIST_LAST_USED_WIDTH: f32 = 96.0;
+const MANAGER_ROW_ACTIONS_WIDTH: f32 = 76.0; // Three compact actions and their two gaps.
+const MANAGER_RECENT_ITEM_MIN_WIDTH: f32 = 180.0;
+const MANAGER_RECENT_ITEM_BASIS: f32 = 240.0;
+const MANAGER_RECENT_ICON_SIZE: f32 = 28.0;
+const MANAGER_RECENT_ICON_GLYPH_SIZE: f32 = 14.0;
+const MANAGER_RECENT_ACCENT_BG_ALPHA: u32 = 0x1a;
+const MANAGER_ROW_ACTION_MENU_WIDTH: f32 = 176.0;
+const MANAGER_ROW_ACTION_MENU_CONNECTION_HEIGHT: f32 = 120.0;
+const MANAGER_ROW_ACTION_MENU_PROFILE_HEIGHT: f32 = 44.0;
 const MANAGER_VIEW_MODE_MENU_WIDTH: f32 = 168.0; // Tauri DropdownMenuContent min-w-[160px] plus native menu padding.
 const MANAGER_VIEW_MODE_MENU_HEIGHT: f32 = 104.0; // Three compact radio rows plus menu padding.
 const MANAGER_SORT_MENU_WIDTH: f32 = 184.0; // Sort fields reuse the compact toolbar dropdown rhythm.
@@ -237,6 +255,23 @@ pub(super) enum SessionManagerDeleteConfirm {
     Batch { ids: Vec<String> },
 }
 
+#[derive(Clone, Debug)]
+pub(super) enum SessionManagerRowActionTarget {
+    Connection(String),
+    Serial(String),
+    Telnet(String),
+    RawTcp(String),
+    RawUdp(String),
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct SessionManagerRowActionMenu {
+    // Stable ids keep the floating menu independent from temporary row futures.
+    pub(super) target: SessionManagerRowActionTarget,
+    pub(super) x: f32,
+    pub(super) y: f32,
+}
+
 #[derive(Clone, Debug, Default)]
 pub(super) struct OxideImportResultView {
     pub(super) imported: usize,
@@ -301,6 +336,7 @@ pub(super) struct SessionManagerState {
     pub(super) selected_ids: HashSet<String>,
     pub(super) view_mode_menu_open: bool,
     pub(super) sort_menu_open: bool,
+    pub(super) row_action_menu: Option<SessionManagerRowActionMenu>,
     pub(super) expanded_groups: HashSet<String>,
     pub(super) focused_input: Option<SessionManagerInput>,
     pub(super) show_new_group: bool,
@@ -326,6 +362,7 @@ impl Default for SessionManagerState {
             selected_ids: HashSet::new(),
             view_mode_menu_open: false,
             sort_menu_open: false,
+            row_action_menu: None,
             expanded_groups: HashSet::new(),
             focused_input: None,
             show_new_group: false,

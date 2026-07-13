@@ -162,6 +162,20 @@ impl WorkspaceApp {
         close_session_menu_state(&mut self.session_manager)
     }
 
+    pub(super) fn open_session_manager_row_action_menu(
+        &mut self,
+        target: SessionManagerRowActionTarget,
+        x: f32,
+        y: f32,
+        cx: &mut Context<Self>,
+    ) {
+        // One shared floating-menu owner prevents row actions from overlapping
+        // the sort, view-mode, or batch-move popovers.
+        self.close_session_row_menus();
+        self.session_manager.row_action_menu = Some(SessionManagerRowActionMenu { target, x, y });
+        cx.notify();
+    }
+
     pub(super) fn toggle_session_view_mode_menu(&mut self) {
         let was_open = self.session_manager.view_mode_menu_open;
         self.close_session_row_menus();
@@ -726,10 +740,12 @@ pub(super) fn close_session_menu_state(session_manager: &mut SessionManagerState
     // outside click, Esc, and guarded item activation.
     let changed = session_manager.view_mode_menu_open
         || session_manager.sort_menu_open
-        || session_manager.show_batch_move;
+        || session_manager.show_batch_move
+        || session_manager.row_action_menu.is_some();
     session_manager.view_mode_menu_open = false;
     session_manager.sort_menu_open = false;
     session_manager.show_batch_move = false;
+    session_manager.row_action_menu = None;
     changed
 }
 
