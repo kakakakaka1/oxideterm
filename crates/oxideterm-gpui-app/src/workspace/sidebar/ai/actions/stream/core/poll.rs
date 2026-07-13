@@ -162,6 +162,7 @@ impl WorkspaceApp {
                 AiStreamDeliveryEvent::AcpSessionStarted {
                     session_id,
                     session_metadata,
+                    session_config_options,
                     agent_id,
                 } => {
                     self.flush_pending_ai_stream_text(&mut pending_text, cx);
@@ -170,6 +171,7 @@ impl WorkspaceApp {
                         &delivery.conversation_id,
                         &session_id,
                         session_metadata,
+                        session_config_options,
                         &agent_id,
                     ) {
                         cx.notify();

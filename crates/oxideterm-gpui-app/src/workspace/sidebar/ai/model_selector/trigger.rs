@@ -40,9 +40,20 @@ impl WorkspaceApp {
             settings.ai.active_model.as_deref()
         };
         let display = if settings.ai.active_backend == AiActiveBackend::Acp {
-            active_provider
-                .map(|provider| provider.name.clone())
-                .unwrap_or_else(|| "OxideSens".to_string())
+            settings
+                .ai
+                .active_acp_agent_id
+                .as_deref()
+                .and_then(|agent_id| self.active_ai_acp_session_state(agent_id))
+                .and_then(|state| {
+                    let option = oxideterm_ai::acp_model_config_option(&state.config_options)?;
+                    oxideterm_ai::acp_selected_config_choice(
+                        option,
+                        state.model_selection.as_ref(),
+                    )
+                        .map(|choice| choice.label.clone())
+                })
+                .unwrap_or_else(|| self.i18n.t("ai.model_selector.agent_decides"))
         } else {
             model_selector_display_name(active_provider, active_model)
         };

@@ -120,6 +120,7 @@
       "offline": "Offline",
       "manage_providers": "Gestisci provider",
       "no_provider": "Nessun provider configurato",
+      "agent_decides": "Deciso dall’agente",
       "search_placeholder": "Cerca modelli...",
       "clear_search": "Cancella ricerca",
       "no_search_results": "Nessun modello corrispondente",

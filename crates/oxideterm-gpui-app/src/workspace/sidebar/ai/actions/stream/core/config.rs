@@ -63,24 +63,26 @@ impl WorkspaceApp {
                 .clone()
                 .filter(|agent_id| !agent_id.trim().is_empty())
                 .ok_or_else(|| "No ACP agent selected.".to_string())?;
-            let model_label = settings
-                .ai
-                .acp_agents
-                .iter()
-                .find(|agent| agent.id == acp_agent_id)
-                .map(|agent| {
-                    if agent.display_name.trim().is_empty() {
-                        agent.id.clone()
-                    } else {
-                        agent.display_name.clone()
-                    }
+            let session_state = self.active_ai_acp_session_state(&acp_agent_id);
+            let model_label = session_state
+                .as_ref()
+                .and_then(|state| oxideterm_ai::acp_model_config_option(&state.config_options))
+                .and_then(|option| {
+                    oxideterm_ai::acp_selected_config_choice(
+                        option,
+                        session_state
+                            .as_ref()
+                            .and_then(|state| state.model_selection.as_ref()),
+                    )
+                    .map(|choice| choice.label.clone())
                 })
-                .unwrap_or_else(|| acp_agent_id.clone());
+                .unwrap_or_else(|| self.i18n.t("ai.model_selector.agent_decides"));
             return Ok(AiChatStreamConfig {
                 execution_backend: AiExecutionBackend::Acp,
                 provider_id: None,
                 acp_agent_id: Some(acp_agent_id.clone()),
-                acp_session_id: self.active_ai_conversation_acp_session_id(),
+                acp_session_id: session_state.as_ref().map(|state| state.session_id.clone()),
+                acp_config_selection: session_state.and_then(|state| state.model_selection),
                 provider_type: "acp".to_string(),
                 base_url: String::new(),
                 model: model_label,
@@ -127,6 +129,7 @@ impl WorkspaceApp {
             provider_id: Some(provider.id),
             acp_agent_id: None,
             acp_session_id: None,
+            acp_config_selection: None,
             provider_type: provider.provider_type,
             base_url: provider.base_url,
             model,
@@ -193,6 +196,7 @@ impl WorkspaceApp {
             provider_id: Some(provider.id),
             acp_agent_id: None,
             acp_session_id: None,
+            acp_config_selection: None,
             provider_type: provider.provider_type,
             base_url: provider.base_url,
             model,
@@ -210,22 +214,16 @@ impl WorkspaceApp {
         })
     }
 
-    pub(in crate::workspace) fn active_ai_conversation_acp_session_id(&self) -> Option<String> {
+    pub(in crate::workspace) fn active_ai_acp_session_state(
+        &self,
+        agent_id: &str,
+    ) -> Option<AiAcpSessionState> {
         self.ai
             .chat
             .conversation_state
             .active_conversation()
-            .and_then(|conversation| {
-                conversation.session_id.clone().or_else(|| {
-                    conversation
-                        .session_metadata
-                        .as_ref()
-                        .and_then(|metadata| metadata.get("acp"))
-                        .and_then(|metadata| metadata.get("sessionId"))
-                        .and_then(serde_json::Value::as_str)
-                        .map(str::to_string)
-                })
-            })
+            .and_then(ai_acp_session_state)
+            .filter(|state| state.agent_id == agent_id)
     }
 
     pub(in crate::workspace) fn build_ai_stream_history(

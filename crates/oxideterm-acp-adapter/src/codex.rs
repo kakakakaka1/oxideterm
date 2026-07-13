@@ -5,12 +5,181 @@
 
 use super::*;
 
+pub(super) async fn discover_codex_models(
+    config: &AdapterConfig,
+    cwd: &PathBuf,
+) -> Result<CodexModelCatalog, agent_client_protocol::Error> {
+    let mut command = Command::new(config.command.trim());
+    command.current_dir(cwd);
+    command.args(["app-server", "--stdio"]);
+    command.args(&config.extra_args);
+    command.kill_on_drop(true);
+    command.stdin(ProcessStdio::piped());
+    command.stderr(ProcessStdio::null());
+    command.stdout(ProcessStdio::piped());
+
+    let mut child = command
+        .spawn()
+        .map_err(agent_client_protocol::Error::into_internal_error)?;
+    let stdin = child.stdin.take().ok_or_else(|| {
+        agent_client_protocol::util::internal_error("codex app-server stdin missing")
+    })?;
+    let stdout = child.stdout.take().ok_or_else(|| {
+        agent_client_protocol::util::internal_error("codex app-server stdout missing")
+    })?;
+    let mut client = CodexAppServerClient {
+        stdin,
+        stdout: BufReader::new(stdout),
+        next_id: 1,
+    };
+
+    let initialize_id = client
+        .send_request(
+            "initialize",
+            json!({
+                "clientInfo": {
+                    "name": "oxideterm",
+                    "title": "OxideTerm",
+                    "version": env!("CARGO_PKG_VERSION"),
+                },
+                "capabilities": { "experimentalApi": true },
+            }),
+        )
+        .await?;
+    wait_for_discovery_response(&mut client, initialize_id).await?;
+    client.send_notification("initialized", json!({})).await?;
+
+    let config_id = client
+        .send_request("config/read", json!({ "cwd": cwd, "includeLayers": false }))
+        .await?;
+    let config_response = wait_for_discovery_response(&mut client, config_id).await?;
+    let configured_model = config_response
+        .get("config")
+        .and_then(|config| config.get("model"))
+        .and_then(Value::as_str)
+        .filter(|model| !model.trim().is_empty())
+        .map(str::to_string);
+
+    let mut model_values = Vec::new();
+    let mut next_cursor = None;
+    loop {
+        let list_id = client
+            .send_request("model/list", json!({ "cursor": next_cursor, "limit": 100 }))
+            .await?;
+        let response = wait_for_discovery_response(&mut client, list_id).await?;
+        if let Some(models) = response.get("data").and_then(Value::as_array) {
+            model_values.extend(models.iter().cloned());
+        }
+        next_cursor = response
+            .get("nextCursor")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        if next_cursor.is_none() {
+            break;
+        }
+    }
+    let _ = child.kill().await;
+    let _ = child.wait().await;
+    Ok(codex_model_catalog(
+        &model_values,
+        configured_model.as_deref(),
+    ))
+}
+
+async fn wait_for_discovery_response(
+    client: &mut CodexAppServerClient,
+    expected_id: u64,
+) -> Result<Value, agent_client_protocol::Error> {
+    loop {
+        let Some(message) = client.read_json().await? else {
+            return Err(agent_client_protocol::util::internal_error(
+                "codex app-server exited during model discovery",
+            ));
+        };
+        if message.get("id").and_then(Value::as_u64) == Some(expected_id) {
+            if let Some(error) = message.get("error") {
+                let message = error
+                    .get("message")
+                    .and_then(Value::as_str)
+                    .unwrap_or("codex app-server model discovery failed");
+                return Err(agent_client_protocol::util::internal_error(message));
+            }
+            return Ok(message.get("result").cloned().unwrap_or(Value::Null));
+        }
+        if let Some(id) = message.get("id").cloned()
+            && message.get("method").is_some()
+        {
+            // Discovery has no permission surface, so reject unexpected callbacks.
+            client
+                .send_error_response(id, "unsupported during model discovery")
+                .await?;
+        }
+    }
+}
+
+fn codex_model_catalog(models: &[Value], configured_model: Option<&str>) -> CodexModelCatalog {
+    let default_model = models.iter().find_map(|model| {
+        model
+            .get("isDefault")
+            .and_then(Value::as_bool)
+            .filter(|is_default| *is_default)
+            .and_then(|_| model.get("id"))
+            .and_then(Value::as_str)
+            .map(str::to_string)
+    });
+    let mut catalog_models = models
+        .iter()
+        .filter(|model| {
+            !model
+                .get("hidden")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+        })
+        .filter_map(|model| {
+            let id = model.get("id").and_then(Value::as_str)?.to_string();
+            Some(AdapterModel {
+                name: model
+                    .get("displayName")
+                    .and_then(Value::as_str)
+                    .unwrap_or(&id)
+                    .to_string(),
+                description: model
+                    .get("description")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+                id,
+            })
+        })
+        .collect::<Vec<_>>();
+    if let Some(configured_model) = configured_model
+        && !catalog_models
+            .iter()
+            .any(|model| model.id == configured_model)
+    {
+        // A configured custom-provider model is known usable even if model/list omits it.
+        catalog_models.push(AdapterModel {
+            id: configured_model.to_string(),
+            name: configured_model.to_string(),
+            description: None,
+        });
+    }
+    let selected_model = configured_model
+        .map(str::to_string)
+        .or(default_model)
+        .filter(|selected| catalog_models.iter().any(|model| model.id == *selected));
+    CodexModelCatalog {
+        models: catalog_models,
+        selected_model,
+    }
+}
+
 pub(super) async fn stream_codex_app_server_provider(
     config: &AdapterConfig,
     active_runs: &ActiveRuns,
     session_id: SessionId,
     cwd: PathBuf,
     previous_thread_id: Option<String>,
+    selected_model: Option<String>,
     prompt: String,
     connection: ConnectionTo<Client>,
 ) -> Result<ProviderOutcome, agent_client_protocol::Error> {
@@ -65,6 +234,7 @@ pub(super) async fn stream_codex_app_server_provider(
         &connection,
         &cwd,
         previous_thread_id,
+        selected_model,
         prompt,
         cancel_rx,
     )
@@ -168,6 +338,7 @@ async fn run_codex_app_server_turn(
     connection: &ConnectionTo<Client>,
     cwd: &PathBuf,
     previous_thread_id: Option<String>,
+    selected_model: Option<String>,
     prompt: String,
     cancel_rx: mpsc::UnboundedReceiver<()>,
 ) -> Result<ProviderOutcome, agent_client_protocol::Error> {
@@ -192,19 +363,19 @@ async fn run_codex_app_server_turn(
     let (thread_id, used_existing_thread) =
         start_or_resume_codex_thread(client, session_id, connection, cwd, previous_thread_id)
             .await?;
-    let turn_id = client
-        .send_request(
-            "turn/start",
-            json!({
-                "threadId": thread_id,
-                "cwd": cwd,
-                "input": [{
-                    "type": "text",
-                    "text": prompt,
-                }],
-            }),
-        )
-        .await?;
+    let mut turn_params = json!({
+        "threadId": thread_id,
+        "cwd": cwd,
+        "input": [{
+            "type": "text",
+            "text": prompt,
+        }],
+    });
+    if let Some(selected_model) = selected_model {
+        // Codex app-server applies model choice per turn, matching ACP session scope.
+        turn_params["model"] = Value::String(selected_model);
+    }
+    let turn_id = client.send_request("turn/start", turn_params).await?;
     let turn_response =
         wait_for_app_server_response(client, turn_id, session_id, connection).await?;
     let codex_turn_id = turn_response
@@ -680,6 +851,45 @@ fn codex_visible_item_tool_metadata(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn model_catalog_prefers_configured_model_and_preserves_custom_model() {
+        let models = vec![
+            json!({
+                "id": "default-model",
+                "displayName": "Default Model",
+                "description": "Default",
+                "isDefault": true,
+            }),
+            json!({
+                "id": "hidden-model",
+                "displayName": "Hidden Model",
+                "hidden": true,
+            }),
+        ];
+
+        let catalog = codex_model_catalog(&models, Some("custom-model"));
+
+        assert_eq!(catalog.selected_model.as_deref(), Some("custom-model"));
+        assert!(
+            catalog
+                .models
+                .iter()
+                .any(|model| model.id == "default-model")
+        );
+        assert!(
+            catalog
+                .models
+                .iter()
+                .any(|model| model.id == "custom-model")
+        );
+        assert!(
+            !catalog
+                .models
+                .iter()
+                .any(|model| model.id == "hidden-model")
+        );
+    }
 
     #[test]
     fn visible_item_tool_metadata_keeps_user_visible_tools() {

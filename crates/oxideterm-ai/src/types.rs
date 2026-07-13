@@ -208,6 +208,7 @@ pub struct AiChatStreamConfig {
     pub provider_id: Option<String>,
     pub acp_agent_id: Option<String>,
     pub acp_session_id: Option<String>,
+    pub acp_config_selection: Option<crate::AcpSessionConfigSelection>,
     pub provider_type: String,
     pub base_url: String,
     pub model: String,

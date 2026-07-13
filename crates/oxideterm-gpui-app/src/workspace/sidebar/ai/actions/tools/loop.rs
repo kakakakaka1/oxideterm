@@ -1,3 +1,5 @@
+const AI_TOOL_CALLS_PER_ROUND_SAFETY_LIMIT: usize = 16;
+
 pub(in crate::workspace) async fn run_ai_chat_tool_loop(
     config: AiChatStreamConfig,
     mut history: Vec<AiChatMessage>,
@@ -30,9 +32,10 @@ pub(in crate::workspace) async fn run_ai_chat_tool_loop(
             oxideterm_settings::MIN_AI_TOOL_MAX_ROUNDS,
             oxideterm_settings::MAX_AI_TOOL_MAX_ROUNDS,
         ) as usize;
-    // Tauri's chat tool loop uses a fixed execution guard of 8 calls per
-    // round, independent of the persisted settings summary.
-    let max_calls_per_round = oxideterm_settings::DEFAULT_AI_TOOL_MAX_CALLS_PER_ROUND as usize;
+    // Keep burst protection internal so users only configure the easier to
+    // understand tool-round budget. Sixteen still permits substantial parallel
+    // work without accepting an unbounded tool array from a model response.
+    let max_calls_per_round = AI_TOOL_CALLS_PER_ROUND_SAFETY_LIMIT;
     let mut assistant_content = String::new();
     let mut assistant_thinking = String::new();
     let response_reserve = config
@@ -1249,6 +1252,7 @@ pub(in crate::workspace) async fn run_acp_chat_loop(
         host_policy,
         session_cwd,
         config.acp_session_id.clone(),
+        config.acp_config_selection.clone(),
         prompt,
         event_tx,
         snapshot.ai_acp_runtime_registry.clone(),
@@ -1269,6 +1273,7 @@ pub(in crate::workspace) async fn run_acp_chat_loop(
                 AiStreamDeliveryEvent::AcpSessionStarted {
                     session_id: outcome.session_id,
                     session_metadata: outcome.session_metadata,
+                    session_config_options: outcome.session_config_options,
                     agent_id: agent.id.clone(),
                 },
             )

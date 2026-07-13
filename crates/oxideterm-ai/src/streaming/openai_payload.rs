@@ -270,6 +270,7 @@ mod tests {
             provider_id: Some("provider".to_string()),
             acp_agent_id: None,
             acp_session_id: None,
+            acp_config_selection: None,
             provider_type: provider_type.to_string(),
             base_url: "https://api.example.test".to_string(),
             model: "model".to_string(),

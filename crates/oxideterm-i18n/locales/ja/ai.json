@@ -120,6 +120,7 @@
       "offline": "オフライン",
       "manage_providers": "プロバイダーを管理",
       "no_provider": "プロバイダー未設定",
+      "agent_decides": "Agent が決定",
       "search_placeholder": "モデルを検索...",
       "clear_search": "検索をクリア",
       "no_search_results": "一致するモデルがありません",

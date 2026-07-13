@@ -63,6 +63,31 @@ use oxideterm_gpui_ui::{
 };
 use oxideterm_settings::{AcpAgentConfig, AcpAgentRuntimeState, AiActiveBackend, AiThinkingStyle};
 
+const AI_ACP_SESSION_METADATA_KEY: &str = "acp";
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(in crate::workspace) struct AiAcpSessionState {
+    pub(in crate::workspace) agent_id: String,
+    pub(in crate::workspace) session_id: String,
+    pub(in crate::workspace) metadata: Option<serde_json::Value>,
+    #[serde(default)]
+    pub(in crate::workspace) config_options: Vec<oxideterm_ai::AcpSessionConfigOption>,
+    #[serde(default)]
+    pub(in crate::workspace) model_selection: Option<oxideterm_ai::AcpSessionConfigSelection>,
+}
+
+pub(in crate::workspace) fn ai_acp_session_state(
+    conversation: &AiConversation,
+) -> Option<AiAcpSessionState> {
+    conversation
+        .session_metadata
+        .as_ref()?
+        .get(AI_ACP_SESSION_METADATA_KEY)
+        .cloned()
+        .and_then(|value| serde_json::from_value(value).ok())
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::workspace) enum AiHeaderAction {
     NewChat,

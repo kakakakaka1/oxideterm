@@ -245,6 +245,7 @@ mod ai_turn_order_tests {
             "conv-1",
             "stale-session",
             Some(serde_json::json!({ "source": "stale" })),
+            Vec::new(),
             "agent-1",
         );
 
@@ -259,6 +260,16 @@ mod ai_turn_order_tests {
             "conv-1",
             "fresh-session",
             Some(serde_json::json!({ "source": "fresh" })),
+            vec![oxideterm_ai::AcpSessionConfigOption {
+                config_id: "model".to_string(),
+                name: "Model".to_string(),
+                category: Some("model".to_string()),
+                current_value_id: "model-a".to_string(),
+                choices: vec![oxideterm_ai::AcpSessionConfigChoice {
+                    value_id: "model-a".to_string(),
+                    label: "Model A".to_string(),
+                }],
+            }],
             "agent-1",
         );
 
@@ -276,6 +287,14 @@ mod ai_turn_order_tests {
                 "agentId": "agent-1",
                 "sessionId": "fresh-session",
                 "metadata": { "source": "fresh" },
+                "configOptions": [{
+                    "configId": "model",
+                    "name": "Model",
+                    "category": "model",
+                    "currentValueId": "model-a",
+                    "choices": [{ "valueId": "model-a", "label": "Model A" }],
+                }],
+                "modelSelection": null,
             }))
         );
     }
@@ -1210,6 +1229,7 @@ mod ai_turn_order_tests {
             provider_id: Some("provider-1".to_string()),
             acp_agent_id: None,
             acp_session_id: None,
+            acp_config_selection: None,
             provider_type: "openai".to_string(),
             base_url: "https://api.example.test".to_string(),
             model: "model".to_string(),

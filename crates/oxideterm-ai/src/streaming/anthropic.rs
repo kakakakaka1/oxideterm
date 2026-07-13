@@ -413,6 +413,7 @@ mod tests {
             provider_id: Some("anthropic".to_string()),
             acp_agent_id: None,
             acp_session_id: None,
+            acp_config_selection: None,
             provider_type: "anthropic".to_string(),
             base_url: "https://api.anthropic.com".to_string(),
             model: "claude".to_string(),

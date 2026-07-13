@@ -120,6 +120,7 @@
       "offline": "Offline",
       "manage_providers": "Manage Providers",
       "no_provider": "No provider configured",
+      "agent_decides": "Agent decides",
       "search_placeholder": "Search models...",
       "clear_search": "Clear search",
       "no_search_results": "No matching models",

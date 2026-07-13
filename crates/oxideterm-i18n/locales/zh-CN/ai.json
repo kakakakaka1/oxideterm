@@ -120,6 +120,7 @@
       "offline": "离线",
       "manage_providers": "管理提供商",
       "no_provider": "未配置提供商",
+      "agent_decides": "由 Agent 决定",
       "search_placeholder": "搜索模型...",
       "clear_search": "清空搜索",
       "no_search_results": "没有匹配的模型",

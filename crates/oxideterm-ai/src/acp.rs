@@ -21,8 +21,9 @@ use agent_client_protocol::{
         ProtocolVersion, ReadTextFileRequest, ReadTextFileResponse, ReleaseTerminalRequest,
         ReleaseTerminalResponse, RequestPermissionOutcome, RequestPermissionRequest,
         RequestPermissionResponse, ResumeSessionRequest, ResumeSessionResponse,
-        SelectedPermissionOutcome, SessionConfigId, SessionConfigValueId, SessionId, SessionModeId,
-        SessionNotification, SessionUpdate, SetSessionConfigOptionRequest,
+        SelectedPermissionOutcome, SessionConfigId, SessionConfigKind, SessionConfigOption,
+        SessionConfigOptionCategory, SessionConfigSelectOptions, SessionConfigValueId, SessionId,
+        SessionModeId, SessionNotification, SessionUpdate, SetSessionConfigOptionRequest,
         SetSessionConfigOptionResponse, SetSessionModeRequest, SetSessionModeResponse,
         TerminalExitStatus, TerminalOutputRequest, TerminalOutputResponse, ToolCall,
         ToolCallStatus, ToolCallUpdate, WaitForTerminalExitRequest, WaitForTerminalExitResponse,
@@ -73,6 +74,12 @@ pub struct AcpAgentRuntime {
     initialize_response: InitializeResponse,
 }
 
+#[derive(Debug)]
+pub struct AcpActiveSession {
+    inner: ActiveSession<'static, Agent>,
+    config_options: Vec<SessionConfigOption>,
+}
+
 pub type AcpClientEventSender = mpsc::UnboundedSender<AcpClientEvent>;
 type AcpClientResponseSender<T> = oneshot::Sender<Result<T, agent_client_protocol::Error>>;
 static ACP_TERMINAL_COUNTER: AtomicU64 = AtomicU64::new(1);
@@ -117,6 +124,105 @@ pub enum AcpClientEvent {
 pub struct AcpPromptSessionOutcome {
     pub session_id: String,
     pub session_metadata: Option<serde_json::Value>,
+    pub session_config_options: Vec<AcpSessionConfigOption>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AcpSessionConfigChoice {
+    pub value_id: String,
+    pub label: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AcpSessionConfigOption {
+    pub config_id: String,
+    pub name: String,
+    pub category: Option<String>,
+    pub current_value_id: String,
+    pub choices: Vec<AcpSessionConfigChoice>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AcpSessionConfigSelection {
+    pub config_id: String,
+    pub value_id: String,
+}
+
+/// Projects protocol configuration into stable, serializable application state.
+pub fn acp_session_config_options(options: &[SessionConfigOption]) -> Vec<AcpSessionConfigOption> {
+    options
+        .iter()
+        .filter_map(|option| {
+            let SessionConfigKind::Select(select) = &option.kind else {
+                return None;
+            };
+            let choices = match &select.options {
+                SessionConfigSelectOptions::Ungrouped(options) => options
+                    .iter()
+                    .map(|choice| AcpSessionConfigChoice {
+                        value_id: choice.value.to_string(),
+                        label: choice.name.clone(),
+                    })
+                    .collect(),
+                SessionConfigSelectOptions::Grouped(groups) => groups
+                    .iter()
+                    .flat_map(|group| group.options.iter())
+                    .map(|choice| AcpSessionConfigChoice {
+                        value_id: choice.value.to_string(),
+                        label: choice.name.clone(),
+                    })
+                    .collect(),
+                _ => Vec::new(),
+            };
+            let category = option.category.as_ref().map(|category| match category {
+                SessionConfigOptionCategory::Mode => "mode".to_string(),
+                SessionConfigOptionCategory::Model => "model".to_string(),
+                SessionConfigOptionCategory::ThoughtLevel => "thought_level".to_string(),
+                SessionConfigOptionCategory::Other(category) => category.clone(),
+                _ => "unknown".to_string(),
+            });
+            Some(AcpSessionConfigOption {
+                config_id: option.id.to_string(),
+                name: option.name.clone(),
+                category,
+                current_value_id: select.current_value.to_string(),
+                choices,
+            })
+        })
+        .collect()
+}
+
+/// Returns the first model selector because ACP defines option order as priority.
+pub fn acp_model_config_option(
+    options: &[AcpSessionConfigOption],
+) -> Option<&AcpSessionConfigOption> {
+    options
+        .iter()
+        .find(|option| option.category.as_deref() == Some("model"))
+}
+
+/// Resolves a stored choice only while it remains valid in the latest snapshot.
+pub fn acp_selected_config_choice<'a>(
+    option: &'a AcpSessionConfigOption,
+    selection: Option<&AcpSessionConfigSelection>,
+) -> Option<&'a AcpSessionConfigChoice> {
+    let selected_value = selection
+        .filter(|selection| selection.config_id == option.config_id)
+        .and_then(|selection| {
+            option
+                .choices
+                .iter()
+                .find(|choice| choice.value_id == selection.value_id)
+        });
+    selected_value.or_else(|| {
+        option
+            .choices
+            .iter()
+            .find(|choice| choice.value_id == option.current_value_id)
+    })
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1089,23 +1195,57 @@ pub async fn run_acp_prompt_session_events(
     policy: AcpHostCapabilityPolicy,
     session_cwd: PathBuf,
     existing_session_id: Option<String>,
+    config_selection: Option<AcpSessionConfigSelection>,
     prompt: String,
     event_tx: AcpClientEventSender,
     registry: AcpRuntimeRegistry,
     conversation_id: String,
     generation_id: String,
 ) -> Result<AcpPromptSessionOutcome, agent_client_protocol::Error> {
-    with_acp_agent_runtime_events(
+    let latest_config_options = Arc::new(Mutex::new(None));
+    let relay_config_options = Arc::clone(&latest_config_options);
+    let (runtime_event_tx, mut runtime_event_rx) = mpsc::unbounded_channel();
+    let event_relay = tokio::spawn(async move {
+        while let Some(event) = runtime_event_rx.recv().await {
+            if let AcpClientEvent::SessionUpdate(notification) = &event
+                && let SessionUpdate::ConfigOptionUpdate(update) = &notification.update
+            {
+                // The notification is a complete snapshot and may race the prompt response.
+                *relay_config_options.lock().await = Some((
+                    notification.session_id.to_string(),
+                    acp_session_config_options(&update.config_options),
+                ));
+            }
+            if event_tx.send(event).is_err() {
+                break;
+            }
+        }
+    });
+    let session_event_tx = runtime_event_tx.clone();
+    let result = with_acp_agent_runtime_events(
         transport,
         client_version,
         policy,
-        event_tx.clone(),
+        runtime_event_tx,
         async move |runtime| {
             let mut session = runtime
                 .start_or_resume_session(existing_session_id, session_cwd)
                 .await?;
             let session_id = session.session_id().to_string();
             let session_metadata = session.meta().clone().map(serde_json::Value::Object);
+            if let Some(selection) =
+                config_selection.filter(|selection| session.supports_config_selection(selection))
+            {
+                let response = runtime
+                    .set_session_config_option(
+                        session_id.clone(),
+                        selection.config_id,
+                        selection.value_id,
+                    )
+                    .await?;
+                // The response is an authoritative full snapshot, not a patch.
+                session.replace_config_options(response.config_options);
+            }
             let _registered_handle = runtime.register_session_handle(
                 registry,
                 AcpRuntimeHandleKey {
@@ -1115,14 +1255,28 @@ pub async fn run_acp_prompt_session_events(
                 },
             )?;
             session.send_prompt(prompt)?;
-            forward_acp_session_updates_to_client_events(&mut session, &event_tx).await?;
+            forward_acp_session_updates_to_client_events(&mut session, &session_event_tx).await?;
+            let session_config_options = acp_session_config_options(session.config_options());
             Ok(AcpPromptSessionOutcome {
                 session_id,
                 session_metadata,
+                session_config_options,
             })
         },
     )
-    .await
+    .await;
+    let _ = event_relay.await;
+    match result {
+        Ok(mut outcome) => {
+            if let Some((session_id, options)) = latest_config_options.lock().await.take()
+                && session_id == outcome.session_id
+            {
+                outcome.session_config_options = options;
+            }
+            Ok(outcome)
+        }
+        Err(error) => Err(error),
+    }
 }
 
 impl AcpAgentRuntime {
@@ -1173,20 +1327,18 @@ impl AcpAgentRuntime {
     pub async fn start_session(
         &self,
         request: NewSessionRequest,
-    ) -> Result<ActiveSession<'static, Agent>, agent_client_protocol::Error> {
+    ) -> Result<AcpActiveSession, agent_client_protocol::Error> {
         self.ensure_additional_directories_allowed(&request.additional_directories)?;
-        self.connection
-            .build_session_from(request)
-            .block_task()
-            .start_session()
-            .await
+        // Preserve configOptions before the SDK's ActiveSession drops the field.
+        let response = self.connection.send_request(request).block_task().await?;
+        self.attach_session(response)
     }
 
     pub async fn start_or_resume_session(
         &self,
         existing_session_id: Option<String>,
         cwd: PathBuf,
-    ) -> Result<ActiveSession<'static, Agent>, agent_client_protocol::Error> {
+    ) -> Result<AcpActiveSession, agent_client_protocol::Error> {
         if let Some(session_id) = existing_session_id.filter(|id| !id.trim().is_empty()) {
             if self
                 .initialize_response
@@ -1199,7 +1351,12 @@ impl AcpAgentRuntime {
                     .resume_session(ResumeSessionRequest::new(session_id.clone(), cwd.clone()))
                     .await
                 {
-                    return self.attach_existing_session(session_id, response.modes, response.meta);
+                    return self.attach_existing_session(
+                        session_id,
+                        response.modes,
+                        response.config_options,
+                        response.meta,
+                    );
                 }
             }
             if self.initialize_response.agent_capabilities.load_session {
@@ -1207,7 +1364,12 @@ impl AcpAgentRuntime {
                     .load_session(LoadSessionRequest::new(session_id.clone(), cwd.clone()))
                     .await
                 {
-                    return self.attach_existing_session(session_id, response.modes, response.meta);
+                    return self.attach_existing_session(
+                        session_id,
+                        response.modes,
+                        response.config_options,
+                        response.meta,
+                    );
                 }
             }
         }
@@ -1219,13 +1381,29 @@ impl AcpAgentRuntime {
         &self,
         session_id: String,
         modes: Option<agent_client_protocol::schema::SessionModeState>,
+        config_options: Option<Vec<SessionConfigOption>>,
         meta: Option<agent_client_protocol::schema::Meta>,
-    ) -> Result<ActiveSession<'static, Agent>, agent_client_protocol::Error> {
+    ) -> Result<AcpActiveSession, agent_client_protocol::Error> {
         // The SDK's active update handler is attached through
         // NewSessionResponse; load/resume responses carry the same state
         // except for the id, which comes from persisted conversation metadata.
-        let response = NewSessionResponse::new(session_id).modes(modes).meta(meta);
-        self.connection.attach_session(response, Vec::new())
+        let response = NewSessionResponse::new(session_id)
+            .modes(modes)
+            .config_options(config_options)
+            .meta(meta);
+        self.attach_session(response)
+    }
+
+    fn attach_session(
+        &self,
+        response: NewSessionResponse,
+    ) -> Result<AcpActiveSession, agent_client_protocol::Error> {
+        let config_options = response.config_options.clone().unwrap_or_default();
+        let inner = self.connection.attach_session(response, Vec::new())?;
+        Ok(AcpActiveSession {
+            inner,
+            config_options,
+        })
     }
 
     pub async fn load_session(
@@ -1381,6 +1559,56 @@ impl AcpAgentRuntime {
     }
 }
 
+impl AcpActiveSession {
+    pub fn session_id(&self) -> &SessionId {
+        self.inner.session_id()
+    }
+
+    pub fn meta(&self) -> &Option<agent_client_protocol::schema::Meta> {
+        self.inner.meta()
+    }
+
+    pub fn config_options(&self) -> &[SessionConfigOption] {
+        &self.config_options
+    }
+
+    pub fn send_prompt(
+        &mut self,
+        prompt: impl ToString,
+    ) -> Result<(), agent_client_protocol::Error> {
+        self.inner.send_prompt(prompt)
+    }
+
+    pub async fn read_update(&mut self) -> Result<SessionMessage, agent_client_protocol::Error> {
+        self.inner.read_update().await
+    }
+
+    fn replace_config_options(&mut self, options: Vec<SessionConfigOption>) {
+        self.config_options = options;
+    }
+
+    fn supports_config_selection(&self, selection: &AcpSessionConfigSelection) -> bool {
+        self.config_options.iter().any(|option| {
+            option.id.to_string() == selection.config_id
+                && match &option.kind {
+                    SessionConfigKind::Select(select) => match &select.options {
+                        SessionConfigSelectOptions::Ungrouped(options) => options
+                            .iter()
+                            .any(|choice| choice.value.to_string() == selection.value_id),
+                        SessionConfigSelectOptions::Grouped(groups) => groups.iter().any(|group| {
+                            group
+                                .options
+                                .iter()
+                                .any(|choice| choice.value.to_string() == selection.value_id)
+                        }),
+                        _ => false,
+                    },
+                    _ => false,
+                }
+        })
+    }
+}
+
 impl AcpRuntimeHandleKey {
     pub fn new(
         conversation_id: impl Into<String>,
@@ -1493,7 +1721,7 @@ where
 }
 
 async fn forward_acp_session_updates_to_client_events(
-    session: &mut ActiveSession<'static, Agent>,
+    session: &mut AcpActiveSession,
     event_tx: &AcpClientEventSender,
 ) -> Result<(), agent_client_protocol::Error> {
     loop {
@@ -1501,6 +1729,10 @@ async fn forward_acp_session_updates_to_client_events(
             SessionMessage::SessionMessage(dispatch) => {
                 MatchDispatch::new(dispatch)
                     .if_notification(async |notification: SessionNotification| {
+                        if let SessionUpdate::ConfigOptionUpdate(update) = &notification.update {
+                            // ACP sends full config snapshots, so replace local state atomically.
+                            session.replace_config_options(update.config_options.clone());
+                        }
                         send_client_event(event_tx, AcpClientEvent::SessionUpdate(notification))
                     })
                     .await
@@ -1715,8 +1947,9 @@ mod tests {
         CreateTerminalRequest, LogoutCapabilities, LogoutResponse, NewSessionResponse,
         PermissionOption, PermissionOptionKind, PromptRequest, PromptResponse, ReadTextFileRequest,
         ReleaseTerminalRequest, RequestPermissionRequest, SessionCapabilities,
-        SessionCloseCapabilities, SessionResumeCapabilities, StopReason, TerminalOutputRequest,
-        ToolCallUpdate, ToolCallUpdateFields, WaitForTerminalExitRequest, WriteTextFileRequest,
+        SessionCloseCapabilities, SessionConfigSelectGroup, SessionConfigSelectOption,
+        SessionResumeCapabilities, StopReason, TerminalOutputRequest, ToolCallUpdate,
+        ToolCallUpdateFields, WaitForTerminalExitRequest, WriteTextFileRequest,
     };
 
     fn launch_config() -> AcpLaunchConfig {
@@ -1742,6 +1975,37 @@ mod tests {
         assert_eq!(stdio.args, vec!["--acp"]);
         assert_eq!(stdio.env[0].name, "API_KEY");
         assert_eq!(stdio.env[0].value, "env-secret");
+    }
+
+    #[test]
+    fn session_config_projection_keeps_model_ids_and_group_order() {
+        let option = SessionConfigOption::select(
+            "model",
+            "Model",
+            "model-b",
+            vec![
+                SessionConfigSelectGroup::new(
+                    "fast",
+                    "Fast",
+                    vec![SessionConfigSelectOption::new("model-a", "Model A")],
+                ),
+                SessionConfigSelectGroup::new(
+                    "capable",
+                    "Capable",
+                    vec![SessionConfigSelectOption::new("model-b", "Model B")],
+                ),
+            ],
+        )
+        .category(SessionConfigOptionCategory::Model);
+
+        let projected = acp_session_config_options(&[option]);
+
+        assert_eq!(projected.len(), 1);
+        assert_eq!(projected[0].category.as_deref(), Some("model"));
+        assert_eq!(projected[0].current_value_id, "model-b");
+        assert_eq!(projected[0].choices[0].value_id, "model-a");
+        assert_eq!(projected[0].choices[1].label, "Model B");
+        assert_eq!(acp_model_config_option(&projected), projected.first());
     }
 
     #[test]
@@ -2059,7 +2323,15 @@ mod tests {
             .on_receive_request(
                 async move |request: NewSessionRequest, responder, _connection| {
                     assert_eq!(request.cwd, PathBuf::from("/workspace"));
-                    responder.respond(NewSessionResponse::new("session-1"))
+                    responder.respond(NewSessionResponse::new("session-1").config_options(vec![
+                        SessionConfigOption::select(
+                            "model",
+                            "Model",
+                            "model-a",
+                            vec![SessionConfigSelectOption::new("model-a", "Model A")],
+                        )
+                        .category(SessionConfigOptionCategory::Model),
+                    ]))
                 },
                 agent_client_protocol::on_receive_request!(),
             )
@@ -2100,6 +2372,7 @@ mod tests {
                 let mut session = runtime
                     .start_session(NewSessionRequest::new(PathBuf::from("/workspace")))
                     .await?;
+                assert_eq!(session.config_options().len(), 1);
                 session.send_prompt("hello")?;
                 runtime.cancel_session(session.session_id().clone())?;
                 runtime.close_session(session.session_id().clone()).await?;
@@ -2150,6 +2423,7 @@ mod tests {
             AcpHostCapabilityPolicy::default(),
             PathBuf::from("/workspace"),
             Some("session-existing".to_string()),
+            None,
             "hello".to_string(),
             event_tx,
             AcpRuntimeRegistry::new(),
@@ -2161,6 +2435,117 @@ mod tests {
 
         assert_eq!(outcome.session_id, "session-existing");
         assert_eq!(outcome.session_metadata, None);
+    }
+
+    #[tokio::test]
+    async fn prompt_runtime_replays_session_model_before_prompt() {
+        let selection_applied = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let selected_for_set = Arc::clone(&selection_applied);
+        let selected_for_prompt = Arc::clone(&selection_applied);
+        let model_options = || {
+            vec![
+                SessionConfigOption::select(
+                    "model",
+                    "Model",
+                    "model-b",
+                    vec![
+                        SessionConfigSelectOption::new("model-a", "Model A"),
+                        SessionConfigSelectOption::new("model-b", "Model B"),
+                    ],
+                )
+                .category(SessionConfigOptionCategory::Model),
+            ]
+        };
+        let initial_model_options = vec![
+            SessionConfigOption::select(
+                "model",
+                "Model",
+                "model-a",
+                vec![
+                    SessionConfigSelectOption::new("model-a", "Model A"),
+                    SessionConfigSelectOption::new("model-b", "Model B"),
+                ],
+            )
+            .category(SessionConfigOptionCategory::Model),
+        ];
+        let fake_agent = Agent
+            .builder()
+            .on_receive_request(
+                async move |request: InitializeRequest, responder, _connection| {
+                    responder.respond(
+                        InitializeResponse::new(request.protocol_version)
+                            .agent_capabilities(AgentCapabilities::new()),
+                    )
+                },
+                agent_client_protocol::on_receive_request!(),
+            )
+            .on_receive_request(
+                async move |_request: NewSessionRequest, responder, _connection| {
+                    responder.respond(
+                        NewSessionResponse::new("session-1")
+                            .config_options(initial_model_options.clone()),
+                    )
+                },
+                agent_client_protocol::on_receive_request!(),
+            )
+            .on_receive_request(
+                async move |request: SetSessionConfigOptionRequest, responder, _connection| {
+                    assert_eq!(request.config_id.to_string(), "model");
+                    assert_eq!(request.value.to_string(), "model-b");
+                    selected_for_set.store(true, Ordering::SeqCst);
+                    responder.respond(SetSessionConfigOptionResponse::new(model_options()))
+                },
+                agent_client_protocol::on_receive_request!(),
+            )
+            .on_receive_request(
+                async move |_request: PromptRequest, responder, connection| {
+                    assert!(selected_for_prompt.load(Ordering::SeqCst));
+                    connection.send_notification(SessionNotification::new(
+                        "session-1",
+                        SessionUpdate::ConfigOptionUpdate(
+                            agent_client_protocol::schema::ConfigOptionUpdate::new(vec![
+                                SessionConfigOption::select(
+                                    "model",
+                                    "Model",
+                                    "model-a",
+                                    vec![
+                                        SessionConfigSelectOption::new("model-a", "Model A"),
+                                        SessionConfigSelectOption::new("model-b", "Model B"),
+                                    ],
+                                )
+                                .category(SessionConfigOptionCategory::Model),
+                            ]),
+                        ),
+                    ))?;
+                    responder.respond(PromptResponse::new(StopReason::EndTurn))
+                },
+                agent_client_protocol::on_receive_request!(),
+            );
+        let (event_tx, _event_rx) = mpsc::unbounded_channel();
+
+        let outcome = run_acp_prompt_session_events(
+            fake_agent,
+            "2.0.0-test".to_string(),
+            AcpHostCapabilityPolicy::default(),
+            PathBuf::from("/workspace"),
+            None,
+            Some(AcpSessionConfigSelection {
+                config_id: "model".to_string(),
+                value_id: "model-b".to_string(),
+            }),
+            "hello".to_string(),
+            event_tx,
+            AcpRuntimeRegistry::new(),
+            "conversation-1".to_string(),
+            "generation-1".to_string(),
+        )
+        .await
+        .expect("session model selection");
+
+        assert_eq!(
+            outcome.session_config_options[0].current_value_id,
+            "model-a"
+        );
     }
 
     #[tokio::test]

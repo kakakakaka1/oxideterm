@@ -18,9 +18,10 @@ use agent_client_protocol::{
         ContentBlock, ContentChunk, DeleteSessionRequest, DeleteSessionResponse, Implementation,
         InitializeRequest, InitializeResponse, NewSessionRequest, NewSessionResponse,
         PermissionOption, PermissionOptionKind, PromptRequest, PromptResponse, ProtocolVersion,
-        RequestPermissionOutcome, RequestPermissionRequest, SessionId, SessionNotification,
-        SessionUpdate, StopReason, ToolCall, ToolCallStatus, ToolCallUpdate, ToolCallUpdateFields,
-        ToolKind,
+        RequestPermissionOutcome, RequestPermissionRequest, SessionConfigOption,
+        SessionConfigOptionCategory, SessionConfigSelectOption, SessionId, SessionNotification,
+        SessionUpdate, SetSessionConfigOptionRequest, SetSessionConfigOptionResponse, StopReason,
+        ToolCall, ToolCallStatus, ToolCallUpdate, ToolCallUpdateFields, ToolKind,
     },
 };
 use clap::{Parser, ValueEnum};
@@ -39,7 +40,7 @@ mod claude;
 mod codex;
 
 use claude::stream_claude_code_provider;
-use codex::stream_codex_app_server_provider;
+use codex::{discover_codex_models, stream_codex_app_server_provider};
 
 #[derive(Debug, Parser)]
 #[command(name = "oxideterm --acp-adapter")]
@@ -73,7 +74,24 @@ struct SessionState {
     cwd: PathBuf,
     claude_session_id: Option<String>,
     codex_thread_id: Option<String>,
+    models: Vec<AdapterModel>,
+    selected_model: Option<String>,
 }
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct AdapterModel {
+    id: String,
+    name: String,
+    description: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+struct CodexModelCatalog {
+    models: Vec<AdapterModel>,
+    selected_model: Option<String>,
+}
+
+const ACP_MODEL_CONFIG_ID: &str = "model";
 
 type Sessions = Arc<Mutex<HashMap<SessionId, SessionState>>>;
 type ActiveRuns = Arc<Mutex<HashMap<SessionId, ActiveRun>>>;
@@ -145,6 +163,7 @@ async fn run_adapter(cli: Cli) -> agent_client_protocol::Result<()> {
         )
         .on_receive_request(
             {
+                let config = Arc::clone(&config);
                 let sessions = Arc::clone(&sessions);
                 async move |request: NewSessionRequest, responder, _connection| {
                     let session_id = SessionId::new(format!(
@@ -152,16 +171,48 @@ async fn run_adapter(cli: Cli) -> agent_client_protocol::Result<()> {
                         env!("CARGO_PKG_VERSION"),
                         Uuid::new_v4()
                     ));
-                    // Store only the session root needed to launch the wrapped CLI.
-                    sessions.lock().expect("session registry lock").insert(
-                        session_id.clone(),
-                        SessionState {
-                            cwd: request.cwd,
-                            claude_session_id: None,
-                            codex_thread_id: None,
-                        },
-                    );
-                    responder.respond(NewSessionResponse::new(session_id))
+                    let catalog = if config.provider == AdapterProvider::Codex {
+                        // Discovery failure must not prevent the agent from choosing its default.
+                        timeout(
+                            Duration::from_secs(5),
+                            discover_codex_models(&config, &request.cwd),
+                        )
+                        .await
+                        .ok()
+                        .and_then(Result::ok)
+                        .unwrap_or_default()
+                    } else {
+                        CodexModelCatalog::default()
+                    };
+                    // Keep model choice beside the session so it never becomes global CLI state.
+                    let state = SessionState {
+                        cwd: request.cwd,
+                        claude_session_id: None,
+                        codex_thread_id: None,
+                        models: catalog.models,
+                        selected_model: catalog.selected_model,
+                    };
+                    let config_options = session_config_options(&state);
+                    sessions
+                        .lock()
+                        .expect("session registry lock")
+                        .insert(session_id.clone(), state);
+                    responder.respond(
+                        NewSessionResponse::new(session_id)
+                            .config_options((!config_options.is_empty()).then_some(config_options)),
+                    )
+                }
+            },
+            agent_client_protocol::on_receive_request!(),
+        )
+        .on_receive_request(
+            {
+                let sessions = Arc::clone(&sessions);
+                async move |request: SetSessionConfigOptionRequest, responder, _connection| {
+                    match set_session_config_option(&sessions, request) {
+                        Ok(response) => responder.respond(response),
+                        Err(error) => responder.respond_with_error(error),
+                    }
                 }
             },
             agent_client_protocol::on_receive_request!(),
@@ -283,6 +334,58 @@ impl AdapterProvider {
     }
 }
 
+fn session_config_options(state: &SessionState) -> Vec<SessionConfigOption> {
+    let Some(selected_model) = state
+        .selected_model
+        .as_deref()
+        .filter(|selected| state.models.iter().any(|model| model.id == *selected))
+    else {
+        return Vec::new();
+    };
+    let choices = state
+        .models
+        .iter()
+        .map(|model| {
+            SessionConfigSelectOption::new(model.id.clone(), model.name.clone())
+                .description(model.description.clone())
+        })
+        .collect::<Vec<_>>();
+    vec![
+        SessionConfigOption::select(
+            ACP_MODEL_CONFIG_ID,
+            "Model",
+            selected_model.to_string(),
+            choices,
+        )
+        .category(SessionConfigOptionCategory::Model),
+    ]
+}
+
+fn set_session_config_option(
+    sessions: &Sessions,
+    request: SetSessionConfigOptionRequest,
+) -> Result<SetSessionConfigOptionResponse, agent_client_protocol::Error> {
+    if request.config_id.to_string() != ACP_MODEL_CONFIG_ID {
+        return Err(agent_client_protocol::util::internal_error(
+            "ACP session config option was not found",
+        ));
+    }
+    let mut sessions = sessions.lock().expect("session registry lock");
+    let session = sessions
+        .get_mut(&request.session_id)
+        .ok_or_else(|| agent_client_protocol::util::internal_error("ACP session was not found"))?;
+    let value_id = request.value.to_string();
+    if !session.models.iter().any(|model| model.id == value_id) {
+        return Err(agent_client_protocol::util::internal_error(
+            "ACP session config value was not found",
+        ));
+    }
+    session.selected_model = Some(value_id);
+    Ok(SetSessionConfigOptionResponse::new(session_config_options(
+        session,
+    )))
+}
+
 fn supported_protocol_version(version: ProtocolVersion) -> ProtocolVersion {
     match version {
         ProtocolVersion::V1 => ProtocolVersion::V1,
@@ -354,6 +457,7 @@ async fn stream_provider(
                 session_id,
                 session.cwd,
                 session.claude_session_id,
+                session.selected_model,
                 prompt,
                 connection,
             )
@@ -366,6 +470,7 @@ async fn stream_provider(
                 session_id,
                 session.cwd,
                 session.codex_thread_id,
+                session.selected_model,
                 prompt,
                 connection,
             )
@@ -411,4 +516,63 @@ fn prompt_text(blocks: &[ContentBlock]) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn model_config_selection_is_session_scoped_and_validated() {
+        let session_id = SessionId::new("session-1");
+        let sessions = Sessions::default();
+        sessions.lock().expect("session registry lock").insert(
+            session_id.clone(),
+            SessionState {
+                cwd: PathBuf::from("/workspace"),
+                claude_session_id: None,
+                codex_thread_id: None,
+                models: vec![
+                    AdapterModel {
+                        id: "model-a".to_string(),
+                        name: "Model A".to_string(),
+                        description: None,
+                    },
+                    AdapterModel {
+                        id: "model-b".to_string(),
+                        name: "Model B".to_string(),
+                        description: None,
+                    },
+                ],
+                selected_model: Some("model-a".to_string()),
+            },
+        );
+
+        let response = set_session_config_option(
+            &sessions,
+            SetSessionConfigOptionRequest::new(session_id.clone(), ACP_MODEL_CONFIG_ID, "model-b"),
+        )
+        .expect("valid model selection");
+
+        assert_eq!(response.config_options.len(), 1);
+        assert_eq!(
+            sessions
+                .lock()
+                .expect("session registry lock")
+                .get(&session_id)
+                .and_then(|state| state.selected_model.as_deref()),
+            Some("model-b")
+        );
+        assert!(
+            set_session_config_option(
+                &sessions,
+                SetSessionConfigOptionRequest::new(
+                    session_id,
+                    ACP_MODEL_CONFIG_ID,
+                    "missing-model",
+                ),
+            )
+            .is_err()
+        );
+    }
 }

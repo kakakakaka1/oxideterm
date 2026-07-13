@@ -58,6 +58,7 @@ pub(in crate::workspace) enum AiStreamDeliveryEvent {
     AcpSessionStarted {
         session_id: String,
         session_metadata: Option<serde_json::Value>,
+        session_config_options: Vec<oxideterm_ai::AcpSessionConfigOption>,
         agent_id: String,
     },
     Guardrail {

@@ -11,6 +11,7 @@ pub(super) async fn stream_claude_code_provider(
     session_id: SessionId,
     cwd: PathBuf,
     previous_session_id: Option<String>,
+    selected_model: Option<String>,
     prompt: String,
     connection: ConnectionTo<Client>,
 ) -> Result<ProviderOutcome, agent_client_protocol::Error> {
@@ -25,6 +26,10 @@ pub(super) async fn stream_claude_code_provider(
     ]);
     if let Some(previous_session_id) = previous_session_id {
         command.args(["--resume", previous_session_id.as_str()]);
+    }
+    if let Some(selected_model) = selected_model {
+        // Claude accepts a session-selected model even though it cannot enumerate models.
+        command.args(["--model", selected_model.as_str()]);
     }
     command.args(&config.extra_args);
     command.arg(prompt);

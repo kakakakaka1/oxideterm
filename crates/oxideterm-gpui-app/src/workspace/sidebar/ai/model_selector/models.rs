@@ -7,6 +7,13 @@ impl WorkspaceApp {
         online: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        if let Some(agent_id) = Self::ai_acp_agent_id_from_provider_id(&provider.id) {
+            return self.render_ai_acp_model_selector_models(
+                agent_id.to_string(),
+                visible_models,
+                cx,
+            );
+        }
         let mut panel = ai_model_selector_models_panel(&self.tokens);
         if matches!(
             resolve_model_selector_provider_probe(&provider),
@@ -54,18 +61,15 @@ impl WorkspaceApp {
         }
 
         for model in visible_models {
-            let active = if Self::ai_acp_agent_id_from_provider_id(&provider.id).is_some() {
-                self.ai_active_model_selector_provider_id().as_deref() == Some(provider.id.as_str())
-            } else {
-                self.settings_store
-                    .settings()
-                    .ai
-                    .active_provider_id
-                    .as_deref()
-                    == Some(provider.id.as_str())
-                    && self.settings_store.settings().ai.active_model.as_deref()
-                        == Some(model.as_str())
-            };
+            let active = self
+                .settings_store
+                .settings()
+                .ai
+                .active_provider_id
+                .as_deref()
+                == Some(provider.id.as_str())
+                && self.settings_store.settings().ai.active_model.as_deref()
+                    == Some(model.as_str());
             let model_for_click = model.clone();
             let provider_id = provider.id.clone();
             let highlighted = self
@@ -109,6 +113,120 @@ impl WorkspaceApp {
                         this.select_ai_model_from_selector(
                             provider_id.clone(),
                             model_for_click.clone(),
+                            cx,
+                        );
+                        this.ai.models.selector_highlighted_model = None;
+                        cx.stop_propagation();
+                    }),
+                ),
+            );
+        }
+        panel.into_any_element()
+    }
+
+    fn render_ai_acp_model_selector_models(
+        &self,
+        agent_id: String,
+        visible_models: Vec<String>,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let mut panel = ai_model_selector_models_panel(&self.tokens);
+        let session_state = self.active_ai_acp_session_state(&agent_id);
+        let model_option = session_state
+            .as_ref()
+            .and_then(|state| oxideterm_ai::acp_model_config_option(&state.config_options));
+        let Some(option) = model_option.filter(|option| !option.choices.is_empty()) else {
+            let provider_id = Self::ai_acp_provider_id(&agent_id);
+            let label = self.i18n.t("ai.model_selector.agent_decides");
+            let active = self.ai_active_model_selector_provider_id().as_deref()
+                == Some(provider_id.as_str());
+            return panel
+                .child(
+                    ai_model_selector_model_row(
+                        &self.tokens,
+                        label.clone(),
+                        active,
+                        false,
+                        active.then(|| {
+                            Self::render_lucide_icon(
+                                LucideIcon::Check,
+                                12.0,
+                                rgb(self.tokens.ui.accent),
+                            )
+                        }),
+                    )
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |this, _event, _window, cx| {
+                            this.select_ai_model_from_selector(
+                                provider_id.clone(),
+                                label.clone(),
+                                cx,
+                            );
+                            cx.stop_propagation();
+                        }),
+                    ),
+                )
+                .into_any_element();
+        };
+
+        let selected_value_id = oxideterm_ai::acp_selected_config_choice(
+            option,
+            session_state
+                .as_ref()
+                .and_then(|state| state.model_selection.as_ref()),
+        )
+        .map(|choice| choice.value_id.as_str());
+        for choice in option
+            .choices
+            .iter()
+            .filter(|choice| visible_models.contains(&choice.label))
+        {
+            let active = Some(choice.value_id.as_str()) == selected_value_id;
+            let highlighted = self
+                .ai
+                .models
+                .selector_highlighted_model
+                .as_ref()
+                .is_some_and(|(id, model)| {
+                    id == &Self::ai_acp_provider_id(&agent_id) && model == &choice.label
+                });
+            let provider_id = Self::ai_acp_provider_id(&agent_id);
+            let choice_label = choice.label.clone();
+            let choice_value_id = choice.value_id.clone();
+            let config_id = option.config_id.clone();
+            let agent_id_for_click = agent_id.clone();
+            panel = panel.child(
+                ai_model_selector_model_row(
+                    &self.tokens,
+                    choice_label.clone(),
+                    active,
+                    highlighted,
+                    active.then(|| {
+                        Self::render_lucide_icon(
+                            LucideIcon::Check,
+                            12.0,
+                            rgb(self.tokens.ui.accent),
+                        )
+                    }),
+                )
+                .on_mouse_move({
+                    let choice_label = choice_label.clone();
+                    cx.listener(move |this, _event: &MouseMoveEvent, _window, cx| {
+                        let next = Some((provider_id.clone(), choice_label.clone()));
+                        if this.ai.models.selector_highlighted_model != next {
+                            this.ai.models.selector_highlighted_model = next;
+                            cx.notify();
+                        }
+                    })
+                })
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(move |this, _event, _window, cx| {
+                        this.select_ai_acp_model_from_selector(
+                            agent_id_for_click.clone(),
+                            config_id.clone(),
+                            choice_value_id.clone(),
                             cx,
                         );
                         this.ai.models.selector_highlighted_model = None;

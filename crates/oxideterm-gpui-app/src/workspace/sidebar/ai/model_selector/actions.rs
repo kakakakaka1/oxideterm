@@ -374,6 +374,22 @@ impl WorkspaceApp {
         if let Some(agent_id) =
             Self::ai_acp_agent_id_from_provider_id(&provider_id).map(str::to_string)
         {
+            let session_model_selection = self
+                .active_ai_acp_session_state(&agent_id)
+                .and_then(|state| {
+                    let option = oxideterm_ai::acp_model_config_option(&state.config_options)?;
+                    let choice = option.choices.iter().find(|choice| choice.label == model)?;
+                    Some((option.config_id.clone(), choice.value_id.clone()))
+                });
+            if let Some((config_id, value_id)) = session_model_selection {
+                self.select_ai_acp_model_from_selector(
+                    agent_id,
+                    config_id,
+                    value_id,
+                    cx,
+                );
+                return;
+            }
             self.edit_settings(
                 move |settings| {
                     settings.ai.active_backend = AiActiveBackend::Acp;
@@ -413,7 +429,7 @@ impl WorkspaceApp {
                 .ai
                 .acp_agents
                 .iter()
-                .map(Self::ai_acp_agent_provider_view),
+                .map(|agent| self.ai_acp_agent_provider_view(agent)),
         );
         providers
     }
@@ -431,16 +447,32 @@ impl WorkspaceApp {
     }
 
     pub(in crate::workspace) fn ai_acp_agent_provider_view(
+        &self,
         agent: &AcpAgentConfig,
     ) -> AiProviderView {
         let label = Self::ai_acp_agent_label(agent);
+        let agent_decides = self.i18n.t("ai.model_selector.agent_decides");
+        let models = self
+            .active_ai_acp_session_state(&agent.id)
+            .and_then(|state| {
+                oxideterm_ai::acp_model_config_option(&state.config_options).cloned()
+            })
+            .map(|option| {
+                option
+                    .choices
+                    .into_iter()
+                    .map(|choice| choice.label)
+                    .collect::<Vec<_>>()
+            })
+            .filter(|models| !models.is_empty())
+            .unwrap_or_else(|| vec![agent_decides.clone()]);
         AiProviderView {
             id: Self::ai_acp_provider_id(&agent.id),
             provider_type: "acp".to_string(),
             name: format!("{label} (ACP)"),
             base_url: String::new(),
-            default_model: label.clone(),
-            models: vec![label],
+            default_model: agent_decides,
+            models,
             enabled: agent.enabled,
             custom: false,
         }
@@ -475,6 +507,64 @@ impl WorkspaceApp {
             .iter()
             .find(|agent| agent.id == agent_id)
             .is_some_and(|agent| agent.enabled && agent.status.state == AcpAgentRuntimeState::Ready)
+    }
+
+    pub(in crate::workspace) fn select_ai_acp_model_from_selector(
+        &mut self,
+        agent_id: String,
+        config_id: String,
+        value_id: String,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(conversation) = self.ai.chat.conversation_state.active_conversation_mut() else {
+            return;
+        };
+        let Some(mut state) = ai_acp_session_state(conversation)
+            .filter(|state| state.agent_id == agent_id && !state.session_id.is_empty())
+        else {
+            return;
+        };
+        let Some(option) = state
+            .config_options
+            .iter_mut()
+            .find(|option| option.config_id == config_id)
+        else {
+            return;
+        };
+        if !option
+            .choices
+            .iter()
+            .any(|choice| choice.value_id == value_id)
+        {
+            return;
+        }
+
+        // Keep the desired value with this ACP session and replay it after resume.
+        option.current_value_id = value_id.clone();
+        state.model_selection = Some(oxideterm_ai::AcpSessionConfigSelection {
+            config_id,
+            value_id,
+        });
+        let Some(metadata) = conversation
+            .session_metadata
+            .as_mut()
+            .and_then(serde_json::Value::as_object_mut)
+        else {
+            return;
+        };
+        if let Ok(value) = serde_json::to_value(state) {
+            metadata.insert(AI_ACP_SESSION_METADATA_KEY.to_string(), value);
+        }
+        self.edit_settings(
+            move |settings| {
+                settings.ai.active_backend = AiActiveBackend::Acp;
+                settings.ai.active_acp_agent_id = Some(agent_id.clone());
+            },
+            cx,
+        );
+        self.persist_ai_chat_state();
+        self.close_ai_model_selector();
+        cx.notify();
     }
 
     pub(in crate::workspace) fn update_ai_model_switch_warning(

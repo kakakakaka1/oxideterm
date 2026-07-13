@@ -120,6 +120,7 @@
       "offline": "離線",
       "manage_providers": "管理供應商",
       "no_provider": "未設定供應商",
+      "agent_decides": "由 Agent 決定",
       "search_placeholder": "搜尋模型...",
       "clear_search": "清空搜尋",
       "no_search_results": "沒有符合的模型",

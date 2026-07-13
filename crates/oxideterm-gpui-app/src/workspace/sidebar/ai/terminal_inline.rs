@@ -924,6 +924,7 @@ impl WorkspaceApp {
             provider_id: Some(provider.id.clone()),
             acp_agent_id: None,
             acp_session_id: None,
+            acp_config_selection: None,
             provider_type: provider.provider_type,
             base_url: provider.base_url,
             model: model.clone(),

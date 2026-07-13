@@ -120,6 +120,7 @@
       "offline": "Ngoại tuyến",
       "manage_providers": "Quản lý nhà cung cấp",
       "no_provider": "Chưa cấu hình nhà cung cấp",
+      "agent_decides": "Do tác tử quyết định",
       "search_placeholder": "Tìm kiếm mô hình...",
       "clear_search": "Xóa tìm kiếm",
       "no_search_results": "Không có mô hình phù hợp",

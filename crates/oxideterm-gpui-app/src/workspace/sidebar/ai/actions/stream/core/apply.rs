@@ -5,6 +5,7 @@ pub(in crate::workspace) fn apply_ai_acp_session_started_to_conversations(
     conversation_id: &str,
     session_id: &str,
     session_metadata: Option<serde_json::Value>,
+    session_config_options: Vec<oxideterm_ai::AcpSessionConfigOption>,
     agent_id: &str,
 ) -> bool {
     if current_generation != delivery_generation {
@@ -18,6 +19,18 @@ pub(in crate::workspace) fn apply_ai_acp_session_started_to_conversations(
     };
 
     conversation.session_id = Some(session_id.to_string());
+    let model_selection = ai_acp_session_state(conversation)
+        .filter(|state| state.agent_id == agent_id)
+        .and_then(|state| state.model_selection)
+        .filter(|selection| {
+            session_config_options.iter().any(|option| {
+                option.config_id == selection.config_id
+                    && option
+                        .choices
+                        .iter()
+                        .any(|choice| choice.value_id == selection.value_id)
+            })
+        });
     let metadata = conversation
         .session_metadata
         .get_or_insert_with(|| serde_json::json!({ "conversationId": conversation_id }));
@@ -29,14 +42,16 @@ pub(in crate::workspace) fn apply_ai_acp_session_started_to_conversations(
             serde_json::json!(conversation_id),
         );
         object.insert("origin".to_string(), serde_json::json!("sidebar"));
-        object.insert(
-            "acp".to_string(),
-            serde_json::json!({
-                "agentId": agent_id,
-                "sessionId": session_id,
-                "metadata": session_metadata,
-            }),
-        );
+        let state = AiAcpSessionState {
+            agent_id: agent_id.to_string(),
+            session_id: session_id.to_string(),
+            metadata: session_metadata,
+            config_options: session_config_options,
+            model_selection,
+        };
+        if let Ok(value) = serde_json::to_value(state) {
+            object.insert(AI_ACP_SESSION_METADATA_KEY.to_string(), value);
+        }
     }
     true
 }
@@ -48,6 +63,7 @@ impl WorkspaceApp {
         conversation_id: &str,
         session_id: &str,
         session_metadata: Option<serde_json::Value>,
+        session_config_options: Vec<oxideterm_ai::AcpSessionConfigOption>,
         agent_id: &str,
     ) -> bool {
         if !apply_ai_acp_session_started_to_conversations(
@@ -57,6 +73,7 @@ impl WorkspaceApp {
             conversation_id,
             session_id,
             session_metadata,
+            session_config_options,
             agent_id,
         ) {
             return false;
