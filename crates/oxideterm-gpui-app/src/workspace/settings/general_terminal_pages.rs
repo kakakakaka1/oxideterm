@@ -8,6 +8,12 @@ pub(in crate::workspace) enum TerminalCommandSpecsAction {
 }
 
 pub(in crate::workspace) const SETTINGS_TERMINAL_CUSTOM_FONT_INPUT_WIDTH: f32 = 300.0; // Tauri TerminalTab custom font input w-[300px].
+// The command-spec document needs enough room for structured editing while
+// remaining bounded by the workspace viewport.
+const TERMINAL_COMMAND_SPECS_MODAL_WIDTH: f32 = 880.0;
+const TERMINAL_COMMAND_SPECS_MODAL_HEIGHT: f32 = 720.0;
+const TERMINAL_COMMAND_SPECS_EDITOR_MIN_HEIGHT: f32 = 520.0;
+const TERMINAL_COMMAND_SPECS_ACTION_ICON_SIZE: f32 = 12.0;
 
 impl WorkspaceApp {
     pub(in crate::workspace) fn settings_general_section(
@@ -1070,6 +1076,197 @@ impl WorkspaceApp {
         &self,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        let path = super::terminal_command_bar::completion::terminal_command_specs_path(
+            self.settings_store.path(),
+        );
+        let theme = self.tokens.ui;
+
+        div()
+            .w_full()
+            .flex()
+            .flex_row()
+            .items_center()
+            .justify_between()
+            .gap(px(self.tokens.metrics.modal_section_gap))
+            .child(
+                div()
+                    .min_w_0()
+                    .flex_1()
+                    .flex()
+                    .flex_col()
+                    .gap(px(self.tokens.spacing.one))
+                    .child(
+                        div()
+                            .text_size(px(self.tokens.metrics.ui_text_sm))
+                            .font_weight(gpui::FontWeight::MEDIUM)
+                            .text_color(rgb(theme.text))
+                            .child(self.i18n.t("settings_view.terminal.command_specs")),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(self.tokens.metrics.ui_text_xs))
+                            .text_color(rgb(theme.text_muted))
+                            .child(self.i18n.t("settings_view.terminal.command_specs_hint")),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(self.tokens.metrics.modal_field_gap))
+                            .text_size(px(self.tokens.metrics.ui_text_xs))
+                            .text_color(rgb(theme.text_muted))
+                            .child(
+                                div()
+                                    .min_w_0()
+                                    .flex_1()
+                                    .font_family(settings_mono_font_family(
+                                        self.settings_store.settings(),
+                                    ))
+                                    .truncate()
+                                    .child(path.display().to_string()),
+                            )
+                            .child(self.terminal_command_specs_summary()),
+                    ),
+            )
+            .child(self.workspace_toolbar_action_button(
+                self.i18n.t("settings_view.terminal.command_specs_edit"),
+                Some(Self::render_lucide_icon(
+                    LucideIcon::Pencil,
+                    TERMINAL_COMMAND_SPECS_ACTION_ICON_SIZE,
+                    rgb(theme.text),
+                )),
+                ToolbarButtonOptions {
+                    button: ButtonOptions {
+                        variant: ButtonVariant::Outline,
+                        size: ButtonSize::Sm,
+                        radius: ButtonRadius::Md,
+                        disabled: false,
+                    },
+                    ..ToolbarButtonOptions::default()
+                },
+                cx.listener(|this, _event, window, cx| {
+                    this.open_terminal_command_specs_editor(window, cx);
+                    cx.stop_propagation();
+                }),
+            ))
+            .into_any_element()
+    }
+
+    pub(in crate::workspace) fn render_terminal_command_specs_editor_modal(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let path = super::terminal_command_bar::completion::terminal_command_specs_path(
+            self.settings_store.path(),
+        );
+        let theme = self.tokens.ui;
+        let dialog = oxideterm_gpui_ui::modal_container(&self.tokens)
+            .w(px(TERMINAL_COMMAND_SPECS_MODAL_WIDTH))
+            .max_w_full()
+            .h(px(TERMINAL_COMMAND_SPECS_MODAL_HEIGHT))
+            .max_h_full()
+            .shadow(oxideterm_gpui_ui::theme_overlay_shadow(&self.tokens))
+            .flex()
+            .flex_col()
+            .on_mouse_down(MouseButton::Left, |_event, _window, cx| {
+                cx.stop_propagation();
+            })
+            .child(
+                dialog_header(&self.tokens)
+                    .child(dialog_title(
+                        &self.tokens,
+                        self.i18n.t("settings_view.terminal.command_specs"),
+                    ))
+                    .child(dialog_description(
+                        &self.tokens,
+                        self.i18n.t("settings_view.terminal.command_specs_hint"),
+                    ))
+                    .child(
+                        div()
+                            .text_size(px(self.tokens.metrics.ui_text_xs))
+                            .font_family(settings_mono_font_family(self.settings_store.settings()))
+                            .text_color(rgb(theme.text_muted))
+                            .truncate()
+                            .child(path.display().to_string()),
+                    ),
+            )
+            .child(
+                // The modal body is the sole scroll owner. The editor grows with
+                // its JSON document instead of introducing a nested scroll view.
+                oxideterm_gpui_ui::modal::modal_body(&self.tokens)
+                    .id("terminal-command-specs-editor-scroll")
+                    .flex_1()
+                    .min_h(px(0.0))
+                    .selectable_overflow_y_scrollbar(
+                        &self.selectable_text_scroll_handle("terminal-command-specs-editor-scroll"),
+                    )
+                    .bg(rgb(theme.bg_elevated))
+                    .child(self.terminal_command_specs_editor_control(cx)),
+            )
+            .child(
+                dialog_footer(&self.tokens)
+                    .justify_between()
+                    .child(
+                        div()
+                            .min_w_0()
+                            .flex_1()
+                            .text_size(px(self.tokens.metrics.ui_text_xs))
+                            .text_color(rgb(theme.text_muted))
+                            .child(self.terminal_command_specs_summary()),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(self.tokens.metrics.modal_field_gap))
+                            .child(self.terminal_command_specs_button(
+                                "settings_view.terminal.command_specs_format",
+                                TerminalCommandSpecsAction::Format,
+                                cx,
+                            ))
+                            .child(self.terminal_command_specs_button(
+                                "settings_view.terminal.command_specs_example",
+                                TerminalCommandSpecsAction::Example,
+                                cx,
+                            ))
+                            .child(self.workspace_toolbar_action_button(
+                                self.i18n.t("settings_view.terminal.command_specs_close"),
+                                None,
+                                ToolbarButtonOptions {
+                                    button: ButtonOptions {
+                                        variant: ButtonVariant::Outline,
+                                        size: ButtonSize::Sm,
+                                        radius: ButtonRadius::Md,
+                                        disabled: false,
+                                    },
+                                    ..ToolbarButtonOptions::default()
+                                },
+                                cx.listener(|this, _event, _window, cx| {
+                                    this.close_terminal_command_specs_editor(cx);
+                                    cx.stop_propagation();
+                                }),
+                            ))
+                            .child(self.terminal_command_specs_button(
+                                "settings_view.terminal.command_specs_save",
+                                TerminalCommandSpecsAction::Save,
+                                cx,
+                            )),
+                    ),
+            );
+
+        dismissible_dialog_backdrop()
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _event, _window, cx| {
+                    this.close_terminal_command_specs_editor(cx);
+                    cx.stop_propagation();
+                }),
+            )
+            .child(overlay_content_boundary(dialog))
+            .into_any_element()
+    }
+
+    fn terminal_command_specs_editor_control(&self, cx: &mut Context<Self>) -> AnyElement {
         let input = SettingsInput::TerminalCommandSpecsJson;
         let focused = self.focused_settings_input == Some(input);
         let value = if focused {
@@ -1077,16 +1274,13 @@ impl WorkspaceApp {
         } else {
             self.terminal_command_specs_editor_initial_value()
         };
-        let path = super::terminal_command_bar::completion::terminal_command_specs_path(
-            self.settings_store.path(),
-        );
         let target = WorkspaceImeTarget::Settings(input);
         let workspace = cx.entity();
         let theme = self.tokens.ui;
         let line_height = input.textarea_line_height();
         let mut textarea = div()
             .w_full()
-            .min_h(px(220.0))
+            .min_h(px(TERMINAL_COMMAND_SPECS_EDITOR_MIN_HEIGHT))
             .rounded(px(self.tokens.radii.md))
             .border_1()
             .border_color(if focused {
@@ -1145,77 +1339,34 @@ impl WorkspaceApp {
                 });
             });
 
-        div()
-            .flex()
-            .flex_col()
-            .gap(px(10.0))
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(2.0))
-                    .child(
-                        div()
-                            .text_size(px(self.tokens.metrics.ui_text_sm))
-                            .font_weight(gpui::FontWeight::MEDIUM)
-                            .text_color(rgb(theme.text))
-                            .child(self.i18n.t("settings_view.terminal.command_specs")),
-                    )
-                    .child(
-                        div()
-                            .text_size(px(self.tokens.metrics.ui_text_xs))
-                            .text_color(rgb(theme.text_muted))
-                            .child(self.i18n.t("settings_view.terminal.command_specs_hint")),
-                    ),
-            )
-            .child(
-                div()
-                    .text_size(px(self.tokens.metrics.ui_text_xs))
-                    .font_family(settings_mono_font_family(self.settings_store.settings()))
-                    .text_color(rgb(theme.text_muted))
-                    .truncate()
-                    .child(path.display().to_string()),
-            )
-            .child(control)
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .justify_between()
-                    .gap(px(12.0))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w(px(0.0))
-                            .text_size(px(self.tokens.metrics.ui_text_xs))
-                            .text_color(rgb(theme.text_muted))
-                            .child(self.terminal_command_specs_summary()),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap(px(8.0))
-                            .child(self.terminal_command_specs_button(
-                                "settings_view.terminal.command_specs_format",
-                                TerminalCommandSpecsAction::Format,
-                                cx,
-                            ))
-                            .child(self.terminal_command_specs_button(
-                                "settings_view.terminal.command_specs_example",
-                                TerminalCommandSpecsAction::Example,
-                                cx,
-                            ))
-                            .child(self.terminal_command_specs_button(
-                                "settings_view.terminal.command_specs_save",
-                                TerminalCommandSpecsAction::Save,
-                                cx,
-                            )),
-                    ),
-            )
-            .into_any_element()
+        control.into_any_element()
+    }
+
+    pub(in crate::workspace) fn open_terminal_command_specs_editor(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let value = self.terminal_command_specs_editor_initial_value();
+        self.prepare_modal_interaction_boundary();
+        self.terminal_command_specs_editor_open = true;
+        self.focus_settings_input(SettingsInput::TerminalCommandSpecsJson, value, cx);
+        window.focus(&self.focus_handle);
+        cx.notify();
+    }
+
+    pub(in crate::workspace) fn close_terminal_command_specs_editor(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) {
+        self.terminal_command_specs_editor_open = false;
+        if self.focused_settings_input == Some(SettingsInput::TerminalCommandSpecsJson) {
+            self.focused_settings_input = None;
+            self.clear_settings_input_draft(SettingsInput::TerminalCommandSpecsJson);
+            self.clear_ime_selection();
+        }
+        self.ime_marked_text = None;
+        cx.notify();
     }
 
     pub(in crate::workspace) fn render_settings_multiline_textarea_lines(

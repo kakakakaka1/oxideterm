@@ -674,6 +674,16 @@ impl WorkspaceApp {
 
                 false
             }
+            "escape"
+                if input == SettingsInput::TerminalCommandSpecsJson
+                    && self.terminal_command_specs_editor_open =>
+            {
+                // This input belongs to a workspace modal, so Escape dismisses
+                // the editor instead of leaving an unfocused modal behind.
+                self.close_terminal_command_specs_editor(cx);
+                self.new_connection_caret_visible = true;
+                true
+            }
             "escape" => {
                 self.focused_settings_input = None;
                 self.clear_settings_input_draft(input);

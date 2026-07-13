@@ -359,12 +359,18 @@ impl WorkspaceApp {
             }
             SettingsTab::Terminal => {
                 format!("{:?}", self.settings_page.terminal_page).hash(&mut hasher);
-                settings
-                    .terminal
-                    .command_bar
-                    .focus_handoff_commands
-                    .len()
-                    .hash(&mut hasher);
+                if settings_terminal_focus_handoff_list_item(
+                    self.settings_page.terminal_page,
+                    index,
+                ) {
+                    // Selected chips can change width and wrap this card, but
+                    // they must not invalidate measurements for every terminal row.
+                    settings
+                        .terminal
+                        .command_bar
+                        .focus_handoff_commands
+                        .hash(&mut hasher);
+                }
                 if self.settings_page.terminal_page == TerminalSettingsPage::Local {
                     settings.local_terminal.oh_my_posh_enabled.hash(&mut hasher);
                     settings.local_terminal.default_shell_id.hash(&mut hasher);
@@ -1074,6 +1080,20 @@ fn settings_connection_importers_list_item(list_index: usize) -> bool {
         .is_some_and(|section_index| section_index == SETTINGS_CONNECTION_IMPORTERS_SECTION_INDEX)
 }
 
+const SETTINGS_TERMINAL_FOCUS_HANDOFF_SECTION_INDEX: usize = 1;
+
+fn settings_terminal_focus_handoff_list_item(
+    terminal_page: TerminalSettingsPage,
+    list_index: usize,
+) -> bool {
+    terminal_page == TerminalSettingsPage::CommandBar
+        && list_index
+            .checked_sub(SETTINGS_SECTION_HEADER_ITEM_COUNT)
+            .is_some_and(|section_index| {
+                section_index == SETTINGS_TERMINAL_FOCUS_HANDOFF_SECTION_INDEX
+            })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1083,5 +1103,29 @@ mod tests {
         assert!(!settings_connection_importers_list_item(0));
         assert!(!settings_connection_importers_list_item(5));
         assert!(settings_connection_importers_list_item(6));
+    }
+
+    #[test]
+    fn focus_handoff_height_signature_only_targets_command_bar_card() {
+        assert!(!settings_terminal_focus_handoff_list_item(
+            TerminalSettingsPage::CommandBar,
+            0,
+        ));
+        assert!(!settings_terminal_focus_handoff_list_item(
+            TerminalSettingsPage::CommandBar,
+            1,
+        ));
+        assert!(settings_terminal_focus_handoff_list_item(
+            TerminalSettingsPage::CommandBar,
+            2,
+        ));
+        assert!(!settings_terminal_focus_handoff_list_item(
+            TerminalSettingsPage::CommandBar,
+            3,
+        ));
+        assert!(!settings_terminal_focus_handoff_list_item(
+            TerminalSettingsPage::Display,
+            2,
+        ));
     }
 }

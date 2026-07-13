@@ -319,6 +319,7 @@ impl WorkspaceApp {
             ime_drag_selection: None,
             focused_settings_input: None,
             settings_input_draft: String::new(),
+            terminal_command_specs_editor_open: false,
             settings_slider_drag: None,
             settings_caret_blink_pause_until: None,
             keybinding_recording_combo: None,

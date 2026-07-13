@@ -956,6 +956,11 @@ impl Render for WorkspaceApp {
                 // Mount it here so the backdrop covers every persistent chrome region.
                 root.child(modal)
             })
+            .when(self.terminal_command_specs_editor_open, |root| {
+                // Structured command specs use the same workspace-wide modal
+                // ownership so the settings list never contains a nested editor.
+                root.child(self.render_terminal_command_specs_editor_modal(cx))
+            })
             .when(self.session_manager.oxide_import_dialog.is_some(), |root| {
                 // .oxide dialogs are application-level import flows. Portal
                 // them beside the command palette so their backdrop covers

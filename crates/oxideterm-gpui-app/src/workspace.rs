@@ -797,6 +797,9 @@ pub(crate) struct WorkspaceApp {
     ime_drag_selection: Option<WorkspaceImeDragSelection>,
     focused_settings_input: Option<SettingsInput>,
     settings_input_draft: String,
+    // The large command-spec document is edited in a workspace modal so the
+    // settings virtual list remains the only scroll owner behind it.
+    terminal_command_specs_editor_open: bool,
     settings_slider_drag: Option<SettingsSlider>,
     settings_caret_blink_pause_until: Option<Instant>,
     keybinding_recording_combo: Option<crate::keybindings::KeyCombo>,

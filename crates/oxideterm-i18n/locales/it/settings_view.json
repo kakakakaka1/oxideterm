@@ -378,6 +378,8 @@
       "command_specs": "Custom Command Specs",
       "command_specs_hint": "Add Fig-compatible command completion specs. Custom specs override built-in specs with the same command name.",
       "command_specs_summary": "Built-in specs: {builtIn} · Custom specs: {custom}",
+      "command_specs_edit": "Modifica",
+      "command_specs_close": "Chiudi",
       "command_specs_format": "Format",
       "command_specs_example": "Example",
       "command_specs_save": "Save",

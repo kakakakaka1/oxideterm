@@ -378,6 +378,8 @@
       "command_specs": "自訂命令 Spec",
       "command_specs_hint": "新增 Fig 相容的命令補全 spec。同名自訂 spec 會覆蓋內建 spec。",
       "command_specs_summary": "內建 spec：{builtIn} · 自訂 spec：{custom}",
+      "command_specs_edit": "編輯",
+      "command_specs_close": "關閉",
       "command_specs_format": "格式化",
       "command_specs_example": "範例",
       "command_specs_save": "儲存",
