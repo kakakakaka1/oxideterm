@@ -13,7 +13,7 @@ use alacritty_terminal::{
     index::{Column, Line, Point},
     sync::FairMutex,
     term::{
-        Config, Term,
+        Config, Osc52, Term,
         cell::{Cell, Flags},
     },
     tty::{self, Shell},
@@ -94,6 +94,16 @@ use process_lifecycle::WindowsTerminalJob;
 #[cfg(not(windows))]
 use process_lifecycle::cleanup_local_pty_process_tree;
 use search::{append_grid_line_text, search_logical_line_matches, viewport_row_for_grid_line};
+
+fn interactive_terminal_config(scrollback_lines: usize) -> Config {
+    let mut config = Config::default();
+    config.scrolling_history = scrollback_lines;
+    config.kitty_keyboard = true;
+    // Parse OSC 52 queries for interactive sessions; the GPUI permission gate decides whether
+    // local clipboard contents are returned to the requesting process.
+    config.osc52 = Osc52::CopyPaste;
+    config
+}
 
 // Local PTY pieces stay included in this module so crate-private terminal
 // state and the public `oxideterm_terminal` API remain unchanged while the

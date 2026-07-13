@@ -248,6 +248,9 @@ pub struct TerminalSettings {
     pub paste_protection: bool,
     pub smart_copy: bool,
     pub osc52_clipboard: bool,
+    // Clipboard reads expose local data to remote programs, so legacy settings default to denied.
+    #[serde(default)]
+    pub osc52_clipboard_read: bool,
     pub copy_on_select: bool,
     pub middle_click_paste: bool,
     pub selection_requires_shift: bool,
@@ -293,6 +296,7 @@ impl Default for TerminalSettings {
             paste_protection: true,
             smart_copy: true,
             osc52_clipboard: true,
+            osc52_clipboard_read: false,
             copy_on_select: false,
             middle_click_paste: false,
             selection_requires_shift: false,
@@ -372,6 +376,19 @@ mod tests {
         let settings: TerminalSettings = serde_json::from_value(value).unwrap();
 
         assert!(!settings.font_ligatures);
+    }
+
+    #[test]
+    fn terminal_settings_default_osc52_clipboard_read_when_missing() {
+        let mut value = serde_json::to_value(TerminalSettings::default()).unwrap();
+        value
+            .as_object_mut()
+            .unwrap()
+            .remove("osc52ClipboardRead");
+
+        let settings: TerminalSettings = serde_json::from_value(value).unwrap();
+
+        assert!(!settings.osc52_clipboard_read);
     }
 
     #[test]

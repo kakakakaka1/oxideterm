@@ -189,6 +189,8 @@
       "paste_protection_hint": "複数行のコンテンツをペーストする前に確認し、コマンドの誤実行を防止",
       "osc52_clipboard": "OSC 52 クリップボード",
       "osc52_clipboard_hint": "リモートプログラム（tmux、vim）が OSC 52 エスケープシーケンスでシステムクリップボードに書き込むことを許可",
+      "osc52_clipboard_read": "OSC 52 によるクリップボード読み取り",
+      "osc52_clipboard_read_hint": "リモートプログラムが OSC 52 で現在のシステムクリップボードのテキストを要求することを許可します。信頼できるセッションでのみ有効にしてください",
       "copy_on_select": "選択時にコピー",
       "copy_on_select_hint": "マウス選択が落ち着いたら、自動的にターミナルテキストをシステムクリップボードにコピーします",
       "middle_click_paste": "中クリック貼り付け",

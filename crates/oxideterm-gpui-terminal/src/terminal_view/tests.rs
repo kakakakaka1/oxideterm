@@ -413,11 +413,13 @@ fn marked_text_is_laid_out_at_terminal_cursor() {
 fn copy_policy_defaults_keep_current_terminal_behavior() {
     let settings = TerminalUiSettings::default();
     assert!(!settings.copy_on_select);
+    assert!(!settings.osc52_clipboard_read);
     assert!(settings.keep_selection_on_copy);
     assert_eq!(settings.blink_mode, TerminalBlinkMode::On);
 
     let preferences = TerminalUiPreferences::default();
     assert_eq!(preferences.scrollback_lines, DEFAULT_SCROLLBACK_LINES);
+    assert!(!preferences.osc52_clipboard_read);
 }
 
 #[test]

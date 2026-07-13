@@ -814,6 +814,7 @@ impl WorkspaceApp {
             paste_protection: terminal.paste_protection,
             smart_copy: terminal.smart_copy,
             osc52_clipboard: terminal.osc52_clipboard,
+            osc52_clipboard_read: terminal.osc52_clipboard_read,
             copy_on_select: terminal.copy_on_select,
             middle_click_paste: terminal.middle_click_paste,
             selection_requires_shift: terminal.selection_requires_shift,

@@ -37,6 +37,7 @@ pub(crate) const TERMINAL_BLINK_MODE: TerminalBlinkMode = TerminalBlinkMode::On;
 pub(crate) const TERMINAL_PASTE_PROTECTION: bool = true;
 pub(crate) const TERMINAL_SMART_COPY: bool = true;
 pub(crate) const TERMINAL_OSC52_CLIPBOARD: bool = true;
+pub(crate) const TERMINAL_OSC52_CLIPBOARD_READ: bool = false;
 pub(crate) const TERMINAL_COPY_ON_SELECT: bool = false;
 pub(crate) const TERMINAL_MIDDLE_CLICK_PASTE: bool = false;
 pub(crate) const TERMINAL_KEEP_SELECTION_ON_COPY: bool = true;
@@ -61,6 +62,7 @@ pub struct TerminalUiPreferences {
     pub paste_protection: bool,
     pub smart_copy: bool,
     pub osc52_clipboard: bool,
+    pub osc52_clipboard_read: bool,
     pub copy_on_select: bool,
     pub middle_click_paste: bool,
     pub selection_requires_shift: bool,
@@ -102,6 +104,7 @@ impl Default for TerminalUiPreferences {
             paste_protection: TERMINAL_PASTE_PROTECTION,
             smart_copy: TERMINAL_SMART_COPY,
             osc52_clipboard: TERMINAL_OSC52_CLIPBOARD,
+            osc52_clipboard_read: TERMINAL_OSC52_CLIPBOARD_READ,
             copy_on_select: TERMINAL_COPY_ON_SELECT,
             middle_click_paste: TERMINAL_MIDDLE_CLICK_PASTE,
             selection_requires_shift: TERMINAL_SELECTION_REQUIRES_SHIFT,
@@ -489,6 +492,7 @@ pub(crate) struct TerminalUiSettings {
     pub(crate) paste_protection: bool,
     pub(crate) smart_copy: bool,
     pub(crate) osc52_clipboard: bool,
+    pub(crate) osc52_clipboard_read: bool,
     pub(crate) copy_on_select: bool,
     pub(crate) middle_click_paste: bool,
     pub(crate) keep_selection_on_copy: bool,
@@ -509,6 +513,7 @@ impl Default for TerminalUiSettings {
             paste_protection: TERMINAL_PASTE_PROTECTION,
             smart_copy: TERMINAL_SMART_COPY,
             osc52_clipboard: TERMINAL_OSC52_CLIPBOARD,
+            osc52_clipboard_read: TERMINAL_OSC52_CLIPBOARD_READ,
             copy_on_select: TERMINAL_COPY_ON_SELECT,
             middle_click_paste: TERMINAL_MIDDLE_CLICK_PASTE,
             keep_selection_on_copy: TERMINAL_KEEP_SELECTION_ON_COPY,
@@ -535,6 +540,7 @@ impl TerminalUiSettings {
             paste_protection: preferences.paste_protection,
             smart_copy: preferences.smart_copy,
             osc52_clipboard: preferences.osc52_clipboard,
+            osc52_clipboard_read: preferences.osc52_clipboard_read,
             copy_on_select: preferences.copy_on_select,
             middle_click_paste: preferences.middle_click_paste,
             keep_selection_on_copy: TERMINAL_KEEP_SELECTION_ON_COPY,

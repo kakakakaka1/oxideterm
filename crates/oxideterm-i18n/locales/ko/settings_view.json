@@ -189,6 +189,8 @@
       "paste_protection_hint": "여러 줄 내용을 붙여넣기 전에 확인하여 실수로 명령이 실행되는 것을 방지",
       "osc52_clipboard": "OSC 52 클립보드",
       "osc52_clipboard_hint": "원격 프로그램(tmux, vim)이 OSC 52 이스케이프 시퀀스를 통해 시스템 클립보드에 쓸 수 있도록 허용",
+      "osc52_clipboard_read": "OSC 52 클립보드 읽기 허용",
+      "osc52_clipboard_read_hint": "원격 프로그램이 OSC 52를 통해 현재 시스템 클립보드 텍스트를 요청하도록 허용합니다. 신뢰할 수 있는 세션에서만 활성화하세요",
       "copy_on_select": "선택 시 복사",
       "copy_on_select_hint": "마우스 선택이 안정되면 자동으로 터미널 텍스트를 시스템 클립보드에 복사합니다",
       "middle_click_paste": "가운데 클릭 붙여넣기",

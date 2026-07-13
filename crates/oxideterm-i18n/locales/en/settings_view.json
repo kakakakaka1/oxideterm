@@ -191,6 +191,8 @@
       "paste_protection_hint": "Confirm before pasting multi-line content to prevent accidental command execution",
       "osc52_clipboard": "OSC 52 Clipboard",
       "osc52_clipboard_hint": "Allow remote programs (tmux, vim) to write to system clipboard via OSC 52 escape sequence",
+      "osc52_clipboard_read": "OSC 52 Clipboard Read Access",
+      "osc52_clipboard_read_hint": "Allow remote programs to request current system clipboard text via OSC 52. Enable only for trusted sessions",
       "copy_on_select": "Copy on Select",
       "copy_on_select_hint": "Automatically copy terminal text to the system clipboard once a mouse selection settles",
       "middle_click_paste": "Middle-Click Paste",

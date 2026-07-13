@@ -189,6 +189,8 @@
       "paste_protection_hint": "Conferma prima di incollare contenuti multi-riga per prevenire esecuzioni accidentali",
       "osc52_clipboard": "Appunti OSC 52",
       "osc52_clipboard_hint": "Consenti ai programmi remoti (tmux, vim) di scrivere negli appunti di sistema tramite sequenza di escape OSC 52",
+      "osc52_clipboard_read": "Lettura degli appunti tramite OSC 52",
+      "osc52_clipboard_read_hint": "Consenti ai programmi remoti di richiedere il testo corrente degli appunti di sistema tramite OSC 52. Abilita solo per sessioni attendibili",
       "copy_on_select": "Copia alla selezione",
       "copy_on_select_hint": "Copia automaticamente il testo del terminale negli appunti di sistema quando la selezione del mouse si stabilizza",
       "middle_click_paste": "Incolla con clic centrale",

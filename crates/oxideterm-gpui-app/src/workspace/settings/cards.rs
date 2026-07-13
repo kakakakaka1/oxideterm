@@ -170,6 +170,16 @@ impl WorkspaceApp {
                     cx,
                 ),
                 16.0,
+            ))
+            .child(self.settings_row_with_margin(
+                self.checkbox_row(
+                    "settings_view.terminal.osc52_clipboard_read",
+                    "settings_view.terminal.osc52_clipboard_read_hint",
+                    settings.terminal.osc52_clipboard_read,
+                    set_osc52_clipboard_read,
+                    cx,
+                ),
+                16.0,
             ));
 
         if !cfg!(target_os = "macos") {

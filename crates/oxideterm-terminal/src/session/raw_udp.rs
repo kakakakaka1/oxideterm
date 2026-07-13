@@ -210,9 +210,7 @@ impl RawUdpSession {
         let (command_tx, command_rx) = tokio::sync::mpsc::channel(256);
         let listener = LocalEventListener { tx: event_tx };
 
-        let mut term_config = Config::default();
-        term_config.scrolling_history = scrollback_lines;
-        term_config.kitty_keyboard = true;
+        let term_config = interactive_terminal_config(scrollback_lines);
         let term = Arc::new(FairMutex::new(Term::new(term_config, &size, listener)));
 
         let runtime = Runtime::new().ok();

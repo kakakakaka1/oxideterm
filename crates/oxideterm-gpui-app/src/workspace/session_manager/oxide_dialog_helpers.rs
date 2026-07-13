@@ -313,6 +313,7 @@ pub(super) fn oxide_settings_field_label(field: &str, i18n: &oxideterm_i18n::I18
         "pasteProtection" => i18n.t("settings_view.terminal.paste_protection"),
         "smartCopy" => i18n.t("settings_view.terminal.smart_copy"),
         "osc52Clipboard" => i18n.t("settings_view.terminal.osc52_clipboard"),
+        "osc52ClipboardRead" => i18n.t("settings_view.terminal.osc52_clipboard_read"),
         "copyOnSelect" => i18n.t("settings_view.terminal.copy_on_select"),
         "middleClickPaste" => i18n.t("settings_view.terminal.middle_click_paste"),
         "selectionRequiresShift" => i18n.t("settings_view.terminal.selection_requires_shift"),

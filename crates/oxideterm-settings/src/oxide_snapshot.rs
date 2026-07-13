@@ -61,6 +61,7 @@ const TERMINAL_BEHAVIOR_KEYS: &[&str] = &[
     "pasteProtection",
     "smartCopy",
     "osc52Clipboard",
+    "osc52ClipboardRead",
     "copyOnSelect",
     "middleClickPaste",
     "selectionRequiresShift",

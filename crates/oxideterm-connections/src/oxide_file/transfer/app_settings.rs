@@ -125,6 +125,7 @@ fn build_sectioned_app_settings_sections(
                     "pasteProtection",
                     "smartCopy",
                     "osc52Clipboard",
+                    "osc52ClipboardRead",
                     "copyOnSelect",
                     "middleClickPaste",
                     "selectionRequiresShift",

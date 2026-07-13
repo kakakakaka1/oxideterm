@@ -189,6 +189,8 @@
       "paste_protection_hint": "Confirmar antes de colar conteúdo multilinha para prevenir execução acidental de comandos",
       "osc52_clipboard": "Área de transferência OSC 52",
       "osc52_clipboard_hint": "Permitir que programas remotos (tmux, vim) escrevam na área de transferência do sistema via sequência de escape OSC 52",
+      "osc52_clipboard_read": "Leitura da área de transferência via OSC 52",
+      "osc52_clipboard_read_hint": "Permitir que programas remotos solicitem o texto atual da área de transferência do sistema via OSC 52. Ative apenas para sessões confiáveis",
       "copy_on_select": "Copiar ao selecionar",
       "copy_on_select_hint": "Copiar automaticamente o texto do terminal para a área de transferência do sistema quando a seleção do mouse se estabilizar",
       "middle_click_paste": "Colar com clique do meio",

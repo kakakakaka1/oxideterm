@@ -92,9 +92,7 @@ impl LocalPtySession {
         let (terminal_event_tx, terminal_event_rx) = unbounded();
         let (stats_tx, stats_rx) = unbounded();
 
-        let mut terminal_config = Config::default();
-        terminal_config.scrolling_history = scrollback_lines;
-        terminal_config.kitty_keyboard = true;
+        let terminal_config = interactive_terminal_config(scrollback_lines);
 
         let listener = LocalEventListener {
             tx: event_tx,

@@ -40,7 +40,7 @@ use crate::{
     TerminalEvent, TerminalGraphicsState, TerminalLifecycle, TerminalModemTransferRequest,
     TerminalProcessInfo, TerminalSearchMatch, TerminalSize, TerminalSnapshot,
     append_grid_line_text, backpressure::MagicScanWindow, focus_report_sequence,
-    graphics_cursor_from_term, search_logical_line_matches,
+    graphics_cursor_from_term, interactive_terminal_config, search_logical_line_matches,
     shell_integration::TerminalShellIntegration, snapshot_from_term,
     snapshot_from_term_with_display_offset,
 };
@@ -153,11 +153,32 @@ include!("session/raw_udp.rs");
 #[cfg(test)]
 mod tests {
     use alacritty_terminal::{
-        event::VoidListener,
+        event::{Event as AlacEvent, VoidListener},
         vte::ansi::{Processor, StdSyncHandler},
     };
 
     use super::*;
+
+    #[test]
+    fn interactive_terminal_config_emits_osc52_clipboard_queries() {
+        let size = TerminalSize {
+            cols: 12,
+            rows: 3,
+            cell_width: 8,
+            cell_height: 17,
+        };
+        let (event_tx, event_rx) = unbounded();
+        let listener = LocalEventListener { tx: event_tx };
+        let mut term = Term::new(interactive_terminal_config(16), &size, listener);
+        let mut parser = Processor::<StdSyncHandler>::new();
+
+        parser.advance(&mut term, b"\x1b]52;c;?\x07");
+
+        let AlacEvent::ClipboardLoad(_, formatter) = event_rx.try_recv().unwrap() else {
+            panic!("expected OSC 52 clipboard query");
+        };
+        assert_eq!(formatter("clipboard"), "\x1b]52;c;Y2xpcGJvYXJk\x07");
+    }
 
     #[test]
     fn ai_terminal_buffer_text_includes_scrollback_rows() {

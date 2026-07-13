@@ -126,6 +126,20 @@ impl WorkspaceApp {
                 has_background,
                 FILE_MANAGER_PANEL_80_ALPHA,
             ))
+            .when(!self.file_manager.bookmarks_visible, |toolbar| {
+                // Once the favorites rail is fully hidden, its restore action belongs
+                // to the persistent file-manager toolbar instead of an empty rail.
+                toolbar.child(self.render_file_manager_icon_button(
+                    LucideIcon::PanelLeft,
+                    self.i18n.t("fileManager.expandSidebar"),
+                    cx.listener(|this, _event, _window, cx| {
+                        this.file_manager.bookmarks_visible = true;
+                        cx.stop_propagation();
+                        cx.notify();
+                    }),
+                    cx.entity(),
+                ))
+            })
             .child(
                 div()
                     .text_size(px(FILE_MANAGER_TEXT_SM))
@@ -268,59 +282,19 @@ impl WorkspaceApp {
             .flex_none()
             .flex()
             .flex_col()
-            .border_r_1()
-            .border_color(file_manager_border(theme.border, has_background))
             .bg(file_manager_panel_bg(
                 theme.bg_card,
                 has_background,
                 FILE_MANAGER_PANEL_80_ALPHA,
             ))
-            .overflow_hidden()
-            .child(
-                div()
-                    .h(px(32.0))
-                    .flex_none()
-                    .flex()
-                    .items_center()
-                    .justify_end()
-                    .p(px(4.0))
-                    .border_b_1()
+            .when(expanded, |panel| {
+                panel
+                    .border_r_1()
                     .border_color(file_manager_border(theme.border, has_background))
-                    .child(self.render_file_manager_icon_button(
-                        if expanded {
-                            LucideIcon::PanelLeftClose
-                        } else {
-                            LucideIcon::PanelLeft
-                        },
-                        self.i18n.t(if expanded {
-                            "fileManager.collapseSidebar"
-                        } else {
-                            "fileManager.expandSidebar"
-                        }),
-                        cx.listener(|this, _event, _window, cx| {
-                            this.file_manager.bookmarks_visible =
-                                !this.file_manager.bookmarks_visible;
-                            cx.stop_propagation();
-                            cx.notify();
-                        }),
-                        cx.entity(),
-                    )),
-            );
+            })
+            .overflow_hidden();
 
         if !expanded {
-            panel = panel.child(div().py(px(8.0)).flex().justify_center().child(
-                self.render_file_manager_icon_button(
-                    LucideIcon::Star,
-                    self.i18n.t("fileManager.addBookmark"),
-                    cx.listener(|this, _event, _window, cx| {
-                        if !this.is_file_manager_path_bookmarked(&this.file_manager.path) {
-                            this.toggle_file_manager_current_bookmark(cx);
-                        }
-                        cx.stop_propagation();
-                    }),
-                    cx.entity(),
-                ),
-            ));
             return self.animate_file_manager_bookmarks_width(panel, expanded);
         }
 
@@ -331,6 +305,7 @@ impl WorkspaceApp {
             .py(px(8.0))
             .child(self.render_file_manager_sidebar_section_header(
                 self.i18n.t("fileManager.favorites"),
+                true,
                 true,
                 cx,
             ));
@@ -355,6 +330,7 @@ impl WorkspaceApp {
         navigation = navigation.child(div().mt(px(10.0)).child(
             self.render_file_manager_sidebar_section_header(
                 self.i18n.t("fileManager.sidebarLocations"),
+                false,
                 false,
                 cx,
             ),
@@ -423,10 +399,28 @@ impl WorkspaceApp {
     fn render_file_manager_sidebar_section_header(
         &self,
         label: String,
+        show_sidebar_collapse: bool,
         show_add_bookmark: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = self.tokens.ui;
+        let title = div()
+            .flex()
+            .items_center()
+            .gap(px(4.0))
+            .when(show_sidebar_collapse, |title| {
+                title.child(self.render_file_manager_icon_button(
+                    LucideIcon::PanelLeftClose,
+                    self.i18n.t("fileManager.collapseSidebar"),
+                    cx.listener(|this, _event, _window, cx| {
+                        this.file_manager.bookmarks_visible = false;
+                        cx.stop_propagation();
+                        cx.notify();
+                    }),
+                    cx.entity(),
+                ))
+            })
+            .child(label);
         div()
             .h(px(28.0))
             .flex()
@@ -436,7 +430,7 @@ impl WorkspaceApp {
             .text_size(px(FILE_MANAGER_TEXT_XS))
             .font_weight(gpui::FontWeight::SEMIBOLD)
             .text_color(rgb(theme.text_muted))
-            .child(label)
+            .child(title)
             .when(show_add_bookmark, |header| {
                 header.child(self.render_file_manager_icon_button(
                     LucideIcon::Plus,
@@ -620,7 +614,7 @@ impl WorkspaceApp {
         let target_width = if expanded {
             FILE_MANAGER_SIDEBAR_WIDTH
         } else {
-            FILE_MANAGER_SIDEBAR_COLLAPSED_WIDTH
+            FILE_MANAGER_SIDEBAR_HIDDEN_WIDTH
         };
         if !self.tokens.motion.enabled || !self.tokens.motion.spatial_enabled {
             // Reduced and Off change layout synchronously without an animation duration.
@@ -638,14 +632,14 @@ impl WorkspaceApp {
                 move |panel, progress| {
                     let width = if expanded {
                         oxideterm_gpui_ui::motion::lerp(
-                            FILE_MANAGER_SIDEBAR_COLLAPSED_WIDTH,
+                            FILE_MANAGER_SIDEBAR_HIDDEN_WIDTH,
                             FILE_MANAGER_SIDEBAR_WIDTH,
                             progress,
                         )
                     } else {
                         oxideterm_gpui_ui::motion::lerp(
                             FILE_MANAGER_SIDEBAR_WIDTH,
-                            FILE_MANAGER_SIDEBAR_COLLAPSED_WIDTH,
+                            FILE_MANAGER_SIDEBAR_HIDDEN_WIDTH,
                             progress,
                         )
                     };

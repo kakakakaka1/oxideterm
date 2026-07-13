@@ -29,6 +29,7 @@ use oxideterm_terminal::{
 };
 use oxideterm_trzsz::TrzszState;
 use parking_lot::Mutex;
+use zeroize::Zeroizing;
 
 use crate::background_cache::BackgroundImageRenderCache;
 use crate::command_facts::{
@@ -1887,10 +1888,11 @@ impl TerminalPane {
                 TerminalEventEffect::default()
             }
             TerminalEvent::ClipboardLoad(formatter) => {
-                if self.settings.osc52_clipboard
-                    && let Some(text) = cx.read_from_clipboard().and_then(|item| item.text())
-                {
-                    let response = formatter(&text);
+                if let Some(response) = build_osc52_clipboard_response(
+                    self.settings.osc52_clipboard_read,
+                    || cx.read_from_clipboard().and_then(|item| item.text()),
+                    formatter.as_ref(),
+                ) {
                     self.send_protocol_bytes(response.as_bytes(), cx);
                 }
                 TerminalEventEffect::default()
@@ -2305,6 +2307,20 @@ fn hex_color(color: u32) -> String {
     format!("#{:06x}", color & 0x00ff_ffff)
 }
 
+fn build_osc52_clipboard_response(
+    allowed: bool,
+    read_clipboard: impl FnOnce() -> Option<String>,
+    formatter: &(dyn Fn(&str) -> String + Send + Sync),
+) -> Option<Zeroizing<String>> {
+    if !allowed {
+        return None;
+    }
+    // OSC 52 reads can expose arbitrary clipboard data, so clear both temporary UI and wire
+    // copies immediately after the protocol response is submitted.
+    let text = Zeroizing::new(read_clipboard()?);
+    Some(Zeroizing::new(formatter(&text)))
+}
+
 fn whole_cells_in_span(span: f32, cell_span: f32) -> usize {
     let cells = span / cell_span;
     let nearest_integer = cells.round();
@@ -2335,9 +2351,37 @@ fn terminal_grid_span_for_viewport(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{collections::HashMap, sync::Arc};
+    use std::{cell::Cell, collections::HashMap, sync::Arc};
 
     use oxideterm_terminal::{TerminalAttrs, TerminalCell, TerminalColor, TerminalCursorShape};
+
+    #[test]
+    fn osc52_clipboard_read_does_not_touch_clipboard_when_denied() {
+        let read_called = Cell::new(false);
+
+        let response = build_osc52_clipboard_response(
+            false,
+            || {
+                read_called.set(true);
+                Some("clipboard".to_string())
+            },
+            &|text| format!("response:{text}"),
+        );
+
+        assert!(response.is_none());
+        assert!(!read_called.get());
+    }
+
+    #[test]
+    fn osc52_clipboard_read_formats_response_when_allowed() {
+        let response =
+            build_osc52_clipboard_response(true, || Some("clipboard".to_string()), &|text| {
+                format!("response:{text}")
+            })
+            .unwrap();
+
+        assert_eq!(response.as_str(), "response:clipboard");
+    }
 
     fn timestamp_test_cell(ch: char) -> TerminalCell {
         TerminalCell {

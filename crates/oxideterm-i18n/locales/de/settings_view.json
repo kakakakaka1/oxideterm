@@ -189,6 +189,8 @@
       "paste_protection_hint": "Vor dem Einfügen mehrzeiliger Inhalte bestätigen, um versehentliche Befehlsausführung zu verhindern",
       "osc52_clipboard": "OSC 52 Zwischenablage",
       "osc52_clipboard_hint": "Remote-Programme (tmux, vim) dürfen über OSC 52 Escape-Sequenz in die System-Zwischenablage schreiben",
+      "osc52_clipboard_read": "OSC-52-Lesezugriff auf die Zwischenablage",
+      "osc52_clipboard_read_hint": "Remote-Programme dürfen den aktuellen Text der System-Zwischenablage über OSC 52 anfordern. Nur für vertrauenswürdige Sitzungen aktivieren",
       "copy_on_select": "Beim Auswählen kopieren",
       "copy_on_select_hint": "Terminaltext automatisch in die Systemzwischenablage kopieren, sobald eine Mausauswahl stabil ist",
       "middle_click_paste": "Mittelklick zum Einfügen",

@@ -39,6 +39,10 @@ pub fn set_osc52_clipboard(settings: &mut PersistedSettings, value: bool) {
     settings.terminal.osc52_clipboard = value;
 }
 
+pub fn set_osc52_clipboard_read(settings: &mut PersistedSettings, value: bool) {
+    settings.terminal.osc52_clipboard_read = value;
+}
+
 pub fn set_middle_click_paste(settings: &mut PersistedSettings, value: bool) {
     settings.terminal.middle_click_paste = value;
 }

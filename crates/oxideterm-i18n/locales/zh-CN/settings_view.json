@@ -191,6 +191,8 @@
       "paste_protection_hint": "粘贴多行内容前确认，防止意外执行命令",
       "osc52_clipboard": "OSC 52 剪贴板",
       "osc52_clipboard_hint": "允许远程程序（tmux、vim）通过 OSC 52 转义序列写入系统剪贴板",
+      "osc52_clipboard_read": "允许 OSC 52 读取剪贴板",
+      "osc52_clipboard_read_hint": "允许远程程序通过 OSC 52 请求当前系统剪贴板文本。仅对受信任的会话启用",
       "copy_on_select": "选中即复制",
       "copy_on_select_hint": "鼠标选中的终端文本稳定后自动复制到系统剪贴板",
       "middle_click_paste": "中键粘贴",
