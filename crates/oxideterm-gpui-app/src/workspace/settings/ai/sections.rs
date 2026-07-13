@@ -36,18 +36,11 @@ impl WorkspaceApp {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let agent_count = settings.ai.acp_agents.len();
+        // The page already owns the glass card. Keep this section structural so
+        // each agent is the only nested card users need to distinguish.
         let mut section = div()
             .w_full()
             .min_w(px(0.0))
-            .rounded(px(self.tokens.radii.lg))
-            .border_1()
-            .border_color(rgba(
-                (self.tokens.ui.border << 8) | AI_PROVIDER_SECTION_BORDER_ALPHA,
-            ))
-            .bg(rgba(
-                (self.tokens.ui.bg_card << 8) | AI_PROVIDER_SECTION_BG_ALPHA,
-            ))
-            .p(px(16.0))
             .flex()
             .flex_col()
             .gap(px(12.0))
@@ -97,11 +90,7 @@ impl WorkspaceApp {
             return section
                 .child(
                     div()
-                        .rounded(px(self.tokens.radii.md))
-                        .border_1()
-                        .border_color(rgba((self.tokens.ui.border << 8) | 0x73))
-                        .bg(rgba((self.tokens.ui.bg << 8) | 0x66))
-                        .p(px(14.0))
+                        .py(px(12.0))
                         .text_size(px(12.0))
                         .text_color(rgb(self.tokens.ui.text_muted))
                         .child(self.i18n.t("settings_view.ai.acp_agents_empty")),
@@ -800,14 +789,13 @@ impl WorkspaceApp {
         agent: &oxideterm_settings::AcpAgentConfig,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        // Capabilities are part of the agent form, not another independent card.
         div()
             .w_full()
             .min_w(px(0.0))
-            .rounded(px(self.tokens.radii.md))
-            .border_1()
+            .border_t_1()
             .border_color(rgba((self.tokens.ui.border << 8) | 0x66))
-            .bg(rgba((self.tokens.ui.bg << 8) | 0x66))
-            .p(px(12.0))
+            .pt(px(12.0))
             .flex()
             .flex_col()
             .gap(px(8.0))

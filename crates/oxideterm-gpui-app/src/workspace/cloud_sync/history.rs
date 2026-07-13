@@ -283,7 +283,7 @@ impl WorkspaceApp {
         let view_all = self.render_cloud_sync_inline_button(
             "plugin.cloud_sync.overview.view_all_history",
             cx.listener(|this, _event, _window, cx| {
-                this.cloud_sync.view.active_tab = CloudSyncTab::History;
+                this.cloud_sync.view.set_active_tab(CloudSyncTab::History);
                 this.clear_cloud_sync_select_focus();
                 cx.stop_propagation();
                 cx.notify();

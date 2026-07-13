@@ -312,6 +312,8 @@ pub fn custom_theme_tokens_from_settings(settings: &PersistedSettings) -> Option
     let mut tokens = ThemeTokens::from_builtin(theme_by_id("azurite"));
     tokens.terminal = terminal;
     tokens.ui = ui;
+    // Custom palettes must not inherit Azurite's glass contrast profile.
+    tokens.refresh_palette_metrics();
     Some(tokens)
 }
 
@@ -784,5 +786,18 @@ mod tests {
                 .custom_themes
                 .contains_key(&settings.terminal.theme)
         );
+    }
+
+    #[test]
+    fn custom_theme_recomputes_glass_metrics_from_its_own_palette() {
+        let mut settings = PersistedSettings::default();
+        let mut editor = theme_editor_from_settings(&settings, None, "Light Custom".to_string());
+        editor.ui_colors[0] = "#f5f0e8".to_string();
+        save_theme_editor_to_settings(&mut settings, editor);
+
+        let tokens = custom_theme_tokens_from_settings(&settings).expect("custom theme tokens");
+
+        assert_eq!(tokens.metrics.sidebar_vibrancy_alpha, 0.64);
+        assert_eq!(tokens.metrics.panel_vibrancy_alpha, 0.78);
     }
 }

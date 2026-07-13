@@ -638,6 +638,7 @@ impl WorkspaceApp {
                 // Detached windows can outlive the UI route that created them.
                 // Preserve compatibility by rendering the runtime overview.
                 self.active_connection_runtime_section = ConnectionRuntimeSection::Overview;
+                self.previous_connection_runtime_section = ConnectionRuntimeSection::Overview;
                 self.render_connection_runtime_surface(cx)
             }
             (TabKind::ConnectionMonitor, _) => self.render_connection_monitor_surface(cx),

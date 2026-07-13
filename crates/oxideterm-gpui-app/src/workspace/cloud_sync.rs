@@ -60,10 +60,10 @@ use oxideterm_gpui_cloud_sync::{
     cloud_sync_selected_option_index as cloud_sync_selected_option_spec_index,
     cloud_sync_settings_from_form, cloud_sync_should_create_rollback_backup,
     cloud_sync_sidebar_empty, cloud_sync_status_label_key, cloud_sync_status_list,
-    cloud_sync_status_row, cloud_sync_tab_bar, cloud_sync_tab_button, cloud_sync_toggle,
-    cloud_sync_toggle_grid, cloud_sync_upload_diff_items, cloud_sync_upload_field_diff_items,
-    cloud_sync_value_prefers_mono, cloud_sync_version_info_rows, deliver_cloud_sync_apply_preview,
-    deliver_cloud_sync_check, deliver_cloud_sync_github_oauth, deliver_cloud_sync_google_oauth,
+    cloud_sync_status_row, cloud_sync_toggle, cloud_sync_toggle_grid, cloud_sync_upload_diff_items,
+    cloud_sync_upload_field_diff_items, cloud_sync_value_prefers_mono,
+    cloud_sync_version_info_rows, deliver_cloud_sync_apply_preview, deliver_cloud_sync_check,
+    deliver_cloud_sync_github_oauth, deliver_cloud_sync_google_oauth,
     deliver_cloud_sync_microsoft_oauth, deliver_cloud_sync_pull_preview,
     deliver_cloud_sync_restore_backup_preview, deliver_cloud_sync_upload,
     deliver_cloud_sync_upload_preview, finish_cloud_sync_automatic_upload_error_state,
@@ -171,9 +171,17 @@ pub(super) struct CloudSyncViewState {
     pub(super) preview_selection: Option<CloudSyncPreviewSelection>,
     pub(super) upload_selection: Option<CloudSyncUploadSelection>,
     pub(super) active_tab: CloudSyncTab,
+    pub(super) previous_tab: CloudSyncTab,
 }
 
 impl CloudSyncViewState {
+    fn set_active_tab(&mut self, tab: CloudSyncTab) {
+        if self.active_tab != tab {
+            self.previous_tab = self.active_tab;
+            self.active_tab = tab;
+        }
+    }
+
     fn new(settings: &CloudSyncSettings) -> Self {
         // Cloud Sync is a variable-height browser page with optional preview
         // and rollback sections; keep it on the shared section-list path.
@@ -228,6 +236,7 @@ impl CloudSyncViewState {
             preview_selection: None,
             upload_selection: None,
             active_tab: CloudSyncTab::Overview,
+            previous_tab: CloudSyncTab::Overview,
         }
     }
 }

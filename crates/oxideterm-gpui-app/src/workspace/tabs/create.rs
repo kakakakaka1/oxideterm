@@ -20,12 +20,25 @@ impl WorkspaceApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Result<()> {
+        let terminal_config = self.local_terminal_config();
+        let title = self.local_terminal_tab_title();
+        self.create_local_terminal_tab_with_config(terminal_config, title, window, cx)
+    }
+
+    pub(in crate::workspace) fn create_local_terminal_tab_with_config(
+        &mut self,
+        terminal_config: LocalPtyConfig,
+        title: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Result<()> {
+        // Shell Launcher selections must use the same tab and pane lifecycle as
+        // the default-shell shortcut; only the PTY configuration differs.
         let tab_id = self.alloc_tab_id();
         let pane_id = self.alloc_pane_id();
         let session_id = self.alloc_session_id();
         let preferences =
             self.prepare_terminal_preferences_for_tab_kind(&TabKind::LocalTerminal, cx);
-        let terminal_config = self.local_terminal_config();
         let pane = cx.new(|cx| {
             TerminalPane::new_local_with_config_and_preferences(
                 terminal_config,
@@ -41,7 +54,7 @@ impl WorkspaceApp {
         self.tabs.push(Tab {
             id: tab_id,
             kind: TabKind::LocalTerminal,
-            title: self.local_terminal_tab_title(),
+            title,
             title_source: TabTitleSource::Static,
             root_pane: Some(PaneNode::leaf(pane_id, session_id)),
             active_pane_id: Some(pane_id),

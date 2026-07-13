@@ -401,7 +401,7 @@ impl WorkspaceApp {
             "app.newTerminal" => {
                 let _ = self.create_local_terminal_tab(window, cx);
             }
-            "app.shellLauncher" => self.open_launcher_tab(window, cx),
+            "app.shellLauncher" => self.open_local_shell_launcher(cx),
             "app.closeTab" => self.request_close_active_tab(window, cx),
             "app.closeOtherTabs" => self.request_close_other_tabs_or_active_pane(window, cx),
             "app.newConnection" => self.open_new_connection_form(window, cx),

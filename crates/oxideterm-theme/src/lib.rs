@@ -600,7 +600,7 @@ impl ThemeTokens {
         ui.warning = ensure_minimum_contrast(ui.warning, ui.bg, 3.0);
         ui.error = ensure_minimum_contrast(ui.error, ui.bg, 3.0);
         ui.info = ensure_minimum_contrast(ui.info, ui.bg, 3.0);
-        Self {
+        let mut tokens = Self {
             terminal: theme.terminal,
             ui,
             metrics: UiMetrics::tauri_default(),
@@ -608,7 +608,28 @@ impl ThemeTokens {
             spacing: UiSpacing::tauri_default(),
             density: UiDensityProfile::Comfortable,
             motion: UiMotion::normal(),
-        }
+        };
+        tokens.refresh_palette_metrics();
+        tokens
+    }
+
+    /// Recompute image-background tint strength after a built-in or custom
+    /// palette changes. Light themes retain the Paper Oxide baseline, while
+    /// dark palettes need more tint to keep text and surfaces separated from
+    /// arbitrary image luminance.
+    pub fn refresh_palette_metrics(&mut self) {
+        let background_luminance = color_relative_luminance(self.ui.bg);
+        let (window, panel, sidebar, terminal) = if background_luminance < 0.18 {
+            (0.80, 0.84, 0.72, 0.94)
+        } else if background_luminance < 0.55 {
+            (0.76, 0.81, 0.68, 0.93)
+        } else {
+            (0.72, 0.78, 0.64, 0.92)
+        };
+        self.metrics.window_vibrancy_tint_alpha = window;
+        self.metrics.panel_vibrancy_alpha = panel;
+        self.metrics.sidebar_vibrancy_alpha = sidebar;
+        self.metrics.terminal_vibrancy_alpha = terminal;
     }
 
     pub fn apply_density(&mut self, density: UiDensityProfile) {
@@ -1054,6 +1075,17 @@ mod tests {
         assert!(color_relative_luminance(paper.bg) > 0.75);
         let magnetite = ThemeTokens::from_builtin(theme_by_id("magnetite")).ui;
         assert!(color_relative_luminance(magnetite.bg) < 0.03);
+    }
+
+    #[test]
+    fn dark_palettes_get_stronger_glass_tints_without_changing_paper_oxide() {
+        let dark = ThemeTokens::from_builtin(theme_by_id("magnetite"));
+        let paper = ThemeTokens::from_builtin(theme_by_id("paper-oxide"));
+
+        assert!(dark.metrics.sidebar_vibrancy_alpha > paper.metrics.sidebar_vibrancy_alpha);
+        assert!(dark.metrics.panel_vibrancy_alpha > paper.metrics.panel_vibrancy_alpha);
+        assert_eq!(paper.metrics.sidebar_vibrancy_alpha, 0.64);
+        assert_eq!(paper.metrics.panel_vibrancy_alpha, 0.78);
     }
 
     #[test]

@@ -11,6 +11,8 @@ const MEDIUM_SURFACE_SEPARATION: f32 = 0.08;
 const SEMANTIC_SURFACE_STRONG_ALPHA: u32 = 0xf2;
 const SEMANTIC_SURFACE_PANEL_ALPHA: u32 = 0xe6;
 const SEMANTIC_SURFACE_CARD_BACKGROUND_ALPHA: u32 = 0x66; // Tauri [data-bg-active] card fill uses 40% opacity.
+const SEMANTIC_SURFACE_CARD_MID_BACKGROUND_ALPHA: u32 = 0x7a;
+const SEMANTIC_SURFACE_CARD_DARK_BACKGROUND_ALPHA: u32 = 0x8f;
 const SEMANTIC_SURFACE_INSET_ALPHA: u32 = 0x99;
 const SEMANTIC_SURFACE_BORDER_ALPHA: u32 = 0x80;
 const SEMANTIC_SURFACE_STRONG_BORDER_ALPHA: u32 = 0x99;
@@ -165,7 +167,7 @@ pub fn surface_chrome(tokens: &ThemeTokens, options: SurfaceOptions) -> SurfaceC
         ),
         SurfaceKind::Inspector => (
             theme.bg_card,
-            SEMANTIC_SURFACE_CARD_BACKGROUND_ALPHA,
+            theme_glass_card_background_alpha(tokens),
             elevation.card_border_alpha,
             tokens.radii.lg,
             None,
@@ -194,6 +196,19 @@ pub fn surface_chrome(tokens: &ThemeTokens, options: SurfaceOptions) -> SurfaceC
         radius,
         padding: surface_padding_px(tokens, options.padding),
         shadow_color,
+    }
+}
+
+/// Preserve Paper Oxide's light glass while giving dark palettes enough fill
+/// to remain legible over images with bright or high-frequency detail.
+pub fn theme_glass_card_background_alpha(tokens: &ThemeTokens) -> u32 {
+    let background_luma = color_luma(tokens.ui.bg);
+    if background_luma < 0.18 {
+        SEMANTIC_SURFACE_CARD_DARK_BACKGROUND_ALPHA
+    } else if background_luma < TAURI_CARD_LIGHT_LUMA_THRESHOLD {
+        SEMANTIC_SURFACE_CARD_MID_BACKGROUND_ALPHA
+    } else {
+        SEMANTIC_SURFACE_CARD_BACKGROUND_ALPHA
     }
 }
 
@@ -446,7 +461,7 @@ mod tests {
     }
 
     #[test]
-    fn inspector_surface_matches_background_image_card_opacity() {
+    fn inspector_surface_uses_dark_theme_image_card_opacity() {
         let tokens = oxideterm_theme::default_tokens();
         let plain = surface_chrome(&tokens, SurfaceOptions::new(SurfaceKind::Inspector));
         let background = surface_chrome(
@@ -457,9 +472,19 @@ mod tests {
         assert_eq!(plain.background, rgb(tokens.ui.bg_card));
         assert_eq!(
             background.background,
-            rgba((tokens.ui.bg_card << 8) | SEMANTIC_SURFACE_CARD_BACKGROUND_ALPHA)
+            rgba((tokens.ui.bg_card << 8) | SEMANTIC_SURFACE_CARD_DARK_BACKGROUND_ALPHA)
         );
         assert!(background.bordered);
+    }
+
+    #[test]
+    fn paper_oxide_keeps_the_light_glass_card_baseline() {
+        let tokens = ThemeTokens::from_builtin(oxideterm_theme::theme_by_id("paper-oxide"));
+
+        assert_eq!(
+            theme_glass_card_background_alpha(&tokens),
+            SEMANTIC_SURFACE_CARD_BACKGROUND_ALPHA
+        );
     }
 
     #[test]

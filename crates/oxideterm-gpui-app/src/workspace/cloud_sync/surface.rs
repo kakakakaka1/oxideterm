@@ -3,6 +3,8 @@
 
 use super::*;
 
+const CLOUD_SYNC_TAB_BAR_WIDTH: f32 = 396.0; // Three equal header tabs leave room for translated labels.
+
 impl WorkspaceApp {
     pub(in crate::workspace) fn open_cloud_sync_tab(
         &mut self,
@@ -572,26 +574,28 @@ impl WorkspaceApp {
                           this: &Self,
                           cx: &mut Context<Self>|
          -> AnyElement {
-            cloud_sync_tab_button(
+            let content = div()
+                .w_full()
+                .py(px(2.0))
+                .flex()
+                .items_center()
+                .justify_center()
+                .gap(px(7.0))
+                .child(Self::render_lucide_icon(
+                    icon,
+                    16.0,
+                    rgb(if active {
+                        theme.accent
+                    } else {
+                        theme.text_muted
+                    }),
+                ))
+                .child(this.i18n.t(label_key));
+            oxideterm_gpui_ui::segmented_control_item_content(
                 &this.tokens,
                 active,
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(7.0))
-                    .child(Self::render_lucide_icon(
-                        icon,
-                        16.0,
-                        rgb(if active {
-                            theme.accent
-                        } else {
-                            theme.text_muted
-                        }),
-                    ))
-                    .child(this.i18n.t(label_key))
-                    .into_any_element(),
+                content.into_any_element(),
             )
-            .cursor(CursorStyle::PointingHand)
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |this, _event, _window, cx| {
@@ -603,7 +607,7 @@ impl WorkspaceApp {
                         cx.notify();
                         return;
                     }
-                    this.cloud_sync.view.active_tab = tab;
+                    this.cloud_sync.view.set_active_tab(tab);
                     this.clear_cloud_sync_select_focus();
                     cx.stop_propagation();
                     cx.notify();
@@ -612,7 +616,7 @@ impl WorkspaceApp {
             .into_any_element()
         };
 
-        cloud_sync_tab_bar([
+        let items = vec![
             render_tab(
                 CloudSyncTab::Overview,
                 LucideIcon::Cloud,
@@ -637,7 +641,25 @@ impl WorkspaceApp {
                 self,
                 cx,
             ),
-        ])
+        ];
+        let tab_index = |tab| match tab {
+            CloudSyncTab::Overview => 0,
+            CloudSyncTab::Configure => 1,
+            CloudSyncTab::History => 2,
+        };
+        oxideterm_gpui_ui::segmented_control(
+            &self.tokens,
+            "cloud-sync-tab-bar",
+            oxideterm_gpui_ui::SegmentedControlOptions::new(
+                tab_index(self.cloud_sync.view.active_tab),
+                tab_index(self.cloud_sync.view.previous_tab),
+                3,
+            )
+            .has_background_image(self.cloud_sync_has_background())
+            .compact(CLOUD_SYNC_TAB_BAR_WIDTH),
+            items,
+        )
+        .into_any_element()
         .into_any_element()
     }
 

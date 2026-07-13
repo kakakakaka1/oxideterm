@@ -23,6 +23,7 @@ pub mod progress;
 pub mod radio_group;
 pub mod scroll;
 pub mod section;
+pub mod segmented_control;
 pub mod select;
 pub mod separator;
 pub mod slider;
@@ -62,6 +63,10 @@ pub use scroll::{
     ScrollbarAxis,
 };
 pub use section::{SectionHeaderOptions, section_header};
+pub use segmented_control::{
+    SegmentedControlLayout, SegmentedControlMotion, SegmentedControlOptions, segmented_control,
+    segmented_control_item, segmented_control_item_content, segmented_control_motion,
+};
 pub use state::{
     UiStateTone, empty_state, error_state, inline_empty_state, loading_state, state_description,
     state_icon_box, state_notice, state_primary_action, state_shell, state_title,
@@ -71,7 +76,8 @@ pub use surface::{
     color_for_background_or_alpha, color_with_alpha, color_with_background_scaled_alpha,
     scale_alpha_byte, semantic_surface, surface_chrome, surface_padding_px, tauri_card_shadow,
     tauri_card_surface, tauri_glass_surface_shadow, theme_card_shadow, theme_card_surface,
-    theme_card_surface_shadow, theme_overlay_shadow, theme_overlay_surface_shadow,
+    theme_card_surface_shadow, theme_glass_card_background_alpha, theme_overlay_shadow,
+    theme_overlay_surface_shadow,
 };
 pub use table::{
     TauriTableCellOptions, TauriTableCellStyle, TauriTableColors, TauriTableMetrics,

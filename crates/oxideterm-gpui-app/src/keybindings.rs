@@ -941,6 +941,11 @@ mod tests {
             Some(TerminalBehavior::Never)
         );
         assert_eq!(
+            action_definition("app.shellLauncher")
+                .map(|definition| definition.default_combo(KeybindingSide::Mac)),
+            Some(&KeyCombo::cmd_shift("t"))
+        );
+        assert_eq!(
             action_definition("terminal.closePanel").map(|definition| definition.terminal_behavior),
             Some(TerminalBehavior::WhenPanelOpen)
         );

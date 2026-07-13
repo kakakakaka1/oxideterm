@@ -14,6 +14,7 @@ mod graphics_vnc;
 mod ide;
 mod ime;
 mod launcher;
+mod local_shell_launcher;
 mod local_terminal_background;
 mod new_connection;
 mod notification_center;
@@ -910,6 +911,7 @@ pub(crate) struct WorkspaceApp {
     graphics: GraphicsState,
     connection_monitor: ConnectionMonitorState,
     active_connection_runtime_section: ConnectionRuntimeSection,
+    previous_connection_runtime_section: ConnectionRuntimeSection,
     connection_monitor_section_list_state: ListState,
     connection_monitor_section_list_cache: RefCell<VirtualListSignatureCache>,
     cloud_sync: cloud_sync::CloudSyncWorkspaceState,
@@ -949,6 +951,8 @@ pub(crate) struct WorkspaceApp {
     oxide_import_name_group_list_caches: RefCell<HashMap<String, VirtualListSignatureCache>>,
     auto_route_modal: AutoRouteModalState,
     local_shells: Vec<ShellInfo>,
+    local_shell_launcher_open: bool,
+    local_shell_launcher_selected_id: Option<String>,
     terminal_notice_tx: std::sync::mpsc::Sender<TerminalNotice>,
     terminal_notice_rx: std::sync::mpsc::Receiver<TerminalNotice>,
     // Standard toasts need stable ids so the close button removes the rendered

@@ -1,8 +1,6 @@
 use super::*;
 
 impl WorkspaceApp {
-    const SETTINGS_BG_ACTIVE_SURFACE_ALPHA: u32 = 0x66; // Tauri [data-bg-active] bg-theme-bg-panel/card color-mix(... 40%, transparent).
-
     pub(in crate::workspace) fn settings_select_trigger(
         &self,
         select_id: SettingsSelect,
@@ -277,7 +275,7 @@ impl WorkspaceApp {
 
     pub(in crate::workspace) fn settings_panel_background(&self, color: u32) -> Rgba {
         if self.settings_background_active() {
-            rgba((color << 8) | Self::SETTINGS_BG_ACTIVE_SURFACE_ALPHA)
+            rgba((color << 8) | oxideterm_gpui_ui::theme_glass_card_background_alpha(&self.tokens))
         } else {
             rgb(color)
         }
@@ -418,138 +416,87 @@ impl WorkspaceApp {
         &self,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let theme = self.tokens.ui;
-        let mut tabs = div()
-            .w_full()
-            .flex()
-            .flex_row()
-            .flex_wrap()
-            .gap(px(8.0))
-            .rounded(px(self.tokens.radii.lg))
-            .border_1()
-            .border_color(rgb(theme.border))
-            .bg(self.settings_panel_background(theme.bg_card))
-            .shadow(oxideterm_gpui_ui::theme_card_shadow(&self.tokens))
-            .p(px(8.0));
-
-        for page in TerminalSettingsPage::all() {
+        let pages = TerminalSettingsPage::all();
+        let active_index = pages
+            .iter()
+            .position(|page| *page == self.settings_page.terminal_page)
+            .unwrap_or(0);
+        let previous_index = pages
+            .iter()
+            .position(|page| *page == self.settings_page.previous_terminal_page)
+            .unwrap_or(active_index);
+        let mut items = Vec::with_capacity(pages.len());
+        for page in pages {
             let page_id = *page;
             let active = self.settings_page.terminal_page == page_id;
-            let item = div()
-                .flex()
-                .flex_1()
-                .min_w(px(96.0))
-                .items_center()
-                .justify_center()
-                .rounded(px(self.tokens.radii.md))
-                .px(px(12.0))
-                .py(px(6.0))
-                .whitespace_nowrap()
-                .text_align(gpui::TextAlign::Center)
-                .text_size(px(self.tokens.metrics.ui_text_sm))
-                .text_color(if active {
-                    rgb(theme.accent)
-                } else {
-                    rgb(theme.text_muted)
-                })
-                .bg(if active {
-                    rgba((theme.accent << 8) | 0x26)
-                } else {
-                    rgba(0x00000000)
-                })
-                .cursor_pointer()
-                .hover(move |style| {
-                    if active {
-                        style
-                    } else {
-                        style.bg(rgb(theme.bg_hover)).text_color(rgb(theme.text))
-                    }
-                })
-                .child(
-                    div()
-                        .w_full()
-                        .text_align(gpui::TextAlign::Center)
-                        .child(self.i18n.t(page_id.label_key())),
-                )
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(move |this, _event, _window, cx| {
-                        this.settings_page.set_terminal_page(page_id);
-                        cx.notify();
-                    }),
-                );
-            tabs = tabs.child(item);
+            let item = oxideterm_gpui_ui::segmented_control_item(
+                &self.tokens,
+                self.i18n.t(page_id.label_key()),
+                active,
+            )
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, _event, _window, cx| {
+                    this.settings_page.set_terminal_page(page_id);
+                    cx.notify();
+                }),
+            );
+            items.push(item.into_any_element());
         }
-
-        tabs.into_any_element()
+        oxideterm_gpui_ui::segmented_control(
+            &self.tokens,
+            "terminal-settings-page-switcher",
+            oxideterm_gpui_ui::SegmentedControlOptions::new(
+                active_index,
+                previous_index,
+                pages.len(),
+            )
+            .has_background_image(self.settings_background_active()),
+            items,
+        )
+        .into_any_element()
     }
 
     pub(in crate::workspace) fn ai_page_switcher(&self, cx: &mut Context<Self>) -> AnyElement {
-        let theme = self.tokens.ui;
-        // OxideSens uses the same lightweight subpage tabs as terminal settings.
-        let mut tabs = div()
-            .w_full()
-            .flex()
-            .flex_row()
-            .flex_wrap()
-            .gap(px(8.0))
-            .rounded(px(self.tokens.radii.lg))
-            .border_1()
-            .border_color(rgb(theme.border))
-            .bg(self.settings_panel_background(theme.bg_card))
-            .shadow(oxideterm_gpui_ui::theme_card_shadow(&self.tokens))
-            .p(px(8.0));
-
-        for page in AiSettingsPage::all() {
+        let pages = AiSettingsPage::all();
+        let active_index = pages
+            .iter()
+            .position(|page| *page == self.settings_page.ai_page)
+            .unwrap_or(0);
+        let previous_index = pages
+            .iter()
+            .position(|page| *page == self.settings_page.previous_ai_page)
+            .unwrap_or(active_index);
+        let mut items = Vec::with_capacity(pages.len());
+        for page in pages {
             let page_id = *page;
             let active = self.settings_page.ai_page == page_id;
-            let item = div()
-                .flex()
-                .flex_1()
-                .min_w(px(96.0))
-                .items_center()
-                .justify_center()
-                .rounded(px(self.tokens.radii.md))
-                .px(px(12.0))
-                .py(px(6.0))
-                .whitespace_nowrap()
-                .text_align(gpui::TextAlign::Center)
-                .text_size(px(self.tokens.metrics.ui_text_sm))
-                .text_color(if active {
-                    rgb(theme.accent)
-                } else {
-                    rgb(theme.text_muted)
-                })
-                .bg(if active {
-                    rgba((theme.accent << 8) | 0x26)
-                } else {
-                    rgba(0x00000000)
-                })
-                .cursor_pointer()
-                .hover(move |style| {
-                    if active {
-                        style
-                    } else {
-                        style.bg(rgb(theme.bg_hover)).text_color(rgb(theme.text))
-                    }
-                })
-                .child(
-                    div()
-                        .w_full()
-                        .text_align(gpui::TextAlign::Center)
-                        .child(self.i18n.t(page_id.label_key())),
-                )
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(move |this, _event, _window, cx| {
-                        this.settings_page.set_ai_page(page_id);
-                        cx.notify();
-                    }),
-                );
-            tabs = tabs.child(item);
+            let item = oxideterm_gpui_ui::segmented_control_item(
+                &self.tokens,
+                self.i18n.t(page_id.label_key()),
+                active,
+            )
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, _event, _window, cx| {
+                    this.settings_page.set_ai_page(page_id);
+                    cx.notify();
+                }),
+            );
+            items.push(item.into_any_element());
         }
-
-        tabs.into_any_element()
+        oxideterm_gpui_ui::segmented_control(
+            &self.tokens,
+            "ai-settings-page-switcher",
+            oxideterm_gpui_ui::SegmentedControlOptions::new(
+                active_index,
+                previous_index,
+                pages.len(),
+            )
+            .has_background_image(self.settings_background_active()),
+            items,
+        )
+        .into_any_element()
     }
 
     pub(in crate::workspace) fn update_select_anchor(

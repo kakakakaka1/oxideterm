@@ -97,6 +97,7 @@ impl Render for WorkspaceApp {
                     // Old workspaces may restore the retired connection-pool tab.
                     // Keep it readable by showing the runtime overview instead.
                     self.active_connection_runtime_section = ConnectionRuntimeSection::Overview;
+                    self.previous_connection_runtime_section = ConnectionRuntimeSection::Overview;
                     self.render_connection_runtime_surface(cx)
                 }
                 (TabKind::ConnectionMonitor, _) => self.render_connection_monitor_surface(cx),
@@ -513,8 +514,8 @@ impl Render for WorkspaceApp {
             .on_action(cx.listener(|this, _: &NewTerminal, window, cx| {
                 let _ = this.create_local_terminal_tab(window, cx);
             }))
-            .on_action(cx.listener(|this, _: &ShellLauncher, window, cx| {
-                this.open_launcher_tab(window, cx);
+            .on_action(cx.listener(|this, _: &ShellLauncher, _window, cx| {
+                this.open_local_shell_launcher(cx);
             }))
             .on_action(cx.listener(|this, _: &CloseTab, window, cx| {
                 this.request_close_active_tab(window, cx);
@@ -790,6 +791,9 @@ impl Render for WorkspaceApp {
             )
             .when(self.new_connection_form.is_some(), |root| {
                 root.child(self.render_new_connection_modal(window, cx))
+            })
+            .when(self.local_shell_launcher_open, |root| {
+                root.child(self.render_local_shell_launcher(window, cx))
             })
             .when(self.auto_route_modal.open, |root| {
                 root.child(self.render_auto_route_modal(window, cx))

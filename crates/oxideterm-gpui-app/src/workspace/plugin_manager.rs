@@ -21,6 +21,7 @@ const PLUGIN_MANAGER_HINT_TEXT_SIZE: f32 = 11.0;
 const PLUGIN_MANAGER_ROW_META_TEXT_SIZE: f32 = 10.0;
 const PLUGIN_MANAGER_ACTION_ICON_SIZE: f32 = 14.0;
 const PLUGIN_MANAGER_ROW_ACTION_SIZE: f32 = 28.0;
+const PLUGIN_MANAGER_TAB_BAR_WIDTH: f32 = 300.0; // Two equal header tabs preserve room for localized labels and badges.
 #[cfg(windows)]
 const PLUGIN_MANAGER_EXTERNAL_BRIDGE_CREATE_NO_WINDOW: u32 = 0x08000000;
 const PLUGIN_MANAGER_TW_ALPHA_10: u32 = 0x1a;
@@ -31,7 +32,6 @@ const PLUGIN_MANAGER_TW_ALPHA_50: u32 = 0x80;
 // When Tauri's background image is active, theme cards keep Tailwind-like
 // translucent surfaces so the plugin page does not become an opaque block.
 const PLUGIN_MANAGER_BG_ACTIVE_THEME_ALPHA: u32 = 0x66;
-const PLUGIN_MANAGER_BG_ACTIVE_BORDER_ALPHA: u32 = 0xbf;
 const PLUGIN_MANAGER_BG_ACTIVE_BORDER_HALF_ALPHA: u32 = 0x60;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -75,6 +75,7 @@ enum NativePluginManagerActionButtonTone {
 pub(super) struct NativePluginManagerState {
     pub(super) section_list_state: ListState,
     pub(super) active_tab: NativePluginManagerTab,
+    pub(super) previous_tab: NativePluginManagerTab,
     pub(super) install_url_draft: String,
     pub(super) install_checksum_draft: String,
     pub(super) registry_url_draft: String,
@@ -103,6 +104,7 @@ impl NativePluginManagerState {
             )
             .measure_all(),
             active_tab: NativePluginManagerTab::Installed,
+            previous_tab: NativePluginManagerTab::Installed,
             install_url_draft: String::new(),
             install_checksum_draft: String::new(),
             registry_url_draft: String::new(),
@@ -448,31 +450,42 @@ impl WorkspaceApp {
     ) -> AnyElement {
         let plugin_count = self.native_plugin_runtime.registry.plugins().len();
         let update_count = self.native_plugin_manager.available_updates.len();
-        div()
-            .flex_none()
-            .flex()
-            .items_center()
-            .gap(px(8.0))
-            .child(self.render_native_plugin_tab_button(
+        let items = vec![
+            self.render_native_plugin_tab_button(
                 NativePluginManagerTab::Installed,
                 LucideIcon::Puzzle,
                 self.i18n.t("plugin.tab_installed"),
                 Some(plugin_count.to_string()),
                 has_background,
                 cx,
-            ))
-            .child(
-                self.render_native_plugin_tab_button(
-                    NativePluginManagerTab::Browse,
-                    LucideIcon::Network,
-                    self.i18n.t("plugin.tab_browse"),
-                    (update_count > 0)
-                        .then(|| format!("{update_count} {}", self.i18n.t("plugin.updates"))),
-                    has_background,
-                    cx,
-                ),
-            )
-            .into_any_element()
+            ),
+            self.render_native_plugin_tab_button(
+                NativePluginManagerTab::Browse,
+                LucideIcon::Network,
+                self.i18n.t("plugin.tab_browse"),
+                (update_count > 0)
+                    .then(|| format!("{update_count} {}", self.i18n.t("plugin.updates"))),
+                has_background,
+                cx,
+            ),
+        ];
+        let active_index = match self.native_plugin_manager.active_tab {
+            NativePluginManagerTab::Installed => 0,
+            NativePluginManagerTab::Browse => 1,
+        };
+        let previous_index = match self.native_plugin_manager.previous_tab {
+            NativePluginManagerTab::Installed => 0,
+            NativePluginManagerTab::Browse => 1,
+        };
+        oxideterm_gpui_ui::segmented_control(
+            &self.tokens,
+            "plugin-manager-tab-bar",
+            oxideterm_gpui_ui::SegmentedControlOptions::new(active_index, previous_index, 2)
+                .has_background_image(has_background)
+                .compact(PLUGIN_MANAGER_TAB_BAR_WIDTH),
+            items,
+        )
+        .into_any_element()
     }
 
     fn render_native_plugin_tab_button(
@@ -486,36 +499,13 @@ impl WorkspaceApp {
     ) -> AnyElement {
         let theme = self.tokens.ui;
         let active = self.native_plugin_manager.active_tab == tab;
-        div()
-            .rounded(px(self.tokens.radii.md))
-            .border_1()
-            .border_color(if active {
-                plugin_manager_theme_border(theme.border, has_background)
-            } else {
-                plugin_manager_root_bg(theme.bg, has_background)
-            })
-            .bg(if active {
-                plugin_manager_theme_panel_bg(theme.bg_panel, has_background)
-            } else {
-                plugin_manager_root_bg(theme.bg, has_background)
-            })
-            .px(px(16.0))
-            .py(px(8.0))
+        let content = div()
+            .w_full()
+            .py(px(2.0))
             .flex()
             .items_center()
+            .justify_center()
             .gap(px(8.0))
-            .text_size(px(self.tokens.metrics.ui_text_sm))
-            .font_weight(gpui::FontWeight::MEDIUM)
-            .whitespace_nowrap()
-            .text_color(rgb(if active { theme.text } else { theme.text_muted }))
-            .cursor(CursorStyle::PointingHand)
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(move |this, _event, _window, cx| {
-                    this.native_plugin_manager.active_tab = tab;
-                    cx.notify();
-                }),
-            )
             .child(Self::render_lucide_icon(
                 icon,
                 16.0,
@@ -526,8 +516,8 @@ impl WorkspaceApp {
                 }),
             ))
             .child(label)
-            .when_some(badge, |button, badge| {
-                button.child(
+            .when_some(badge, |content, badge| {
+                content.child(
                     div()
                         .ml(px(4.0))
                         .rounded(px(self.tokens.radii.sm))
@@ -552,8 +542,24 @@ impl WorkspaceApp {
                         }))
                         .child(badge),
                 )
-            })
-            .into_any_element()
+            });
+        oxideterm_gpui_ui::segmented_control_item_content(
+            &self.tokens,
+            active,
+            content.into_any_element(),
+        )
+        .font_weight(gpui::FontWeight::MEDIUM)
+        .on_mouse_down(
+            MouseButton::Left,
+            cx.listener(move |this, _event, _window, cx| {
+                if this.native_plugin_manager.active_tab != tab {
+                    this.native_plugin_manager.previous_tab = this.native_plugin_manager.active_tab;
+                    this.native_plugin_manager.active_tab = tab;
+                }
+                cx.notify();
+            }),
+        )
+        .into_any_element()
     }
 
     fn render_native_plugin_installed_card(
@@ -2242,14 +2248,6 @@ fn plugin_manager_theme_card_bg(color: u32, has_background: bool) -> Rgba {
         color,
         has_background,
         PLUGIN_MANAGER_BG_ACTIVE_THEME_ALPHA,
-    )
-}
-
-fn plugin_manager_theme_border(color: u32, has_background: bool) -> Rgba {
-    oxideterm_gpui_ui::surface::color_for_background(
-        color,
-        has_background,
-        PLUGIN_MANAGER_BG_ACTIVE_BORDER_ALPHA,
     )
 }
 

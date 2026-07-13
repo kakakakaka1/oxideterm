@@ -491,6 +491,7 @@ impl WorkspaceApp {
             graphics: GraphicsState::new(),
             connection_monitor: ConnectionMonitorState::new(profiler_update_tx, profiler_update_rx),
             active_connection_runtime_section: ConnectionRuntimeSection::Overview,
+            previous_connection_runtime_section: ConnectionRuntimeSection::Overview,
             // Monitor pages are variable-height browser sections; keep the
             // summary page on a shared ListState-backed render path.
             connection_monitor_section_list_state: ListState::new(
@@ -608,6 +609,8 @@ impl WorkspaceApp {
             oxide_import_name_group_list_caches: RefCell::new(HashMap::new()),
             auto_route_modal: AutoRouteModalState::default(),
             local_shells,
+            local_shell_launcher_open: false,
+            local_shell_launcher_selected_id: None,
             terminal_notice_tx,
             terminal_notice_rx,
             workspace_toast_next_id: 1,

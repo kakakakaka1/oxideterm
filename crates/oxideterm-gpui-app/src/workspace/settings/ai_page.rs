@@ -1,7 +1,6 @@
 use super::*;
 
 pub(in crate::workspace) const AI_PROVIDER_SECTION_BORDER_ALPHA: u32 = 0xb3; // Tauri border-theme-border/70.
-pub(in crate::workspace) const AI_PROVIDER_SECTION_BG_ALPHA: u32 = 0x99; // Tauri bg-theme-bg/60.
 pub(in crate::workspace) const AI_PROVIDER_MODEL_BORDER_ALPHA: u32 = 0x80; // Tauri border-theme-border/50.
 pub(in crate::workspace) const AI_PROVIDER_MODEL_ACTIVE_BG_ALPHA: u32 = 0x1a; // Tauri bg-theme-accent/10.
 pub(in crate::workspace) const AI_PROVIDER_MODEL_ACTIVE_BORDER_ALPHA: u32 = 0x99; // Tauri border-theme-accent/60.

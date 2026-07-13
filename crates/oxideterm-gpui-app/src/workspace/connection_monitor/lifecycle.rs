@@ -3,13 +3,23 @@ use super::*;
 use oxideterm_connection_monitor::ResourceSampler;
 
 impl WorkspaceApp {
+    pub(in crate::workspace) fn set_connection_runtime_section(
+        &mut self,
+        section: ConnectionRuntimeSection,
+    ) {
+        if self.active_connection_runtime_section != section {
+            self.previous_connection_runtime_section = self.active_connection_runtime_section;
+            self.active_connection_runtime_section = section;
+        }
+    }
+
     pub(in crate::workspace) fn open_connection_runtime_tab(
         &mut self,
         section: ConnectionRuntimeSection,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.active_connection_runtime_section = section;
+        self.set_connection_runtime_section(section);
         let tab_id = if let Some(tab) = self.tabs.iter().find(|tab| tab.kind == TabKind::Runtime) {
             tab.id
         } else {

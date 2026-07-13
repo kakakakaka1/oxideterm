@@ -1,8 +1,7 @@
 use super::*;
 
 const RUNTIME_CONTENT_PADDING: f32 = 24.0;
-const RUNTIME_BACKGROUND_PANEL_ALPHA: u32 = 0x66;
-const RUNTIME_BACKGROUND_BORDER_ALPHA: u32 = 0xbf;
+const RUNTIME_TAB_BAR_WIDTH: f32 = 480.0; // Three equal header tabs keep localized runtime labels readable.
 
 impl WorkspaceApp {
     pub(in crate::workspace) fn render_connection_runtime_surface(
@@ -113,33 +112,44 @@ impl WorkspaceApp {
         has_background: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        div()
-            .flex_none()
-            .flex()
-            .items_center()
-            .gap(px(8.0))
-            .child(self.render_connection_runtime_section_tab(
+        let items = vec![
+            self.render_connection_runtime_section_tab(
                 ConnectionRuntimeSection::Overview,
                 "sidebar.panels.runtime_overview",
                 LucideIcon::LayoutList,
-                has_background,
                 cx,
-            ))
-            .child(self.render_connection_runtime_section_tab(
+            ),
+            self.render_connection_runtime_section_tab(
                 ConnectionRuntimeSection::Health,
                 "sidebar.panels.system_health",
                 LucideIcon::Activity,
-                has_background,
                 cx,
-            ))
-            .child(self.render_connection_runtime_section_tab(
+            ),
+            self.render_connection_runtime_section_tab(
                 ConnectionRuntimeSection::Topology,
                 "sidebar.panels.connection_matrix",
                 LucideIcon::Network,
-                has_background,
                 cx,
-            ))
-            .into_any_element()
+            ),
+        ];
+        let section_index = |section| match section {
+            ConnectionRuntimeSection::Overview => 0,
+            ConnectionRuntimeSection::Health => 1,
+            ConnectionRuntimeSection::Topology => 2,
+        };
+        oxideterm_gpui_ui::segmented_control(
+            &self.tokens,
+            "connection-runtime-tab-bar",
+            oxideterm_gpui_ui::SegmentedControlOptions::new(
+                section_index(self.active_connection_runtime_section),
+                section_index(self.previous_connection_runtime_section),
+                3,
+            )
+            .has_background_image(has_background)
+            .compact(RUNTIME_TAB_BAR_WIDTH),
+            items,
+        )
+        .into_any_element()
     }
 
     fn render_connection_runtime_section_tab(
@@ -147,46 +157,17 @@ impl WorkspaceApp {
         section: ConnectionRuntimeSection,
         label_key: &'static str,
         icon: LucideIcon,
-        has_background: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = self.tokens.ui;
         let active = self.active_connection_runtime_section == section;
-        div()
-            .rounded(px(self.tokens.radii.md))
-            .border_1()
-            .border_color(if active {
-                oxideterm_gpui_ui::surface::color_for_background(
-                    theme.border,
-                    has_background,
-                    RUNTIME_BACKGROUND_BORDER_ALPHA,
-                )
-            } else {
-                connection_monitor_surface_bg(theme.bg, has_background)
-            })
-            .bg(if active {
-                oxideterm_gpui_ui::surface::color_for_background(
-                    theme.bg_panel,
-                    has_background,
-                    RUNTIME_BACKGROUND_PANEL_ALPHA,
-                )
-            } else {
-                connection_monitor_surface_bg(theme.bg, has_background)
-            })
-            .px(px(16.0))
-            .py(px(8.0))
+        let content = div()
+            .w_full()
+            .py(px(2.0))
             .flex()
             .items_center()
+            .justify_center()
             .gap(px(8.0))
-            .text_size(px(self.tokens.metrics.ui_text_sm))
-            .font_weight(gpui::FontWeight::MEDIUM)
-            .whitespace_nowrap()
-            .cursor_pointer()
-            .text_color(if active {
-                rgb(theme.text)
-            } else {
-                rgb(theme.text_muted)
-            })
             .child(Self::render_lucide_icon(
                 icon,
                 16.0,
@@ -196,18 +177,24 @@ impl WorkspaceApp {
                     rgb(theme.text_muted)
                 },
             ))
-            .child(self.i18n.t(label_key))
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(move |this, _event, _window, cx| {
-                    this.active_connection_runtime_section = section;
-                    this.refresh_connection_monitor_pool_stats();
-                    this.sync_connection_monitor_selection(cx);
-                    cx.stop_propagation();
-                    cx.notify();
-                }),
-            )
-            .into_any_element()
+            .child(self.i18n.t(label_key));
+        oxideterm_gpui_ui::segmented_control_item_content(
+            &self.tokens,
+            active,
+            content.into_any_element(),
+        )
+        .font_weight(gpui::FontWeight::MEDIUM)
+        .on_mouse_down(
+            MouseButton::Left,
+            cx.listener(move |this, _event, _window, cx| {
+                this.set_connection_runtime_section(section);
+                this.refresh_connection_monitor_pool_stats();
+                this.sync_connection_monitor_selection(cx);
+                cx.stop_propagation();
+                cx.notify();
+            }),
+        )
+        .into_any_element()
     }
 
     fn render_connection_runtime_overview(&mut self, cx: &mut Context<Self>) -> AnyElement {
