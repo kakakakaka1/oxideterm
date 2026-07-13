@@ -246,7 +246,7 @@ const SESSION_INCOMPLETE_INDEX_TABLE: redb::TableDefinition<&str, &str> =
     redb::TableDefinition::new("sftp_transfer_incomplete_session_index");
 
 pub struct RedbProgressStore {
-    db: redb::Database,
+    db: Arc<redb::Database>,
 }
 
 fn session_incomplete_index_key(session_id: &str, transfer_id: &str) -> String {
@@ -266,9 +266,11 @@ impl RedbProgressStore {
             })?;
         }
         info!("Creating SFTP progress store at: {:?}", db_path);
-        let db = redb::Database::create(db_path).map_err(|error| {
-            SftpError::StorageError(format!("Failed to create progress database: {error}"))
-        })?;
+        let db = redb::Database::create(db_path)
+            .map(Arc::new)
+            .map_err(|error| {
+                SftpError::StorageError(format!("Failed to create progress database: {error}"))
+            })?;
         let store = Self { db };
         store.ensure_tables()?;
         store.rebuild_incomplete_indexes()?;
@@ -414,18 +416,14 @@ impl RedbProgressStore {
             SftpError::StorageError(format!("Failed to commit transaction: {error}"))
         })
     }
-}
 
-#[async_trait]
-impl ProgressStore for RedbProgressStore {
-    async fn save(&self, progress: &StoredTransferProgress) -> Result<(), SftpError> {
-        let transfer_id = progress.transfer_id.clone();
-        let session_index_key =
-            session_incomplete_index_key(&progress.session_id, transfer_id.as_str());
+    fn save_sync(db: &redb::Database, progress: &StoredTransferProgress) -> Result<(), SftpError> {
+        let transfer_id = progress.transfer_id.as_str();
+        let session_index_key = session_incomplete_index_key(&progress.session_id, transfer_id);
         let serialized = rmp_serde::to_vec_named(progress).map_err(|error| {
             SftpError::StorageError(format!("Failed to serialize progress: {error}"))
         })?;
-        let write_txn = self.db.begin_write().map_err(|error| {
+        let write_txn = db.begin_write().map_err(|error| {
             SftpError::StorageError(format!("Failed to begin write transaction: {error}"))
         })?;
         {
@@ -448,33 +446,31 @@ impl ProgressStore for RedbProgressStore {
                     ))
                 })?;
             table
-                .insert(transfer_id.as_str(), serialized.as_slice())
+                .insert(transfer_id, serialized.as_slice())
                 .map_err(|error| {
                     SftpError::StorageError(format!("Failed to insert progress: {error}"))
                 })?;
             if progress.is_incomplete() {
                 incomplete_table
-                    .insert(transfer_id.as_str(), serialized.as_slice())
+                    .insert(transfer_id, serialized.as_slice())
                     .map_err(|error| {
                         SftpError::StorageError(format!(
                             "Failed to insert incomplete progress: {error}"
                         ))
                     })?;
                 session_index_table
-                    .insert(session_index_key.as_str(), transfer_id.as_str())
+                    .insert(session_index_key.as_str(), transfer_id)
                     .map_err(|error| {
                         SftpError::StorageError(format!(
                             "Failed to insert incomplete session index: {error}"
                         ))
                     })?;
             } else {
-                incomplete_table
-                    .remove(transfer_id.as_str())
-                    .map_err(|error| {
-                        SftpError::StorageError(format!(
-                            "Failed to remove incomplete progress: {error}"
-                        ))
-                    })?;
+                incomplete_table.remove(transfer_id).map_err(|error| {
+                    SftpError::StorageError(format!(
+                        "Failed to remove incomplete progress: {error}"
+                    ))
+                })?;
                 session_index_table
                     .remove(session_index_key.as_str())
                     .map_err(|error| {
@@ -486,7 +482,23 @@ impl ProgressStore for RedbProgressStore {
         }
         write_txn.commit().map_err(|error| {
             SftpError::StorageError(format!("Failed to commit transaction: {error}"))
-        })?;
+        })
+    }
+}
+
+#[async_trait]
+impl ProgressStore for RedbProgressStore {
+    async fn save(&self, progress: &StoredTransferProgress) -> Result<(), SftpError> {
+        let transfer_id = progress.transfer_id.clone();
+        let db = Arc::clone(&self.db);
+        let progress = progress.clone();
+        // Redb write transactions can wait for another writer and commit synchronously.
+        // Keep that work off the shared async runtime used by active SFTP transfers.
+        tokio::task::spawn_blocking(move || Self::save_sync(db.as_ref(), &progress))
+            .await
+            .map_err(|error| {
+                SftpError::StorageError(format!("SFTP progress save task failed: {error}"))
+            })??;
         debug!("Progress saved successfully for transfer {}", transfer_id);
         Ok(())
     }
@@ -643,7 +655,12 @@ impl ProgressStore for RedbProgressStore {
 
 #[cfg(test)]
 mod tests {
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::{
+        future::{Future, poll_fn},
+        sync::mpsc,
+        task::Poll,
+        time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    };
 
     use super::*;
 
@@ -722,6 +739,77 @@ mod tests {
         store.save(&progress).await.expect("save progress");
 
         assert!(path.exists());
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn redb_save_does_not_block_async_runtime_while_waiting_for_writer() {
+        let path = temp_progress_path("nonblocking-save");
+        let store = Arc::new(RedbProgressStore::new(&path).expect("open progress store"));
+        let held_db = Arc::clone(&store.db);
+        let (writer_ready_tx, writer_ready_rx) = mpsc::sync_channel(1);
+        let (release_writer_tx, release_writer_rx) = mpsc::sync_channel(1);
+        let writer = std::thread::spawn(move || {
+            let transaction = held_db.begin_write().expect("hold write transaction");
+            writer_ready_tx.send(()).expect("signal held writer");
+            // A timeout prevents a broken implementation from hanging the test forever.
+            let _ = release_writer_rx.recv_timeout(Duration::from_secs(2));
+            drop(transaction);
+        });
+        writer_ready_rx.recv().expect("wait for held writer");
+
+        let mut progress = StoredTransferProgress::new(
+            "transfer-1".to_string(),
+            TransferType::Download,
+            PathBuf::from("/remote/file.txt"),
+            PathBuf::from("/local/file.txt"),
+            128,
+            "session-1".to_string(),
+        );
+        progress.mark_paused();
+        let (save_waited_asynchronously, responsiveness_elapsed) = {
+            let save = store.save(&progress);
+            tokio::pin!(save);
+
+            let responsiveness_started = Instant::now();
+            // Poll the save future directly so the test proves its first poll never waits
+            // synchronously for Redb's single-writer lock.
+            let first_poll = poll_fn(|cx| Poll::Ready(save.as_mut().poll(cx))).await;
+            let responsiveness_elapsed = responsiveness_started.elapsed();
+            let save_waited_asynchronously = first_poll.is_pending();
+
+            let _ = release_writer_tx.send(());
+            writer.join().expect("join held writer");
+            match first_poll {
+                Poll::Ready(result) => result.expect("save progress"),
+                Poll::Pending => save.await.expect("save progress"),
+            }
+            (save_waited_asynchronously, responsiveness_elapsed)
+        };
+        let saved = store
+            .load("transfer-1")
+            .await
+            .expect("load saved progress")
+            .expect("saved progress exists");
+        assert_eq!(saved.status, TransferStatus::Paused);
+        assert_eq!(
+            store
+                .list_incomplete("session-1")
+                .await
+                .expect("list incomplete progress")
+                .len(),
+            1
+        );
+        assert!(
+            save_waited_asynchronously,
+            "Redb save completed while another write transaction was held"
+        );
+        assert!(
+            responsiveness_elapsed < Duration::from_millis(500),
+            "Redb save blocked the async runtime for {responsiveness_elapsed:?}"
+        );
+
+        drop(store);
         let _ = std::fs::remove_file(path);
     }
 }

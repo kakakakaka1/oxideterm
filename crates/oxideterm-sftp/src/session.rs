@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 use std::{
-    collections::{HashSet, VecDeque},
+    collections::VecDeque,
     fmt,
     future::Future,
     path::{Path, PathBuf},

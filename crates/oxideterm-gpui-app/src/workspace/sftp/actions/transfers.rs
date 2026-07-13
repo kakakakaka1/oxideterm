@@ -440,12 +440,10 @@ impl WorkspaceApp {
                                 let _ = shared.mkdir(&prefix).await;
                             }
                         }
-                        let compression = sftp_tar_compression_probe_for_node(&router, &node_id)
-                            .await?;
-                        let resolved = router
-                            .resolve_connection(&node_id)
-                            .await
-                            .map_err(|error| error.to_string())?;
+                        let (resolved, capabilities) = sftp_tar_capabilities_for_node(
+                            &router, &manager, &node_id,
+                        )
+                        .await?;
                         tar_upload_directory(
                             &resolved.handle,
                             &local_path,
@@ -453,7 +451,7 @@ impl WorkspaceApp {
                             &transfer_id,
                             Some(progress_tx),
                             Some(manager.clone()),
-                            Some(compression),
+                            Some(capabilities.compression),
                         )
                         .await
                         .map_err(|error| error.to_string())?
@@ -478,7 +476,11 @@ impl WorkspaceApp {
                         .map_err(|error| error.to_string())?
                     }
                     (SftpTransferDirection::Upload, true, _) => {
-                        if sftp_tar_probe_for_node(&router, &node_id).await? {
+                        let (resolved, capabilities) = sftp_tar_capabilities_for_node(
+                            &router, &manager, &node_id,
+                        )
+                        .await?;
+                        if capabilities.supports_tar {
                             {
                                 let shared = router
                                     .acquire_sftp(&node_id)
@@ -489,16 +491,10 @@ impl WorkspaceApp {
                                     let _ = shared.mkdir(&prefix).await;
                                 }
                             }
-                            let compression =
-                                sftp_tar_compression_probe_for_node(&router, &node_id).await?;
                             manager.update_background_transfer_strategy(
                                 &transfer_id,
                                 RemoteTransferStrategy::DirectoryTar,
                             );
-                            let resolved = router
-                                .resolve_connection(&node_id)
-                                .await
-                                .map_err(|error| error.to_string())?;
                             let tar_result = tar_upload_directory(
                                 &resolved.handle,
                                 &local_path,
@@ -506,7 +502,7 @@ impl WorkspaceApp {
                                 &transfer_id,
                                 Some(progress_tx.clone()),
                                 Some(manager.clone()),
-                                Some(compression),
+                                Some(capabilities.compression),
                             )
                             .await;
                             match tar_result {
@@ -582,12 +578,10 @@ impl WorkspaceApp {
                         true,
                         Some(RemoteTransferStrategy::DirectoryTar),
                     ) => {
-                        let compression = sftp_tar_compression_probe_for_node(&router, &node_id)
-                            .await?;
-                        let resolved = router
-                            .resolve_connection(&node_id)
-                            .await
-                            .map_err(|error| error.to_string())?;
+                        let (resolved, capabilities) = sftp_tar_capabilities_for_node(
+                            &router, &manager, &node_id,
+                        )
+                        .await?;
                         tar_download_directory(
                             &resolved.handle,
                             &remote_path,
@@ -595,7 +589,7 @@ impl WorkspaceApp {
                             &transfer_id,
                             Some(progress_tx),
                             Some(manager.clone()),
-                            Some(compression),
+                            Some(capabilities.compression),
                         )
                         .await
                         .map_err(|error| error.to_string())?
@@ -620,17 +614,15 @@ impl WorkspaceApp {
                         .map_err(|error| error.to_string())?
                     }
                     (SftpTransferDirection::Download, true, _) => {
-                        if sftp_tar_probe_for_node(&router, &node_id).await? {
-                            let compression =
-                                sftp_tar_compression_probe_for_node(&router, &node_id).await?;
+                        let (resolved, capabilities) = sftp_tar_capabilities_for_node(
+                            &router, &manager, &node_id,
+                        )
+                        .await?;
+                        if capabilities.supports_tar {
                             manager.update_background_transfer_strategy(
                                 &transfer_id,
                                 RemoteTransferStrategy::DirectoryTar,
                             );
-                            let resolved = router
-                                .resolve_connection(&node_id)
-                                .await
-                                .map_err(|error| error.to_string())?;
                             let tar_result = tar_download_directory(
                                 &resolved.handle,
                                 &remote_path,
@@ -638,7 +630,7 @@ impl WorkspaceApp {
                                 &transfer_id,
                                 Some(progress_tx.clone()),
                                 Some(manager.clone()),
-                                Some(compression),
+                                Some(capabilities.compression),
                             )
                             .await;
                             match tar_result {
@@ -925,21 +917,17 @@ impl WorkspaceApp {
     }
 }
 
-async fn sftp_tar_probe_for_node(router: &NodeRouter, node_id: &NodeId) -> Result<bool, String> {
-    let resolved = router
-        .resolve_connection(node_id)
-        .await
-        .map_err(|error| error.to_string())?;
-    Ok(probe_tar_support(&resolved.handle).await)
-}
-
-async fn sftp_tar_compression_probe_for_node(
+async fn sftp_tar_capabilities_for_node(
     router: &NodeRouter,
+    manager: &SftpTransferManager,
     node_id: &NodeId,
-) -> Result<TarCompression, String> {
+) -> Result<(oxideterm_ssh::ResolvedConnection, TarCapabilities), String> {
     let resolved = router
         .resolve_connection(node_id)
         .await
         .map_err(|error| error.to_string())?;
-    Ok(probe_tar_compression(&resolved.handle).await)
+    let capabilities = manager
+        .tar_capabilities(&resolved.connection_id, &resolved.handle)
+        .await;
+    Ok((resolved, capabilities))
 }

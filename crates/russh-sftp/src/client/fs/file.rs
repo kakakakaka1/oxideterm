@@ -233,18 +233,8 @@ impl SftpWindowTuner {
         self.target_chunk_len
     }
 
-    fn record_success(
-        &mut self,
-        bytes: usize,
-        rtt: Duration,
-        shrink_reason: Option<SftpWindowShrinkReason>,
-    ) {
+    fn record_success(&mut self, bytes: usize, rtt: Duration) {
         self.record_completion(bytes, rtt);
-        if let Some(reason) = shrink_reason {
-            self.record_congestion(reason);
-            return;
-        }
-
         self.completed_requests = self.completed_requests.saturating_add(1);
         self.completed_bytes = self.completed_bytes.saturating_add(bytes);
         self.rtt_total += rtt;
@@ -253,6 +243,13 @@ impl SftpWindowTuner {
         if elapsed >= WINDOW_TUNER_ADJUST_INTERVAL {
             self.adjust_after_interval(elapsed);
         }
+    }
+
+    fn record_short_read(&mut self, bytes: usize, rtt: Duration) {
+        // SFTP servers may legally return less data than requested. Count the
+        // event without treating it as congestion or shrinking the window.
+        self.short_read_count = self.short_read_count.saturating_add(1);
+        self.record_success(bytes, rtt);
     }
 
     fn record_zero_read(&mut self) {
@@ -485,6 +482,7 @@ pub struct PipelinedFileDownloader {
     session: Arc<RawSftpSession>,
     handle: String,
     pending: VecDeque<PendingRead>,
+    repair_reads: BTreeMap<u64, usize>,
     ready_chunks: BTreeMap<u64, Bytes>,
     next_request_offset: u64,
     next_write_offset: u64,
@@ -776,6 +774,7 @@ impl PipelinedFileDownloader {
             session,
             handle,
             pending: VecDeque::with_capacity(max_requests),
+            repair_reads: BTreeMap::new(),
             ready_chunks: BTreeMap::new(),
             next_request_offset: offset,
             next_write_offset: offset,
@@ -802,29 +801,13 @@ impl PipelinedFileDownloader {
         while self.pending.len() < self.tuner.target_requests()
             && self.inflight_bytes < self.tuner.target_inflight_bytes()
         {
-            if self
-                .end_offset
-                .is_some_and(|end_offset| self.next_request_offset >= end_offset)
-            {
-                self.finished = true;
-                break;
-            }
-
-            let offset = self.next_request_offset;
             let remaining_inflight = self
                 .tuner
                 .target_inflight_bytes()
                 .saturating_sub(self.inflight_bytes);
-            let requested_len = self
-                .end_offset
-                .map(|end_offset| {
-                    usize::try_from(end_offset.saturating_sub(offset)).unwrap_or(usize::MAX)
-                })
-                .map(|remaining| remaining.min(self.max_read_len))
-                .unwrap_or(self.max_read_len)
-                .min(self.tuner.target_chunk_len())
-                .min(remaining_inflight)
-                .max(1);
+            let Some((offset, requested_len)) = self.next_read_range(remaining_inflight) else {
+                break;
+            };
             let rx = match self
                 .session
                 .read_nowait_raw(&self.handle, offset, requested_len as u32)
@@ -840,9 +823,6 @@ impl PipelinedFileDownloader {
                 }
             };
 
-            self.next_request_offset = self
-                .next_request_offset
-                .saturating_add(requested_len as u64);
             self.inflight_bytes = self.inflight_bytes.saturating_add(requested_len);
             self.pending.push_back(PendingRead {
                 offset,
@@ -851,6 +831,58 @@ impl PipelinedFileDownloader {
                 rx,
             });
         }
+    }
+
+    fn next_read_range(&mut self, remaining_inflight: usize) -> Option<(u64, usize)> {
+        if let Some((&offset, &repair_len)) = self.repair_reads.first_key_value() {
+            self.repair_reads.remove(&offset);
+            let requested_len = repair_len
+                .min(self.max_read_len)
+                .min(self.tuner.target_chunk_len())
+                .min(remaining_inflight)
+                .max(1);
+            if requested_len < repair_len {
+                self.repair_reads.insert(
+                    offset.saturating_add(requested_len as u64),
+                    repair_len - requested_len,
+                );
+            }
+            return Some((offset, requested_len));
+        }
+
+        if self
+            .end_offset
+            .is_some_and(|end_offset| self.next_request_offset >= end_offset)
+        {
+            return None;
+        }
+
+        let offset = self.next_request_offset;
+        let requested_len = self
+            .end_offset
+            .map(|end_offset| {
+                usize::try_from(end_offset.saturating_sub(offset)).unwrap_or(usize::MAX)
+            })
+            .map(|remaining| remaining.min(self.max_read_len))
+            .unwrap_or(self.max_read_len)
+            .min(self.tuner.target_chunk_len())
+            .min(remaining_inflight)
+            .max(1);
+        self.next_request_offset = self
+            .next_request_offset
+            .saturating_add(requested_len as u64);
+        Some((offset, requested_len))
+    }
+
+    fn queue_repair_read(&mut self, offset: u64, requested_len: usize) {
+        if requested_len == 0 {
+            return;
+        }
+
+        // Every repair range is the unsatisfied tail of one unique request.
+        // Keeping ranges ordered prioritizes the earliest output gap.
+        let previous = self.repair_reads.insert(offset, requested_len);
+        debug_assert!(previous.is_none(), "repair read ranges must not overlap");
     }
 
     fn discard_pending(&mut self) {
@@ -866,12 +898,12 @@ impl PipelinedFileDownloader {
         self.discard_pending();
     }
 
-    fn retain_ready_before(&mut self, next_offset: u64) {
-        let before = self.ready_chunks.len();
-        self.ready_chunks.retain(|offset, _| *offset < next_offset);
-        self.discarded_ready_chunks = self
-            .discarded_ready_chunks
-            .saturating_add(before.saturating_sub(self.ready_chunks.len()) as u64);
+    fn early_eof_error(&mut self, response_offset: u64, expected_end_offset: u64) -> Error {
+        self.finished = true;
+        self.discard_pending_after_fault();
+        Error::UnexpectedBehavior(format!(
+            "server returned EOF at offset {response_offset} before expected end offset {expected_end_offset}"
+        ))
     }
 
     fn poll_completed_read(&mut self, cx: &mut Context<'_>) -> Poll<Option<CompletedRead>> {
@@ -933,42 +965,38 @@ impl PipelinedFileDownloader {
 
                 if read_len == 0 {
                     self.tuner.record_zero_read();
+                    if let Some(end_offset) = self
+                        .end_offset
+                        .filter(|end_offset| completed.offset < *end_offset)
+                    {
+                        return Err(self.early_eof_error(completed.offset, end_offset));
+                    }
                     self.finished = true;
                     self.discard_pending();
                     return Ok(());
                 }
 
                 if read_len < completed.requested_len {
-                    self.tuner.record_success(
-                        read_len,
-                        rtt,
-                        Some(SftpWindowShrinkReason::ShortRead),
+                    self.tuner.record_short_read(read_len, rtt);
+                    let repair_offset = completed.offset.saturating_add(read_len as u64);
+                    self.queue_repair_read(
+                        repair_offset,
+                        completed.requested_len.saturating_sub(read_len),
                     );
-                    self.discard_pending_after_fault();
-                    if completed.offset != self.next_write_offset {
-                        // A speculative later read can complete before the
-                        // contiguous offset. Restart from the next emit point
-                        // so a legal short read never creates a gap.
-                        self.next_request_offset = self.next_write_offset;
-                        self.retain_ready_before(self.next_write_offset);
-                        self.restart_from_offset_count =
-                            self.restart_from_offset_count.saturating_add(1);
-                        return Ok(());
-                    }
-
-                    let next_offset = completed.offset.saturating_add(read_len as u64);
-                    self.next_request_offset = next_offset;
-                    self.retain_ready_before(next_offset);
-                    self.restart_from_offset_count =
-                        self.restart_from_offset_count.saturating_add(1);
                 } else {
-                    self.tuner.record_success(read_len, rtt, None);
+                    self.tuner.record_success(read_len, rtt);
                 }
 
                 self.ready_chunks.insert(completed.offset, data.data);
                 Ok(())
             }
             Ok(Packet::Status(status)) if status.status_code == StatusCode::Eof => {
+                if let Some(end_offset) = self
+                    .end_offset
+                    .filter(|end_offset| completed.offset < *end_offset)
+                {
+                    return Err(self.early_eof_error(completed.offset, end_offset));
+                }
                 self.finished = true;
                 self.discard_pending();
                 Ok(())
@@ -1009,6 +1037,13 @@ impl PipelinedFileDownloader {
 
             if let Some(error) = self.scheduling_error.take() {
                 return Err(error);
+            }
+
+            if self
+                .end_offset
+                .is_some_and(|end_offset| self.next_write_offset >= end_offset)
+            {
+                self.finished = true;
             }
 
             if self.finished && self.pending.is_empty() {
@@ -1166,11 +1201,8 @@ impl PipelinedFileUploader {
             let completed = match ready_result.expect("ready result exists") {
                 Ok(result) => match check_write_packet(result) {
                     Ok(()) => {
-                        self.tuner.record_success(
-                            pending.requested_len,
-                            pending.sent_at.elapsed(),
-                            None,
-                        );
+                        self.tuner
+                            .record_success(pending.requested_len, pending.sent_at.elapsed());
                         self.write_status_ok_count = self.write_status_ok_count.saturating_add(1);
                         pending.requested_len
                     }
@@ -1599,38 +1631,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn window_tuner_reduces_on_short_read_and_recovers_on_success() {
+    fn window_tuner_counts_short_read_without_reducing_window() {
         let mut tuner = SftpWindowTuner::new(64, 8 * 1024 * 1024, 2 * 1024 * 1024);
         let initial_requests = tuner.target_requests();
         let initial_inflight = tuner.target_inflight_bytes();
         let initial_chunk = tuner.target_chunk_len();
 
-        tuner.record_success(
-            128 * 1024,
-            Duration::from_millis(40),
-            Some(SftpWindowShrinkReason::ShortRead),
-        );
+        tuner.record_short_read(128 * 1024, Duration::from_millis(40));
 
-        assert!(tuner.target_requests() < initial_requests);
-        assert!(tuner.target_inflight_bytes() < initial_inflight);
-        assert!(tuner.target_chunk_len() < initial_chunk);
+        assert_eq!(tuner.target_requests(), initial_requests);
+        assert_eq!(tuner.target_inflight_bytes(), initial_inflight);
+        assert_eq!(tuner.target_chunk_len(), initial_chunk);
         let snapshot = tuner.snapshot();
         assert_eq!(snapshot.short_read_count, 1);
-        assert_eq!(
-            snapshot.last_shrink_reason.map(|reason| reason.as_str()),
-            Some("short_read")
-        );
-
-        let reduced_requests = tuner.target_requests();
-        let reduced_inflight = tuner.target_inflight_bytes();
-        tuner.interval_started = Instant::now() - WINDOW_TUNER_ADJUST_INTERVAL;
-        tuner.record_success(2 * 1024 * 1024, Duration::from_millis(200), None);
-
-        assert!(tuner.target_requests() > reduced_requests);
-        assert!(tuner.target_inflight_bytes() > reduced_inflight);
-        let snapshot = tuner.snapshot();
-        assert!(snapshot.completed_bytes >= 2 * 1024 * 1024);
-        assert!(snapshot.rtt_avg_ms > 0);
+        assert_eq!(snapshot.window_shrink_count, 0);
+        assert!(snapshot.last_shrink_reason.is_none());
+        assert_eq!(snapshot.completed_bytes, 128 * 1024);
     }
 
     #[test]
@@ -1645,7 +1661,7 @@ mod tests {
         );
 
         tuner.interval_started = Instant::now() - WINDOW_TUNER_ADJUST_INTERVAL;
-        tuner.record_success(1024 * 1024, Duration::from_millis(250), None);
+        tuner.record_success(1024 * 1024, Duration::from_millis(250));
 
         assert!(tuner.target_requests() > WINDOW_TUNER_START_REQUESTS);
         assert!(
@@ -1665,11 +1681,171 @@ mod tests {
 
         for _ in 0..16 {
             tuner.interval_started = Instant::now() - WINDOW_TUNER_ADJUST_INTERVAL;
-            tuner.record_success(4 * 1024 * 1024, Duration::from_millis(250), None);
+            tuner.record_success(4 * 1024 * 1024, Duration::from_millis(250));
         }
 
         assert!(tuner.target_requests() <= 8);
         assert!(tuner.target_inflight_bytes() <= 512 * 1024);
         assert!(tuner.target_chunk_len() <= 128 * 1024);
+    }
+
+    fn test_downloader(
+        offset: u64,
+        end_offset: Option<u64>,
+        max_read_len: usize,
+        max_requests: usize,
+    ) -> (PipelinedFileDownloader, tokio::io::DuplexStream) {
+        let (client_stream, server_stream) = tokio::io::duplex(4096);
+        let parts = FileDownloadParts {
+            session: Arc::new(RawSftpSession::new(client_stream)),
+            handle: "test-handle".to_owned(),
+            max_read_len,
+            closed: false,
+        };
+        let downloader = PipelinedFileDownloader::new(
+            parts,
+            offset,
+            end_offset,
+            max_requests,
+            max_read_len.saturating_mul(max_requests),
+        );
+        (downloader, server_stream)
+    }
+
+    fn pending_read(
+        offset: u64,
+        requested_len: usize,
+    ) -> (PendingRead, oneshot::Sender<SftpResult<Packet>>) {
+        let (tx, rx) = oneshot::channel();
+        (
+            PendingRead {
+                offset,
+                requested_len,
+                sent_at: Instant::now(),
+                rx,
+            },
+            tx,
+        )
+    }
+
+    fn completed_data(offset: u64, requested_len: usize, data: Bytes) -> CompletedRead {
+        CompletedRead {
+            offset,
+            requested_len,
+            sent_at: Instant::now(),
+            result: Ok(Packet::Data(crate::protocol::Data { id: 1, data })),
+        }
+    }
+
+    #[tokio::test]
+    async fn short_read_repairs_only_missing_tail_and_keeps_out_of_order_work() {
+        const CHUNK_LEN: usize = 128;
+        const SHORT_READ_LEN: usize = 32;
+        const END_OFFSET: u64 = 512;
+
+        let (mut downloader, _server_stream) = test_downloader(0, Some(END_OFFSET), CHUNK_LEN, 4);
+        let initial_requests = downloader.tuner.target_requests();
+        let initial_inflight = downloader.tuner.target_inflight_bytes();
+        let initial_chunk = downloader.tuner.target_chunk_len();
+
+        // A later response is already buffered while unrelated requests remain in flight.
+        downloader
+            .process_completed_read(completed_data(
+                256,
+                CHUNK_LEN,
+                Bytes::from(vec![3; CHUNK_LEN]),
+            ))
+            .expect("out-of-order read should be buffered");
+        let (pending_before_gap, _pending_before_gap_tx) = pending_read(128, CHUNK_LEN);
+        let (pending_after_gap, _pending_after_gap_tx) = pending_read(384, CHUNK_LEN);
+        downloader.pending.push_back(pending_before_gap);
+        downloader.pending.push_back(pending_after_gap);
+        downloader.inflight_bytes = CHUNK_LEN * 2;
+        downloader.next_request_offset = END_OFFSET;
+
+        downloader
+            .process_completed_read(completed_data(
+                0,
+                CHUNK_LEN,
+                Bytes::from(vec![1; SHORT_READ_LEN]),
+            ))
+            .expect("legal short read should be accepted");
+
+        assert_eq!(downloader.pending.len(), 2);
+        assert!(downloader.ready_chunks.contains_key(&0));
+        assert!(downloader.ready_chunks.contains_key(&256));
+        assert_eq!(
+            downloader.repair_reads.get(&(SHORT_READ_LEN as u64)),
+            Some(&(CHUNK_LEN - SHORT_READ_LEN))
+        );
+        assert_eq!(downloader.next_request_offset, END_OFFSET);
+
+        let snapshot = downloader.diagnostic_snapshot();
+        assert_eq!(snapshot.discarded_speculative_requests, 0);
+        assert_eq!(snapshot.discarded_ready_chunks, 0);
+        assert_eq!(snapshot.restart_from_offset_count, 0);
+        assert_eq!(snapshot.out_of_order_completed, 1);
+        assert_eq!(snapshot.window.short_read_count, 1);
+        assert_eq!(snapshot.window.window_shrink_count, 0);
+        assert_eq!(snapshot.window.target_requests, initial_requests);
+        assert_eq!(snapshot.window.target_inflight_bytes, initial_inflight);
+        assert_eq!(snapshot.window.target_chunk_len, initial_chunk);
+
+        downloader.fill_pending();
+
+        assert!(downloader.repair_reads.is_empty());
+        assert!(downloader.pending.iter().any(|pending| {
+            pending.offset == SHORT_READ_LEN as u64
+                && pending.requested_len == CHUNK_LEN - SHORT_READ_LEN
+        }));
+        assert!(downloader
+            .pending
+            .iter()
+            .any(|pending| pending.offset == 128 && pending.requested_len == CHUNK_LEN));
+        assert!(downloader
+            .pending
+            .iter()
+            .any(|pending| pending.offset == 384 && pending.requested_len == CHUNK_LEN));
+    }
+
+    #[tokio::test]
+    async fn known_length_resume_reports_early_eof() {
+        const RESUME_OFFSET: u64 = 128;
+        const EXPECTED_END_OFFSET: u64 = 512;
+        const EOF_OFFSET: u64 = 384;
+        const CHUNK_LEN: usize = 128;
+
+        let (mut downloader, _server_stream) =
+            test_downloader(RESUME_OFFSET, Some(EXPECTED_END_OFFSET), CHUNK_LEN, 4);
+        let (pending, _pending_tx) = pending_read(RESUME_OFFSET, CHUNK_LEN);
+        downloader.pending.push_back(pending);
+        downloader.inflight_bytes = CHUNK_LEN;
+        let initial_requests = downloader.tuner.target_requests();
+        let initial_inflight = downloader.tuner.target_inflight_bytes();
+
+        let error = downloader
+            .process_completed_read(CompletedRead {
+                offset: EOF_OFFSET,
+                requested_len: CHUNK_LEN,
+                sent_at: Instant::now(),
+                result: Ok(Packet::Status(crate::protocol::Status {
+                    id: 1,
+                    status_code: StatusCode::Eof,
+                    error_message: String::new(),
+                    language_tag: String::new(),
+                })),
+            })
+            .expect_err("EOF before a known end offset must fail the download");
+
+        assert!(matches!(
+            error,
+            Error::UnexpectedBehavior(message)
+                if message.contains("offset 384") && message.contains("end offset 512")
+        ));
+        assert!(downloader.finished);
+        assert!(downloader.pending.is_empty());
+        assert_eq!(downloader.inflight_bytes, 0);
+        assert_eq!(downloader.tuner.target_requests(), initial_requests);
+        assert_eq!(downloader.tuner.target_inflight_bytes(), initial_inflight);
     }
 }

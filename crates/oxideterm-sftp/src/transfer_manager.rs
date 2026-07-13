@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 use std::{
+    future::Future,
     sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
@@ -11,11 +12,13 @@ use std::{
 
 use parking_lot::RwLock;
 use std::collections::HashMap;
-use tokio::sync::{Notify, Semaphore, watch};
+use tokio::sync::{Notify, OnceCell, Semaphore, watch};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{SftpError, TransferStrategy};
+use crate::{
+    SftpError, SftpExecChannelOpener, TarCapabilities, TransferStrategy, probe_tar_capabilities,
+};
 
 pub const DEFAULT_SFTP_CONCURRENT_TRANSFERS: usize = 3;
 pub const DEFAULT_SFTP_DIRECTORY_PARALLELISM: usize = 4;
@@ -260,6 +263,7 @@ pub struct SftpTransferManager {
     availability_notify: Arc<Notify>,
     background_transfers: RwLock<HashMap<String, BackgroundTransferSnapshot>>,
     background_notify: Arc<Notify>,
+    tar_capability_probes: RwLock<HashMap<String, Arc<OnceCell<TarCapabilities>>>>,
 }
 
 impl SftpTransferManager {
@@ -274,7 +278,47 @@ impl SftpTransferManager {
             availability_notify: Arc::new(Notify::new()),
             background_transfers: RwLock::new(HashMap::new()),
             background_notify: Arc::new(Notify::new()),
+            tar_capability_probes: RwLock::new(HashMap::new()),
         }
+    }
+
+    /// Returns tar capabilities cached for one live SSH connection generation.
+    pub async fn tar_capabilities<O>(&self, connection_id: &str, opener: &O) -> TarCapabilities
+    where
+        O: SftpExecChannelOpener,
+    {
+        self.cached_tar_capabilities(connection_id, || probe_tar_capabilities(opener))
+            .await
+    }
+
+    async fn cached_tar_capabilities<F, Fut>(
+        &self,
+        connection_id: &str,
+        probe: F,
+    ) -> TarCapabilities
+    where
+        F: FnOnce() -> Fut,
+        Fut: Future<Output = TarCapabilities>,
+    {
+        // A connection id identifies one live SSH generation. Reconnects use a
+        // new key, so positive and negative capability results cannot leak into
+        // the replacement transport for the same long-lived node.
+        let probe_cell = if let Some(cell) = self
+            .tar_capability_probes
+            .read()
+            .get(connection_id)
+            .cloned()
+        {
+            cell
+        } else {
+            self.tar_capability_probes
+                .write()
+                .entry(connection_id.to_string())
+                .or_insert_with(|| Arc::new(OnceCell::new()))
+                .clone()
+        };
+
+        *probe_cell.get_or_init(probe).await
     }
 
     fn cleanup_background_transfers(&self) {
@@ -618,6 +662,38 @@ mod tests {
                 completed: 0,
             }
         );
+    }
+
+    #[tokio::test]
+    async fn tar_capabilities_cache_negative_results_per_connection_generation() {
+        let manager = SftpTransferManager::new();
+        let probe_count = Arc::new(AtomicUsize::new(0));
+
+        for _ in 0..2 {
+            let probe_count = probe_count.clone();
+            let capabilities = manager
+                .cached_tar_capabilities("connection-generation-a", move || async move {
+                    probe_count.fetch_add(1, Ordering::SeqCst);
+                    TarCapabilities::unsupported()
+                })
+                .await;
+            assert_eq!(capabilities, TarCapabilities::unsupported());
+        }
+
+        let probe_count_for_reconnect = probe_count.clone();
+        let reconnected = manager
+            .cached_tar_capabilities("connection-generation-b", move || async move {
+                probe_count_for_reconnect.fetch_add(1, Ordering::SeqCst);
+                TarCapabilities {
+                    supports_tar: true,
+                    compression: crate::TarCompression::Zstd,
+                }
+            })
+            .await;
+
+        assert!(reconnected.supports_tar);
+        assert_eq!(reconnected.compression, crate::TarCompression::Zstd);
+        assert_eq!(probe_count.load(Ordering::SeqCst), 2);
     }
 
     #[test]

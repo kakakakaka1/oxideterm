@@ -280,11 +280,31 @@ impl SftpSession {
         tokio::fs::create_dir_all(local_path)
             .await
             .map_err(SftpError::IoError)?;
-        let mut jobs = Vec::new();
-        self.collect_download_jobs_depth(&canonical_remote, local_path, 0, &mut jobs)
-            .await?;
-        self.run_download_jobs(jobs, transfer_id, &progress_tx, &transfer_manager)
-            .await
+        let plan = self.directory_transfer_plan(&transfer_manager);
+        let (job_tx, job_rx) = directory_job_channel(plan);
+        let pool = Arc::new(self.open_directory_pool(plan.channel_count).await);
+        let rate_limiter = Arc::new(DirectoryRateLimiter::new());
+        let result = tokio::try_join!(
+            self.produce_download_jobs(
+                &canonical_remote,
+                local_path,
+                transfer_id,
+                &transfer_manager,
+                job_tx,
+            ),
+            self.run_download_jobs(
+                job_rx,
+                plan,
+                pool.clone(),
+                rate_limiter,
+                transfer_id,
+                &progress_tx,
+                &transfer_manager,
+            )
+        )
+        .map(|(_, completed)| completed);
+        pool.close_auxiliary_sessions().await;
+        result
     }
 
     pub async fn upload_dir(
@@ -304,37 +324,59 @@ impl SftpSession {
         } else {
             join_remote_path(&self.cwd, remote_path)
         };
-        let mut jobs = Vec::new();
-        let mut dirs = vec![canonical_remote.clone()];
-        self.collect_upload_jobs_depth(local_path, &canonical_remote, 0, &mut dirs, &mut jobs)
-            .await?;
-
-        let mut seen = HashSet::new();
-        for dir in dirs {
-            if seen.insert(dir.clone()) {
-                let _ = self.mkdir(&dir).await;
-            }
-        }
-
-        self.run_upload_jobs(jobs, transfer_id, &progress_tx, &transfer_manager)
-            .await
+        let plan = self.directory_transfer_plan(&transfer_manager);
+        let (job_tx, job_rx) = directory_job_channel(plan);
+        let pool = Arc::new(self.open_directory_pool(plan.channel_count).await);
+        let rate_limiter = Arc::new(DirectoryRateLimiter::new());
+        let result = tokio::try_join!(
+            self.produce_upload_jobs(
+                local_path,
+                &canonical_remote,
+                transfer_id,
+                &transfer_manager,
+                job_tx,
+            ),
+            self.run_upload_jobs(
+                job_rx,
+                plan,
+                pool.clone(),
+                rate_limiter,
+                transfer_id,
+                &progress_tx,
+                &transfer_manager,
+            )
+        )
+        .map(|(_, completed)| completed);
+        pool.close_auxiliary_sessions().await;
+        result
     }
 
-    async fn collect_download_jobs_depth(
+    fn directory_transfer_plan(
+        &self,
+        transfer_manager: &Option<Arc<SftpTransferManager>>,
+    ) -> DirectoryTransferPlan {
+        let requested_parallelism = transfer_manager
+            .as_ref()
+            .map(|manager| manager.directory_parallelism())
+            .unwrap_or(1);
+        plan_directory_transfer(
+            requested_parallelism,
+            self.sftp.advertised_open_handle_limit(),
+        )
+    }
+
+    async fn produce_download_jobs(
         &self,
         remote_path: &str,
         local_path: &str,
-        depth: u32,
-        jobs: &mut Vec<DownloadFileJob>,
+        transfer_id: &str,
+        transfer_manager: &Option<Arc<SftpTransferManager>>,
+        job_tx: tokio::sync::mpsc::Sender<DownloadFileJob>,
     ) -> Result<(), SftpError> {
         const MAX_DEPTH: u32 = 64;
-        if depth >= MAX_DEPTH {
-            return Err(SftpError::TransferError(format!(
-                "download recursion depth {MAX_DEPTH} reached at {remote_path}"
-            )));
-        }
-        let mut stack = VecDeque::from([(remote_path.to_string(), local_path.to_string(), depth)]);
+        let mut stack = VecDeque::from([(remote_path.to_string(), local_path.to_string(), 0)]);
         while let Some((remote_dir, local_dir, current_depth)) = stack.pop_back() {
+            check_transfer_control(transfer_manager, transfer_id).await?;
             if current_depth >= MAX_DEPTH {
                 return Err(SftpError::TransferError(format!(
                     "download recursion depth {MAX_DEPTH} reached at {remote_dir}"
@@ -358,40 +400,44 @@ impl SftpSession {
                         .map_err(SftpError::IoError)?;
                     stack.push_back((entry.path, local_entry, current_depth + 1));
                 } else {
-                    jobs.push(DownloadFileJob {
-                        remote_path: entry.path,
-                        local_path: local_entry,
-                        total_bytes: entry.size,
-                    });
+                    // A bounded send lets workers start immediately while keeping
+                    // large directory trees from accumulating in memory.
+                    job_tx
+                        .send(DownloadFileJob {
+                            remote_path: entry.path,
+                            local_path: local_entry,
+                            total_bytes: entry.size,
+                        })
+                        .await
+                        .map_err(|_| SftpError::TransferCancelled)?;
                 }
             }
         }
         Ok(())
     }
 
-    async fn collect_upload_jobs_depth(
+    async fn produce_upload_jobs(
         &self,
         local_path: &str,
         remote_path: &str,
-        depth: u32,
-        all_remote_dirs: &mut Vec<String>,
-        jobs: &mut Vec<UploadFileJob>,
+        transfer_id: &str,
+        transfer_manager: &Option<Arc<SftpTransferManager>>,
+        job_tx: tokio::sync::mpsc::Sender<UploadFileJob>,
     ) -> Result<(), SftpError> {
         const MAX_DEPTH: u32 = 64;
-        if depth >= MAX_DEPTH {
-            return Err(SftpError::TransferError(format!(
-                "upload recursion depth {MAX_DEPTH} reached at {local_path}"
-            )));
-        }
         let mut stack =
-            VecDeque::from([(PathBuf::from(local_path), remote_path.to_string(), depth)]);
+            VecDeque::from([(PathBuf::from(local_path), remote_path.to_string(), 0)]);
         while let Some((local_dir, remote_dir, current_depth)) = stack.pop_back() {
+            check_transfer_control(transfer_manager, transfer_id).await?;
             if current_depth >= MAX_DEPTH {
                 return Err(SftpError::TransferError(format!(
                     "upload recursion depth {MAX_DEPTH} reached at {}",
                     local_dir.display()
                 )));
             }
+            // Parent directories are created before their file jobs enter the
+            // queue. Existing-directory responses remain intentionally benign.
+            let _ = self.mkdir(&remote_dir).await;
             let mut entries = tokio::fs::read_dir(&local_dir)
                 .await
                 .map_err(SftpError::IoError)?;
@@ -417,14 +463,16 @@ impl SftpSession {
                     continue;
                 }
                 if metadata.is_dir() {
-                    all_remote_dirs.push(remote_entry.clone());
                     stack.push_back((local_entry, remote_entry, current_depth + 1));
                 } else if metadata.is_file() {
-                    jobs.push(UploadFileJob {
-                        local_path: local_entry.to_string_lossy().to_string(),
-                        remote_path: remote_entry,
-                        total_bytes: metadata.len(),
-                    });
+                    job_tx
+                        .send(UploadFileJob {
+                            local_path: local_entry.to_string_lossy().to_string(),
+                            remote_path: remote_entry,
+                            total_bytes: metadata.len(),
+                        })
+                        .await
+                        .map_err(|_| SftpError::TransferCancelled)?;
                 } else {
                     warn!(
                         "Skipping special local entry during SFTP upload: {:?}",
@@ -438,40 +486,23 @@ impl SftpSession {
 
     async fn run_download_jobs(
         &self,
-        jobs: Vec<DownloadFileJob>,
+        job_rx: tokio::sync::mpsc::Receiver<DownloadFileJob>,
+        plan: DirectoryTransferPlan,
+        pool: Arc<DirectorySftpPool>,
+        rate_limiter: Arc<DirectoryRateLimiter>,
         transfer_id: &str,
         progress_tx: &Option<tokio::sync::mpsc::Sender<TransferProgress>>,
         transfer_manager: &Option<Arc<SftpTransferManager>>,
     ) -> Result<u64, SftpError> {
-        let requested_parallelism = transfer_manager
-            .as_ref()
-            .map(|manager| manager.directory_parallelism())
-            .unwrap_or(1)
-            .clamp(1, crate::MAX_SFTP_DIRECTORY_PARALLELISM);
-        let speed_limit_bps = transfer_manager
-            .as_ref()
-            .map(|manager| manager.speed_limit_bps())
-            .unwrap_or(0);
-        let plan = plan_directory_transfer(
-            jobs.len(),
-            requested_parallelism,
-            speed_limit_bps,
-            self.sftp.advertised_open_handle_limit(),
-        );
-        if plan.worker_count <= 1 {
-            for job in &jobs {
-                self.download_file_inner(job, transfer_id, progress_tx, transfer_manager)
-                    .await?;
-            }
-            return Ok(jobs.len() as u64);
-        }
-
-        let pool = Arc::new(self.open_directory_pool(plan.channel_count).await);
         let bulk_lane = Arc::new(tokio::sync::Semaphore::new(plan.bulk_lane_workers));
-        let result = stream::iter(jobs.into_iter().enumerate())
+        stream::unfold(job_rx, |mut receiver| async move {
+            receiver.recv().await.map(|job| (job, receiver))
+        })
+            .enumerate()
             .map(|(worker_index, job)| {
                 let pool = pool.clone();
                 let bulk_lane = bulk_lane.clone();
+                let rate_limiter = rate_limiter.clone();
                 async move {
                     let _bulk_permit = match plan.classify_size(job.total_bytes) {
                         DirectoryJobClass::Compact => None,
@@ -489,6 +520,7 @@ impl SftpSession {
                         transfer_id,
                         progress_tx,
                         transfer_manager,
+                        Some(rate_limiter.as_ref()),
                     )
                     .await?;
                     Ok::<u64, SftpError>(1)
@@ -496,47 +528,28 @@ impl SftpSession {
             })
             .buffer_unordered(plan.worker_count)
             .try_fold(0, |sum, count| async move { Ok(sum + count) })
-            .await;
-        pool.close_auxiliary_sessions().await;
-        result
+            .await
     }
 
     async fn run_upload_jobs(
         &self,
-        jobs: Vec<UploadFileJob>,
+        job_rx: tokio::sync::mpsc::Receiver<UploadFileJob>,
+        plan: DirectoryTransferPlan,
+        pool: Arc<DirectorySftpPool>,
+        rate_limiter: Arc<DirectoryRateLimiter>,
         transfer_id: &str,
         progress_tx: &Option<tokio::sync::mpsc::Sender<TransferProgress>>,
         transfer_manager: &Option<Arc<SftpTransferManager>>,
     ) -> Result<u64, SftpError> {
-        let requested_parallelism = transfer_manager
-            .as_ref()
-            .map(|manager| manager.directory_parallelism())
-            .unwrap_or(1)
-            .clamp(1, crate::MAX_SFTP_DIRECTORY_PARALLELISM);
-        let speed_limit_bps = transfer_manager
-            .as_ref()
-            .map(|manager| manager.speed_limit_bps())
-            .unwrap_or(0);
-        let plan = plan_directory_transfer(
-            jobs.len(),
-            requested_parallelism,
-            speed_limit_bps,
-            self.sftp.advertised_open_handle_limit(),
-        );
-        if plan.worker_count <= 1 {
-            for job in &jobs {
-                self.upload_file_inner(job, transfer_id, progress_tx, transfer_manager)
-                    .await?;
-            }
-            return Ok(jobs.len() as u64);
-        }
-
-        let pool = Arc::new(self.open_directory_pool(plan.channel_count).await);
         let bulk_lane = Arc::new(tokio::sync::Semaphore::new(plan.bulk_lane_workers));
-        let result = stream::iter(jobs.into_iter().enumerate())
+        stream::unfold(job_rx, |mut receiver| async move {
+            receiver.recv().await.map(|job| (job, receiver))
+        })
+            .enumerate()
             .map(|(worker_index, job)| {
                 let pool = pool.clone();
                 let bulk_lane = bulk_lane.clone();
+                let rate_limiter = rate_limiter.clone();
                 async move {
                     let _bulk_permit = match plan.classify_size(job.total_bytes) {
                         DirectoryJobClass::Compact => None,
@@ -554,6 +567,7 @@ impl SftpSession {
                         transfer_id,
                         progress_tx,
                         transfer_manager,
+                        Some(rate_limiter.as_ref()),
                     )
                     .await?;
                     Ok::<u64, SftpError>(1)
@@ -561,21 +575,24 @@ impl SftpSession {
             })
             .buffer_unordered(plan.worker_count)
             .try_fold(0, |sum, count| async move { Ok(sum + count) })
-            .await;
-        pool.close_auxiliary_sessions().await;
-        result
+            .await
     }
 
     async fn open_directory_pool(&self, channel_count: usize) -> DirectorySftpPool {
         let mut pool = DirectorySftpPool::new(self.sftp.clone());
-        for _ in 1..channel_count {
-            match self.open_sibling_sftp().await {
+        let auxiliary_count = channel_count.saturating_sub(1);
+        // Auxiliary sessions are owned by this directory batch. Opening them
+        // concurrently shortens startup without tying them to any file future.
+        let mut openings = stream::iter(0..auxiliary_count)
+            .map(|_| self.open_sibling_sftp())
+            .buffer_unordered(auxiliary_count.max(1));
+        while let Some(result) = openings.next().await {
+            match result {
                 Ok(session) => pool.push_auxiliary(session),
                 Err(error) => {
                     warn!(
                         "Failed to open auxiliary SFTP channel for directory transfer: {error}"
                     );
-                    break;
                 }
             }
         }
@@ -595,6 +612,7 @@ impl SftpSession {
             transfer_id,
             progress_tx,
             transfer_manager,
+            None,
         )
         .await
     }
@@ -606,6 +624,7 @@ impl SftpSession {
         transfer_id: &str,
         progress_tx: &Option<tokio::sync::mpsc::Sender<TransferProgress>>,
         transfer_manager: &Option<Arc<SftpTransferManager>>,
+        directory_rate_limiter: Option<&DirectoryRateLimiter>,
     ) -> Result<(), SftpError> {
         let remote_file = sftp
             .open(&job.remote_path)
@@ -632,6 +651,23 @@ impl SftpSession {
         let mut diagnostics = LocalSftpDiagnostics::new();
         loop {
             check_transfer_control(transfer_manager, transfer_id).await?;
+            let shared_throttle_sleep = if let Some(rate_limiter) = directory_rate_limiter {
+                let remaining = job.total_bytes.saturating_sub(transferred);
+                let reserved_bytes = usize::try_from(remaining)
+                    .unwrap_or(usize::MAX)
+                    .min(remote_reader.diagnostic_snapshot().window.target_chunk_len);
+                if reserved_bytes == 0 {
+                    std::time::Duration::ZERO
+                } else {
+                    // Reserve the batch budget before issuing more reads so each
+                    // pipelined file cannot create its own full-speed burst.
+                    rate_limiter
+                        .throttle(reserved_bytes, transfer_manager)
+                        .await
+                }
+            } else {
+                std::time::Duration::ZERO
+            };
             let Some(chunk) = remote_reader
                 .next_chunk()
                 .await
@@ -641,8 +677,8 @@ impl SftpSession {
             };
             let read = chunk.data.len();
             if chunk.offset != transferred {
-                // Pipelined reads are emitted in order, but seeking keeps the
-                // local file correct if a server short-read forces a restart.
+                // Pipelined reads are emitted in order, but keep the local
+                // offset defensive if a future recovery path emits a gap.
                 let seek_started = Instant::now();
                 local_file
                     .seek(std::io::SeekFrom::Start(chunk.offset))
@@ -657,7 +693,11 @@ impl SftpSession {
                 .map_err(SftpError::IoError)?;
             diagnostics.record_local_write(read, write_started.elapsed());
             transferred = chunk.offset.saturating_add(read as u64);
-            let throttle_sleep = throttle_transfer(transferred, started, transfer_manager).await;
+            let throttle_sleep = if directory_rate_limiter.is_some() {
+                shared_throttle_sleep
+            } else {
+                throttle_transfer(transferred, started, transfer_manager).await
+            };
             diagnostics.record_throttle_sleep(throttle_sleep);
             if diagnostics.should_log() {
                 emit_local_sftp_diagnostics(format_download_diagnostics(
@@ -718,6 +758,7 @@ impl SftpSession {
             transfer_id,
             progress_tx,
             transfer_manager,
+            None,
         )
         .await
     }
@@ -729,6 +770,7 @@ impl SftpSession {
         transfer_id: &str,
         progress_tx: &Option<tokio::sync::mpsc::Sender<TransferProgress>>,
         transfer_manager: &Option<Arc<SftpTransferManager>>,
+        directory_rate_limiter: Option<&DirectoryRateLimiter>,
     ) -> Result<(), SftpError> {
         let mut local_file = tokio::fs::File::open(&job.local_path)
             .await
@@ -763,12 +805,23 @@ impl SftpSession {
             if read == 0 {
                 break;
             }
+            let shared_throttle_sleep = if let Some(rate_limiter) = directory_rate_limiter {
+                // Upload workers reserve the shared batch budget before queuing
+                // bytes so parallel files cannot each consume the full limit.
+                rate_limiter.throttle(read, transfer_manager).await
+            } else {
+                std::time::Duration::ZERO
+            };
             let scheduled = remote_writer
                 .write_all_chunk(&buffer[..read])
                 .await
                 .map_err(|error| self.map_sftp_error(error, &job.remote_path))?;
             transferred = transferred.saturating_add(scheduled as u64);
-            let throttle_sleep = throttle_transfer(transferred, started, transfer_manager).await;
+            let throttle_sleep = if directory_rate_limiter.is_some() {
+                shared_throttle_sleep
+            } else {
+                throttle_transfer(transferred, started, transfer_manager).await
+            };
             diagnostics.record_throttle_sleep(throttle_sleep);
             if diagnostics.should_log() {
                 emit_local_sftp_diagnostics(format_upload_diagnostics(
@@ -875,8 +928,8 @@ impl SftpSession {
             };
             let read = chunk.data.len();
             if chunk.offset != transferred {
-                // Preserve sparse correctness if a short-read causes the
-                // pipelined reader to restart at a non-speculative offset.
+                // Preserve local-file correctness if a future recovery path
+                // emits a non-contiguous offset during a resumed transfer.
                 let seek_started = Instant::now();
                 local_file
                     .seek(std::io::SeekFrom::Start(chunk.offset))

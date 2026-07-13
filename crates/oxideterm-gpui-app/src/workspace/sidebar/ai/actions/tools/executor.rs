@@ -1721,16 +1721,14 @@ impl AiOrchestratorRuntimeSnapshot {
             .resolve_connection(node_id)
             .await
             .map_err(|error| error.to_string())?;
-        let tar_supported = probe_tar_support(&resolved.handle).await;
-        let strategy = if tar_supported {
+        let tar_capabilities = self
+            .sftp_transfer_manager
+            .tar_capabilities(&resolved.connection_id, &resolved.handle)
+            .await;
+        let strategy = if tar_capabilities.supports_tar {
             TransferStrategy::DirectoryTar
         } else {
             TransferStrategy::DirectoryRecursive
-        };
-        let compression = if strategy == TransferStrategy::DirectoryTar {
-            Some(probe_tar_compression(&resolved.handle).await)
-        } else {
-            None
         };
         let snapshot = BackgroundTransferSnapshot::new(
             transfer_id.to_string(),
@@ -1774,94 +1772,95 @@ impl AiOrchestratorRuntimeSnapshot {
                 );
 
                 if strategy_for_task == TransferStrategy::DirectoryTar {
-                    let tar_result = match direction_for_task.as_str() {
-                        "upload" => {
-                            let shared = router
-                                .acquire_sftp(&node_id)
-                                .await
-                                .map_err(|error| error.to_string())?;
-                            {
-                                let sftp = shared.lock().await;
-                                for prefix in ai_remote_directory_prefixes(&remote_path_for_task) {
-                                    let _ = sftp.mkdir(&prefix).await;
-                                }
+                    if direction_for_task == "upload" {
+                        let shared = router
+                            .acquire_sftp(&node_id)
+                            .await
+                            .map_err(|error| error.to_string())?;
+                        {
+                            let sftp = shared.lock().await;
+                            for prefix in ai_remote_directory_prefixes(&remote_path_for_task) {
+                                let _ = sftp.mkdir(&prefix).await;
                             }
-                            let resolved = router
-                                .resolve_connection(&node_id)
-                                .await
-                                .map_err(|error| error.to_string())?;
-                            tar_upload_directory(
+                        }
+                    }
+                    let resolved = router
+                        .resolve_connection(&node_id)
+                        .await
+                        .map_err(|error| error.to_string())?;
+                    let capabilities = manager
+                        .tar_capabilities(&resolved.connection_id, &resolved.handle)
+                        .await;
+                    if capabilities.supports_tar {
+                        let tar_result = match direction_for_task.as_str() {
+                            "upload" => tar_upload_directory(
                                 &resolved.handle,
                                 &local_path_for_task,
                                 &remote_path_for_task,
                                 &transfer_id_for_task,
                                 None,
                                 Some(manager.clone()),
-                                compression,
+                                Some(capabilities.compression),
                             )
-                            .await
-                        }
-                        "download" => {
-                            let resolved = router
-                                .resolve_connection(&node_id)
-                                .await
-                                .map_err(|error| error.to_string())?;
-                            tar_download_directory(
+                            .await,
+                            "download" => tar_download_directory(
                                 &resolved.handle,
                                 &remote_path_for_task,
                                 &local_path_for_task,
                                 &transfer_id_for_task,
                                 None,
                                 Some(manager.clone()),
-                                compression,
+                                Some(capabilities.compression),
                             )
-                            .await
-                        }
-                        _ => unreachable!(),
-                    };
-                    match tar_result {
-                        Ok(count) => return Ok((count, TransferStrategy::DirectoryTar, false)),
-                        Err(error) if !control.is_cancelled() => {
-                            manager.update_background_transfer_strategy(
-                                &transfer_id_for_task,
-                                TransferStrategy::DirectoryRecursive,
-                            );
-                            let sftp = router
-                                .acquire_transfer_sftp(&node_id)
-                                .await
-                                .map_err(|route_error| route_error.to_string())?;
-                            let fallback = match direction_for_task.as_str() {
-                                "upload" => {
-                                    sftp.upload_dir(
-                                        &local_path_for_task,
-                                        &remote_path_for_task,
-                                        &transfer_id_for_task,
-                                        None,
-                                        Some(manager.clone()),
-                                    )
+                            .await,
+                            _ => unreachable!(),
+                        };
+                        match tar_result {
+                            Ok(count) => return Ok((count, TransferStrategy::DirectoryTar, false)),
+                            Err(error) if !control.is_cancelled() => {
+                                manager.update_background_transfer_strategy(
+                                    &transfer_id_for_task,
+                                    TransferStrategy::DirectoryRecursive,
+                                );
+                                let sftp = router
+                                    .acquire_transfer_sftp(&node_id)
                                     .await
-                                }
-                                "download" => {
-                                    sftp.download_dir(
-                                        &remote_path_for_task,
-                                        &local_path_for_task,
-                                        &transfer_id_for_task,
-                                        None,
-                                        Some(manager.clone()),
-                                    )
-                                    .await
-                                }
-                                _ => unreachable!(),
-                            };
-                            return fallback
-                                .map(|count| (count, TransferStrategy::DirectoryRecursive, true))
-                                .map_err(|fallback_error| {
-                                    format!(
-                                        "tar directory transfer failed ({error}); recursive fallback failed ({fallback_error})"
-                                    )
-                                });
+                                    .map_err(|route_error| route_error.to_string())?;
+                                let fallback = match direction_for_task.as_str() {
+                                    "upload" => {
+                                        sftp.upload_dir(
+                                            &local_path_for_task,
+                                            &remote_path_for_task,
+                                            &transfer_id_for_task,
+                                            None,
+                                            Some(manager.clone()),
+                                        )
+                                        .await
+                                    }
+                                    "download" => {
+                                        sftp.download_dir(
+                                            &remote_path_for_task,
+                                            &local_path_for_task,
+                                            &transfer_id_for_task,
+                                            None,
+                                            Some(manager.clone()),
+                                        )
+                                        .await
+                                    }
+                                    _ => unreachable!(),
+                                };
+                                return fallback
+                                    .map(|count| {
+                                        (count, TransferStrategy::DirectoryRecursive, true)
+                                    })
+                                    .map_err(|fallback_error| {
+                                        format!(
+                                            "tar directory transfer failed ({error}); recursive fallback failed ({fallback_error})"
+                                        )
+                                    });
+                            }
+                            Err(error) => return Err(error.to_string()),
                         }
-                        Err(error) => return Err(error.to_string()),
                     }
                 }
 

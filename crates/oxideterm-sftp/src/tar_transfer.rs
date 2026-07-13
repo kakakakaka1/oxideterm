@@ -34,6 +34,23 @@ impl TarCompression {
     }
 }
 
+/// Remote archive commands available to one live SSH connection generation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TarCapabilities {
+    pub supports_tar: bool,
+    pub compression: TarCompression,
+}
+
+impl TarCapabilities {
+    /// Represents a remote environment where tar transfers are unavailable.
+    pub const fn unsupported() -> Self {
+        Self {
+            supports_tar: false,
+            compression: TarCompression::None,
+        }
+    }
+}
+
 pub trait SftpExecChannelOpener: Clone + Send + Sync + 'static {
     fn open_exec_channel(
         &self,
@@ -58,6 +75,21 @@ where
         return TarCompression::Gzip;
     }
     TarCompression::None
+}
+
+/// Probes tar support and the best available compression command once.
+pub async fn probe_tar_capabilities<O>(opener: &O) -> TarCapabilities
+where
+    O: SftpExecChannelOpener,
+{
+    if !probe_tar_support(opener).await {
+        return TarCapabilities::unsupported();
+    }
+
+    TarCapabilities {
+        supports_tar: true,
+        compression: probe_tar_compression(opener).await,
+    }
 }
 
 pub async fn tar_upload_directory<O>(
@@ -110,10 +142,12 @@ where
                 return Err(error);
             }
         }
-        channel.data(&chunk[..]).await.map_err(|error| {
+        // Capture the byte count before handing the owned allocation to russh.
+        let chunk_len = chunk.len() as u64;
+        channel.data_bytes(chunk).await.map_err(|error| {
             SftpError::ChannelError(format!("Failed to write tar data: {error}"))
         })?;
-        sent += chunk.len() as u64;
+        sent += chunk_len;
         throttle(sent, start, &transfer_manager).await;
         if last_progress.elapsed().as_millis() >= 200 {
             send_progress(

@@ -1,8 +1,8 @@
-# Third-Party Notices (Native / Rust Workspace)
+# Third-Party Notices
 
 This file lists third-party Rust crates and detected licenses, including transitive dependencies.
 It is generated from `cargo deny list -f json -l crate`.
-Generated: 2026-07-10T12:56:53.699024Z
+Generated: 2026-07-13T15:33:47.650994Z
 
 ## Summary
 
