@@ -37,7 +37,6 @@ use oxideterm_gpui_ui::{
     context_menu::{ContextMenuActionableStyle, context_menu_event_boundary},
     dropdown_menu::{DropdownMenuItemKind, dropdown_menu_content, dropdown_menu_item},
     modal::{dismissible_dialog_backdrop, modal_backdrop, overlay_content_boundary},
-    modal_body, modal_container, modal_footer, modal_overlay,
     surface::{color_for_background, color_for_background_or_alpha},
     text_input::{
         text_caret, text_input_anchor_probe, text_input_secret_mask, text_input_value_segments,
@@ -49,9 +48,7 @@ use oxideterm_settings::{
     ALL_OXIDE_SETTINGS_SECTIONS, DEFAULT_OXIDE_SETTINGS_SECTIONS, PersistedSettings,
     export_oxide_settings_snapshot_json, merge_oxide_settings_snapshot,
 };
-use oxideterm_ssh::{
-    AuthMethod, SshConfig, UpstreamProxyAuth, UpstreamProxyConfig, UpstreamProxyProtocol,
-};
+use oxideterm_ssh::{UpstreamProxyAuth, UpstreamProxyConfig, UpstreamProxyProtocol};
 
 use super::*;
 use crate::workspace::ime::WorkspaceImeTarget;
@@ -105,7 +102,6 @@ pub(super) enum SessionManagerInput {
     Search,
     SavedSearch,
     NewGroup,
-    AutoRouteDisplayName,
     OxideImportPassword,
     OxideExportPassword,
     OxideExportConfirmPassword,
@@ -118,11 +114,10 @@ impl SessionManagerInput {
             Self::Search => 1,
             Self::SavedSearch => 2,
             Self::NewGroup => 3,
-            Self::AutoRouteDisplayName => 4,
-            Self::OxideImportPassword => 5,
-            Self::OxideExportPassword => 6,
-            Self::OxideExportConfirmPassword => 7,
-            Self::OxideExportDescription => 8,
+            Self::OxideImportPassword => 4,
+            Self::OxideExportPassword => 5,
+            Self::OxideExportConfirmPassword => 6,
+            Self::OxideExportDescription => 7,
         }
     }
 
@@ -597,7 +592,6 @@ impl std::fmt::Debug for OxideExportDialogState {
 
 // Keep the manager split by UI surface and behavior while preserving one workspace boundary.
 mod actions;
-mod auto_route;
 mod controls;
 mod dialogs;
 mod helpers;
@@ -617,19 +611,16 @@ mod views;
 // Recreate the former flat include scope without exposing internal helpers to the workspace.
 #[allow(unused_imports)]
 use self::{
-    actions::*, auto_route::*, controls::*, dialogs::*, helpers::*, oxide_actions::*,
-    oxide_dialog_common::*, oxide_dialog_helpers::*, oxide_export_dialogs::*,
-    oxide_export_selection_dialogs::*, oxide_export_summary_dialogs::*, oxide_import_dialogs::*,
-    oxide_import_preview_dialogs::*, oxide_import_result_dialogs::*, surface::*, tree::*, views::*,
+    actions::*, controls::*, dialogs::*, helpers::*, oxide_actions::*, oxide_dialog_common::*,
+    oxide_dialog_helpers::*, oxide_export_dialogs::*, oxide_export_selection_dialogs::*,
+    oxide_export_summary_dialogs::*, oxide_import_dialogs::*, oxide_import_preview_dialogs::*,
+    oxide_import_result_dialogs::*, surface::*, tree::*, views::*,
 };
 
 // Preserve the workspace-facing session manager API at its original visibility.
-pub(in crate::workspace) use self::{
-    auto_route::AutoRouteModalState,
-    helpers::{
-        duplicate_connection_template_name, form_from_saved_connection, save_request_from_form,
-        save_request_from_form_with_existing_auth, upstream_proxy_config_from_form,
-    },
+pub(in crate::workspace) use self::helpers::{
+    duplicate_connection_template_name, form_from_saved_connection, save_request_from_form,
+    save_request_from_form_with_existing_auth, upstream_proxy_config_from_form,
 };
 
 #[cfg(test)]

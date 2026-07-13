@@ -1279,8 +1279,8 @@ impl WorkspaceApp {
             return true;
         };
         // ManualPreset/Restored are already saved-connection materializations,
-        // while AutoRoute is derived topology. Only live drill-down nodes and
-        // genuinely unsaved direct nodes should expose "Save as connection".
+        // while legacy AutoRoute nodes came from derived topology. Only live
+        // drill-down nodes and genuinely unsaved direct nodes expose this action.
         matches!(
             snapshot.origin,
             NodeOrigin::DrillDown { .. } | NodeOrigin::Direct

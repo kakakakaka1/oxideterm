@@ -67,20 +67,6 @@ impl WorkspaceApp {
                 )
             })
             .child(
-                self.render_toolbar_button(
-                    LucideIcon::Network,
-                    self.i18n.t("sessionManager.toolbar.auto_route"),
-                    ButtonVariant::Outline,
-                    has_background,
-                    show_primary_labels,
-                    cx.listener(|this, _event, window, cx| {
-                        this.open_auto_route_modal(window, cx);
-                        cx.stop_propagation();
-                    }),
-                )
-                .flex_none(),
-            )
-            .child(
                 div()
                     .flex_none()
                     .child(self.render_session_manager_sort_trigger(

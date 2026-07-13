@@ -300,10 +300,6 @@ impl Render for WorkspaceApp {
                     this.open_command_palette(cx);
                     window.prevent_default();
                     cx.stop_propagation();
-                } else if this.auto_route_modal.open {
-                    let _ = this.handle_auto_route_key(event, window, cx);
-                    window.prevent_default();
-                    cx.stop_propagation();
                 } else if this.new_connection_form.is_some() {
                     let _ = this.handle_new_connection_key(event, window, cx);
                     window.prevent_default();
@@ -371,7 +367,7 @@ impl Render for WorkspaceApp {
                     .is_some_and(|tab| tab.kind == TabKind::SessionManager)
                     && this.session_manager.focused_input.is_some()
                 {
-                    let _ = this.handle_session_manager_key(event, window, cx);
+                    let _ = this.handle_session_manager_key(event, cx);
                     window.prevent_default();
                     cx.stop_propagation();
                 } else if this
@@ -794,9 +790,6 @@ impl Render for WorkspaceApp {
             })
             .when(self.local_shell_launcher_open, |root| {
                 root.child(self.render_local_shell_launcher(window, cx))
-            })
-            .when(self.auto_route_modal.open, |root| {
-                root.child(self.render_auto_route_modal(window, cx))
             })
             .when(
                 self.new_connection_form

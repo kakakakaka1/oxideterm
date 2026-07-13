@@ -49,25 +49,6 @@
       "adding": "Adding...",
       "add_node": "Add Node"
     },
-    "auto_route": {
-      "title": "Auto-Route Connection",
-      "description": "Select a target server from your saved connections. The system will automatically compute the optimal jump host path.",
-      "loading": "Loading...",
-      "no_connections": "No saved connections found",
-      "no_connections_hint": "Save some connections first. The topology graph is automatically generated from your saved connections and their proxy chain settings.",
-      "select_target": "Select Target Server",
-      "display_name": "Display Name",
-      "connection_info": "Connection Info",
-      "authentication": "Authentication",
-      "auth_agent": "SSH Agent",
-      "auth_key": "SSH Key",
-      "auth_password_warning": "Password (not supported for auto-route)",
-      "can_reach": "Can reach",
-      "cancel": "Cancel",
-      "connect": "Connect",
-      "connecting": "Connecting...",
-      "connect_failed": "Connection Failed"
-    },
     "import": {
       "title": "Import Configuration from .oxide File",
       "close": "Close",

@@ -49,25 +49,6 @@
       "adding": "Ajout en cours...",
       "add_node": "Ajouter le nœud"
     },
-    "auto_route": {
-      "title": "Connexion auto-routée",
-      "description": "Sélectionnez un serveur cible parmi vos connexions enregistrées. Le système calculera automatiquement le chemin optimal via les hôtes de saut.",
-      "loading": "Chargement...",
-      "no_connections": "Aucune connexion enregistrée trouvée",
-      "no_connections_hint": "Enregistrez d'abord quelques connexions. Le graphe topologique est automatiquement généré à partir de vos connexions enregistrées et de leurs paramètres de chaîne proxy.",
-      "select_target": "Sélectionner le serveur cible",
-      "display_name": "Nom d'affichage",
-      "connection_info": "Info de connexion",
-      "authentication": "Authentification",
-      "auth_agent": "Agent SSH",
-      "auth_key": "Clé SSH",
-      "auth_password_warning": "Mot de passe (non pris en charge pour l'auto-routage)",
-      "can_reach": "Peut atteindre",
-      "cancel": "Annuler",
-      "connect": "Connecter",
-      "connecting": "Connexion en cours...",
-      "connect_failed": "Échec de la connexion"
-    },
     "import": {
       "title": "Importer la configuration depuis un fichier .oxide",
       "close": "Fermer",

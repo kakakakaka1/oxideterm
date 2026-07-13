@@ -572,14 +572,6 @@ impl WorkspaceApp {
             return Some(WorkspaceImeTarget::TerminalProjectSearch);
         }
 
-        if self.auto_route_modal.open
-            && self.session_manager.focused_input == Some(SessionManagerInput::AutoRouteDisplayName)
-        {
-            return Some(WorkspaceImeTarget::SessionManager(
-                SessionManagerInput::AutoRouteDisplayName,
-            ));
-        }
-
         if self
             .active_tab()
             .is_some_and(|tab| tab.kind == oxideterm_workspace::TabKind::SessionManager)
@@ -1382,9 +1374,6 @@ impl WorkspaceApp {
                         }
                         SessionManagerInput::NewGroup => {
                             self.session_manager.new_group_name.clone()
-                        }
-                        SessionManagerInput::AutoRouteDisplayName => {
-                            self.auto_route_modal.display_name.clone()
                         }
                         SessionManagerInput::OxideImportPassword => self
                             .session_manager
@@ -2262,13 +2251,6 @@ impl WorkspaceApp {
                         SessionManagerInput::NewGroup => {
                             replace_utf16(
                                 &mut self.session_manager.new_group_name,
-                                replacement_range,
-                                text,
-                            );
-                        }
-                        SessionManagerInput::AutoRouteDisplayName => {
-                            replace_utf16(
-                                &mut self.auto_route_modal.display_name,
                                 replacement_range,
                                 text,
                             );

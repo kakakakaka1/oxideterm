@@ -111,6 +111,34 @@ mod tests {
     }
 
     #[test]
+    fn runtime_tree_snapshot_restores_legacy_auto_route_origin() {
+        let store = NodeRuntimeStore::default();
+        let node_id = NodeId::new("legacy-auto-route");
+        store.upsert_node_with_origin(
+            node_id.clone(),
+            SshConfig::password("target", 22, "me", "pw"),
+            NodeOrigin::AutoRoute {
+                target_host: "target".to_string(),
+                route_id: "legacy-route".to_string(),
+                hop_index: 0,
+            },
+        );
+
+        let restored = NodeRuntimeStore::default();
+        restored.apply_snapshot(store.export_snapshot()).unwrap();
+
+        let snapshot = restored.snapshot(&node_id).unwrap();
+        assert!(matches!(
+            snapshot.origin,
+            NodeOrigin::AutoRoute {
+                target_host,
+                route_id,
+                hop_index: 0,
+            } if target_host == "target" && route_id == "legacy-route"
+        ));
+    }
+
+    #[test]
     fn expand_manual_preset_materializes_each_hop_as_own_node() {
         let store = NodeRuntimeStore::default();
         let expansion = store

@@ -5,8 +5,7 @@
       "search_placeholder": "Tìm kiếm kết nối...",
       "new_connection": "Kết nối mới",
       "import": "Nhập",
-      "export": "Xuất",
-      "auto_route": "Tuyến tự động"
+      "export": "Xuất"
     },
     "folder_tree": {
       "all_connections": "Tất cả kết nối",
@@ -117,40 +116,6 @@
       "save": "Lưu",
       "saving": "Đang lưu...",
       "passphrase_hint": "Để trống để giữ passphrase đã lưu khi đường dẫn key không đổi."
-    },
-    "auto_route": {
-      "title": "Kết nối định tuyến tự động",
-      "description": "Chọn máy chủ đích từ các kết nối đã lưu. Hệ thống sẽ tự động tính đường đi jump host tốt nhất.",
-      "loading": "Đang tải cấu trúc mạng...",
-      "select_target": "Chọn máy chủ đích",
-      "display_name": "Tên hiển thị",
-      "connection_info": "Thông tin kết nối",
-      "cancel": "Hủy",
-      "connect": "Kết nối",
-      "empty": {
-        "title": "Không tìm thấy kết nối đã lưu",
-        "description": "Vui lòng lưu một vài kết nối trước. Sơ đồ cấu trúc mạng được tự động tạo từ các kết nối đã lưu và thiết lập chuỗi proxy của chúng."
-      },
-      "auth": {
-        "label": "Xác thực",
-        "password": "Mật khẩu",
-        "key": "Khóa SSH",
-        "managed_key": "Khóa được quản lý",
-        "certificate": "Chứng chỉ",
-        "keyboard_interactive": "Tương tác bàn phím",
-        "agent": "Agent",
-        "password_warning": "Xác thực bằng mật khẩu cần mật khẩu, nhưng mật khẩu không được lưu trong cấu trúc mạng. Hãy dùng xác thực bằng khóa hoặc Agent thay thế."
-      },
-      "errors": {
-        "target_not_found": "Không tìm thấy nút đích",
-        "invalid_route_node": "Nút định tuyến không hợp lệ {{id}}",
-        "password_auth": "Xác thực bằng mật khẩu cần mật khẩu nhưng mật khẩu không được lưu trong cấu trúc mạng",
-        "key_path_required": "Cần đường dẫn khóa để xác thực bằng khóa",
-        "unsupported_auth": "Kiểu xác thực không được hỗ trợ cho thao tác đi sâu vào cấu trúc mạng: {{type}}"
-      },
-      "status": {
-        "connecting": "Đang kết nối tới {{name}}..."
-      }
     },
     "serial_profiles": {
       "title": "Serial Profiles",

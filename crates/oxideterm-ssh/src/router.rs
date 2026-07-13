@@ -63,6 +63,8 @@ pub enum NodeOrigin {
         saved_connection_id: String,
         hop_index: u32,
     },
+    // Keep this legacy variant readable so snapshots created before auto-route
+    // retirement can still be restored and disconnected normally.
     AutoRoute {
         target_host: String,
         route_id: String,

@@ -5,8 +5,7 @@
       "search_placeholder": "Pesquisar conexões...",
       "new_connection": "Nova conexão",
       "import": "Importar",
-      "export": "Exportar",
-      "auto_route": "Rota automática"
+      "export": "Exportar"
     },
     "folder_tree": {
       "all_connections": "Todas as conexões",
@@ -117,40 +116,6 @@
       "save": "Salvar",
       "saving": "Salvando...",
       "passphrase_hint": "Deixe em branco para manter a frase secreta salva quando o caminho da chave não mudar."
-    },
-    "auto_route": {
-      "title": "Conexão com rota automática",
-      "description": "Selecione um servidor de destino entre as conexões salvas. O sistema calculará automaticamente o melhor caminho de jump host.",
-      "loading": "Carregando topologia...",
-      "select_target": "Selecionar servidor de destino",
-      "display_name": "Nome de exibição",
-      "connection_info": "Informações da conexão",
-      "cancel": "Cancelar",
-      "connect": "Conectar",
-      "empty": {
-        "title": "Nenhuma conexão salva encontrada",
-        "description": "Salve algumas conexões primeiro. O grafo de topologia é gerado automaticamente a partir das conexões salvas e das configurações de cadeia de proxy."
-      },
-      "auth": {
-        "label": "Autenticação",
-        "password": "Senha",
-        "key": "Chave SSH",
-        "managed_key": "Chave gerenciada",
-        "certificate": "Certificado",
-        "keyboard_interactive": "Interativo por teclado",
-        "agent": "Agent",
-        "password_warning": "A autenticação por senha exige uma senha, que não é armazenada na topologia. Use autenticação por chave ou agente em vez disso."
-      },
-      "errors": {
-        "target_not_found": "Nó de destino não encontrado",
-        "invalid_route_node": "Nó de rota inválido {{id}}",
-        "password_auth": "A autenticação por senha exige uma senha que não é armazenada na topologia",
-        "key_path_required": "O caminho da chave é obrigatório para autenticação por chave",
-        "unsupported_auth": "Tipo de autenticação não suportado para exploração da topologia: {{type}}"
-      },
-      "status": {
-        "connecting": "Conectando a {{name}}..."
-      }
     },
     "serial_profiles": {
       "title": "Serial Profiles",

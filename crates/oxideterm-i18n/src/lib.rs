@@ -646,7 +646,6 @@ mod tests {
             "sidebar.tooltips.ai_hint",
             "sidebar.tooltips.switch_tree",
             "sidebar.tooltips.switch_focus",
-            "sidebar.tooltips.auto_route",
             "sidebar.tooltips.new_connection",
             "sidebar.tooltips.collapse",
             "sessions.tree.no_sessions",

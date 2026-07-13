@@ -610,7 +610,6 @@ impl WorkspaceApp {
             // measurements do not leak between conflict categories.
             oxide_import_name_group_list_states: RefCell::new(HashMap::new()),
             oxide_import_name_group_list_caches: RefCell::new(HashMap::new()),
-            auto_route_modal: AutoRouteModalState::default(),
             local_shells,
             local_shell_launcher_open: false,
             local_shell_launcher_selected_id: None,

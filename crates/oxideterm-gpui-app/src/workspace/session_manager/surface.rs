@@ -230,7 +230,6 @@ impl WorkspaceApp {
     pub(in crate::workspace) fn handle_session_manager_key(
         &mut self,
         event: &KeyDownEvent,
-        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
         let Some(input) = self.session_manager.focused_input else {
@@ -243,7 +242,6 @@ impl WorkspaceApp {
         match key {
             "escape" => {
                 match input {
-                    SessionManagerInput::AutoRouteDisplayName => self.close_auto_route_modal(cx),
                     SessionManagerInput::OxideImportPassword
                     | SessionManagerInput::OxideExportPassword
                     | SessionManagerInput::OxideExportConfirmPassword
@@ -256,10 +254,6 @@ impl WorkspaceApp {
                 }
                 self.ime_marked_text = None;
                 cx.notify();
-                true
-            }
-            "enter" if input == SessionManagerInput::AutoRouteDisplayName => {
-                self.connect_auto_route(window, cx);
                 true
             }
             "enter" if input == SessionManagerInput::NewGroup => {
@@ -276,9 +270,6 @@ impl WorkspaceApp {
                     }
                     SessionManagerInput::NewGroup => {
                         self.session_manager.new_group_name.pop().is_some()
-                    }
-                    SessionManagerInput::AutoRouteDisplayName => {
-                        self.auto_route_modal.display_name.pop().is_some()
                     }
                     SessionManagerInput::OxideImportPassword => {
                         if let Some(dialog) = self.session_manager.oxide_import_dialog.as_mut() {

@@ -5,8 +5,7 @@
       "search_placeholder": "Rechercher des connexions...",
       "new_connection": "Nouvelle connexion",
       "import": "Importer",
-      "export": "Exporter",
-      "auto_route": "Route auto"
+      "export": "Exporter"
     },
     "folder_tree": {
       "all_connections": "Toutes les connexions",
@@ -117,40 +116,6 @@
       "save": "Enregistrer",
       "saving": "Enregistrement...",
       "passphrase_hint": "Laissez vide pour conserver la phrase secrète enregistrée lorsque le chemin de la clé ne change pas."
-    },
-    "auto_route": {
-      "title": "Connexion avec routage automatique",
-      "description": "Sélectionnez un serveur cible parmi les connexions enregistrées. Le système calculera automatiquement le meilleur chemin de rebond.",
-      "loading": "Chargement de la topologie...",
-      "select_target": "Sélectionner le serveur cible",
-      "display_name": "Nom d’affichage",
-      "connection_info": "Informations de connexion",
-      "cancel": "Annuler",
-      "connect": "Se connecter",
-      "empty": {
-        "title": "Aucune connexion enregistrée trouvée",
-        "description": "Enregistrez d’abord quelques connexions. Le graphe de topologie est généré automatiquement à partir des connexions enregistrées et de leurs réglages de chaîne proxy."
-      },
-      "auth": {
-        "label": "Authentification",
-        "password": "Mot de passe",
-        "key": "Clé SSH",
-        "managed_key": "Clé gérée",
-        "certificate": "Certificat",
-        "keyboard_interactive": "Interactif au clavier",
-        "agent": "Agent",
-        "password_warning": "L’authentification par mot de passe nécessite un mot de passe qui n’est pas stocké dans la topologie. Utilisez plutôt une clé ou l’agent."
-      },
-      "errors": {
-        "target_not_found": "Nœud cible introuvable",
-        "invalid_route_node": "Nœud de route invalide {{id}}",
-        "password_auth": "L’authentification par mot de passe nécessite un mot de passe qui n’est pas stocké dans la topologie",
-        "key_path_required": "Le chemin de clé est requis pour l’authentification par clé",
-        "unsupported_auth": "Type d’authentification non pris en charge pour l’exploration de la topologie : {{type}}"
-      },
-      "status": {
-        "connecting": "Connexion à {{name}}..."
-      }
     },
     "serial_profiles": {
       "title": "Serial Profiles",

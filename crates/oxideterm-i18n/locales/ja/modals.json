@@ -49,25 +49,6 @@
       "adding": "追加中...",
       "add_node": "ノードを追加"
     },
-    "auto_route": {
-      "title": "自動ルート接続",
-      "description": "保存済み接続からターゲットサーバーを選択します。システムが最適なジャンプホストパスを自動的に計算します。",
-      "loading": "読み込み中...",
-      "no_connections": "保存済み接続が見つかりません",
-      "no_connections_hint": "まず接続を保存してください。トポロジグラフは保存済み接続とそのプロキシチェーン設定から自動的に生成されます。",
-      "select_target": "ターゲットサーバーを選択",
-      "display_name": "表示名",
-      "connection_info": "接続情報",
-      "authentication": "認証",
-      "auth_agent": "SSHエージェント",
-      "auth_key": "SSHキー",
-      "auth_password_warning": "パスワード（自動ルートではサポートされません）",
-      "can_reach": "到達可能",
-      "cancel": "キャンセル",
-      "connect": "接続",
-      "connecting": "接続中...",
-      "connect_failed": "接続に失敗しました"
-    },
     "import": {
       "title": ".oxideファイルから構成をインポート",
       "close": "閉じる",

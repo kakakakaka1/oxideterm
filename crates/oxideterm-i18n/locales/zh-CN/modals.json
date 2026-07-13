@@ -49,25 +49,6 @@
       "adding": "添加中...",
       "add_node": "添加节点"
     },
-    "auto_route": {
-      "title": "自动路由连接",
-      "description": "从保存的连接中选择目标服务器。系统将自动计算最优跳板机路径。",
-      "loading": "加载中...",
-      "no_connections": "未找到保存的连接",
-      "no_connections_hint": "请先保存一些连接。拓扑图基于保存的连接及其代理链设置自动生成。",
-      "select_target": "选择目标服务器",
-      "display_name": "显示名称",
-      "connection_info": "连接信息",
-      "authentication": "认证方式",
-      "auth_agent": "SSH Agent",
-      "auth_key": "SSH 密钥",
-      "auth_password_warning": "密码（自动路由不支持）",
-      "can_reach": "可达",
-      "cancel": "取消",
-      "connect": "连接",
-      "connecting": "连接中...",
-      "connect_failed": "连接失败"
-    },
     "import": {
       "title": "从 .oxide 文件导入配置",
       "close": "关闭",

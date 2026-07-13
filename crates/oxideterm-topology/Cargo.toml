@@ -5,7 +5,6 @@ license.workspace = true
 version.workspace = true
 
 [dependencies]
-oxideterm-connections = { path = "../oxideterm-connections" }
 serde.workspace = true
 
 [dev-dependencies]

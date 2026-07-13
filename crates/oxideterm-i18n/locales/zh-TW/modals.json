@@ -49,25 +49,6 @@
       "adding": "新增中...",
       "add_node": "新增節點"
     },
-    "auto_route": {
-      "title": "自動路由連線",
-      "description": "從已儲存的連線中選擇目標伺服器。系統將自動計算最佳的跳板主機路徑。",
-      "loading": "載入中...",
-      "no_connections": "找不到已儲存的連線",
-      "no_connections_hint": "請先儲存一些連線。拓撲圖會自動從您已儲存的連線及其代理鏈設定產生。",
-      "select_target": "選擇目標伺服器",
-      "display_name": "顯示名稱",
-      "connection_info": "連線資訊",
-      "authentication": "驗證方式",
-      "auth_agent": "SSH Agent",
-      "auth_key": "SSH 金鑰",
-      "auth_password_warning": "密碼（自動路由不支援）",
-      "can_reach": "可連線至",
-      "cancel": "取消",
-      "connect": "連線",
-      "connecting": "連線中...",
-      "connect_failed": "連線失敗"
-    },
     "import": {
       "title": "從 .oxide 檔案匯入設定",
       "close": "關閉",

@@ -438,11 +438,6 @@ impl WorkspaceApp {
             header = header
                 .child(self.render_sidebar_action(view_icon, view_action, cx))
                 .child(self.render_sidebar_action(
-                    LucideIcon::Network,
-                    SidebarActionKind::AutoRoute,
-                    cx,
-                ))
-                .child(self.render_sidebar_action(
                     LucideIcon::Plus,
                     SidebarActionKind::NewConnection,
                     cx,
@@ -464,7 +459,6 @@ impl WorkspaceApp {
                 ActiveSessionSidebarViewMode::Focus => self.i18n.t("sidebar.tooltips.switch_tree"),
             },
             SidebarActionKind::NewConnection => self.i18n.t("sidebar.tooltips.new_connection"),
-            SidebarActionKind::AutoRoute => self.i18n.t("sidebar.tooltips.auto_route"),
         };
 
         let toggle_focus_active = action == SidebarActionKind::ToggleSessionView
@@ -499,7 +493,6 @@ impl WorkspaceApp {
                         SidebarActionKind::NewConnection => {
                             this.open_new_connection_form(window, cx)
                         }
-                        SidebarActionKind::AutoRoute => this.open_auto_route_modal(window, cx),
                     }
                     cx.stop_propagation();
                 }),
@@ -1593,7 +1586,6 @@ pub(in crate::workspace) fn notification_sidebar_row_signatures(
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::workspace) enum SidebarActionKind {
     ToggleSessionView,
-    AutoRoute,
     NewConnection,
 }
 

@@ -5,8 +5,7 @@
       "search_placeholder": "Cerca connessioni...",
       "new_connection": "Nuova connessione",
       "import": "Importa",
-      "export": "Esporta",
-      "auto_route": "Route automatico"
+      "export": "Esporta"
     },
     "folder_tree": {
       "all_connections": "Tutte le connessioni",
@@ -117,40 +116,6 @@
       "save": "Salva",
       "saving": "Salvataggio...",
       "passphrase_hint": "Lascia vuoto per mantenere la passphrase salvata se il percorso della chiave non cambia."
-    },
-    "auto_route": {
-      "title": "Connessione con instradamento automatico",
-      "description": "Seleziona un server di destinazione tra le connessioni salvate. Il sistema calcolerà automaticamente il miglior percorso tramite jump host.",
-      "loading": "Caricamento topologia...",
-      "select_target": "Seleziona server di destinazione",
-      "display_name": "Nome visualizzato",
-      "connection_info": "Informazioni di connessione",
-      "cancel": "Annulla",
-      "connect": "Connetti",
-      "empty": {
-        "title": "Nessuna connessione salvata trovata",
-        "description": "Salva prima alcune connessioni. Il grafo della topologia viene generato automaticamente dalle connessioni salvate e dalle loro impostazioni della catena proxy."
-      },
-      "auth": {
-        "label": "Autenticazione",
-        "password": "Password",
-        "key": "Chiave SSH",
-        "managed_key": "Chiave gestita",
-        "certificate": "Certificato",
-        "keyboard_interactive": "Interattivo da tastiera",
-        "agent": "Agent",
-        "password_warning": "L’autenticazione con password richiede una password che non viene salvata nella topologia. Usa invece una chiave o l’agent."
-      },
-      "errors": {
-        "target_not_found": "Nodo di destinazione non trovato",
-        "invalid_route_node": "Nodo di instradamento non valido {{id}}",
-        "password_auth": "L’autenticazione con password richiede una password che non viene salvata nella topologia",
-        "key_path_required": "Il percorso della chiave è richiesto per l’autenticazione con chiave",
-        "unsupported_auth": "Tipo di autenticazione non supportato per l’esplorazione della topologia: {{type}}"
-      },
-      "status": {
-        "connecting": "Connessione a {{name}}..."
-      }
     },
     "serial_profiles": {
       "title": "Serial Profiles",

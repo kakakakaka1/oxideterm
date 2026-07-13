@@ -49,25 +49,6 @@
       "adding": "Añadiendo...",
       "add_node": "Añadir nodo"
     },
-    "auto_route": {
-      "title": "Conexión con ruta automática",
-      "description": "Selecciona un servidor destino de tus conexiones guardadas. El sistema calculará automáticamente la ruta óptima de hosts de salto.",
-      "loading": "Cargando...",
-      "no_connections": "No se encontraron conexiones guardadas",
-      "no_connections_hint": "Por favor guarda algunas conexiones primero. El grafo de topología se genera automáticamente desde conexiones guardadas y sus configuraciones de cadena proxy.",
-      "select_target": "Seleccionar servidor destino",
-      "display_name": "Nombre visible",
-      "connection_info": "Info de conexión",
-      "authentication": "Autenticación",
-      "auth_agent": "Agente SSH",
-      "auth_key": "Clave SSH",
-      "auth_password_warning": "Contraseña (no soportada en ruta automática)",
-      "can_reach": "Puede alcanzar",
-      "cancel": "Cancelar",
-      "connect": "Conectar",
-      "connecting": "Conectando...",
-      "connect_failed": "Error de conexión"
-    },
     "import": {
       "title": "Importar configuración desde archivo .oxide",
       "close": "Cerrar",

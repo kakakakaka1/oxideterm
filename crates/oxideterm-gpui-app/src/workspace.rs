@@ -244,7 +244,7 @@ use self::pane_tree::SplitDrag;
 use self::quick_commands::QuickCommandsState;
 use self::root::state::{PendingSshTerminalOpen, ReconnectWorkerResult, WorkspaceSshNode};
 use self::root::{background::*, helpers::*};
-use self::session_manager::{AutoRouteModalState, SessionManagerState};
+use self::session_manager::SessionManagerState;
 use self::sidebar::AiInlinePanelState;
 use self::sidebar::{ActiveSessionSidebarViewMode, SidebarSection};
 use self::sidebar::{
@@ -956,7 +956,6 @@ pub(crate) struct WorkspaceApp {
     oxide_import_forward_detail_list_cache: RefCell<VirtualListSignatureCache>,
     oxide_import_name_group_list_states: RefCell<HashMap<String, ListState>>,
     oxide_import_name_group_list_caches: RefCell<HashMap<String, VirtualListSignatureCache>>,
-    auto_route_modal: AutoRouteModalState,
     local_shells: Vec<ShellInfo>,
     local_shell_launcher_open: bool,
     local_shell_launcher_selected_id: Option<String>,

@@ -49,25 +49,6 @@
       "adding": "Đang thêm...",
       "add_node": "Thêm nút"
     },
-    "auto_route": {
-      "title": "Kết nối Auto-Route",
-      "description": "Chọn máy chủ đích từ các kết nối đã lưu. Hệ thống sẽ tự động tính toán đường đi jump host tối ưu.",
-      "loading": "Đang tải...",
-      "no_connections": "Không tìm thấy kết nối đã lưu",
-      "no_connections_hint": "Lưu một số kết nối trước. Đồ thị topology được tạo tự động từ các kết nối đã lưu và cài đặt proxy chain.",
-      "select_target": "Chọn máy chủ đích",
-      "display_name": "Tên hiển thị",
-      "connection_info": "Thông tin kết nối",
-      "authentication": "Xác thực",
-      "auth_agent": "SSH Agent",
-      "auth_key": "SSH Key",
-      "auth_password_warning": "Mật khẩu (không hỗ trợ cho auto-route)",
-      "can_reach": "Có thể đến",
-      "cancel": "Hủy",
-      "connect": "Kết nối",
-      "connecting": "Đang kết nối...",
-      "connect_failed": "Kết nối thất bại"
-    },
     "import": {
       "title": "Nhập cấu hình từ file .oxide",
       "close": "Đóng",

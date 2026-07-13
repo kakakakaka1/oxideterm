@@ -7837,7 +7837,6 @@ name = "oxideterm-topology"
 version = "2.0.0-gpui-preview.16"
 dependencies = [
  "chrono",
- "oxideterm-connections",
  "serde",
 ]
 

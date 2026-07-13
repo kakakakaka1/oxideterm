@@ -739,7 +739,7 @@ impl WorkspaceApp {
             .is_some_and(|tab| tab.kind == TabKind::SessionManager)
             && self.session_manager.focused_input.is_some()
         {
-            let _ = self.handle_session_manager_key(event, window, cx);
+            let _ = self.handle_session_manager_key(event, cx);
             return;
         }
 

@@ -5,8 +5,7 @@
       "search_placeholder": "Buscar conexiones...",
       "new_connection": "Nueva conexión",
       "import": "Importar",
-      "export": "Exportar",
-      "auto_route": "Ruta automática"
+      "export": "Exportar"
     },
     "folder_tree": {
       "all_connections": "Todas las conexiones",
@@ -117,40 +116,6 @@
       "save": "Guardar",
       "saving": "Guardando...",
       "passphrase_hint": "Déjalo vacío para conservar la frase de paso guardada si la ruta de la clave no cambia."
-    },
-    "auto_route": {
-      "title": "Conexión con ruta automática",
-      "description": "Selecciona un servidor de destino entre las conexiones guardadas. El sistema calculará automáticamente la mejor ruta de salto.",
-      "loading": "Cargando topología...",
-      "select_target": "Seleccionar servidor de destino",
-      "display_name": "Nombre para mostrar",
-      "connection_info": "Información de conexión",
-      "cancel": "Cancelar",
-      "connect": "Conectar",
-      "empty": {
-        "title": "No se encontraron conexiones guardadas",
-        "description": "Guarda algunas conexiones primero. El gráfico de topología se genera automáticamente a partir de las conexiones guardadas y sus ajustes de cadena de proxy."
-      },
-      "auth": {
-        "label": "Autenticación",
-        "password": "Contraseña",
-        "key": "Clave SSH",
-        "managed_key": "Clave gestionada",
-        "certificate": "Certificado",
-        "keyboard_interactive": "Interacción por teclado",
-        "agent": "Agent",
-        "password_warning": "La autenticación con contraseña requiere una contraseña que no se almacena en la topología. Usa autenticación con clave o agente en su lugar."
-      },
-      "errors": {
-        "target_not_found": "Nodo de destino no encontrado",
-        "invalid_route_node": "Nodo de ruta no válido {{id}}",
-        "password_auth": "La autenticación con contraseña requiere una contraseña que no se almacena en la topología",
-        "key_path_required": "La ruta de la clave es obligatoria para la autenticación con clave",
-        "unsupported_auth": "Tipo de autenticación no admitido para la navegación de topología: {{type}}"
-      },
-      "status": {
-        "connecting": "Conectando con {{name}}..."
-      }
     },
     "serial_profiles": {
       "title": "Serial Profiles",

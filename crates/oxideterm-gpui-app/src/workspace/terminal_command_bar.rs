@@ -701,14 +701,17 @@ mod privilege_prompt_helper_tests {
     #[test]
     fn ssh_privilege_scope_does_not_guess_unsaved_node_owner() {
         let direct = NodeOrigin::Direct;
-        let auto_route = NodeOrigin::AutoRoute {
+        let legacy_auto_route = NodeOrigin::AutoRoute {
             target_host: "db.internal".to_string(),
             route_id: "route-1".to_string(),
             hop_index: 0,
         };
 
         assert_eq!(saved_ssh_privilege_scope_id(None, Some(&direct)), None);
-        assert_eq!(saved_ssh_privilege_scope_id(None, Some(&auto_route)), None);
+        assert_eq!(
+            saved_ssh_privilege_scope_id(None, Some(&legacy_auto_route)),
+            None
+        );
         assert_eq!(saved_ssh_privilege_scope_id(None, None), None);
     }
 

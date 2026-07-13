@@ -183,22 +183,6 @@ impl NodeRuntimeStore {
         })
     }
 
-    pub fn expand_auto_route(
-        &self,
-        target_host: &str,
-        route_id: &str,
-        hops: Vec<SshConfig>,
-        target: SshConfig,
-    ) -> Result<NodeTreeExpansion, RouteError> {
-        let target_host = target_host.to_string();
-        let route_id = route_id.to_string();
-        self.expand_preset_chain_internal(hops, target, |hop_index| NodeOrigin::AutoRoute {
-            target_host: target_host.clone(),
-            route_id: route_id.clone(),
-            hop_index,
-        })
-    }
-
     fn expand_preset_chain_internal(
         &self,
         hops: Vec<SshConfig>,

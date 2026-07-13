@@ -5,8 +5,7 @@
       "search_placeholder": "Verbindungen suchen...",
       "new_connection": "Neue Verbindung",
       "import": "Importieren",
-      "export": "Exportieren",
-      "auto_route": "Auto-Route"
+      "export": "Exportieren"
     },
     "folder_tree": {
       "all_connections": "Alle Verbindungen",
@@ -117,40 +116,6 @@
       "save": "Speichern",
       "saving": "Speichern...",
       "passphrase_hint": "Leer lassen, um die gespeicherte Passphrase beizubehalten, wenn der Schlüsselpfad unverändert ist."
-    },
-    "auto_route": {
-      "title": "Auto-Route-Verbindung",
-      "description": "Wählen Sie einen Zielserver aus gespeicherten Verbindungen. Das System berechnet automatisch den besten Jump-Host-Pfad.",
-      "loading": "Topologie wird geladen...",
-      "select_target": "Zielserver auswählen",
-      "display_name": "Anzeigename",
-      "connection_info": "Verbindungsinformationen",
-      "cancel": "Abbrechen",
-      "connect": "Verbinden",
-      "empty": {
-        "title": "Keine gespeicherten Verbindungen gefunden",
-        "description": "Speichern Sie zuerst einige Verbindungen. Das Topologiediagramm wird automatisch aus gespeicherten Verbindungen und ihren Proxy-Ketten-Einstellungen erstellt."
-      },
-      "auth": {
-        "label": "Authentifizierung",
-        "password": "Passwort",
-        "key": "SSH-Schlüssel",
-        "managed_key": "Verwalteter Schlüssel",
-        "certificate": "Zertifikat",
-        "keyboard_interactive": "Tastaturinteraktiv",
-        "agent": "Agent",
-        "password_warning": "Passwortauthentifizierung erfordert ein Passwort, das nicht in der Topologie gespeichert wird. Verwenden Sie stattdessen Schlüssel- oder Agent-Authentifizierung."
-      },
-      "errors": {
-        "target_not_found": "Zielknoten nicht gefunden",
-        "invalid_route_node": "Ungültiger Routenknoten {{id}}",
-        "password_auth": "Passwortauthentifizierung erfordert ein Passwort, das nicht in der Topologie gespeichert wird",
-        "key_path_required": "Für die Schlüsselauthentifizierung ist ein Schlüsselpfad erforderlich",
-        "unsupported_auth": "Nicht unterstützter Authentifizierungstyp für Topologie-Drilldown: {{type}}"
-      },
-      "status": {
-        "connecting": "{{name}} wird verbunden..."
-      }
     },
     "serial_profiles": {
       "title": "Serial Profiles",
