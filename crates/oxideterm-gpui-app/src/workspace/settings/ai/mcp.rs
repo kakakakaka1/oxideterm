@@ -91,7 +91,6 @@ impl WorkspaceApp {
             .flex()
             .flex_col()
             .gap(px(16.0))
-            .child(separator(&self.tokens, SeparatorOrientation::Horizontal))
             .child(
                 div()
                     .flex()

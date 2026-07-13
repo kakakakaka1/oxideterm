@@ -14,10 +14,7 @@ use gpui::{
 use oxideterm_ai::ContextWindowSource;
 use oxideterm_theme::ThemeTokens;
 
-const AI_TOOL_POLICY_CARD_BG_ALPHA: u32 = 0x4d;
-const AI_TOOL_POLICY_ROW_BG_ALPHA: u32 = 0x40;
-const AI_TOOL_POLICY_BORDER_ALPHA: u32 = 0x99;
-const AI_TOOL_POLICY_GROUP_MIN_WIDTH: f32 = 240.0; // Let policy cards wrap before checkbox pills overflow.
+const AI_TOOL_POLICY_DIVIDER_ALPHA: u32 = 0x4d;
 const AI_CONTEXT_PROVIDER_ROW_BORDER_ALPHA: u32 = 0x4d;
 const AI_CONTEXT_PROVIDER_ROW_TOP_BORDER_ALPHA: u32 = 0x33;
 const AI_CONTEXT_PROVIDER_HOVER_ALPHA: u32 = 0x66;
@@ -33,17 +30,15 @@ const AI_CONTEXT_SOURCE_BADGE_BG_ALPHA: u32 = 0x1a;
 const AI_CONTEXT_SOURCE_DEFAULT_TEXT_ALPHA: u32 = 0xb3;
 const AI_CONTEXT_SOURCE_DEFAULT_BG_ALPHA: u32 = 0x33;
 
-pub fn settings_ai_tool_number_input_card(tokens: &ThemeTokens, row: AnyElement) -> AnyElement {
-    // Numeric tool-use controls sit in the same nested policy-card surface as
-    // the policy groups, but the actual input field remains app-owned.
+pub fn settings_ai_tool_number_input_row(tokens: &ThemeTokens, row: AnyElement) -> AnyElement {
+    // The expanded tool-use section already owns the containing surface, so
+    // numeric controls remain plain rows instead of introducing another card.
     div()
-        .rounded(px(tokens.radii.lg))
-        .border_1()
-        .border_color(rgba((tokens.ui.border << 8) | AI_TOOL_POLICY_BORDER_ALPHA))
-        .bg(rgba(
-            (tokens.ui.bg_panel << 8) | AI_TOOL_POLICY_CARD_BG_ALPHA,
-        ))
-        .p(px(12.0))
+        .w_full()
+        .min_w(px(0.0))
+        .pb(px(16.0))
+        .border_b_1()
+        .border_color(rgba((tokens.ui.border << 8) | AI_TOOL_POLICY_DIVIDER_ALPHA))
         .child(row)
         .into_any_element()
 }
@@ -148,8 +143,6 @@ pub fn settings_ai_tool_use_section(
     enabled_row: AnyElement,
     collapsed_summary: Option<AnyElement>,
     expanded_body: Option<AnyElement>,
-    separator: AnyElement,
-    mcp_summary: AnyElement,
 ) -> AnyElement {
     // The tool-use section shell owns header/body ordering. Policy controls
     // and settings writes stay in the app and settings-model crates.
@@ -171,8 +164,6 @@ pub fn settings_ai_tool_use_section(
         .child(enabled_row)
         .children(collapsed_summary)
         .children(expanded_body)
-        .child(separator)
-        .child(mcp_summary)
         .into_any_element()
 }
 
@@ -853,22 +844,15 @@ pub fn settings_ai_tool_expanded_body(
 }
 
 pub fn settings_ai_tool_policy_grid(groups: Vec<AnyElement>) -> AnyElement {
-    // Tool policies use desktop-like columns when there is room, but collapse
-    // to stacked cards before the nested approval rows lose their checkbox.
+    // Policy categories share one vertical reading order so related approval
+    // controls do not jump between columns at different viewport widths.
     div()
         .w_full()
         .min_w(px(0.0))
         .flex()
-        .flex_wrap()
-        .gap(px(12.0))
-        .children(groups.into_iter().map(|group| {
-            div()
-                .min_w(px(0.0))
-                .max_w_full()
-                .flex_1()
-                .flex_basis(px(AI_TOOL_POLICY_GROUP_MIN_WIDTH))
-                .child(group)
-        }))
+        .flex_col()
+        .gap(px(24.0))
+        .children(groups)
         .into_any_element()
 }
 
@@ -877,17 +861,14 @@ pub fn settings_ai_tool_policy_item(
     label: String,
     control: AnyElement,
 ) -> AnyElement {
-    // A policy item is a label plus a caller-provided checkbox. The caller owns
-    // locked/checked behavior so the model mutation stays outside this crate.
+    // Policy items are divider rows inside the section-level surface. The
+    // caller owns locked/checked behavior so mutations stay outside this crate.
     div()
         .w_full()
         .min_w(px(0.0))
-        .rounded(px(tokens.radii.md))
-        .border_1()
-        .border_color(rgba((tokens.ui.border << 8) | 0x4d))
-        .bg(rgba((tokens.ui.bg << 8) | AI_TOOL_POLICY_ROW_BG_ALPHA))
-        .px(px(10.0))
-        .py(px(8.0))
+        .py(px(10.0))
+        .border_b_1()
+        .border_color(rgba((tokens.ui.border << 8) | AI_TOOL_POLICY_DIVIDER_ALPHA))
         .flex()
         .items_center()
         .justify_between()
@@ -905,18 +886,11 @@ pub fn settings_ai_tool_policy_group(
     description: String,
     items: Vec<AnyElement>,
 ) -> AnyElement {
-    // Policy groups own card chrome and inner spacing; item controls are passed
-    // in after the app wires per-tool events.
+    // The parent tool-use section owns the surface chrome. Groups contribute
+    // only semantic headings and divider rows, avoiding nested card layers.
     div()
         .w_full()
         .min_w(px(0.0))
-        .rounded(px(tokens.radii.lg))
-        .border_1()
-        .border_color(rgba((tokens.ui.border << 8) | AI_TOOL_POLICY_BORDER_ALPHA))
-        .bg(rgba(
-            (tokens.ui.bg_panel << 8) | AI_TOOL_POLICY_CARD_BG_ALPHA,
-        ))
-        .p(px(12.0))
         .flex()
         .flex_col()
         .child(
@@ -934,14 +908,7 @@ pub fn settings_ai_tool_policy_group(
                 .text_color(rgb(tokens.ui.text_muted))
                 .child(description),
         )
-        .child(
-            div()
-                .mt(px(12.0))
-                .flex()
-                .flex_col()
-                .gap(px(8.0))
-                .children(items),
-        )
+        .child(div().mt(px(8.0)).flex().flex_col().children(items))
         .into_any_element()
 }
 

@@ -1315,17 +1315,6 @@ impl WorkspaceApp {
                             .unwrap_or(oxideterm_settings::DEFAULT_AI_TOOL_MAX_ROUNDS),
                         cx,
                     ),
-                    self.ai_tool_number_input_row(
-                        "settings_view.ai.tool_use_max_calls_per_round",
-                        "settings_view.ai.tool_use_max_calls_per_round_hint",
-                        SettingsInput::AiToolUseMaxCallsPerRound,
-                        settings
-                            .ai
-                            .tool_use
-                            .max_calls_per_round
-                            .unwrap_or(oxideterm_settings::DEFAULT_AI_TOOL_MAX_CALLS_PER_ROUND),
-                        cx,
-                    ),
                     policy_groups,
                     self.ai_disabled_tools_notice(settings, cx),
                     settings_ai_policy_warning(
@@ -1352,8 +1341,6 @@ impl WorkspaceApp {
             ),
             collapsed_summary,
             expanded_body,
-            self.ai_separator(),
-            self.ai_mcp_servers_section(settings, cx),
         )
     }
 
@@ -1365,7 +1352,7 @@ impl WorkspaceApp {
         value: i64,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        settings_ai_tool_number_input_card(
+        settings_ai_tool_number_input_row(
             &self.tokens,
             self.setting_row(
                 label_key,

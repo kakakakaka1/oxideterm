@@ -70,7 +70,8 @@ pub fn ai_settings_section_count(page: AiSettingsPage) -> usize {
         AiSettingsPage::Providers => 1,
         AiSettingsPage::Agents => 1,
         AiSettingsPage::Context => 2,
-        AiSettingsPage::Tools => 1,
+        // Tool approval and MCP servers are independent top-level cards.
+        AiSettingsPage::Tools => 2,
     };
     // The first section is the subpage picker, matching terminal settings.
     1 + page_cards
@@ -166,5 +167,10 @@ mod tests {
             settings_tab_section_count(SettingsTab::Connections, dynamic),
             6
         );
+    }
+
+    #[test]
+    fn ai_tools_page_counts_tool_policy_and_mcp_cards() {
+        assert_eq!(ai_settings_section_count(AiSettingsPage::Tools), 3);
     }
 }

@@ -264,7 +264,7 @@ impl WorkspaceApp {
                                         }),
                                     ))
                                     .child(self.workspace_toolbar_action_button(
-                                        self.i18n.t("terminal.workspace.new_local_terminal"),
+                                        self.i18n.t("workspace.new_local_terminal"),
                                         None,
                                         ToolbarButtonOptions {
                                             button: ButtonOptions {

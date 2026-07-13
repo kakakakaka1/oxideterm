@@ -226,6 +226,13 @@ impl WorkspaceApp {
                     settings.ai.enabled,
                 )
             }
+            (AiSettingsPage::Tools, 1) => {
+                let settings = self.settings_store.settings();
+                self.ai_disabled_settings_card(
+                    self.ai_mcp_servers_section(settings, cx),
+                    settings.ai.enabled,
+                )
+            }
             _ => div().into_any_element(),
         }
     }

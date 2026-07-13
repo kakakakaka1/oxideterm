@@ -343,11 +343,21 @@ impl WorkspaceApp {
             .h_full()
             .flex()
             .flex_col()
-            .bg(self.workspace_sidebar_background(theme.bg_panel))
             .border_r_1()
             .border_color(rgb(theme.border))
             .child(self.render_sidebar_header(cx))
-            .child(self.render_sidebar_content(cx))
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .w_full()
+                    .flex()
+                    .flex_col()
+                    // Keep the body on the lighter sidebar tint while the
+                    // fixed header independently matches workspace chrome.
+                    .bg(self.workspace_sidebar_background(theme.bg_panel))
+                    .child(self.render_sidebar_content(cx)),
+            )
             .into_any_element()
     }
 
@@ -390,6 +400,9 @@ impl WorkspaceApp {
             .flex()
             .flex_row()
             .items_center()
+            // Use the same image-background opacity as the adjacent tab bar
+            // without stacking it over the sidebar body's translucent tint.
+            .bg(self.workspace_chrome_background(theme.bg_panel))
             .px_2()
             .child(
                 self.render_window_drag_content_region(
