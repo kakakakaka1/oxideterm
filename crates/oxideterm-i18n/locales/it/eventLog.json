@@ -1,6 +1,8 @@
 {
   "event_log": {
     "title": "Registro eventi",
+    "center_description": "Consulta in un unico posto le notifiche e la cronologia eventi dell’area di lavoro.",
+    "notification_empty": "Nessuna notifica",
     "dnd": {
       "on": "Non disturbare",
       "enable": "Attiva Non disturbare",

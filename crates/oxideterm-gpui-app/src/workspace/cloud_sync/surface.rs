@@ -607,7 +607,14 @@ impl WorkspaceApp {
                         cx.notify();
                         return;
                     }
-                    this.cloud_sync.view.set_active_tab(tab);
+                    if this.cloud_sync.view.active_tab != tab {
+                        this.cloud_sync.view.set_active_tab(tab);
+                        this.begin_user_segmented_control_transition(
+                            selection_motion::CLOUD_SYNC_SWITCHER_ID,
+                            cloud_sync_tab_index(tab),
+                            cx,
+                        );
+                    }
                     this.clear_cloud_sync_select_focus();
                     cx.stop_propagation();
                     cx.notify();
@@ -642,19 +649,19 @@ impl WorkspaceApp {
                 cx,
             ),
         ];
-        let tab_index = |tab| match tab {
-            CloudSyncTab::Overview => 0,
-            CloudSyncTab::Configure => 1,
-            CloudSyncTab::History => 2,
-        };
+        let active_index = cloud_sync_tab_index(self.cloud_sync.view.active_tab);
         oxideterm_gpui_ui::segmented_control(
             &self.tokens,
-            "cloud-sync-tab-bar",
+            selection_motion::CLOUD_SYNC_SWITCHER_ID,
             oxideterm_gpui_ui::SegmentedControlOptions::new(
-                tab_index(self.cloud_sync.view.active_tab),
-                tab_index(self.cloud_sync.view.previous_tab),
+                active_index,
+                cloud_sync_tab_index(self.cloud_sync.view.previous_tab),
                 3,
             )
+            .user_transition_active(self.segmented_control_user_transition_active(
+                selection_motion::CLOUD_SYNC_SWITCHER_ID,
+                active_index,
+            ))
             .has_background_image(self.cloud_sync_has_background())
             .compact(CLOUD_SYNC_TAB_BAR_WIDTH),
             items,

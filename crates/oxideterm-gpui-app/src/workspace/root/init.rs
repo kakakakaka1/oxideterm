@@ -177,6 +177,8 @@ impl WorkspaceApp {
                 scroll_handle: UniformListScrollHandle::new(),
             },
             settings_page: SettingsPageModel::default(),
+            segmented_control_user_motion:
+                selection_motion::UserSegmentedControlMotionState::default(),
             theme_editor_presence: oxideterm_gpui_ui::motion::ExitPresence::visible(),
             knowledge_create_presence: oxideterm_gpui_ui::motion::ExitPresence::visible(),
             knowledge_document_presence: oxideterm_gpui_ui::motion::ExitPresence::visible(),

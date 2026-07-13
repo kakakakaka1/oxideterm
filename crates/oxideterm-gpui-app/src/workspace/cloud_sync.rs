@@ -241,6 +241,14 @@ impl CloudSyncViewState {
     }
 }
 
+fn cloud_sync_tab_index(tab: CloudSyncTab) -> usize {
+    match tab {
+        CloudSyncTab::Overview => 0,
+        CloudSyncTab::Configure => 1,
+        CloudSyncTab::History => 2,
+    }
+}
+
 /// Groups the Cloud Sync controller lifecycle and its ephemeral GPUI view state.
 pub(super) struct CloudSyncWorkspaceState {
     pub(super) controller: CloudSyncControllerState,

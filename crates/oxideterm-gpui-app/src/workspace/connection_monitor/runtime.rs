@@ -3,6 +3,14 @@ use super::*;
 const RUNTIME_CONTENT_PADDING: f32 = 24.0;
 const RUNTIME_TAB_BAR_WIDTH: f32 = 480.0; // Three equal header tabs keep localized runtime labels readable.
 
+fn connection_runtime_section_index(section: ConnectionRuntimeSection) -> usize {
+    match section {
+        ConnectionRuntimeSection::Overview => 0,
+        ConnectionRuntimeSection::Health => 1,
+        ConnectionRuntimeSection::Topology => 2,
+    }
+}
+
 impl WorkspaceApp {
     pub(in crate::workspace) fn render_connection_runtime_surface(
         &mut self,
@@ -132,19 +140,19 @@ impl WorkspaceApp {
                 cx,
             ),
         ];
-        let section_index = |section| match section {
-            ConnectionRuntimeSection::Overview => 0,
-            ConnectionRuntimeSection::Health => 1,
-            ConnectionRuntimeSection::Topology => 2,
-        };
+        let active_index = connection_runtime_section_index(self.active_connection_runtime_section);
         oxideterm_gpui_ui::segmented_control(
             &self.tokens,
-            "connection-runtime-tab-bar",
+            selection_motion::CONNECTION_RUNTIME_SWITCHER_ID,
             oxideterm_gpui_ui::SegmentedControlOptions::new(
-                section_index(self.active_connection_runtime_section),
-                section_index(self.previous_connection_runtime_section),
+                active_index,
+                connection_runtime_section_index(self.previous_connection_runtime_section),
                 3,
             )
+            .user_transition_active(self.segmented_control_user_transition_active(
+                selection_motion::CONNECTION_RUNTIME_SWITCHER_ID,
+                active_index,
+            ))
             .has_background_image(has_background)
             .compact(RUNTIME_TAB_BAR_WIDTH),
             items,
@@ -187,7 +195,14 @@ impl WorkspaceApp {
         .on_mouse_down(
             MouseButton::Left,
             cx.listener(move |this, _event, _window, cx| {
-                this.set_connection_runtime_section(section);
+                if this.active_connection_runtime_section != section {
+                    this.set_connection_runtime_section(section);
+                    this.begin_user_segmented_control_transition(
+                        selection_motion::CONNECTION_RUNTIME_SWITCHER_ID,
+                        connection_runtime_section_index(section),
+                        cx,
+                    );
+                }
                 this.refresh_connection_monitor_pool_stats();
                 this.sync_connection_monitor_selection(cx);
                 cx.stop_propagation();

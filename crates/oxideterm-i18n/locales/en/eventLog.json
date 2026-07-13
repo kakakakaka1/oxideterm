@@ -1,6 +1,8 @@
 {
   "event_log": {
     "title": "Event Log",
+    "center_description": "Review workspace notifications and event history in one place.",
+    "notification_empty": "No notifications",
     "dnd": {
       "on": "Do Not Disturb",
       "enable": "Enable Do Not Disturb",

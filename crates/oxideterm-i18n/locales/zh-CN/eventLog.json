@@ -1,6 +1,8 @@
 {
   "event_log": {
     "title": "事件日志",
+    "center_description": "集中查看工作区通知与事件记录。",
+    "notification_empty": "暂无通知",
     "dnd": {
       "on": "勿扰模式",
       "enable": "开启勿扰模式",

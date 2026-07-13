@@ -1,6 +1,8 @@
 {
   "event_log": {
     "title": "Registro de eventos",
+    "center_description": "Consulte em um só lugar as notificações e o histórico de eventos do espaço de trabalho.",
+    "notification_empty": "Nenhuma notificação",
     "dnd": {
       "on": "Não perturbe",
       "enable": "Ativar Não perturbe",

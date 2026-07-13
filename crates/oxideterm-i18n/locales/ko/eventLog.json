@@ -1,6 +1,8 @@
 {
   "event_log": {
     "title": "이벤트 로그",
+    "center_description": "워크스페이스 알림과 이벤트 기록을 한곳에서 확인합니다.",
+    "notification_empty": "알림 없음",
     "dnd": {
       "on": "방해 금지",
       "enable": "방해 금지 켜기",

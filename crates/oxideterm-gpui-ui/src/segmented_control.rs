@@ -13,6 +13,7 @@ pub struct SegmentedControlOptions {
     pub active_index: usize,
     pub previous_index: usize,
     pub item_count: usize,
+    pub user_transition_active: bool,
     pub has_background_image: bool,
     pub layout: SegmentedControlLayout,
 }
@@ -29,9 +30,15 @@ impl SegmentedControlOptions {
             active_index,
             previous_index,
             item_count,
+            user_transition_active: false,
             has_background_image: false,
             layout: SegmentedControlLayout::Fill,
         }
+    }
+
+    pub const fn user_transition_active(mut self, user_transition_active: bool) -> Self {
+        self.user_transition_active = user_transition_active;
+        self
     }
 
     pub const fn has_background_image(mut self, has_background_image: bool) -> Self {
@@ -60,6 +67,14 @@ pub fn segmented_control_motion(tokens: &ThemeTokens) -> Option<SegmentedControl
     })
 }
 
+fn should_animate_selection(
+    options: SegmentedControlOptions,
+    active_index: usize,
+    previous_index: usize,
+) -> bool {
+    options.user_transition_active && previous_index != active_index
+}
+
 pub fn segmented_control(
     tokens: &ThemeTokens,
     id: impl Into<ElementId>,
@@ -72,8 +87,9 @@ pub fn segmented_control(
     let item_width = 1.0 / item_count as f32;
     let active_left = active_index as f32 * item_width;
     let previous_left = previous_index as f32 * item_width;
-    // Initial rendering and repeated selection changes do not need a transition.
-    let motion = (previous_index != active_index)
+    // Stale previous indices are presentation history, not animation intent.
+    // Only an explicit user transition may turn that history into movement.
+    let motion = should_animate_selection(options, active_index, previous_index)
         .then(|| segmented_control_motion(tokens))
         .flatten();
     let animation_id = (id.into(), format!("{previous_index}-to-{active_index}"));
@@ -225,5 +241,14 @@ mod tests {
         let fast = segmented_control_motion(&tokens).expect("fast transition");
         assert!(fast.spatial);
         assert_eq!(fast.duration, Duration::from_millis(110));
+    }
+
+    #[test]
+    fn settled_transition_suppresses_stale_previous_index_motion() {
+        let settled = SegmentedControlOptions::new(3, 0, 5);
+        let user_transition = settled.user_transition_active(true);
+
+        assert!(!should_animate_selection(settled, 3, 0));
+        assert!(should_animate_selection(user_transition, 3, 0));
     }
 }

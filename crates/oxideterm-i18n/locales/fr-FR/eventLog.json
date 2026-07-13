@@ -1,6 +1,8 @@
 {
   "event_log": {
     "title": "Journal d'événements",
+    "center_description": "Consultez au même endroit les notifications et l’historique des événements de l’espace de travail.",
+    "notification_empty": "Aucune notification",
     "dnd": {
       "on": "Ne pas déranger",
       "enable": "Activer Ne pas déranger",

@@ -533,122 +533,6 @@ impl WorkspaceApp {
         div().flex_1().w_full().into_any_element()
     }
 
-    pub(in crate::workspace) fn render_activity_tab_button(
-        &self,
-        view: WorkspaceActivityView,
-        icon: LucideIcon,
-        label: String,
-        badge_count: u32,
-        badge_error: bool,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let theme = self.tokens.ui;
-        let active = self.notification_center.active_view == view;
-        let tab = div()
-            .h(px(28.0))
-            .flex_1()
-            .min_w(px(0.0))
-            .flex()
-            .items_center()
-            .justify_center()
-            .gap(px(5.0))
-            .rounded(px(self.tokens.radii.md))
-            .cursor_pointer()
-            .bg(if active {
-                rgb(theme.bg_active)
-            } else {
-                rgb(theme.bg)
-            })
-            .border_1()
-            .border_color(if active {
-                rgb(theme.border)
-            } else {
-                rgb(theme.bg)
-            })
-            .text_size(px(11.0))
-            .text_color(if active {
-                rgb(theme.text_heading)
-            } else {
-                rgb(theme.text_muted)
-            })
-            .child(Self::render_lucide_icon(
-                icon,
-                13.0,
-                if active {
-                    rgb(theme.text_heading)
-                } else {
-                    rgb(theme.text_muted)
-                },
-            ))
-            .child(div().truncate().child(
-                // Activity tabs are buttons; the label should bubble clicks exactly like Tauri select-none text.
-                self.render_display_text_with_role(
-                    SelectableTextRole::NonSelectable,
-                    "activity-tab-label",
-                    if view == WorkspaceActivityView::Notifications {
-                        "notifications"
-                    } else {
-                        "event-log"
-                    },
-                    label,
-                    if active {
-                        theme.text_heading
-                    } else {
-                        theme.text_muted
-                    },
-                    cx,
-                ),
-            ))
-            .when(badge_count > 0, |button| {
-                button.child(
-                    div()
-                        .min_w(px(14.0))
-                        .h(px(14.0))
-                        .px(px(3.0))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .rounded_full()
-                        .bg(rgb(if badge_error {
-                            theme.error
-                        } else {
-                            theme.accent
-                        }))
-                        .text_color(rgb(if badge_error {
-                            theme.bg
-                        } else {
-                            theme.accent_text
-                        }))
-                        .text_size(px(9.0))
-                        .child(if badge_count > 99 {
-                            "99+".to_string()
-                        } else {
-                            badge_count.to_string()
-                        }),
-                )
-            });
-
-        // Tauri activity tabs are Button-like rows rather than plain labels.
-        // Keep the custom tab chrome, but route pointer activation through the
-        // shared clickable-row guard used by browser-style list controls.
-        self.workspace_clickable_row_action(
-            tab,
-            false,
-            cx.listener(move |this, _event, _window, cx| {
-                this.notification_center.active_view = view;
-                if view == WorkspaceActivityView::Notifications {
-                    this.notification_center.notifications.unread_count = 0;
-                    this.notification_center.notifications.unread_critical_count = 0;
-                } else {
-                    this.notification_center.event_log.unread_count = 0;
-                    this.notification_center.event_log.unread_errors = 0;
-                }
-                cx.notify();
-            }),
-        )
-        .into_any_element()
-    }
-
     pub(in crate::workspace) fn render_notifications_sidebar_content(
         &self,
         cx: &mut Context<Self>,
@@ -705,7 +589,7 @@ impl WorkspaceApp {
                             .child(self.render_selectable_display_text(
                                 "notifications-dnd",
                                 (),
-                                "Do Not Disturb is on".to_string(),
+                                self.i18n.t("event_log.dnd.on"),
                                 theme.warning,
                                 cx,
                             )),
@@ -730,7 +614,7 @@ impl WorkspaceApp {
                                 .child(self.render_selectable_display_text(
                                     "notifications-empty",
                                     (),
-                                    "No notifications".to_string(),
+                                    self.i18n.t("event_log.notification_empty"),
                                     theme.text_muted,
                                     cx,
                                 )),

@@ -1,6 +1,8 @@
 {
   "event_log": {
     "title": "イベントログ",
+    "center_description": "ワークスペースの通知とイベント履歴をまとめて確認します。",
+    "notification_empty": "通知はありません",
     "dnd": {
       "on": "おやすみモード",
       "enable": "おやすみモードを有効化",

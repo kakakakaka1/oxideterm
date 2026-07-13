@@ -65,6 +65,13 @@ pub(super) enum NativePluginManagerTab {
     Browse,
 }
 
+fn native_plugin_manager_tab_index(tab: NativePluginManagerTab) -> usize {
+    match tab {
+        NativePluginManagerTab::Installed => 0,
+        NativePluginManagerTab::Browse => 1,
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum NativePluginManagerActionButtonTone {
     Accent,
@@ -469,18 +476,17 @@ impl WorkspaceApp {
                 cx,
             ),
         ];
-        let active_index = match self.native_plugin_manager.active_tab {
-            NativePluginManagerTab::Installed => 0,
-            NativePluginManagerTab::Browse => 1,
-        };
-        let previous_index = match self.native_plugin_manager.previous_tab {
-            NativePluginManagerTab::Installed => 0,
-            NativePluginManagerTab::Browse => 1,
-        };
+        let active_index = native_plugin_manager_tab_index(self.native_plugin_manager.active_tab);
+        let previous_index =
+            native_plugin_manager_tab_index(self.native_plugin_manager.previous_tab);
         oxideterm_gpui_ui::segmented_control(
             &self.tokens,
-            "plugin-manager-tab-bar",
+            selection_motion::PLUGIN_MANAGER_SWITCHER_ID,
             oxideterm_gpui_ui::SegmentedControlOptions::new(active_index, previous_index, 2)
+                .user_transition_active(self.segmented_control_user_transition_active(
+                    selection_motion::PLUGIN_MANAGER_SWITCHER_ID,
+                    active_index,
+                ))
                 .has_background_image(has_background)
                 .compact(PLUGIN_MANAGER_TAB_BAR_WIDTH),
             items,
@@ -555,6 +561,11 @@ impl WorkspaceApp {
                 if this.native_plugin_manager.active_tab != tab {
                     this.native_plugin_manager.previous_tab = this.native_plugin_manager.active_tab;
                     this.native_plugin_manager.active_tab = tab;
+                    this.begin_user_segmented_control_transition(
+                        selection_motion::PLUGIN_MANAGER_SWITCHER_ID,
+                        native_plugin_manager_tab_index(tab),
+                        cx,
+                    );
                 }
                 cx.notify();
             }),

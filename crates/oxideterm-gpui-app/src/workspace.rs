@@ -38,6 +38,7 @@ mod root {
     pub(super) mod tests;
 }
 mod selectable_text;
+mod selection_motion;
 mod session_icons;
 mod session_manager;
 mod settings;
@@ -716,6 +717,7 @@ pub(crate) struct WorkspaceApp {
     onboarding: OnboardingState,
     shortcuts_modal: ShortcutsModalState,
     settings_page: SettingsPageModel,
+    segmented_control_user_motion: selection_motion::UserSegmentedControlMotionState,
     theme_editor_presence: oxideterm_gpui_ui::motion::ExitPresence,
     knowledge_create_presence: oxideterm_gpui_ui::motion::ExitPresence,
     knowledge_document_presence: oxideterm_gpui_ui::motion::ExitPresence,

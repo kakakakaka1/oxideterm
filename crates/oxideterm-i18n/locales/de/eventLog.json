@@ -1,6 +1,8 @@
 {
   "event_log": {
     "title": "Ereignisprotokoll",
+    "center_description": "Benachrichtigungen und Ereignisverlauf des Arbeitsbereichs an einem Ort anzeigen.",
+    "notification_empty": "Keine Benachrichtigungen",
     "dnd": {
       "on": "Nicht stören",
       "enable": "Nicht stören aktivieren",

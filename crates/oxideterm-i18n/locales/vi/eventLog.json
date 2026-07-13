@@ -1,6 +1,8 @@
 {
   "event_log": {
     "title": "Nhật ký sự kiện",
+    "center_description": "Xem thông báo và lịch sử sự kiện của không gian làm việc ở cùng một nơi.",
+    "notification_empty": "Không có thông báo",
     "dnd": {
       "on": "Không làm phiền",
       "enable": "Bật Không làm phiền",

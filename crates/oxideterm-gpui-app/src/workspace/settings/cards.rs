@@ -436,7 +436,7 @@ impl WorkspaceApp {
             .position(|page| *page == self.settings_page.previous_terminal_page)
             .unwrap_or(active_index);
         let mut items = Vec::with_capacity(pages.len());
-        for page in pages {
+        for (page_index, page) in pages.iter().enumerate() {
             let page_id = *page;
             let active = self.settings_page.terminal_page == page_id;
             let item = oxideterm_gpui_ui::segmented_control_item(
@@ -447,7 +447,14 @@ impl WorkspaceApp {
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |this, _event, _window, cx| {
-                    this.settings_page.set_terminal_page(page_id);
+                    if this.settings_page.terminal_page != page_id {
+                        this.settings_page.set_terminal_page(page_id);
+                        this.begin_user_segmented_control_transition(
+                            selection_motion::TERMINAL_SETTINGS_SWITCHER_ID,
+                            page_index,
+                            cx,
+                        );
+                    }
                     cx.notify();
                 }),
             );
@@ -455,12 +462,16 @@ impl WorkspaceApp {
         }
         oxideterm_gpui_ui::segmented_control(
             &self.tokens,
-            "terminal-settings-page-switcher",
+            selection_motion::TERMINAL_SETTINGS_SWITCHER_ID,
             oxideterm_gpui_ui::SegmentedControlOptions::new(
                 active_index,
                 previous_index,
                 pages.len(),
             )
+            .user_transition_active(self.segmented_control_user_transition_active(
+                selection_motion::TERMINAL_SETTINGS_SWITCHER_ID,
+                active_index,
+            ))
             .has_background_image(self.settings_background_active()),
             items,
         )
@@ -478,7 +489,7 @@ impl WorkspaceApp {
             .position(|page| *page == self.settings_page.previous_ai_page)
             .unwrap_or(active_index);
         let mut items = Vec::with_capacity(pages.len());
-        for page in pages {
+        for (page_index, page) in pages.iter().enumerate() {
             let page_id = *page;
             let active = self.settings_page.ai_page == page_id;
             let item = oxideterm_gpui_ui::segmented_control_item(
@@ -489,7 +500,14 @@ impl WorkspaceApp {
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |this, _event, _window, cx| {
-                    this.settings_page.set_ai_page(page_id);
+                    if this.settings_page.ai_page != page_id {
+                        this.settings_page.set_ai_page(page_id);
+                        this.begin_user_segmented_control_transition(
+                            selection_motion::AI_SETTINGS_SWITCHER_ID,
+                            page_index,
+                            cx,
+                        );
+                    }
                     cx.notify();
                 }),
             );
@@ -497,12 +515,16 @@ impl WorkspaceApp {
         }
         oxideterm_gpui_ui::segmented_control(
             &self.tokens,
-            "ai-settings-page-switcher",
+            selection_motion::AI_SETTINGS_SWITCHER_ID,
             oxideterm_gpui_ui::SegmentedControlOptions::new(
                 active_index,
                 previous_index,
                 pages.len(),
             )
+            .user_transition_active(self.segmented_control_user_transition_active(
+                selection_motion::AI_SETTINGS_SWITCHER_ID,
+                active_index,
+            ))
             .has_background_image(self.settings_background_active()),
             items,
         )
