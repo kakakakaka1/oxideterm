@@ -118,6 +118,8 @@ impl WorkspaceApp {
             main_window_tabs: WorkspaceWindowTabState::new(),
             detached_tabs: HashSet::new(),
             detached_tab_return_drag: None,
+            detached_tab_return_handoff: None,
+            next_tab_window_handoff_generation: 0,
             main_window_tabbar_drop_bounds: None,
             node_disconnect_confirm: None,
             node_disconnect_confirm_presence: oxideterm_gpui_ui::motion::ExitPresence::visible(),

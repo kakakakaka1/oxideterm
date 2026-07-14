@@ -3,6 +3,8 @@ use super::*;
 pub(super) struct DetachedTabWindow {
     workspace: WeakEntity<WorkspaceApp>,
     tab_id: TabId,
+    entry_handoff_origin: Option<TabWindowHandoffOrigin>,
+    entry_handoff_duration: Duration,
     focus_handle: FocusHandle,
     ready: bool,
     _release_subscription: Subscription,
@@ -12,6 +14,8 @@ impl DetachedTabWindow {
     pub(super) fn new(
         workspace: WeakEntity<WorkspaceApp>,
         tab_id: TabId,
+        entry_handoff_origin: Option<TabWindowHandoffOrigin>,
+        entry_handoff_duration: Duration,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -19,6 +23,20 @@ impl DetachedTabWindow {
         let workspace_on_release = workspace.clone();
         cx.on_next_frame(window, |detached, _window, cx| {
             detached.ready = true;
+            if detached.entry_handoff_origin.is_some() && !detached.entry_handoff_duration.is_zero()
+            {
+                let delay = detached.entry_handoff_duration;
+                // The relay is a bounded visual snapshot. Drop it after the
+                // one-shot transition so detached windows retain no stale state.
+                cx.spawn(async move |weak, cx| {
+                    Timer::after(delay).await;
+                    let _ = weak.update(cx, |detached, cx| {
+                        detached.entry_handoff_origin = None;
+                        cx.notify();
+                    });
+                })
+                .detach();
+            }
             cx.notify();
         });
         // Closing a detached window should behave like docking the tab back
@@ -32,6 +50,8 @@ impl DetachedTabWindow {
         Self {
             workspace,
             tab_id,
+            entry_handoff_origin,
+            entry_handoff_duration,
             focus_handle,
             ready: false,
             _release_subscription: release_subscription,
@@ -48,10 +68,11 @@ impl Focusable for DetachedTabWindow {
 impl Render for DetachedTabWindow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let tab_id = self.tab_id;
+        let entry_handoff_origin = self.entry_handoff_origin;
         let content = if self.ready {
             self.workspace
                 .update(cx, |workspace, cx| {
-                    workspace.render_detached_tab_window(tab_id, window, cx)
+                    workspace.render_detached_tab_window(tab_id, entry_handoff_origin, window, cx)
                 })
                 .unwrap_or_else(|_| {
                     div()

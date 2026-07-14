@@ -195,12 +195,23 @@ pub(super) struct FileManagerRotatedPreviewImage {
     pub(super) image: Arc<RenderImage>,
 }
 
+struct FileManagerSortedFilesCache {
+    source_revision: u64,
+    filter: String,
+    sort_field: LocalSortField,
+    sort_direction: LocalSortDirection,
+    files: Arc<Vec<LocalFileEntry>>,
+}
+
 pub(super) struct FileManagerState {
     pub(super) path: String,
     pub(super) path_input: String,
     pub(super) editing_path: bool,
     pub(super) filter: String,
     pub(super) files: Vec<LocalFileEntry>,
+    // Directory refreshes advance this revision so cached filtering and sorting never outlive data.
+    source_revision: u64,
+    sorted_files_cache: RefCell<Option<FileManagerSortedFilesCache>>,
     pub(super) loading: bool,
     pub(super) error: Option<String>,
     pub(super) selected: HashSet<String>,
@@ -258,6 +269,8 @@ impl Default for FileManagerState {
             editing_path: false,
             filter: String::new(),
             files: Vec::new(),
+            source_revision: 0,
+            sorted_files_cache: RefCell::new(None),
             loading: false,
             error: None,
             selected: HashSet::new(),
@@ -320,6 +333,43 @@ impl Default for FileManagerState {
 }
 
 impl FileManagerState {
+    fn sorted_files(&self) -> Arc<Vec<LocalFileEntry>> {
+        if let Some(cache) = self.sorted_files_cache.borrow().as_ref()
+            && cache.source_revision == self.source_revision
+            && cache.filter == self.filter
+            && cache.sort_field == self.sort_field
+            && cache.sort_direction == self.sort_direction
+        {
+            return cache.files.clone();
+        }
+
+        let files = Arc::new(sorted_local_files(
+            &self.files,
+            &self.filter,
+            self.sort_field,
+            self.sort_direction,
+        ));
+        *self.sorted_files_cache.borrow_mut() = Some(FileManagerSortedFilesCache {
+            source_revision: self.source_revision,
+            filter: self.filter.clone(),
+            sort_field: self.sort_field,
+            sort_direction: self.sort_direction,
+            files: files.clone(),
+        });
+        files
+    }
+
+    fn replace_files(&mut self, files: Vec<LocalFileEntry>) {
+        // The revision keeps cache validation constant-time even when a directory is large.
+        self.source_revision = self.source_revision.wrapping_add(1);
+        self.files = files;
+        self.sorted_files_cache.get_mut().take();
+    }
+
+    fn clear_files(&mut self) {
+        self.replace_files(Vec::new());
+    }
+
     pub(super) fn load(settings_path: &std::path::Path) -> Self {
         let bookmarks_path = settings_path
             .parent()
@@ -357,4 +407,45 @@ fn file_manager_hover_bg(color: u32, has_background: bool) -> Rgba {
 
 fn file_manager_border(color: u32, has_background: bool) -> Rgba {
     color_for_background(color, has_background, 0x99)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cache_entry(name: &str) -> LocalFileEntry {
+        LocalFileEntry {
+            name: name.to_string(),
+            path: format!("/tmp/{name}"),
+            file_type: LocalFileType::File,
+            size: 0,
+            modified: None,
+            readonly: false,
+            symlink_target: None,
+        }
+    }
+
+    #[test]
+    fn sorted_files_cache_reuses_results_until_the_query_changes() {
+        let mut state = FileManagerState::default();
+        state.replace_files(vec![cache_entry("beta"), cache_entry("alpha")]);
+
+        // Unchanged render queries must reuse the same allocation.
+        let initial = state.sorted_files();
+        let reused = state.sorted_files();
+        assert!(Arc::ptr_eq(&initial, &reused));
+
+        // Filter changes invalidate the query without requiring an explicit mutation hook.
+        state.filter = "beta".to_string();
+        let filtered = state.sorted_files();
+        assert!(!Arc::ptr_eq(&initial, &filtered));
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].name, "beta");
+
+        // A directory refresh invalidates cached results even when the query is unchanged.
+        state.replace_files(vec![cache_entry("beta"), cache_entry("beta-2")]);
+        let refreshed = state.sorted_files();
+        assert!(!Arc::ptr_eq(&filtered, &refreshed));
+        assert_eq!(refreshed.len(), 2);
+    }
 }

@@ -63,12 +63,20 @@ impl WorkspaceApp {
                 this.handle_tabbar_scroll(event, window, cx);
             }));
 
+        let returning_placeholder = self.detached_tab_return_placeholder();
+        let returning_tab =
+            returning_placeholder.and_then(|placeholder| self.tab_by_id(placeholder.tab_id));
         let mut live_tabs = self
             .tabs
             .iter()
             .enumerate()
             .filter(|(_, tab)| !self.detached_tabs.contains(&tab.id));
-        let visual_tab_count = live_tabs.clone().count() + self.main_window_tabs.exiting_tabs.len();
+        let live_tab_count = live_tabs.clone().count();
+        let visual_tab_count = live_tab_count
+            + self.main_window_tabs.exiting_tabs.len()
+            + usize::from(returning_tab.is_some());
+        let mut visible_tab_index = 0;
+        let mut placeholder_rendered = false;
         for visual_index in 0..visual_tab_count {
             if let Some(exiting) = self
                 .main_window_tabs
@@ -79,10 +87,24 @@ impl WorkspaceApp {
                 scroll_viewport = scroll_viewport.child(self.render_exiting_tab_visual(exiting));
                 continue;
             }
+            if !placeholder_rendered
+                && returning_placeholder
+                    .is_some_and(|placeholder| placeholder.visible_index == visible_tab_index)
+                && let Some(tab) = returning_tab
+            {
+                scroll_viewport = scroll_viewport.child(
+                    self.render_detached_return_tab_placeholder(tab, self.tab_visual_width(tab)),
+                );
+                placeholder_rendered = true;
+                continue;
+            }
             let Some((tab_index, tab)) = live_tabs.next() else {
                 continue;
             };
+            let current_visible_index = visible_tab_index;
+            visible_tab_index += 1;
             let tab_id = tab.id;
+            let tab_width = self.tab_visual_width(tab);
             let active = Some(tab_id) == self.main_window_tabs.active_tab_id;
             let drag_state = self.main_window_tabs.drag.as_ref();
             let drag_active = drag_state.is_some_and(|drag| drag.active);
@@ -90,10 +112,12 @@ impl WorkspaceApp {
             let show_drop_indicator = drag_state.is_some_and(|drag| {
                 drag.active
                     && drag.mode == TabDragMode::Reorder
-                    && drag.drop_target_index == tab_index
-                    && drag.from_index != tab_index
+                    && drag.drop_target_index == current_visible_index
+                    && super::navigation::tab_reorder_target_visible_index(
+                        drag.from_index,
+                        drag.drop_target_index,
+                    ) != drag.from_index
             });
-            let tab_width = self.tab_visual_width(tab);
             let reconnect_node_id = self.reconnect_node_id_for_tab(tab);
             let reconnect_job = reconnect_node_id
                 .as_ref()
@@ -239,6 +263,21 @@ impl WorkspaceApp {
             ));
         }
 
+        let show_trailing_drop_indicator =
+            self.main_window_tabs.drag.as_ref().is_some_and(|drag| {
+                drag.active
+                    && drag.mode == TabDragMode::Reorder
+                    && drag.drop_target_index == live_tab_count
+                    && super::navigation::tab_reorder_target_visible_index(
+                        drag.from_index,
+                        drag.drop_target_index,
+                    ) != drag.from_index
+            });
+        if show_trailing_drop_indicator {
+            scroll_viewport =
+                scroll_viewport.child(div().w(px(2.0)).h_full().flex_none().bg(rgb(theme.accent)));
+        }
+
         // Only the trailing filler is draggable. Do not mark the tabbar parent
         // or scroll viewport as WindowControlArea::Drag; those elements contain
         // interactive tabs and close buttons that must keep receiving normal
@@ -248,6 +287,52 @@ impl WorkspaceApp {
 
         bar.child(scroll_viewport)
             .child(self.render_tabbar_scrollbar(window, cx))
+            .into_any_element()
+    }
+
+    fn render_detached_return_tab_placeholder(&self, tab: &Tab, tab_width: f32) -> AnyElement {
+        let theme = self.tokens.ui;
+        let accent = theme.accent;
+        let placeholder = div()
+            .w_full()
+            .h(px((self.tokens.metrics.tabbar_height - 8.0).max(24.0)))
+            .px(px(self.tokens.metrics.tab_padding_x))
+            .flex()
+            .items_center()
+            .gap(px(self.tokens.metrics.tab_gap))
+            .rounded(px(self.tokens.radii.sm))
+            .border_1()
+            .border_color(rgba((accent << 8) | 0x88))
+            .bg(rgba((accent << 8) | 0x18))
+            .text_color(rgba((theme.text << 8) | 0xcc))
+            .child(Self::render_lucide_icon(
+                tab_kind_icon(&tab.kind),
+                self.tokens.metrics.tab_icon_size,
+                rgba((accent << 8) | 0xcc),
+            ))
+            .child(
+                div()
+                    .flex_1()
+                    .truncate()
+                    .text_size(px(self.tokens.metrics.tab_font_size))
+                    .child(self.tab_display_title(tab)),
+            )
+            .child(Self::render_lucide_icon(
+                LucideIcon::PanelLeft,
+                self.tokens.metrics.tab_close_icon_size,
+                rgba((accent << 8) | 0xcc),
+            ));
+
+        // The placeholder participates in tab layout, so later tabs move out
+        // of the future slot before the detached window is actually closed.
+        div()
+            .id(("detached-tab-return-placeholder", tab.id.0))
+            .w(px(tab_width))
+            .h_full()
+            .flex_none()
+            .flex()
+            .items_center()
+            .child(placeholder)
             .into_any_element()
     }
 

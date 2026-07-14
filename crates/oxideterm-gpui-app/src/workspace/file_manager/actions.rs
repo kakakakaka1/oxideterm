@@ -322,12 +322,12 @@ impl WorkspaceApp {
         self.file_manager.loading = true;
         match list_local_files(&self.file_manager.path) {
             Ok(files) => {
-                self.file_manager.files = files;
+                self.file_manager.replace_files(files);
                 self.file_manager.error = None;
                 self.prune_file_manager_selection();
             }
             Err(error) => {
-                self.file_manager.files.clear();
+                self.file_manager.clear_files();
                 self.file_manager.error = Some(error.to_string());
             }
         }
@@ -583,13 +583,8 @@ impl WorkspaceApp {
     }
 
     pub(super) fn select_all_file_manager_files(&mut self) {
-        let files = sorted_local_files(
-            &self.file_manager.files,
-            &self.file_manager.filter,
-            self.file_manager.sort_field,
-            self.file_manager.sort_direction,
-        );
-        self.file_manager.selected = files.into_iter().map(|file| file.name).collect();
+        let files = self.file_manager.sorted_files();
+        self.file_manager.selected = files.iter().map(|file| file.name.clone()).collect();
         self.file_manager.last_selected = self.file_manager.selected.iter().next().cloned();
     }
 
@@ -889,15 +884,12 @@ impl WorkspaceApp {
         let Some(FileManagerDialog::Preview { entry }) = self.file_manager.dialog.clone() else {
             return;
         };
-        let files = sorted_local_files(
-            &self.file_manager.files,
-            &self.file_manager.filter,
-            self.file_manager.sort_field,
-            self.file_manager.sort_direction,
-        )
-        .into_iter()
-        .filter(|file| file.file_type != LocalFileType::Directory)
-        .collect::<Vec<_>>();
+        let sorted_files = self.file_manager.sorted_files();
+        let files = sorted_files
+            .iter()
+            .filter(|file| file.file_type != LocalFileType::Directory)
+            .cloned()
+            .collect::<Vec<_>>();
         if files.len() < 2 {
             return;
         }

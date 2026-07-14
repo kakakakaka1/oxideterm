@@ -14,9 +14,11 @@ pub(in crate::workspace) const HELP_LEGAL_URL: &str =
 pub(in crate::workspace) const HELP_LEGAL_MARKDOWN: &str =
     include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../LEGAL.md"));
 
-pub(in crate::workspace) const HELP_TECH_BADGES: [(&str, u32); 6] = [
+// Product and library names stay untranslated so every locale uses their canonical spelling.
+pub(in crate::workspace) const HELP_TECH_BADGES: [(&str, u32); 7] = [
     ("Rust", 0xf97316),
     ("GPUI", 0x38bdf8),
+    ("Alacritty", 0xf46d01),
     ("Tokio", 0x3b82f6),
     ("SSH", 0xeab308),
     ("redb", 0x22c55e),

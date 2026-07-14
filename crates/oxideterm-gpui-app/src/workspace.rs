@@ -611,6 +611,27 @@ struct DetachedTabReturnDrag {
     active: bool,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct TabWindowHandoffOrigin {
+    screen_left: f32,
+    screen_top: f32,
+    width: f32,
+    height: f32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct DetachedTabReturnHandoff {
+    tab_id: TabId,
+    origin: TabWindowHandoffOrigin,
+    generation: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct DetachedTabReturnPlaceholder {
+    tab_id: TabId,
+    visible_index: usize,
+}
+
 impl WorkspaceWindowTabState {
     fn new() -> Self {
         Self {
@@ -671,6 +692,8 @@ pub(crate) struct WorkspaceApp {
     main_window_tabs: WorkspaceWindowTabState,
     detached_tabs: HashSet<TabId>,
     detached_tab_return_drag: Option<DetachedTabReturnDrag>,
+    detached_tab_return_handoff: Option<DetachedTabReturnHandoff>,
+    next_tab_window_handoff_generation: u64,
     main_window_tabbar_drop_bounds: Option<Bounds<Pixels>>,
     node_disconnect_confirm: Option<NodeDisconnectConfirm>,
     node_disconnect_confirm_presence: oxideterm_gpui_ui::motion::ExitPresence,

@@ -79,12 +79,10 @@ pub(crate) fn tauri_virtual_uniform_list<R>(
 where
     R: IntoElement,
 {
-    // Mirrors TanStack useVirtualizer({ estimateSize, overscan }) from Tauri.
-    // GPUI uniform_list measures actual rows, but every migrated list should keep
-    // the Tauri estimate/overscan beside the call site instead of hiding it in CSS.
+    // GPUI measures the actual row height while the caller-owned spec supplies the
+    // browser-equivalent overscan used to keep fast scrolling visually continuous.
     let _estimated_row_height = spec.row_height;
-    let _overdraw = spec.overdraw();
-    tracked_uniform_list(id, item_count, scroll_handle, render_items)
+    tracked_uniform_list(id, item_count, scroll_handle, render_items).with_overscan(spec.overscan)
 }
 
 pub(crate) fn tauri_virtual_list<R>(

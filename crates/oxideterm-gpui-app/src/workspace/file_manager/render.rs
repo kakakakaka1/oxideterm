@@ -24,12 +24,7 @@ impl WorkspaceApp {
     ) -> AnyElement {
         let theme = self.tokens.ui;
         let has_background = self.background_surface_active("file_manager");
-        let filtered = sorted_local_files(
-            &self.file_manager.files,
-            &self.file_manager.filter,
-            self.file_manager.sort_field,
-            self.file_manager.sort_direction,
-        );
+        let filtered = self.file_manager.sorted_files();
 
         let mut root = div()
             .id("file-manager-view")
@@ -651,7 +646,7 @@ impl WorkspaceApp {
 
     fn render_file_manager_list_panel(
         &self,
-        files: Vec<LocalFileEntry>,
+        files: Arc<Vec<LocalFileEntry>>,
         has_background: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -1160,7 +1155,7 @@ impl WorkspaceApp {
 
     fn render_file_manager_file_list(
         &self,
-        files: Vec<LocalFileEntry>,
+        files: Arc<Vec<LocalFileEntry>>,
         has_background: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
@@ -1261,7 +1256,6 @@ impl WorkspaceApp {
 
         let workspace = cx.entity();
         let selected = Arc::new(self.file_manager.selected.clone());
-        let files = Arc::new(files);
         let row_count = files.len();
         let list_items = files.clone();
         let row_selected = selected.clone();
@@ -1280,7 +1274,7 @@ impl WorkspaceApp {
                             let file = list_items[index].clone();
                             let file_for_open = file.clone();
                             let file_for_menu = file.clone();
-                            let visible = list_items.as_ref().clone();
+                            let visible = list_items.clone();
                             let selected = row_selected.contains(&file.name);
                             let (icon, icon_color) = file_icon_for_entry(&file);
                             let icon_color = if icon_color == 0 {
@@ -1407,7 +1401,7 @@ impl WorkspaceApp {
                                                 this.select_file_manager_entry(
                                                     name.clone(),
                                                     event.modifiers,
-                                                    &visible,
+                                                    visible.as_ref(),
                                                 );
                                             }
                                             cx.stop_propagation();

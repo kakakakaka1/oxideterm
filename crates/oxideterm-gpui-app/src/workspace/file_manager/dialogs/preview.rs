@@ -22,20 +22,16 @@ impl WorkspaceApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let previewable = sorted_local_files(
-            &self.file_manager.files,
-            &self.file_manager.filter,
-            self.file_manager.sort_field,
-            self.file_manager.sort_direction,
-        )
-        .into_iter()
-        .filter(|file| file.file_type != LocalFileType::Directory)
-        .collect::<Vec<_>>();
-        let current_index = previewable
+        let sorted_files = self.file_manager.sorted_files();
+        let previewable = sorted_files
             .iter()
+            .filter(|file| file.file_type != LocalFileType::Directory);
+        let current_index = previewable
+            .clone()
             .position(|file| file.path == entry.path)
             .unwrap_or(0);
-        let can_navigate = previewable.len() > 1;
+        let previewable_count = previewable.count();
+        let can_navigate = previewable_count > 1;
         let preview_icon = self
             .file_manager
             .preview
@@ -107,7 +103,7 @@ impl WorkspaceApp {
                                         SelectableTextRole::NonSelectable,
                                         "file-manager-preview-counter",
                                         entry.path.as_str(),
-                                        format!("{} / {}", current_index + 1, previewable.len()),
+                                        format!("{} / {}", current_index + 1, previewable_count),
                                         theme.text_muted,
                                         cx,
                                     )),

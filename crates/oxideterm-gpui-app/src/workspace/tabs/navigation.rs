@@ -23,6 +23,15 @@ fn tab_drag_is_detach(delta_x: f32, delta_y: f32, tabbar_height: f32) -> bool {
     delta_y > threshold && delta_y.abs() >= delta_x.abs() * 0.85
 }
 
+// Pointer hit-testing returns a slot in the pre-removal strip. Moving right
+// must discount the source tab after it is removed from that strip.
+pub(super) fn tab_reorder_target_visible_index(
+    source_visible_index: usize,
+    insertion_slot: usize,
+) -> usize {
+    insertion_slot.saturating_sub(usize::from(source_visible_index < insertion_slot))
+}
+
 fn tabbar_tauri_wheel_scroll_delta(delta_x: f32, delta_y: f32) -> f32 {
     if delta_y != 0.0 { delta_y } else { delta_x }
 }
@@ -1123,6 +1132,7 @@ impl WorkspaceApp {
             + self
                 .tabs
                 .iter()
+                .filter(|tab| !self.detached_tabs.contains(&tab.id))
                 .map(|tab| self.tab_visual_width(tab))
                 .sum::<f32>()
     }
@@ -1216,6 +1226,7 @@ impl WorkspaceApp {
                 .tabs
                 .iter()
                 .take(index)
+                .filter(|tab| !self.detached_tabs.contains(&tab.id))
                 .map(|tab| self.tab_visual_width(tab))
                 .sum::<f32>();
         let tab_right = tab_left + self.tab_visual_width(&self.tabs[index]);
@@ -1285,7 +1296,7 @@ impl WorkspaceApp {
             }
             left += width;
         }
-        tab_widths.len() - 1
+        tab_widths.len()
     }
 
     pub(in crate::workspace) fn start_tab_drag_candidate(
@@ -1304,12 +1315,21 @@ impl WorkspaceApp {
         let tab_widths = self
             .tabs
             .iter()
+            .filter(|tab| !self.detached_tabs.contains(&tab.id))
             .map(|tab| self.tab_visual_width(tab))
             .collect::<Vec<_>>();
+        let Some(visible_index) = self
+            .tabs
+            .iter()
+            .filter(|tab| !self.detached_tabs.contains(&tab.id))
+            .position(|tab| tab.id == tab_id)
+        else {
+            return;
+        };
         let drop_target_index = self.tab_drop_target_index_for_x(start_x, window, &tab_widths);
         self.main_window_tabs.drag = Some(TabDragState {
             tab_id,
-            from_index: index,
+            from_index: visible_index,
             start_x,
             start_y,
             current_x: start_x,
@@ -1382,17 +1402,20 @@ impl WorkspaceApp {
         };
         match drag.mode {
             TabDragMode::Detach => {
-                self.detach_tab_to_window(drag.tab_id, window, cx);
+                let handoff_origin = self.tab_detach_handoff_origin(&drag, window);
+                self.detach_tab_to_window(drag.tab_id, handoff_origin, window, cx);
             }
             TabDragMode::Reorder if drag.active => {
-                self.move_tab(drag.from_index, drag.drop_target_index, window, cx);
+                let target_visible_index =
+                    tab_reorder_target_visible_index(drag.from_index, drag.drop_target_index);
+                if self.move_tab_to_visible_index(drag.tab_id, target_visible_index) {
+                    self.clamp_tab_scroll(window);
+                    self.reveal_active_tab(window);
+                    cx.notify();
+                }
             }
             TabDragMode::Pending | TabDragMode::Reorder => {
-                if self
-                    .tabs
-                    .get(drag.from_index)
-                    .is_some_and(|tab| tab.id == drag.tab_id)
-                {
+                if self.tab_by_id(drag.tab_id).is_some() {
                     self.set_active_tab(drag.tab_id, window, cx);
                 }
             }
@@ -1400,21 +1423,43 @@ impl WorkspaceApp {
         cx.notify();
     }
 
-    fn move_tab(
+    pub(super) fn move_tab_to_visible_index(
         &mut self,
-        from_index: usize,
-        to_index: usize,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if from_index == to_index || from_index >= self.tabs.len() || to_index >= self.tabs.len() {
-            return;
+        tab_id: TabId,
+        visible_index: usize,
+    ) -> bool {
+        let Some(source_index) = self.tab_index_by_id(tab_id) else {
+            return false;
+        };
+        let current_visible_index = self
+            .tabs
+            .iter()
+            .filter(|tab| !self.detached_tabs.contains(&tab.id))
+            .position(|tab| tab.id == tab_id);
+        if current_visible_index == Some(visible_index) {
+            return false;
         }
-        let moved = self.tabs.remove(from_index);
-        self.tabs.insert(to_index, moved);
-        self.clamp_tab_scroll(window);
-        self.reveal_active_tab(window);
-        cx.notify();
+        let visible_tab_ids = self
+            .tabs
+            .iter()
+            .filter(|tab| tab.id != tab_id && !self.detached_tabs.contains(&tab.id))
+            .map(|tab| tab.id)
+            .collect::<Vec<_>>();
+        let anchor_tab_id = visible_tab_ids.get(visible_index).copied();
+        let trailing_tab_id = visible_tab_ids.last().copied();
+        let moved_tab = self.tabs.remove(source_index);
+        let insertion_index = anchor_tab_id
+            .and_then(|anchor_id| self.tab_index_by_id(anchor_id))
+            .or_else(|| {
+                trailing_tab_id
+                    .and_then(|trailing_id| self.tab_index_by_id(trailing_id))
+                    .map(|index| index + 1)
+            })
+            .unwrap_or_else(|| source_index.min(self.tabs.len()))
+            .min(self.tabs.len());
+        let changed = insertion_index != source_index.min(self.tabs.len());
+        self.tabs.insert(insertion_index, moved_tab);
+        changed
     }
 }
 
@@ -1474,6 +1519,15 @@ mod tests {
         assert!(!tab_drag_is_detach(36.0, 30.0, 36.0));
         assert!(!tab_drag_is_detach(4.0, -36.0, 36.0));
         assert!(tab_drag_is_detach(4.0, 32.0, 36.0));
+    }
+
+    #[test]
+    fn tab_reorder_converts_pre_removal_slots_to_final_visible_indices() {
+        assert_eq!(tab_reorder_target_visible_index(0, 0), 0);
+        assert_eq!(tab_reorder_target_visible_index(0, 2), 1);
+        assert_eq!(tab_reorder_target_visible_index(0, 3), 2);
+        assert_eq!(tab_reorder_target_visible_index(2, 0), 0);
+        assert_eq!(tab_reorder_target_visible_index(1, 2), 1);
     }
 
     #[test]

@@ -939,8 +939,8 @@ impl Render for WorkspaceApp {
                 ))
             })
             .when_some(
-                self.render_detached_tab_return_drop_hint(window),
-                |root, hint| root.child(hint),
+                self.render_detached_tab_return_handoff(window),
+                |root, handoff| root.child(handoff),
             )
             .when_some(
                 self.render_tab_detach_drag_preview(window),
