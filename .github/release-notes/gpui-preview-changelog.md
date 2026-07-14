@@ -4,6 +4,20 @@ Keep the newest GPUI preview entry first. The native package workflow extracts
 the section whose heading matches the release version, so older preview entries
 can remain in this file.
 
+## 2.0.0-gpui-preview.17
+
+This is the final GPUI Preview before the stable OxideTerm 2.0 release.
+
+> **Upgrade requirement:** The supported upgrade path to stable OxideTerm 2.0 starts from an installed OxideTerm 1.x client. Preview builds do not update in place to stable 2.0. Keep or install OxideTerm 1.x and use its upgrade flow when the stable release is available.
+
+- Added a guided 1.x-to-2.0 migration tour covering the native GPUI architecture, CLI migration from `oxt` to `oxideterm`, visual and animation changes, workflow additions, and internal reliability improvements.
+- Reworked the SFTP path with bounded owned transport queues, improved short-read handling, directory scheduling, shared rate limiting, progress persistence, transfer diagnostics, and lower-copy SSH channel delivery.
+- Improved the native update experience with application-level update prompts, download progress, on-demand release notes, and stricter separation between Preview and Stable update channels.
+- Refined session management, the macOS application launcher, notification center, file manager, settings, Host Tools, cloud sync, and connection workflows for clearer hierarchy and more consistent native layout behavior.
+- Added explicit OSC 52 clipboard-read permission while keeping remote clipboard reads disabled by default.
+- Tightened SSH shell bootstrap, host probing, reconnection, keychain access, secret handling, single-instance release lanes, and cross-platform packaging behavior.
+- Unified workspace top-chrome transparency and divider rendering across the activity rail, session sidebar, main tab bar, OxideSens, and Host Tools.
+
 ## 2.0.0-gpui-preview.16
 
 This preview focuses on safer release-channel boundaries and tighter workspace interaction behavior.

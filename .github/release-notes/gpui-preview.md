@@ -4,6 +4,8 @@ This is a GPUI/native preview build for testing the next-generation OxideTerm de
 
 If you just want the most stable daily-use OxideTerm release, do not download this preview yet. Use the current Tauri/WebView release instead. This preview exists so users can try the native UI early and report parity, packaging, terminal, SFTP, port forwarding, SSH, and AI workflow issues before it becomes the default app.
 
+> **Final Preview notice:** This is the last GPUI Preview release. The supported upgrade path to the stable OxideTerm 2.0 release starts from an installed OxideTerm 1.x client. Preview builds will not be upgraded in place to stable 2.0. Keep or install the current 1.x client and use its upgrade flow when OxideTerm 2.0 is released.
+
 ## What This Preview Is
 
 - A native GPUI desktop build of OxideTerm.
@@ -26,7 +28,6 @@ If you just want the most stable daily-use OxideTerm release, do not download th
 
 ## Known Preview Caveats
 
-- This build may still have visual parity issues compared with the Tauri version.
 - Some workflows may be incomplete or rough around edge cases.
 - macOS builds are not notarized unless explicitly stated in a later release.
 - Windows SmartScreen and macOS Gatekeeper may warn because this is an unsigned/early preview build.

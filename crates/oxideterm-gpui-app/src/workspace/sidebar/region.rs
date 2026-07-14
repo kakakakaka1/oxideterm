@@ -175,7 +175,6 @@ impl WorkspaceApp {
                     .flex()
                     .flex_col()
                     .overflow_hidden()
-                    .bg(self.workspace_sidebar_background(theme.bg))
                     .child(
                         div()
                             .w_full()
@@ -190,12 +189,15 @@ impl WorkspaceApp {
                             .justify_between()
                             .gap(px(8.0))
                             .px_3()
+                            // Match the center tab bar's chrome opacity instead
+                            // of inheriting the more transparent sidebar body.
+                            .bg(self.workspace_chrome_background(theme.bg))
                             // The context-sidebar titlebar is fixed chrome.
                             // Give it its own hitbox so wheel/drag events
                             // cannot fall through to a scrollable tool body.
                             .occlude()
                             .border_b_1()
-                            .border_color(rgba((theme.border << 8) | 0x4d))
+                            .border_color(rgb(theme.border))
                             // Keep the title and collapse button in one real
                             // horizontal flex row. The region width is owned by
                             // the parent frame, so this row must never infer a
@@ -256,6 +258,9 @@ impl WorkspaceApp {
                             .flex()
                             .flex_col()
                             .overflow_hidden()
+                            // Keep the sidebar tint below the titlebar so the
+                            // translucent chrome is composited exactly once.
+                            .bg(self.workspace_sidebar_background(theme.bg))
                             .child(match self.active_context_sidebar_panel {
                                 ContextSidebarPanel::Assistant => {
                                     self.render_ai_sidebar_content(cx)
@@ -402,7 +407,9 @@ impl WorkspaceApp {
             .items_center()
             // Use the same image-background opacity as the adjacent tab bar
             // without stacking it over the sidebar body's translucent tint.
-            .bg(self.workspace_chrome_background(theme.bg_panel))
+            .bg(self.workspace_chrome_background(theme.bg))
+            .border_b_1()
+            .border_color(rgb(theme.border))
             .px_2()
             .child(
                 self.render_window_drag_content_region(

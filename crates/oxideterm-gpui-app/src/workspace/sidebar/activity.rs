@@ -32,19 +32,12 @@ impl WorkspaceApp {
             // independent activity-bar tool.
             bottom_items.insert(2, (SidebarSection::Monitor, LucideIcon::Monitor));
         }
-        let activity_divider_left =
-            (self.tokens.metrics.activity_bar_width - self.tokens.metrics.divider_width) * 0.5;
-
         let mut bar = div()
             .w(px(self.tokens.metrics.activity_bar_width))
             .h_full()
             .flex()
             .flex_col()
             .items_center()
-            .pb_2()
-            // Full-height workspace columns share one translucent tint so the
-            // window background does not alternate between opaque and glassy.
-            .bg(self.workspace_sidebar_background(theme.bg))
             .border_r_1()
             .border_color(rgb(theme.border));
 
@@ -57,7 +50,11 @@ impl WorkspaceApp {
                 .flex()
                 .items_center()
                 .justify_center()
-                // Keep the activity toggle's lower rule on the tab bar baseline.
+                // Paint top chrome directly over the window background so it
+                // matches the adjacent sidebar and workspace tab bars exactly.
+                .bg(self.workspace_chrome_background(theme.bg))
+                .border_b_1()
+                .border_color(rgb(theme.border))
                 .child(
                     div()
                         .id("activity-sidebar-toggle")
@@ -103,15 +100,6 @@ impl WorkspaceApp {
                                 this.toggle_sidebar(cx);
                             }),
                         ),
-                )
-                .child(
-                    div()
-                        .absolute()
-                        .left(px(activity_divider_left))
-                        .bottom_0()
-                        .w(px(self.tokens.metrics.divider_width))
-                        .h(px(self.tokens.metrics.divider_height))
-                        .bg(rgb(theme.divider)),
                 ),
         );
 
@@ -167,7 +155,22 @@ impl WorkspaceApp {
             bottom = bottom.child(popover);
         }
 
-        bar.child(primary_items).child(bottom).into_any_element()
+        bar.child(
+            div()
+                .flex_1()
+                .min_h_0()
+                .w_full()
+                .pb_2()
+                .flex()
+                .flex_col()
+                .items_center()
+                // The content column keeps the lighter sidebar tint without
+                // placing another translucent layer beneath the top chrome.
+                .bg(self.workspace_sidebar_background(theme.bg))
+                .child(primary_items)
+                .child(bottom),
+        )
+        .into_any_element()
     }
 
     pub(in crate::workspace) fn render_activity_icon(
