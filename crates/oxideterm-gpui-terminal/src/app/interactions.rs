@@ -855,6 +855,7 @@ impl TerminalPane {
         self.context_menu = Some(TerminalContextMenu {
             x: f32::from(event.position.x - bounds.origin.x),
             y: f32::from(event.position.y - bounds.origin.y),
+            modem_submenu_open: false,
             target: self.terminal_point_for_position(event.position),
             has_selection: self.selected_text_snapshot().is_some(),
             reference_line: navigation_line,

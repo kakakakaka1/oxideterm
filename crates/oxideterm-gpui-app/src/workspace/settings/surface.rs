@@ -2,6 +2,45 @@ use super::*;
 
 const SETTINGS_CONNECTION_IMPORTERS_SECTION_INDEX: usize = 5;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct SettingsNavSelectionMotion {
+    duration: Duration,
+    spatial: bool,
+}
+
+fn settings_nav_item_index(tab: SettingsTab) -> Option<usize> {
+    let mut item_index = 0;
+    for (group_index, group) in SettingsTab::groups().iter().enumerate() {
+        if group_index > 0 {
+            item_index += 1;
+        }
+        for candidate in *group {
+            if *candidate == tab {
+                return Some(item_index);
+            }
+            item_index += 1;
+        }
+    }
+    None
+}
+
+fn settings_nav_selection_motion(tokens: &ThemeTokens) -> Option<SettingsNavSelectionMotion> {
+    oxideterm_gpui_ui::segmented_control_motion(tokens).map(|motion| SettingsNavSelectionMotion {
+        duration: motion.duration,
+        spatial: motion.spatial,
+    })
+}
+
+fn settings_nav_vertical_offset(
+    scroll_handle: &ScrollHandle,
+    source_index: usize,
+    target_index: usize,
+) -> Option<f32> {
+    let source_bounds = scroll_handle.bounds_for_item(source_index)?;
+    let target_bounds = scroll_handle.bounds_for_item(target_index)?;
+    Some(f32::from(source_bounds.origin.y - target_bounds.origin.y))
+}
+
 impl WorkspaceApp {
     pub(in crate::workspace) fn open_settings(
         &mut self,
@@ -737,7 +776,7 @@ impl WorkspaceApp {
                 );
             }
             for tab in *group {
-                list = list.child(self.render_settings_nav_item(*tab, cx));
+                list = list.child(self.render_settings_nav_item(*tab, &settings_nav_scroll, cx));
             }
         }
 
@@ -750,10 +789,70 @@ impl WorkspaceApp {
     pub(in crate::workspace) fn render_settings_nav_item(
         &self,
         tab: SettingsTab,
+        settings_nav_scroll: &ScrollHandle,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = self.tokens.ui;
         let active = self.settings_page.active_tab == tab;
+        let nav_item_index = settings_nav_item_index(tab);
+        let selection_transition = active.then_some(()).and_then(|()| {
+            self.segmented_control_user_transition(
+                selection_motion::SETTINGS_NAVIGATION_ID,
+                nav_item_index?,
+            )
+        });
+        let transition_scroll_handle = settings_nav_scroll.clone();
+        let selection_surface = active.then(|| {
+            let surface = div()
+                .absolute()
+                .inset_0()
+                .rounded(px(self.tokens.radii.md))
+                .border_1()
+                .border_color(rgb(theme.border))
+                .bg(self.settings_panel_background(theme.bg_panel));
+            let surface = oxideterm_gpui_ui::theme_card_surface_shadow(surface, &self.tokens);
+
+            let Some((generation, vertical_offset_y)) = selection_transition else {
+                return surface.into_any_element();
+            };
+            let Some(motion) = settings_nav_selection_motion(&self.tokens) else {
+                return surface.into_any_element();
+            };
+
+            let animation_id = (
+                gpui::ElementId::from(selection_motion::SETTINGS_NAVIGATION_ID),
+                format!("selection-{generation}"),
+            );
+            if motion.spatial
+                && let Some(vertical_offset_y) = vertical_offset_y
+            {
+                // The measured item bounds include real group separators and
+                // flex growth, so the indicator crosses groups continuously.
+                return surface
+                    .with_animation(
+                        animation_id,
+                        Animation::new(motion.duration)
+                            .with_easing(oxideterm_gpui_ui::motion::ease_in_out_cubic),
+                        move |surface, progress| {
+                            let offset =
+                                oxideterm_gpui_ui::motion::lerp(vertical_offset_y, 0.0, progress);
+                            // Moving both edges preserves the absolute
+                            // indicator's height throughout the transition.
+                            surface.top(px(offset)).bottom(px(-offset))
+                        },
+                    )
+                    .into_any_element();
+            }
+
+            surface
+                .with_animation(
+                    animation_id,
+                    Animation::new(motion.duration)
+                        .with_easing(oxideterm_gpui_ui::motion::ease_out_cubic),
+                    |surface, progress| surface.opacity(progress),
+                )
+                .into_any_element()
+        });
         div()
             // Nav rows share spare vertical space, then stop shrinking and let
             // the scroll owner take over once the sidebar becomes too short.
@@ -762,26 +861,12 @@ impl WorkspaceApp {
             .flex_1()
             .mb(px(4.0))
             .px_3()
+            .relative()
             .flex()
             .items_center()
             .gap_3()
             .rounded(px(self.tokens.radii.md))
-            .border_1()
-            .border_color(if active {
-                rgb(theme.border)
-            } else {
-                rgba(0x00000000)
-            })
-            .bg(if active {
-                self.settings_panel_background(theme.bg_panel)
-            } else {
-                rgba(0x00000000)
-            })
-            .when(active, |item| {
-                // Restore the earlier outlined, raised selection treatment while
-                // keeping image-background translucency in the shared color path.
-                oxideterm_gpui_ui::theme_card_surface_shadow(item, &self.tokens)
-            })
+            .bg(rgba(0x00000000))
             .text_size(px(self.tokens.metrics.ui_text_sm))
             .font_weight(gpui::FontWeight::NORMAL)
             .text_color(rgb(if active {
@@ -797,6 +882,7 @@ impl WorkspaceApp {
                     item.bg(rgba((theme.bg_hover << 8) | 0x80))
                 }
             })
+            .when_some(selection_surface, |item, surface| item.child(surface))
             .child(div().flex_none().child(Self::render_lucide_icon(
                 settings_tab_lucide(tab.icon()),
                 18.0,
@@ -812,6 +898,23 @@ impl WorkspaceApp {
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |this, _event, _window, cx| {
+                    if this.settings_page.active_tab != tab
+                        && let Some(source_index) =
+                            settings_nav_item_index(this.settings_page.active_tab)
+                        && let Some(target_index) = settings_nav_item_index(tab)
+                    {
+                        let vertical_offset_y = settings_nav_vertical_offset(
+                            &transition_scroll_handle,
+                            source_index,
+                            target_index,
+                        );
+                        this.begin_user_segmented_control_transition_with_vertical_offset(
+                            selection_motion::SETTINGS_NAVIGATION_ID,
+                            target_index,
+                            vertical_offset_y,
+                            cx,
+                        );
+                    }
                     this.settings_page.set_active_tab(tab);
                     this.close_settings_select();
                     this.focused_settings_input = None;
@@ -1144,6 +1247,44 @@ fn settings_terminal_focus_handoff_list_item(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use oxideterm_theme::UiMotionProfile;
+
+    fn settings_nav_motion_for_profile(
+        profile: UiMotionProfile,
+    ) -> Option<SettingsNavSelectionMotion> {
+        let mut tokens = oxideterm_theme::default_tokens();
+        tokens.apply_motion(profile);
+        settings_nav_selection_motion(&tokens)
+    }
+
+    #[test]
+    fn settings_navigation_selection_surface_maps_all_four_motion_profiles() {
+        assert_eq!(settings_nav_motion_for_profile(UiMotionProfile::Off), None);
+
+        let reduced = settings_nav_motion_for_profile(UiMotionProfile::Reduced)
+            .expect("reduced navigation transition");
+        assert_eq!(reduced.duration, Duration::from_millis(120));
+        assert!(!reduced.spatial);
+
+        let normal = settings_nav_motion_for_profile(UiMotionProfile::Normal)
+            .expect("normal navigation transition");
+        assert_eq!(normal.duration, Duration::from_millis(200));
+        assert!(normal.spatial);
+
+        let fast = settings_nav_motion_for_profile(UiMotionProfile::Fast)
+            .expect("fast navigation transition");
+        assert_eq!(fast.duration, Duration::from_millis(110));
+        assert!(fast.spatial);
+    }
+
+    #[test]
+    fn settings_navigation_item_indices_include_group_separators() {
+        assert_eq!(settings_nav_item_index(SettingsTab::General), Some(0));
+        assert_eq!(settings_nav_item_index(SettingsTab::Portable), Some(1));
+        assert_eq!(settings_nav_item_index(SettingsTab::Terminal), Some(3));
+        assert_eq!(settings_nav_item_index(SettingsTab::Connections), Some(6));
+        assert_eq!(settings_nav_item_index(SettingsTab::Help), Some(16));
+    }
 
     #[test]
     fn connection_importer_height_signature_only_targets_importer_row() {

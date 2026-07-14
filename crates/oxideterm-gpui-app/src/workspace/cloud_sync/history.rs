@@ -572,7 +572,7 @@ impl WorkspaceApp {
                     cx,
                 ),
             )
-            .child(self.render_cloud_sync_section_diff_card(
+            .child(self.render_cloud_sync_section_diff_flat(
                 "cloud-sync-upload-diff",
                 "plugin.cloud_sync.preflight.upload_diff_title",
                 &upload_diff,
@@ -614,7 +614,8 @@ impl WorkspaceApp {
                     .min_w(px(0.0))
                     .flex()
                     .flex_wrap()
-                    .gap(px(10.0))
+                    .gap_x(px(16.0))
+                    .gap_y(px(0.0))
                     .children(rows),
             )
             .into_any_element()
@@ -632,11 +633,11 @@ impl WorkspaceApp {
         div()
             .min_w(px(260.0))
             .flex_1()
-            .rounded(px(self.tokens.radii.md))
-            .border_1()
-            .border_color(rgba((theme.border << 8) | 0x55))
-            .bg(rgba((theme.bg_panel << 8) | 0x66))
-            .p(px(12.0))
+            // Health checks are rows inside the outer inspector surface, not
+            // independent cards. A divider preserves scanability responsively.
+            .border_b_1()
+            .border_color(rgba((theme.border << 8) | 0x40))
+            .py(px(12.0))
             .flex()
             .flex_col()
             .gap(px(8.0))
@@ -704,6 +705,33 @@ impl WorkspaceApp {
                 )
             })
             .collect::<Vec<_>>();
+        let theme = self.tokens.ui;
+        let coverage_title = self.render_selectable_text_scoped(
+            "cloud-sync-coverage-title",
+            "title",
+            self.i18n.t("plugin.cloud_sync.coverage.title"),
+            theme.text_heading,
+            cx,
+        );
+        // The outer inspector surface owns the section chrome; this list only
+        // provides hierarchy and spacing for its status rows.
+        let coverage_list = rows.into_iter().fold(
+            div()
+                .w_full()
+                .min_w(px(0.0))
+                .flex()
+                .flex_col()
+                .gap(px(6.0))
+                .child(
+                    div()
+                        .pb(px(4.0))
+                        .text_size(px(self.tokens.metrics.ui_text_xs))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(rgb(theme.text_heading))
+                        .child(coverage_title),
+                ),
+            |list, row| list.child(row),
+        );
         self.cloud_sync_plugin_card(self.cloud_sync_has_background())
             .child(
                 self.render_cloud_sync_section_title(
@@ -711,17 +739,7 @@ impl WorkspaceApp {
                     cx,
                 ),
             )
-            .child(cloud_sync_status_list(
-                &self.tokens,
-                self.render_selectable_text_scoped(
-                    "cloud-sync-coverage-title",
-                    "title",
-                    self.i18n.t("plugin.cloud_sync.coverage.title"),
-                    self.tokens.ui.text_heading,
-                    cx,
-                ),
-                rows,
-            ))
+            .child(coverage_list)
             .into_any_element()
     }
 

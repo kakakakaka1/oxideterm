@@ -8,6 +8,7 @@ pub(in crate::workspace) const PLUGIN_MANAGER_SWITCHER_ID: &str = "plugin-manage
 pub(in crate::workspace) const CONNECTION_RUNTIME_SWITCHER_ID: &str = "connection-runtime-tab-bar";
 pub(in crate::workspace) const NOTIFICATION_CENTER_SWITCHER_ID: &str =
     "notification-center-tab-bar";
+pub(in crate::workspace) const SETTINGS_NAVIGATION_ID: &str = "settings-navigation";
 
 #[derive(Default)]
 pub(super) struct UserSegmentedControlMotionState {
@@ -19,10 +20,16 @@ pub(super) struct UserSegmentedControlMotionState {
 struct ActiveUserTransition {
     generation: u64,
     target_index: usize,
+    vertical_offset_y: Option<f32>,
 }
 
 impl UserSegmentedControlMotionState {
-    fn begin(&mut self, control_id: &'static str, target_index: usize) -> u64 {
+    fn begin_with_vertical_offset(
+        &mut self,
+        control_id: &'static str,
+        target_index: usize,
+        vertical_offset_y: Option<f32>,
+    ) -> u64 {
         // One monotonic counter prevents a cleared control from reusing a
         // generation while its older completion task is still pending.
         self.next_generation = self.next_generation.wrapping_add(1).max(1);
@@ -32,6 +39,7 @@ impl UserSegmentedControlMotionState {
             ActiveUserTransition {
                 generation,
                 target_index,
+                vertical_offset_y,
             },
         );
         generation
@@ -59,6 +67,17 @@ impl UserSegmentedControlMotionState {
             .get(control_id)
             .is_some_and(|transition| transition.target_index == active_index)
     }
+
+    fn transition_for(
+        &self,
+        control_id: &'static str,
+        active_index: usize,
+    ) -> Option<(u64, Option<f32>)> {
+        self.active_transitions
+            .get(control_id)
+            .filter(|transition| transition.target_index == active_index)
+            .map(|transition| (transition.generation, transition.vertical_offset_y))
+    }
 }
 
 impl WorkspaceApp {
@@ -68,13 +87,28 @@ impl WorkspaceApp {
         target_index: usize,
         cx: &mut Context<Self>,
     ) {
+        self.begin_user_segmented_control_transition_with_vertical_offset(
+            control_id,
+            target_index,
+            None,
+            cx,
+        );
+    }
+
+    pub(in crate::workspace) fn begin_user_segmented_control_transition_with_vertical_offset(
+        &mut self,
+        control_id: &'static str,
+        target_index: usize,
+        vertical_offset_y: Option<f32>,
+        cx: &mut Context<Self>,
+    ) {
         let Some(motion) = oxideterm_gpui_ui::segmented_control_motion(&self.tokens) else {
             self.segmented_control_user_motion.clear(control_id);
             return;
         };
         let generation = self
             .segmented_control_user_motion
-            .begin(control_id, target_index);
+            .begin_with_vertical_offset(control_id, target_index, vertical_offset_y);
         // User intent outlives a virtual-list row only for the real transition,
         // then expires so remounts and programmatic navigation render settled.
         cx.spawn(async move |weak, cx| {
@@ -99,6 +133,15 @@ impl WorkspaceApp {
         self.segmented_control_user_motion
             .is_active_for(control_id, active_index)
     }
+
+    pub(in crate::workspace) fn segmented_control_user_transition(
+        &self,
+        control_id: &'static str,
+        active_index: usize,
+    ) -> Option<(u64, Option<f32>)> {
+        self.segmented_control_user_motion
+            .transition_for(control_id, active_index)
+    }
 }
 
 #[cfg(test)]
@@ -108,8 +151,8 @@ mod tests {
     #[test]
     fn stale_transition_generation_cannot_finish_a_newer_selection() {
         let mut state = UserSegmentedControlMotionState::default();
-        let first = state.begin(TERMINAL_SETTINGS_SWITCHER_ID, 1);
-        let second = state.begin(TERMINAL_SETTINGS_SWITCHER_ID, 2);
+        let first = state.begin_with_vertical_offset(TERMINAL_SETTINGS_SWITCHER_ID, 1, None);
+        let second = state.begin_with_vertical_offset(TERMINAL_SETTINGS_SWITCHER_ID, 2, None);
 
         assert!(!state.finish(TERMINAL_SETTINGS_SWITCHER_ID, first));
         assert!(state.is_active_for(TERMINAL_SETTINGS_SWITCHER_ID, 2));
@@ -120,10 +163,11 @@ mod tests {
     #[test]
     fn clearing_a_transition_makes_remount_render_settled() {
         let mut state = UserSegmentedControlMotionState::default();
-        let cleared_generation = state.begin(AI_SETTINGS_SWITCHER_ID, 1);
+        let cleared_generation = state.begin_with_vertical_offset(AI_SETTINGS_SWITCHER_ID, 1, None);
 
         state.clear(AI_SETTINGS_SWITCHER_ID);
-        let replacement_generation = state.begin(AI_SETTINGS_SWITCHER_ID, 2);
+        let replacement_generation =
+            state.begin_with_vertical_offset(AI_SETTINGS_SWITCHER_ID, 2, None);
 
         assert_ne!(cleared_generation, replacement_generation);
         assert!(!state.finish(AI_SETTINGS_SWITCHER_ID, cleared_generation));
@@ -133,7 +177,7 @@ mod tests {
     #[test]
     fn programmatic_target_change_does_not_reuse_user_transition() {
         let mut state = UserSegmentedControlMotionState::default();
-        state.begin(CLOUD_SYNC_SWITCHER_ID, 1);
+        state.begin_with_vertical_offset(CLOUD_SYNC_SWITCHER_ID, 1, None);
 
         assert!(state.is_active_for(CLOUD_SYNC_SWITCHER_ID, 1));
         assert!(!state.is_active_for(CLOUD_SYNC_SWITCHER_ID, 2));
@@ -144,10 +188,28 @@ mod tests {
         let mut state = UserSegmentedControlMotionState::default();
 
         for target_index in 0..1_000 {
-            state.begin(PLUGIN_MANAGER_SWITCHER_ID, target_index);
+            state.begin_with_vertical_offset(PLUGIN_MANAGER_SWITCHER_ID, target_index, None);
         }
 
         assert_eq!(state.active_transitions.len(), 1);
         assert!(state.is_active_for(PLUGIN_MANAGER_SWITCHER_ID, 999));
+        assert_eq!(
+            state.transition_for(PLUGIN_MANAGER_SWITCHER_ID, 999),
+            Some((state.next_generation, None))
+        );
+    }
+
+    #[test]
+    fn spatial_transition_keeps_only_the_current_measured_offset() {
+        let mut state = UserSegmentedControlMotionState::default();
+        state.begin_with_vertical_offset(SETTINGS_NAVIGATION_ID, 3, Some(-52.0));
+        let latest_generation =
+            state.begin_with_vertical_offset(SETTINGS_NAVIGATION_ID, 7, Some(91.0));
+
+        assert_eq!(
+            state.transition_for(SETTINGS_NAVIGATION_ID, 7),
+            Some((latest_generation, Some(91.0)))
+        );
+        assert_eq!(state.transition_for(SETTINGS_NAVIGATION_ID, 3), None);
     }
 }

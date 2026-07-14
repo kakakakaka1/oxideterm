@@ -516,6 +516,37 @@ impl WorkspaceApp {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = self.tokens.ui;
+        self.render_cloud_sync_section_diff_content(identity, title_key, items, false, cx)
+            .rounded(px(self.tokens.radii.md))
+            .border_1()
+            .border_color(rgba((theme.border << 8) | 0x55))
+            .bg(rgba((theme.bg_panel << 8) | 0x5F))
+            .p(px(12.0))
+            .into_any_element()
+    }
+
+    pub(super) fn render_cloud_sync_section_diff_flat(
+        &self,
+        identity: &'static str,
+        title_key: &'static str,
+        items: &[CloudSyncSectionDiffItem],
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        self.render_cloud_sync_section_diff_content(identity, title_key, items, true, cx)
+            .into_any_element()
+    }
+
+    fn render_cloud_sync_section_diff_content(
+        &self,
+        identity: &'static str,
+        title_key: &'static str,
+        items: &[CloudSyncSectionDiffItem],
+        flat_rows: bool,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        // Preview dialogs may need their own framed block, while configuration
+        // pages reuse the same content inside an existing inspector surface.
+        let theme = self.tokens.ui;
         let title = self.render_selectable_text_scoped(
             identity,
             "title",
@@ -525,7 +556,7 @@ impl WorkspaceApp {
         );
         let rows = items
             .iter()
-            .map(|item| self.render_cloud_sync_section_diff_row(item, cx))
+            .map(|item| self.render_cloud_sync_section_diff_row(item, flat_rows, cx))
             .collect::<Vec<_>>();
         let grid = rows.into_iter().fold(
             div()
@@ -546,11 +577,6 @@ impl WorkspaceApp {
         div()
             .w_full()
             .min_w(px(0.0))
-            .rounded(px(self.tokens.radii.md))
-            .border_1()
-            .border_color(rgba((theme.border << 8) | 0x55))
-            .bg(rgba((theme.bg_panel << 8) | 0x5F))
-            .p(px(12.0))
             .flex()
             .flex_col()
             .gap(px(8.0))
@@ -562,12 +588,12 @@ impl WorkspaceApp {
                     .child(title),
             )
             .child(grid)
-            .into_any_element()
     }
 
     pub(super) fn render_cloud_sync_section_diff_row(
         &self,
         item: &CloudSyncSectionDiffItem,
+        flat: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let label = self.cloud_sync_diff_label(&item.label);
@@ -594,10 +620,12 @@ impl WorkspaceApp {
         div()
             .w_full()
             .min_w(px(0.0))
-            .rounded(px(self.tokens.radii.sm))
-            .bg(rgba((theme.bg_card << 8) | 0x66))
-            .px(px(10.0))
             .py(px(8.0))
+            .when(!flat, |row| {
+                row.rounded(px(self.tokens.radii.sm))
+                    .bg(rgba((theme.bg_card << 8) | 0x66))
+                    .px(px(10.0))
+            })
             .flex()
             .items_center()
             .gap(px(12.0))

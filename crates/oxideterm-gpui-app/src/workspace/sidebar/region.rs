@@ -2,6 +2,12 @@ use super::*;
 
 pub(in crate::workspace) const CONTEXT_SIDEBAR_RESIZE_HOTZONE_WIDTH: f32 = 12.0;
 pub(in crate::workspace) const CONTEXT_SIDEBAR_RESIZE_DIVIDER_WIDTH: f32 = 1.0;
+const ACTIVITY_TOOLBAR_BUTTON_SIZE: f32 = 28.0;
+const ACTIVITY_TOOLBAR_ICON_SIZE: f32 = 15.0;
+const ACTIVITY_TOOLBAR_GROUP_PADDING: f32 = 2.0;
+const ACTIVITY_EMPTY_STATE_ICON_SIZE: f32 = 20.0;
+const ACTIVITY_TOOLBAR_ACTIVE_BACKGROUND_ALPHA: u32 = 0x1f;
+const ACTIVITY_TOOLBAR_ACTIVE_BORDER_ALPHA: u32 = 0x52;
 
 pub(in crate::workspace) fn context_sidebar_frame_chrome(
     total_width: f32,
@@ -615,17 +621,49 @@ impl WorkspaceApp {
         self.activity_toolbar_shell()
             .flex()
             .items_center()
-            .child(self.render_activity_icon_button(
-                LucideIcon::Bell,
-                self.notification_center.notifications.dnd_enabled,
-                "Toggle notification DND",
-                |this, _event, _window, cx| {
-                    this.notification_center.notifications.dnd_enabled =
-                        !this.notification_center.notifications.dnd_enabled;
-                    cx.notify();
-                },
-                cx,
-            ))
+            .child(
+                self.activity_toolbar_group()
+                    .child(self.render_activity_icon_button(
+                        LucideIcon::Bell,
+                        self.notification_center.notifications.dnd_enabled,
+                        |this, _event, _window, cx| {
+                            this.notification_center.notifications.dnd_enabled =
+                                !this.notification_center.notifications.dnd_enabled;
+                            cx.notify();
+                        },
+                        cx,
+                    ))
+                    .child(self.render_activity_icon_button(
+                        LucideIcon::ListTree,
+                        self.notification_center.notifications.filter.status
+                            != WorkspaceNotificationStatusFilter::All,
+                        |this, _event, _window, cx| {
+                            this.cycle_notification_status_filter();
+                            cx.notify();
+                        },
+                        cx,
+                    ))
+                    .child(self.render_activity_icon_button(
+                        LucideIcon::AlertCircle,
+                        self.notification_center.notifications.filter.severity
+                            != WorkspaceNotificationSeverityFilter::All,
+                        |this, _event, _window, cx| {
+                            this.cycle_notification_severity_filter();
+                            cx.notify();
+                        },
+                        cx,
+                    ))
+                    .child(self.render_activity_icon_button(
+                        LucideIcon::Hash,
+                        self.notification_center.notifications.filter.kind
+                            != WorkspaceNotificationKindFilter::All,
+                        |this, _event, _window, cx| {
+                            this.cycle_notification_kind_filter();
+                            cx.notify();
+                        },
+                        cx,
+                    )),
+            )
             .when(
                 self.notification_center.notifications.dnd_enabled,
                 |toolbar| {
@@ -639,62 +677,28 @@ impl WorkspaceApp {
                     ))
                 },
             )
-            .child(self.render_activity_toolbar_divider())
-            .child(self.render_activity_icon_button(
-                LucideIcon::ListTree,
-                self.notification_center.notifications.filter.status
-                    != WorkspaceNotificationStatusFilter::All,
-                "Cycle status filter",
-                |this, _event, _window, cx| {
-                    this.cycle_notification_status_filter();
-                    cx.notify();
-                },
-                cx,
-            ))
-            .child(self.render_activity_icon_button(
-                LucideIcon::AlertCircle,
-                self.notification_center.notifications.filter.severity
-                    != WorkspaceNotificationSeverityFilter::All,
-                "Cycle severity filter",
-                |this, _event, _window, cx| {
-                    this.cycle_notification_severity_filter();
-                    cx.notify();
-                },
-                cx,
-            ))
-            .child(self.render_activity_icon_button(
-                LucideIcon::Hash,
-                self.notification_center.notifications.filter.kind
-                    != WorkspaceNotificationKindFilter::All,
-                "Cycle kind filter",
-                |this, _event, _window, cx| {
-                    this.cycle_notification_kind_filter();
-                    cx.notify();
-                },
-                cx,
-            ))
             .child(div().flex_1())
-            .child(self.render_activity_toolbar_divider())
-            .child(self.render_activity_icon_button(
-                LucideIcon::Check,
-                false,
-                "Mark all read",
-                |this, _event, _window, cx| {
-                    this.mark_all_notifications_read();
-                    cx.notify();
-                },
-                cx,
-            ))
-            .child(self.render_activity_icon_button(
-                LucideIcon::Trash2,
-                false,
-                "Clear notifications",
-                |this, _event, _window, cx| {
-                    this.clear_notifications();
-                    cx.notify();
-                },
-                cx,
-            ))
+            .child(
+                self.activity_toolbar_group()
+                    .child(self.render_activity_icon_button(
+                        LucideIcon::Check,
+                        false,
+                        |this, _event, _window, cx| {
+                            this.mark_all_notifications_read();
+                            cx.notify();
+                        },
+                        cx,
+                    ))
+                    .child(self.render_activity_icon_button(
+                        LucideIcon::Trash2,
+                        false,
+                        |this, _event, _window, cx| {
+                            this.clear_notifications();
+                            cx.notify();
+                        },
+                        cx,
+                    )),
+            )
             .into_any_element()
     }
 
@@ -807,37 +811,34 @@ impl WorkspaceApp {
             .flex()
             .items_center()
             .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(self.tokens.spacing.two))
-                    .text_size(px(self.tokens.metrics.ui_text_xs))
-                    .child(self.render_count_chip(
-                        LucideIcon::AlertCircle,
-                        theme.error,
-                        counts.2,
-                        cx,
-                    ))
-                    .child(self.render_count_chip(
-                        LucideIcon::AlertTriangle,
-                        theme.warning,
-                        counts.1,
-                        cx,
-                    ))
-                    .child(self.render_count_chip(LucideIcon::Info, theme.accent, counts.0, cx)),
+                self.activity_toolbar_group().child(
+                    div()
+                        .px(px(self.tokens.spacing.one))
+                        .flex()
+                        .items_center()
+                        .gap(px(self.tokens.spacing.two))
+                        .text_size(px(self.tokens.metrics.ui_text_xs))
+                        .child(self.render_count_chip(
+                            LucideIcon::AlertCircle,
+                            theme.error,
+                            counts.2,
+                            cx,
+                        ))
+                        .child(self.render_count_chip(
+                            LucideIcon::AlertTriangle,
+                            theme.warning,
+                            counts.1,
+                            cx,
+                        ))
+                        .child(self.render_count_chip(
+                            LucideIcon::Info,
+                            theme.accent,
+                            counts.0,
+                            cx,
+                        )),
+                ),
             )
             .child(div().flex_1())
-            .child(self.render_activity_icon_button(
-                LucideIcon::Bell,
-                self.notification_center.event_log.dnd_enabled,
-                "Toggle event log DND",
-                |this, _event, _window, cx| {
-                    this.notification_center.event_log.dnd_enabled =
-                        !this.notification_center.event_log.dnd_enabled;
-                    cx.notify();
-                },
-                cx,
-            ))
             .when(self.notification_center.event_log.dnd_enabled, |toolbar| {
                 toolbar.child(oxideterm_gpui_ui::status_pill(
                     &self.tokens,
@@ -848,39 +849,48 @@ impl WorkspaceApp {
                     .compact(),
                 ))
             })
-            .child(self.render_activity_toolbar_divider())
-            .child(self.render_activity_icon_button(
-                LucideIcon::ListTree,
-                self.notification_center.event_log.filter.severity
-                    != WorkspaceEventSeverityFilter::All,
-                "Cycle severity filter",
-                |this, _event, _window, cx| {
-                    this.cycle_event_log_severity_filter();
-                    cx.notify();
-                },
-                cx,
-            ))
-            .child(self.render_activity_icon_button(
-                LucideIcon::Search,
-                self.notification_center.event_log.filter.category
-                    != WorkspaceEventCategoryFilter::All,
-                "Cycle category filter",
-                |this, _event, _window, cx| {
-                    this.cycle_event_log_category_filter();
-                    cx.notify();
-                },
-                cx,
-            ))
-            .child(self.render_activity_icon_button(
-                LucideIcon::Trash2,
-                false,
-                "Clear event log",
-                |this, _event, _window, cx| {
-                    this.clear_event_log();
-                    cx.notify();
-                },
-                cx,
-            ))
+            .child(
+                self.activity_toolbar_group()
+                    .child(self.render_activity_icon_button(
+                        LucideIcon::Bell,
+                        self.notification_center.event_log.dnd_enabled,
+                        |this, _event, _window, cx| {
+                            this.notification_center.event_log.dnd_enabled =
+                                !this.notification_center.event_log.dnd_enabled;
+                            cx.notify();
+                        },
+                        cx,
+                    ))
+                    .child(self.render_activity_icon_button(
+                        LucideIcon::ListTree,
+                        self.notification_center.event_log.filter.severity
+                            != WorkspaceEventSeverityFilter::All,
+                        |this, _event, _window, cx| {
+                            this.cycle_event_log_severity_filter();
+                            cx.notify();
+                        },
+                        cx,
+                    ))
+                    .child(self.render_activity_icon_button(
+                        LucideIcon::Search,
+                        self.notification_center.event_log.filter.category
+                            != WorkspaceEventCategoryFilter::All,
+                        |this, _event, _window, cx| {
+                            this.cycle_event_log_category_filter();
+                            cx.notify();
+                        },
+                        cx,
+                    ))
+                    .child(self.render_activity_icon_button(
+                        LucideIcon::Trash2,
+                        false,
+                        |this, _event, _window, cx| {
+                            this.clear_event_log();
+                            cx.notify();
+                        },
+                        cx,
+                    )),
+            )
             .into_any_element()
     }
 
@@ -888,33 +898,28 @@ impl WorkspaceApp {
         &self,
         icon: LucideIcon,
         active: bool,
-        _label: &'static str,
         listener: impl Fn(&mut Self, &MouseDownEvent, &mut Window, &mut Context<Self>) + 'static,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = self.tokens.ui;
-        let background = if active {
-            rgb(theme.bg_active)
-        } else {
-            rgb(theme.bg)
-        };
         let icon_color = if active {
-            rgb(theme.text_heading)
+            rgb(theme.accent)
         } else {
             rgb(theme.text_muted)
         };
         self.workspace_icon_action_button(
             icon,
-            self.tokens.metrics.ui_button_icon_size,
+            ACTIVITY_TOOLBAR_ICON_SIZE,
             icon_color,
             oxideterm_gpui_ui::button::IconButtonOptions {
-                background: Some(background),
+                background: active
+                    .then(|| rgba((theme.accent << 8) | ACTIVITY_TOOLBAR_ACTIVE_BACKGROUND_ALPHA)),
+                border: active
+                    .then(|| rgba((theme.accent << 8) | ACTIVITY_TOOLBAR_ACTIVE_BORDER_ALPHA)),
                 hover_background: Some(rgb(theme.bg_hover)),
-                // Tauri activity toolbar icons are fully opaque in both normal
-                // and active states; muting is represented by icon color.
                 ..oxideterm_gpui_ui::button::IconButtonOptions::opaque_toolbar(
-                    self.tokens.metrics.ui_button_sm_height,
-                    oxideterm_gpui_ui::button::ButtonRadius::Md,
+                    ACTIVITY_TOOLBAR_BUTTON_SIZE,
+                    oxideterm_gpui_ui::button::ButtonRadius::Sm,
                 )
             },
             listener,
@@ -925,36 +930,34 @@ impl WorkspaceApp {
 
     fn activity_toolbar_shell(&self) -> gpui::Div {
         let theme = self.tokens.ui;
-        // The full-page center needs workspace-scale controls instead of the
-        // former 32px sidebar toolbar stretched across the content surface.
+        // The full-page toolbar uses compact grouped controls so icon actions
+        // remain subordinate to the notification content and page switcher.
         div()
-            .h(px(
-                self.tokens.metrics.ui_button_lg_height + self.tokens.spacing.three
-            ))
+            .h(px(ACTIVITY_TOOLBAR_BUTTON_SIZE + self.tokens.spacing.three))
             .gap(px(self.tokens.spacing.two))
             .px(px(self.tokens.spacing.three))
             .border_b_1()
             .border_color(rgb(theme.border))
     }
 
-    fn render_activity_toolbar_divider(&self) -> AnyElement {
-        div()
-            .mx(px(self.tokens.spacing.one))
-            .h(px(self.tokens.metrics.ui_button_sm_height))
-            .w(px(self.tokens.metrics.divider_height))
-            .bg(rgb(self.tokens.ui.border))
-            .into_any_element()
+    fn activity_toolbar_group(&self) -> gpui::Div {
+        oxideterm_gpui_ui::semantic_surface(
+            &self.tokens,
+            oxideterm_gpui_ui::SurfaceOptions::new(oxideterm_gpui_ui::SurfaceKind::InsetGroup)
+                .padding(oxideterm_gpui_ui::SurfacePadding::None)
+                .has_background_image(self.background_surface_active("notification_center")),
+        )
+        .flex()
+        .items_center()
+        .gap(px(ACTIVITY_TOOLBAR_GROUP_PADDING))
+        .p(px(ACTIVITY_TOOLBAR_GROUP_PADDING))
     }
 
     fn render_activity_empty_state(&self, icon: LucideIcon, label: String) -> AnyElement {
         let theme = self.tokens.ui;
         oxideterm_gpui_ui::empty_state(
             &self.tokens,
-            Self::render_lucide_icon(
-                icon,
-                self.tokens.metrics.ui_button_icon_size,
-                rgb(theme.accent),
-            ),
+            Self::render_lucide_icon(icon, ACTIVITY_EMPTY_STATE_ICON_SIZE, rgb(theme.accent)),
             label,
             None,
             None,

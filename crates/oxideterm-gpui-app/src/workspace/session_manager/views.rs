@@ -190,6 +190,18 @@ impl SessionManagerDisplayItem {
 }
 
 impl WorkspaceApp {
+    fn session_manager_card_surface(&self, radius: f32, has_background: bool) -> Div {
+        let surface = oxideterm_gpui_ui::semantic_surface(
+            &self.tokens,
+            oxideterm_gpui_ui::SurfaceOptions::new(oxideterm_gpui_ui::SurfaceKind::Inspector)
+                .padding(oxideterm_gpui_ui::SurfacePadding::None)
+                .has_background_image(has_background),
+        );
+        // Compact shortcuts and full session cards share project chrome while
+        // retaining the radius that communicates their different hierarchy.
+        surface.rounded(px(radius))
+    }
+
     pub(super) fn session_manager_display_items(&self) -> Vec<SessionManagerDisplayItem> {
         let query = self.session_manager.search_query.trim().to_lowercase();
         let mut items = self
@@ -427,13 +439,9 @@ impl WorkspaceApp {
         let open_item = item.clone();
         let open_button_item = item.clone();
         let last_used = format_last_used(item.last_used().as_deref(), &self.i18n);
-        div()
+        self.session_manager_card_surface(self.tokens.radii.md, has_background)
             .min_w(px(MANAGER_RECENT_ITEM_MIN_WIDTH))
             .flex_basis(px(MANAGER_RECENT_ITEM_BASIS))
-            .rounded(px(self.tokens.radii.md))
-            .border_1()
-            .border_color(theme_border_half(theme.border, has_background))
-            .bg(theme_secondary_bg(theme.bg_secondary, has_background))
             .px_2()
             .py_1()
             .flex()
@@ -531,14 +539,10 @@ impl WorkspaceApp {
     ) -> Div {
         let theme = self.tokens.ui;
         let open_item = item.clone();
-        div()
+        self.session_manager_card_surface(self.tokens.radii.lg, has_background)
             .min_w(px(260.0))
             .flex_grow()
             .flex_basis(px(320.0))
-            .rounded(px(self.tokens.radii.lg))
-            .border_1()
-            .border_color(theme_border_half(theme.border, has_background))
-            .bg(theme_secondary_bg(theme.bg_secondary, has_background))
             .px(px(self.tokens.spacing.three))
             .py(px(self.tokens.spacing.three))
             .flex()

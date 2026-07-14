@@ -10,7 +10,8 @@ use gpui::{
 use oxideterm_gpui_ui::context_menu::{
     ContextMenuItemKind, context_menu_action, context_menu_backdrop, context_menu_content,
     context_menu_event_boundary, context_menu_item, context_menu_item_height_estimate,
-    context_menu_separator, context_menu_separator_height_estimate,
+    context_menu_separator, context_menu_separator_height_estimate, context_menu_sub_content,
+    context_menu_sub_trigger,
 };
 use oxideterm_gpui_ui::modal::{TAURI_POPOVER_LAYER_PRIORITY, overlay_content_boundary};
 use oxideterm_gpui_ui::progress::progress;
@@ -33,8 +34,11 @@ const PASTE_CONFIRM_DIALOG_RADIUS: f32 = 8.0;
 const PASTE_CONFIRM_BUTTON_RADIUS: f32 = 4.0;
 const TERMINAL_KEY_HINT_RADIUS: f32 = 4.0;
 const TERMINAL_CONTEXT_MENU_WIDTH: f32 = 220.0;
-const TERMINAL_CONTEXT_MENU_ACTION_COUNT: f32 = 20.0;
+const TERMINAL_CONTEXT_MENU_ACTION_COUNT: f32 = 14.0;
 const TERMINAL_CONTEXT_MENU_SEPARATOR_COUNT: f32 = 4.0;
+const TERMINAL_MODEM_SUBMENU_ACTION_COUNT: f32 = 6.0;
+const TERMINAL_CONTEXT_MENU_ACTIONS_BEFORE_MODEM: f32 = 9.0;
+const TERMINAL_CONTEXT_MENU_SEPARATORS_BEFORE_MODEM: f32 = 2.0;
 const TERMINAL_CONTEXT_MENU_MARGIN: f32 = 8.0;
 const SERIAL_CONTROL_BAR_HEIGHT: f32 = 34.0;
 const SERIAL_CONTROL_BUTTON_RADIUS: f32 = 999.0;
@@ -56,6 +60,30 @@ fn clamp_terminal_context_menu_position(
         pointer_x.max(margin).min(max_x),
         pointer_y.max(margin).min(max_y),
     )
+}
+
+fn clamp_terminal_context_submenu_position(
+    menu_left: f32,
+    menu_top: f32,
+    trigger_top_offset: f32,
+    viewport_width: f32,
+    viewport_height: f32,
+    submenu_width: f32,
+    submenu_height: f32,
+    margin: f32,
+) -> (f32, f32) {
+    // Prefer the conventional right edge, then flip to the left when the
+    // submenu would cross the window boundary.
+    let right_x = menu_left + TERMINAL_CONTEXT_MENU_WIDTH;
+    let left_x = menu_left - submenu_width;
+    let x = if right_x + submenu_width <= viewport_width - margin {
+        right_x
+    } else {
+        left_x.max(margin)
+    };
+    let max_y = (viewport_height - submenu_height - margin).max(margin);
+    let y = (menu_top + trigger_top_offset).max(margin).min(max_y);
+    (x, y)
 }
 
 fn terminal_pane_base_is_transparent(bell_flash: bool, has_window_background: bool) -> bool {
@@ -772,10 +800,31 @@ impl TerminalPane {
             self.free_type_context_replace_command_available(&menu);
         let insert_target = menu.target;
         let replace_target = menu.target;
+        let modem_submenu_open = menu.modem_submenu_open;
+        let raw_socket_transport = self.is_raw_socket_transport();
 
         let tokens = &self.theme.tokens;
         let menu_visible =
             self.context_menu_presence.phase() == oxideterm_gpui_ui::motion::ExitPhase::Visible;
+        let submenu_height = tokens.metrics.ui_menu_padding * 2.0
+            + TERMINAL_MODEM_SUBMENU_ACTION_COUNT * context_menu_item_height_estimate(tokens);
+        let modem_trigger_top_offset = tokens.metrics.ui_menu_padding
+            + (TERMINAL_CONTEXT_MENU_ACTIONS_BEFORE_MODEM
+                + if raw_socket_transport { 1.0 } else { 0.0 })
+                * context_menu_item_height_estimate(tokens)
+            + TERMINAL_CONTEXT_MENU_SEPARATORS_BEFORE_MODEM
+                * context_menu_separator_height_estimate(tokens);
+        let viewport = window.viewport_size();
+        let (submenu_left, submenu_top) = clamp_terminal_context_submenu_position(
+            left,
+            top,
+            modem_trigger_top_offset,
+            f32::from(viewport.width),
+            f32::from(viewport.height),
+            TERMINAL_CONTEXT_MENU_WIDTH,
+            submenu_height,
+            TERMINAL_CONTEXT_MENU_MARGIN,
+        );
         let popup = context_menu_event_boundary(
             context_menu_content(tokens)
                 .w(px(TERMINAL_CONTEXT_MENU_WIDTH))
@@ -834,7 +883,7 @@ impl TerminalPane {
                     },
                     cx,
                 ))
-                .when(self.is_raw_socket_transport(), |content| {
+                .when(raw_socket_transport, |content| {
                     content.child(self.render_terminal_context_menu_item(
                         reconnect_transport_label,
                         !self.can_reconnect_raw_socket(),
@@ -879,90 +928,9 @@ impl TerminalPane {
                     cx,
                 ))
                 .child(context_menu_separator(tokens))
-                .child(self.render_terminal_context_menu_item(
-                    modem_labels.binary_transfer,
-                    true,
-                    |_this, _event, _window, _cx| {},
-                    cx,
-                ))
-                .child(self.render_terminal_context_menu_item(
-                    modem_labels.xmodem_upload,
-                    false,
-                    |this, _event, _window, cx| {
-                        this.dismiss_terminal_context_menu(cx);
-                        this.start_manual_modem_transfer(
-                            DetectedModemProtocol::Xmodem,
-                            ModemTransferDirection::Upload,
-                            cx,
-                        );
-                    },
-                    cx,
-                ))
-                .child(self.render_terminal_context_menu_item(
-                    modem_labels.xmodem_receive,
-                    false,
-                    |this, _event, _window, cx| {
-                        this.dismiss_terminal_context_menu(cx);
-                        this.start_manual_modem_transfer(
-                            DetectedModemProtocol::Xmodem,
-                            ModemTransferDirection::Download,
-                            cx,
-                        );
-                    },
-                    cx,
-                ))
-                .child(self.render_terminal_context_menu_item(
-                    modem_labels.ymodem_upload,
-                    false,
-                    |this, _event, _window, cx| {
-                        this.dismiss_terminal_context_menu(cx);
-                        this.start_manual_modem_transfer(
-                            DetectedModemProtocol::Ymodem,
-                            ModemTransferDirection::Upload,
-                            cx,
-                        );
-                    },
-                    cx,
-                ))
-                .child(self.render_terminal_context_menu_item(
-                    modem_labels.ymodem_receive,
-                    false,
-                    |this, _event, _window, cx| {
-                        this.dismiss_terminal_context_menu(cx);
-                        this.start_manual_modem_transfer(
-                            DetectedModemProtocol::Ymodem,
-                            ModemTransferDirection::Download,
-                            cx,
-                        );
-                    },
-                    cx,
-                ))
-                .child(self.render_terminal_context_menu_item(
-                    modem_labels.zmodem_upload,
-                    false,
-                    |this, _event, _window, cx| {
-                        this.dismiss_terminal_context_menu(cx);
-                        this.start_manual_modem_transfer(
-                            DetectedModemProtocol::Zmodem,
-                            ModemTransferDirection::Upload,
-                            cx,
-                        );
-                    },
-                    cx,
-                ))
-                .child(self.render_terminal_context_menu_item(
-                    modem_labels.zmodem_receive,
-                    false,
-                    |this, _event, _window, cx| {
-                        this.dismiss_terminal_context_menu(cx);
-                        this.start_manual_modem_transfer(
-                            DetectedModemProtocol::Zmodem,
-                            ModemTransferDirection::Download,
-                            cx,
-                        );
-                    },
-                    cx,
-                ))
+                .child(
+                    self.render_terminal_context_submenu_trigger(modem_labels.binary_transfer, cx),
+                )
                 .child(context_menu_separator(tokens))
                 .child(self.render_terminal_context_menu_item(
                     select_command_label,
@@ -1011,6 +979,49 @@ impl TerminalPane {
                 )),
         );
 
+        let modem_submenu = modem_submenu_open.then(|| {
+            context_menu_event_boundary(
+                context_menu_sub_content(tokens)
+                    .w(px(TERMINAL_CONTEXT_MENU_WIDTH))
+                    .child(self.render_terminal_modem_context_menu_item(
+                        modem_labels.xmodem_upload,
+                        DetectedModemProtocol::Xmodem,
+                        ModemTransferDirection::Upload,
+                        cx,
+                    ))
+                    .child(self.render_terminal_modem_context_menu_item(
+                        modem_labels.xmodem_receive,
+                        DetectedModemProtocol::Xmodem,
+                        ModemTransferDirection::Download,
+                        cx,
+                    ))
+                    .child(self.render_terminal_modem_context_menu_item(
+                        modem_labels.ymodem_upload,
+                        DetectedModemProtocol::Ymodem,
+                        ModemTransferDirection::Upload,
+                        cx,
+                    ))
+                    .child(self.render_terminal_modem_context_menu_item(
+                        modem_labels.ymodem_receive,
+                        DetectedModemProtocol::Ymodem,
+                        ModemTransferDirection::Download,
+                        cx,
+                    ))
+                    .child(self.render_terminal_modem_context_menu_item(
+                        modem_labels.zmodem_upload,
+                        DetectedModemProtocol::Zmodem,
+                        ModemTransferDirection::Upload,
+                        cx,
+                    ))
+                    .child(self.render_terminal_modem_context_menu_item(
+                        modem_labels.zmodem_receive,
+                        DetectedModemProtocol::Zmodem,
+                        ModemTransferDirection::Download,
+                        cx,
+                    )),
+            )
+        });
+
         deferred(
             context_menu_backdrop()
                 .on_mouse_down(
@@ -1040,7 +1051,16 @@ impl TerminalPane {
                             oxideterm_gpui_ui::motion::MotionDuration::Micro,
                             menu_visible,
                         )),
-                ),
+                )
+                .when_some(modem_submenu, |backdrop, submenu| {
+                    backdrop.child(
+                        anchored()
+                            .anchor(Corner::TopLeft)
+                            .position(point(px(submenu_left), px(submenu_top)))
+                            .position_mode(AnchoredPositionMode::Window)
+                            .child(overlay_content_boundary(submenu)),
+                    )
+                }),
         )
         .with_priority(TAURI_POPOVER_LAYER_PRIORITY)
         .into_any_element()
@@ -1143,6 +1163,19 @@ impl TerminalPane {
         listener: impl Fn(&mut Self, &MouseDownEvent, &mut Window, &mut Context<Self>) + 'static,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        self.render_terminal_context_menu_item_with_submenu_policy(
+            label, disabled, true, listener, cx,
+        )
+    }
+
+    fn render_terminal_context_menu_item_with_submenu_policy(
+        &self,
+        label: String,
+        disabled: bool,
+        close_modem_submenu_on_hover: bool,
+        listener: impl Fn(&mut Self, &MouseDownEvent, &mut Window, &mut Context<Self>) + 'static,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let disabled = disabled
             || self.context_menu_presence.phase() == oxideterm_gpui_ui::motion::ExitPhase::Exiting;
         let item = context_menu_item(
@@ -1165,7 +1198,57 @@ impl TerminalPane {
                 cx.notify();
             }),
         )
+        .when(close_modem_submenu_on_hover, |item| {
+            item.on_mouse_move(cx.listener(|this, _event: &MouseMoveEvent, _window, cx| {
+                this.set_terminal_modem_submenu_open(false, cx);
+            }))
+        })
         .into_any_element()
+    }
+
+    fn render_terminal_context_submenu_trigger(
+        &self,
+        label: String,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let disabled =
+            self.context_menu_presence.phase() == oxideterm_gpui_ui::motion::ExitPhase::Exiting;
+        let trigger = context_menu_sub_trigger(&self.theme.tokens, label, false, disabled)
+            .w_full();
+
+        context_menu_action(
+            trigger,
+            disabled,
+            false,
+            cx.listener(|this, _event, window, cx| {
+                window.prevent_default();
+                this.set_terminal_modem_submenu_open(true, cx);
+                cx.stop_propagation();
+            }),
+        )
+        .on_mouse_move(cx.listener(|this, _event: &MouseMoveEvent, _window, cx| {
+            this.set_terminal_modem_submenu_open(true, cx);
+        }))
+        .into_any_element()
+    }
+
+    fn render_terminal_modem_context_menu_item(
+        &self,
+        label: String,
+        protocol: DetectedModemProtocol,
+        direction: ModemTransferDirection,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        self.render_terminal_context_menu_item_with_submenu_policy(
+            label,
+            false,
+            false,
+            move |this, _event, _window, cx| {
+                this.dismiss_terminal_context_menu(cx);
+                this.start_manual_modem_transfer(protocol, direction, cx);
+            },
+            cx,
+        )
     }
 
     fn clamped_terminal_context_menu_window_position(
@@ -1220,10 +1303,24 @@ impl TerminalPane {
         cx.notify();
     }
 
+    fn set_terminal_modem_submenu_open(&mut self, open: bool, cx: &mut Context<Self>) {
+        let Some(menu) = self.context_menu.as_mut() else {
+            return;
+        };
+        if menu.modem_submenu_open == open {
+            return;
+        }
+        // Submenu visibility belongs to the live context-menu instance so a
+        // newly opened terminal menu never inherits stale expansion state.
+        menu.modem_submenu_open = open;
+        cx.notify();
+    }
+
     pub(super) fn dismiss_terminal_context_menu(&mut self, cx: &mut Context<Self>) {
         if self.context_menu.is_none() {
             return;
         }
+        self.set_terminal_modem_submenu_open(false, cx);
         let Some(generation) = self.context_menu_presence.begin_exit() else {
             return;
         };
@@ -1611,7 +1708,10 @@ fn apply_theme_defaults_to_snapshot(snapshot: &mut TerminalSnapshot, theme: &Ter
 
 #[cfg(test)]
 mod tests {
-    use super::{clamp_terminal_context_menu_position, terminal_pane_base_is_transparent};
+    use super::{
+        clamp_terminal_context_menu_position, clamp_terminal_context_submenu_position,
+        terminal_pane_base_is_transparent,
+    };
 
     #[test]
     fn context_menu_position_collides_with_window_edges() {
@@ -1627,6 +1727,24 @@ mod tests {
             clamp_terminal_context_menu_position(-20.0, 2.0, 800.0, 600.0, 220.0, 300.0, 8.0);
 
         assert_eq!(placement, (8.0, 8.0));
+    }
+
+    #[test]
+    fn context_submenu_prefers_the_parent_right_edge() {
+        let placement = clamp_terminal_context_submenu_position(
+            100.0, 100.0, 100.0, 800.0, 600.0, 220.0, 200.0, 8.0,
+        );
+
+        assert_eq!(placement, (320.0, 200.0));
+    }
+
+    #[test]
+    fn context_submenu_flips_left_and_stays_inside_the_bottom_edge() {
+        let placement = clamp_terminal_context_submenu_position(
+            572.0, 292.0, 200.0, 800.0, 600.0, 220.0, 250.0, 8.0,
+        );
+
+        assert_eq!(placement, (352.0, 342.0));
     }
 
     #[test]

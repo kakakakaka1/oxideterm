@@ -21,6 +21,7 @@ const PLUGIN_MANAGER_HINT_TEXT_SIZE: f32 = 11.0;
 const PLUGIN_MANAGER_ROW_META_TEXT_SIZE: f32 = 10.0;
 const PLUGIN_MANAGER_ACTION_ICON_SIZE: f32 = 14.0;
 const PLUGIN_MANAGER_ROW_ACTION_SIZE: f32 = 28.0;
+const PLUGIN_MANAGER_INLINE_INPUT_BASIS: f32 = 280.0;
 const PLUGIN_MANAGER_TAB_BAR_WIDTH: f32 = 300.0; // Two equal header tabs preserve room for localized labels and badges.
 #[cfg(windows)]
 const PLUGIN_MANAGER_EXTERNAL_BRIDGE_CREATE_NO_WINDOW: u32 = 0x08000000;
@@ -169,6 +170,7 @@ impl WorkspaceApp {
         div()
             .id("plugin-manager-scroll")
             .size_full()
+            .min_w(px(0.0))
             .bg(plugin_manager_root_bg(theme.bg, has_background))
             .text_color(rgb(theme.text))
             .child(tauri_virtual_list(
@@ -660,6 +662,7 @@ impl WorkspaceApp {
     ) -> AnyElement {
         div()
             .w_full()
+            .min_w(px(0.0))
             .flex()
             .flex_col()
             .gap(px(16.0))
@@ -734,7 +737,9 @@ impl WorkspaceApp {
             .child(
                 div()
                     .w_full()
+                    .min_w(px(0.0))
                     .flex()
+                    .flex_wrap()
                     .items_center()
                     .gap(px(8.0))
                     .child(self.render_native_plugin_manager_icon_input(
@@ -744,27 +749,29 @@ impl WorkspaceApp {
                         cx,
                     ))
                     .child(
-                        self.render_native_plugin_manager_button(
-                            LucideIcon::Download,
-                            self.i18n.t("plugin.install"),
-                            busy || self
-                                .native_plugin_manager
-                                .install_url_draft
-                                .trim()
-                                .is_empty(),
-                            cx.listener(|this, _event, _window, cx| {
-                                let download_url =
-                                    this.native_plugin_manager.install_url_draft.clone();
-                                let checksum = normalized_optional_string(
-                                    &this.native_plugin_manager.install_checksum_draft,
-                                );
-                                this.start_native_plugin_package_install(
-                                    download_url,
-                                    checksum,
-                                    false,
-                                    cx,
-                                );
-                            }),
+                        div().ml_auto().flex_none().child(
+                            self.render_native_plugin_manager_button(
+                                LucideIcon::Download,
+                                self.i18n.t("plugin.install"),
+                                busy || self
+                                    .native_plugin_manager
+                                    .install_url_draft
+                                    .trim()
+                                    .is_empty(),
+                                cx.listener(|this, _event, _window, cx| {
+                                    let download_url =
+                                        this.native_plugin_manager.install_url_draft.clone();
+                                    let checksum = normalized_optional_string(
+                                        &this.native_plugin_manager.install_checksum_draft,
+                                    );
+                                    this.start_native_plugin_package_install(
+                                        download_url,
+                                        checksum,
+                                        false,
+                                        cx,
+                                    );
+                                }),
+                            ),
                         ),
                     ),
             )
@@ -784,7 +791,6 @@ impl WorkspaceApp {
                         String::new(),
                         SettingsInput::NativePluginInstallChecksum,
                         self.i18n.t("plugin.url_checksum_placeholder"),
-                        520.0,
                         cx,
                     ))
                     .child(
@@ -879,6 +885,7 @@ impl WorkspaceApp {
         );
         div()
             .w_full()
+            .min_w(px(0.0))
             .pt(px(8.0))
             .border_t_1()
             .border_color(plugin_manager_theme_alpha(
@@ -886,6 +893,7 @@ impl WorkspaceApp {
                 PLUGIN_MANAGER_TW_ALPHA_40,
             ))
             .flex()
+            .flex_wrap()
             .items_center()
             .gap(px(12.0))
             .child(self.render_native_plugin_manager_icon_input(
@@ -895,17 +903,19 @@ impl WorkspaceApp {
                 cx,
             ))
             .child(
-                self.render_native_plugin_manager_button(
-                    LucideIcon::RefreshCw,
-                    self.i18n.t("plugin.refresh"),
-                    busy || self
-                        .native_plugin_manager
-                        .registry_url_draft
-                        .trim()
-                        .is_empty(),
-                    cx.listener(|this, _event, _window, cx| {
-                        this.start_native_plugin_update_check(cx);
-                    }),
+                div().ml_auto().flex_none().child(
+                    self.render_native_plugin_manager_button(
+                        LucideIcon::RefreshCw,
+                        self.i18n.t("plugin.refresh"),
+                        busy || self
+                            .native_plugin_manager
+                            .registry_url_draft
+                            .trim()
+                            .is_empty(),
+                        cx.listener(|this, _event, _window, cx| {
+                            this.start_native_plugin_update_check(cx);
+                        }),
+                    ),
                 ),
             )
             .into_any_element()
@@ -1005,7 +1015,6 @@ impl WorkspaceApp {
         label: String,
         input: SettingsInput,
         placeholder: String,
-        width: f32,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = self.tokens.ui;
@@ -1023,7 +1032,7 @@ impl WorkspaceApp {
                         .child(label),
                 )
             })
-            .child(self.render_native_plugin_manager_text_input(input, placeholder, width, cx))
+            .child(self.render_native_plugin_manager_text_input(input, placeholder, cx))
             .into_any_element()
     }
 
@@ -1038,7 +1047,11 @@ impl WorkspaceApp {
         div()
             .relative()
             .flex_1()
+            // The basis creates a wrapping breakpoint while min-width zero
+            // still lets the wrapped input fit exceptionally narrow panes.
+            .flex_basis(px(PLUGIN_MANAGER_INLINE_INPUT_BASIS))
             .min_w(px(0.0))
+            .max_w_full()
             .child(
                 div()
                     .absolute()
@@ -1046,7 +1059,7 @@ impl WorkspaceApp {
                     .top(px(10.0))
                     .child(Self::render_lucide_icon(icon, 16.0, rgb(theme.text_muted))),
             )
-            .child(self.render_native_plugin_manager_text_input(input, placeholder, 640.0, cx))
+            .child(self.render_native_plugin_manager_text_input(input, placeholder, cx))
             .into_any_element()
     }
 
@@ -1054,7 +1067,6 @@ impl WorkspaceApp {
         &self,
         input: SettingsInput,
         placeholder: String,
-        width: f32,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let focused = self.focused_settings_input == Some(input);
@@ -1084,7 +1096,8 @@ impl WorkspaceApp {
                 },
                 TextInputContentAlign::Start,
             )
-            .w(px(width))
+            .w_full()
+            .min_w(px(0.0))
             .cursor(CursorStyle::IBeam)
             .on_mouse_down(
                 MouseButton::Left,
@@ -1120,6 +1133,7 @@ impl WorkspaceApp {
     ) -> AnyElement {
         let theme = self.tokens.ui;
         div()
+            .flex_none()
             .rounded(px(self.tokens.radii.md))
             .border_1()
             .border_color(rgb(theme.border))
@@ -1133,6 +1147,7 @@ impl WorkspaceApp {
             .flex()
             .items_center()
             .gap(px(6.0))
+            .whitespace_nowrap()
             .text_size(px(self.tokens.metrics.ui_text_xs))
             .text_color(rgb(if disabled { theme.text_muted } else { theme.bg }))
             .cursor(if disabled {

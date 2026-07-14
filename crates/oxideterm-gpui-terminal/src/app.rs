@@ -239,6 +239,7 @@ pub struct TerminalPane {
 pub(crate) struct TerminalContextMenu {
     pub x: f32,
     pub y: f32,
+    pub modem_submenu_open: bool,
     pub target: TerminalPoint,
     pub has_selection: bool,
     pub reference_line: usize,
