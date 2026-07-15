@@ -186,8 +186,16 @@ mod tests {
                 .kex
                 .contains(&"curve25519-sha256".to_string())
         );
+        #[cfg(not(windows))]
         assert!(
             report
+                .default_offer
+                .kex
+                .contains(&"sntrup761x25519-sha512".to_string())
+        );
+        #[cfg(windows)]
+        assert!(
+            !report
                 .default_offer
                 .kex
                 .contains(&"sntrup761x25519-sha512".to_string())

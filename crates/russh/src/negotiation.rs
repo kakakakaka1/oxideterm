@@ -104,7 +104,9 @@ impl Preferred {
 
 const SAFE_KEX_ORDER: &[kex::Name] = &[
     kex::MLKEM768X25519_SHA256,
+    #[cfg(not(windows))]
     kex::SNTRUP761X25519_SHA512,
+    #[cfg(not(windows))]
     kex::SNTRUP761X25519_SHA512_OPENSSH,
     kex::CURVE25519,
     kex::CURVE25519_PRE_RFC_8731,
@@ -256,6 +258,7 @@ mod tests {
         assert!(!Preferred::DEFAULT.mac.contains(&mac::HMAC_SHA1));
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn client_can_negotiate_when_peer_only_offers_sntrup() {
         let (_, selected) = Client::select(
@@ -268,6 +271,7 @@ mod tests {
         assert_eq!(selected, kex::SNTRUP761X25519_SHA512_OPENSSH);
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn default_kex_keeps_mlkem_before_sntrup_and_curve25519() {
         let index_of = |name: kex::Name| {
