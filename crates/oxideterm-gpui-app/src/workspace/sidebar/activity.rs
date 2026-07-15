@@ -64,6 +64,8 @@ impl WorkspaceApp {
                         .justify_center()
                         .rounded(px(self.tokens.radii.md))
                         .cursor_pointer()
+                        // Keep the primary-sidebar toggle feedback aligned with its context-sidebar counterpart.
+                        .hover(move |button| button.bg(rgb(theme.bg_hover)))
                         .child(Self::render_lucide_icon(
                             if self.sidebar_collapsed {
                                 LucideIcon::PanelLeft

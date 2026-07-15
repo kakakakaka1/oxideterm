@@ -196,6 +196,8 @@ impl WorkspaceApp {
             .gap(px(12.0))
             .child(
                 div()
+                    // The summary owns the remaining row width so localized copy cannot collapse to min-content.
+                    .flex_1()
                     .min_w(px(0.0))
                     .child(
                         div()

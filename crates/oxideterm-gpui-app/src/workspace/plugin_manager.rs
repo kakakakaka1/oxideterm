@@ -13,6 +13,7 @@ use std::{process::Command, sync::mpsc};
 
 const PLUGIN_MANAGER_DELIVERY_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const PLUGIN_MANAGER_SECTION_LIST_ITEM_COUNT: usize = 5;
+const PLUGIN_MANAGER_TABBED_CONTENT_SECTION_INDEX: usize = 3;
 const PLUGIN_MANAGER_SECTION_LIST_ESTIMATED_HEIGHT: f32 = 220.0;
 const PLUGIN_MANAGER_SECTION_LIST_OVERSCAN: usize = 1;
 // Tauri PluginManagerView uses text-[11px] for URL hints and legal copy.
@@ -48,6 +49,24 @@ pub(super) struct NativePluginPendingOverwrite {
     pub plugin_id: String,
     pub download_url: String,
     pub checksum: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+struct NativePluginDiagnosticKey {
+    plugin_dir: PathBuf,
+    plugin_id: Option<String>,
+    message: String,
+}
+
+impl From<&plugin_host::NativePluginDiagnostic> for NativePluginDiagnosticKey {
+    fn from(diagnostic: &plugin_host::NativePluginDiagnostic) -> Self {
+        // Use the complete diagnostic identity so dismissing one warning cannot hide a later, different failure.
+        Self {
+            plugin_dir: diagnostic.plugin_dir.clone(),
+            plugin_id: diagnostic.plugin_id.clone(),
+            message: diagnostic.message.clone(),
+        }
+    }
 }
 
 pub(super) enum NativePluginManagerDelivery {
@@ -93,6 +112,7 @@ pub(super) struct NativePluginManagerState {
     pub(super) delivery_rx: Option<mpsc::Receiver<NativePluginManagerDelivery>>,
     pub(super) delivery_polling: bool,
     pub(super) expanded_plugin_ids: HashSet<String>,
+    dismissed_diagnostic_keys: HashSet<NativePluginDiagnosticKey>,
     pub(super) active_sidebar_panel: Option<plugin_ui::NativePluginSidebarPanelSelection>,
 }
 
@@ -122,6 +142,7 @@ impl NativePluginManagerState {
             delivery_rx: None,
             delivery_polling: false,
             expanded_plugin_ids: HashSet::new(),
+            dismissed_diagnostic_keys: HashSet::new(),
             active_sidebar_panel: None,
         }
     }
@@ -247,7 +268,9 @@ impl WorkspaceApp {
                 .bg(rgb(theme.border))
                 .into_any_element(),
             2 => self.render_native_plugin_actions_card(has_background, cx),
-            3 => self.render_native_plugin_tabbed_content(has_background, cx),
+            PLUGIN_MANAGER_TABBED_CONTENT_SECTION_INDEX => {
+                self.render_native_plugin_tabbed_content(has_background, cx)
+            }
             4 => self.render_native_plugin_compatibility_notice(has_background),
             _ => div().into_any_element(),
         }
@@ -582,7 +605,19 @@ impl WorkspaceApp {
     ) -> AnyElement {
         let theme = self.tokens.ui;
         let plugin_rows = self.native_plugin_runtime.registry.plugins().to_vec();
-        let diagnostics = self.native_plugin_runtime.registry.diagnostics().to_vec();
+        let diagnostics = self
+            .native_plugin_runtime
+            .registry
+            .diagnostics()
+            .iter()
+            .filter(|diagnostic| {
+                native_plugin_diagnostic_is_visible(
+                    diagnostic,
+                    &self.native_plugin_manager.dismissed_diagnostic_keys,
+                )
+            })
+            .cloned()
+            .collect::<Vec<_>>();
         let card = self
             .native_plugin_card_surface(has_background)
             .flex()
@@ -636,7 +671,7 @@ impl WorkspaceApp {
             .children(
                 diagnostics
                     .iter()
-                    .map(|diagnostic| self.render_native_plugin_diagnostic_row(diagnostic)),
+                    .map(|diagnostic| self.render_native_plugin_diagnostic_row(diagnostic, cx)),
             );
         for (index, plugin) in plugin_rows.iter().enumerate() {
             card = card.child(self.render_native_plugin_registry_row(plugin, has_background, cx));
@@ -1559,8 +1594,10 @@ impl WorkspaceApp {
     fn render_native_plugin_diagnostic_row(
         &self,
         diagnostic: &plugin_host::NativePluginDiagnostic,
+        cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = self.tokens.ui;
+        let diagnostic_key = NativePluginDiagnosticKey::from(diagnostic);
         let title = diagnostic
             .plugin_id
             .clone()
@@ -1599,7 +1636,23 @@ impl WorkspaceApp {
                             .child(diagnostic.message.clone()),
                     )
                     .into_any_element(),
-                Vec::new(),
+                vec![self.render_native_plugin_row_icon_button(
+                    LucideIcon::X,
+                    theme.text_muted,
+                    Some(cx.listener(move |this, _event, _window, cx| {
+                        this.native_plugin_manager
+                            .dismissed_diagnostic_keys
+                            .insert(diagnostic_key.clone());
+                        // Re-measure only the installed/browse content row after its alert count changes.
+                        this.native_plugin_manager.section_list_state.splice(
+                            PLUGIN_MANAGER_TABBED_CONTENT_SECTION_INDEX
+                                ..PLUGIN_MANAGER_TABBED_CONTENT_SECTION_INDEX + 1,
+                            1,
+                        );
+                        cx.stop_propagation();
+                        cx.notify();
+                    })),
+                )],
             ))
             .into_any_element()
     }
@@ -2213,6 +2266,13 @@ fn native_plugin_is_wasm_runtime_missing(plugin: &plugin_host::NativePluginInfo)
     })
 }
 
+fn native_plugin_diagnostic_is_visible(
+    diagnostic: &plugin_host::NativePluginDiagnostic,
+    dismissed: &HashSet<NativePluginDiagnosticKey>,
+) -> bool {
+    !dismissed.contains(&NativePluginDiagnosticKey::from(diagnostic))
+}
+
 fn open_native_plugins_dir(settings_path: &std::path::Path, i18n: &I18n) -> Result<(), String> {
     let plugins_dir = plugin_host::native_plugins_dir(settings_path);
     std::fs::create_dir_all(&plugins_dir).map_err(|error| {
@@ -2332,5 +2392,28 @@ mod tests {
 
         let entry = registry_entry_with_capabilities(Some(Vec::new()));
         assert!(native_plugin_registry_capabilities_label(&i18n, &entry).is_none());
+    }
+
+    #[test]
+    fn dismissing_plugin_diagnostic_hides_only_the_exact_warning() {
+        let warning = plugin_host::NativePluginDiagnostic {
+            plugin_dir: PathBuf::from("plugins/demo"),
+            plugin_id: Some("com.example.demo".to_string()),
+            message: "legacy runtime".to_string(),
+        };
+        let mut dismissed = HashSet::new();
+
+        assert!(native_plugin_diagnostic_is_visible(&warning, &dismissed));
+        dismissed.insert(NativePluginDiagnosticKey::from(&warning));
+        assert!(!native_plugin_diagnostic_is_visible(&warning, &dismissed));
+
+        let replacement = plugin_host::NativePluginDiagnostic {
+            message: "invalid manifest".to_string(),
+            ..warning
+        };
+        assert!(native_plugin_diagnostic_is_visible(
+            &replacement,
+            &dismissed
+        ));
     }
 }
