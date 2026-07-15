@@ -171,7 +171,7 @@ pub async fn dial_initial_tcp(
     upstream_proxy: Option<&UpstreamProxyConfig>,
 ) -> Result<TcpStream, SshTransportError> {
     let timeout = Duration::from_secs(timeout_secs);
-    match upstream_proxy {
+    let stream = match upstream_proxy {
         Some(proxy) => tokio::time::timeout(
             timeout,
             dial_via_upstream_proxy_or_direct(target_host, target_port, proxy),
@@ -181,7 +181,14 @@ pub async fn dial_initial_tcp(
         None => tokio::time::timeout(timeout, dial_direct_tcp(target_host, target_port))
             .await
             .map_err(|_| SshTransportError::Timeout)?,
-    }
+    }?;
+
+    // SSH exchanges latency-sensitive control packets, and connect_stream does
+    // not apply russh's TCP_NODELAY client option to caller-owned TCP streams.
+    stream.set_nodelay(true).map_err(|error| {
+        SshTransportError::ConnectionFailed(format!("failed to enable TCP_NODELAY: {error}"))
+    })?;
+    Ok(stream)
 }
 
 pub fn socks5_proxy_from_env() -> Result<Option<UpstreamProxyConfig>, SshTransportError> {
@@ -829,6 +836,21 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn direct_tcp_enables_nodelay_for_ssh_handshake() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let target_addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let _accepted = listener.accept().await.unwrap();
+        });
+
+        let stream = dial_initial_tcp(&target_addr.ip().to_string(), target_addr.port(), 5, None)
+            .await
+            .unwrap();
+
+        assert!(stream.nodelay().unwrap());
+    }
+
+    #[tokio::test]
     async fn http_connect_success_connects_to_target() {
         let proxy_addr = spawn_http_connect_server(MockHttpConnectMode::Success).await;
         let proxy = http_proxy(proxy_addr, UpstreamProxyAuth::None);
@@ -837,6 +859,7 @@ mod tests {
             .await
             .unwrap();
 
+        assert!(stream.nodelay().unwrap());
         stream.write_all(b"ping").await.unwrap();
     }
 
@@ -859,6 +882,7 @@ mod tests {
             .await
             .unwrap();
 
+        assert!(stream.nodelay().unwrap());
         stream.write_all(b"ping").await.unwrap();
         assert!(!format!("{proxy:?}").contains("hunter2"));
     }
