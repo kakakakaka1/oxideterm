@@ -25,6 +25,7 @@ impl WorkspaceApp {
         let theme = self.tokens.ui;
         let has_background = self.background_surface_active("file_manager");
         let filtered = self.file_manager.sorted_files();
+        let filtered_rows = self.file_manager.sorted_file_rows();
 
         let mut root = div()
             .id("file-manager-view")
@@ -57,6 +58,7 @@ impl WorkspaceApp {
                     .child(self.render_file_manager_toolbar(has_background, window, cx))
                     .child(self.render_file_manager_list_panel(
                         filtered,
+                        filtered_rows,
                         has_background,
                         window,
                         cx,
@@ -237,7 +239,7 @@ impl WorkspaceApp {
                     // Drive switching must remain a primary action for removable
                     // media and Windows volumes, not a context-menu-only command.
                     this.blur_file_manager_inline_inputs();
-                    this.file_manager.dialog = Some(FileManagerDialog::Drives);
+                    this.open_file_manager_drives_dialog();
                     cx.stop_propagation();
                     cx.notify();
                 }),
@@ -256,7 +258,7 @@ impl WorkspaceApp {
                 LucideIcon::RefreshCw,
                 self.i18n.t("fileManager.refresh"),
                 cx.listener(|this, _event, _window, cx| {
-                    this.refresh_file_manager();
+                    this.refresh_file_manager_with_drives();
                     cx.stop_propagation();
                     cx.notify();
                 }),
@@ -330,10 +332,10 @@ impl WorkspaceApp {
                 cx,
             ),
         ));
-        for drive in local_drives() {
+        for drive in &self.file_manager.drives {
             navigation = navigation.child(self.render_file_manager_sidebar_path_row(
-                drive.path,
-                drive.name,
+                drive.path.clone(),
+                drive.name.clone(),
                 LucideIcon::HardDrive,
                 theme.text_secondary,
                 has_background,
@@ -647,6 +649,7 @@ impl WorkspaceApp {
     fn render_file_manager_list_panel(
         &self,
         files: Arc<Vec<LocalFileEntry>>,
+        rows: Arc<Vec<FileManagerListRow>>,
         has_background: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -664,7 +667,7 @@ impl WorkspaceApp {
             .child(self.render_file_manager_header(has_background, window, cx))
             .child(self.render_file_manager_columns(has_background, cx))
             .child(self.render_file_manager_filter(has_background, cx))
-            .child(self.render_file_manager_file_list(files, has_background, cx))
+            .child(self.render_file_manager_file_list(files, rows, has_background, cx))
             .into_any_element()
     }
 
@@ -727,7 +730,7 @@ impl WorkspaceApp {
                 self.i18n.t("fileManager.refresh"),
                 cx.listener(|this, _event, _window, cx| {
                     this.blur_file_manager_inline_inputs();
-                    this.refresh_file_manager();
+                    this.refresh_file_manager_with_drives();
                     cx.stop_propagation();
                     cx.notify();
                 }),
@@ -1156,6 +1159,7 @@ impl WorkspaceApp {
     fn render_file_manager_file_list(
         &self,
         files: Arc<Vec<LocalFileEntry>>,
+        rows: Arc<Vec<FileManagerListRow>>,
         has_background: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
@@ -1258,9 +1262,9 @@ impl WorkspaceApp {
         let selected = Arc::new(self.file_manager.selected.clone());
         let row_count = files.len();
         let list_items = files.clone();
+        let row_items = rows;
         let row_selected = selected.clone();
         let row_workspace = workspace.clone();
-        let row_selectable_state = self.selectable_text_render_state(cx);
         list.child(
             tauri_virtual_uniform_list(
                 "file-manager-list-virtual",
@@ -1268,37 +1272,16 @@ impl WorkspaceApp {
                 self.file_manager.list_scroll.clone(),
                 file_manager_list_virtual_spec(),
                 move |range, _window, _cx| {
-                    let selectable_state = row_selectable_state.clone();
                     range
                         .map(|index| {
-                            let file = list_items[index].clone();
-                            let file_for_open = file.clone();
-                            let file_for_menu = file.clone();
-                            let visible = list_items.clone();
+                            let file = &list_items[index];
+                            let row = &row_items[index];
                             let selected = row_selected.contains(&file.name);
-                            let (icon, icon_color) = file_icon_for_entry(&file);
-                            let icon_color = if icon_color == 0 {
+                            let icon_color = if row.icon_color == 0 {
                                 theme.text_muted
                             } else {
-                                icon_color
+                                row.icon_color
                             };
-                            let selection_group_id =
-                                crate::workspace::selectable_text::selectable_text_id(
-                                    "file-manager-list-row",
-                                    &file.name,
-                                );
-                            let display_name = if let Some(target) = file.symlink_target.as_ref() {
-                                format!("{} -> {target}", file.name)
-                            } else {
-                                file.name.clone()
-                            };
-                            let row_text_color = if selected { theme.accent } else { theme.text };
-                            let size_text = if file.file_type == LocalFileType::Directory {
-                                "-".to_string()
-                            } else {
-                                format_file_size(file.size)
-                            };
-                            let modified_text = format_modified(file.modified);
                             div()
                                 .w_full()
                                 .h(px(FILE_MANAGER_ROW_HEIGHT))
@@ -1332,21 +1315,13 @@ impl WorkspaceApp {
                                         .items_center()
                                         .gap(px(8.0))
                                         .child(Self::render_lucide_icon(
-                                            icon,
+                                            row.icon,
                                             FILE_MANAGER_ICON_MD,
                                             rgb(icon_color),
                                         ))
-                                        .child(div().truncate().child(
-                                            selectable_state.render_row_safe_display_text_in_group(
-                                                selection_group_id,
-                                                "file-manager-list-cell",
-                                                ("name", file.name.as_str()),
-                                                0,
-                                                display_name,
-                                                row_text_color,
-                                                _cx,
-                                            ),
-                                        )),
+                                        // Tauri marks file rows as `select-none`. Plain text keeps
+                                        // virtual-list scrolling free of per-cell anchor probes.
+                                        .child(div().truncate().child(row.display_name.clone())),
                                 )
                                 .child(
                                     div()
@@ -1354,17 +1329,7 @@ impl WorkspaceApp {
                                         .flex_none()
                                         .text_align(gpui::TextAlign::Right)
                                         .text_color(rgb(theme.text_muted))
-                                        .child(
-                                            selectable_state.render_row_safe_display_text_in_group(
-                                                selection_group_id,
-                                                "file-manager-list-cell",
-                                                ("size", file.name.as_str()),
-                                                1,
-                                                size_text,
-                                                theme.text_muted,
-                                                _cx,
-                                            ),
-                                        ),
+                                        .child(row.size_text.clone()),
                                 )
                                 .child(
                                     div()
@@ -1372,21 +1337,11 @@ impl WorkspaceApp {
                                         .flex_none()
                                         .text_align(gpui::TextAlign::Right)
                                         .text_color(rgb(theme.text_muted))
-                                        .child(
-                                            selectable_state.render_row_safe_display_text_in_group(
-                                                selection_group_id,
-                                                "file-manager-list-cell",
-                                                ("modified", file.name.as_str()),
-                                                2,
-                                                modified_text,
-                                                theme.text_muted,
-                                                _cx,
-                                            ),
-                                        ),
+                                        .child(row.modified_text.clone()),
                                 )
                                 .on_mouse_down(MouseButton::Left, {
                                     let workspace = row_workspace.clone();
-                                    let name = file.name.clone();
+                                    let visible = list_items.clone();
                                     move |event: &MouseDownEvent, window, cx| {
                                         let _ = workspace.update(cx, |this, cx| {
                                             window.focus(&this.focus_handle);
@@ -1394,12 +1349,12 @@ impl WorkspaceApp {
                                             this.blur_file_manager_inline_inputs();
                                             if event.click_count >= 2 {
                                                 this.open_file_manager_entry(
-                                                    file_for_open.clone(),
+                                                    visible[index].clone(),
                                                     cx,
                                                 );
                                             } else {
                                                 this.select_file_manager_entry(
-                                                    name.clone(),
+                                                    visible[index].name.clone(),
                                                     event.modifiers,
                                                     visible.as_ref(),
                                                 );
@@ -1411,11 +1366,12 @@ impl WorkspaceApp {
                                 })
                                 .on_mouse_down(MouseButton::Right, {
                                     let workspace = row_workspace.clone();
+                                    let visible = list_items.clone();
                                     move |event: &MouseDownEvent, window, cx| {
                                         let _ = workspace.update(cx, |this, cx| {
                                             window.focus(&this.focus_handle);
                                             this.open_file_manager_context_menu(
-                                                Some(file_for_menu.clone()),
+                                                Some(visible[index].clone()),
                                                 f32::from(event.position.x),
                                                 f32::from(event.position.y),
                                             );

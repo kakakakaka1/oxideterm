@@ -31,6 +31,7 @@ mod color;
 mod data;
 mod local_graphics_event_loop;
 mod local_shell;
+mod local_shell_integration;
 mod process;
 mod process_lifecycle;
 mod search;
@@ -46,6 +47,7 @@ pub use data::{
     TerminalSearchRange, TerminalSnapshot,
 };
 pub use local_shell::{LocalPtyConfig, ShellInfo, default_shell, scan_shells};
+pub use local_shell_integration::TerminalCwdIntegrationLaunchState;
 pub use oxideterm_modem_transfer::{
     DetectedModemProtocol, ModemTransferDirection,
     ModemTransferRequest as TerminalModemTransferRequest,
@@ -55,7 +57,7 @@ pub use oxideterm_terminal_encoding::{
     TerminalInputEncoder as RawTerminalInputEncoder, TerminalOutputDecoder,
 };
 pub use oxideterm_trzsz::{TrzszTransferDirection, TrzszTransferPolicy, TrzszTransferSelection};
-pub use process::{TerminalLifecycle, TerminalProcessInfo};
+pub use process::{TerminalLifecycle, TerminalProcessInfo, TerminalProcessProbe};
 pub use session::{
     RawTcpDisplayMode, RawTcpLineEnding, RawTcpRuntimeOptions, RawTcpSendMode, RawTcpSessionConfig,
     RawTcpTlsConfig, RawTcpTlsVerification, RawUdpDisplayMode, RawUdpLineEnding,
@@ -88,6 +90,7 @@ use local_graphics_event_loop::{
     LocalGraphicsEventLoop, LocalGraphicsMsg, LocalGraphicsNotifier, LocalPtyReadReport,
 };
 use local_shell::shell_args_for_profile;
+use local_shell_integration::{LocalShellIntegration, prepare_local_shell_launch};
 use process::{ProcessState, TerminalSignal, signal_process_group};
 #[cfg(windows)]
 use process_lifecycle::WindowsTerminalJob;

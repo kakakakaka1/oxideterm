@@ -580,6 +580,21 @@ enum TabCloseConfirm {
     Other { tab_ids: Vec<TabId> },
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum LocalTerminalCloseCheck {
+    Single { tab_id: TabId },
+    Batch { tab_ids: Vec<TabId> },
+}
+
+impl LocalTerminalCloseCheck {
+    fn tab_ids(&self) -> Vec<TabId> {
+        match self {
+            Self::Single { tab_id } => vec![*tab_id],
+            Self::Batch { tab_ids } => tab_ids.clone(),
+        }
+    }
+}
+
 struct WorkspaceWindowTabState {
     active_tab_id: Option<TabId>,
     navigation_history: Vec<TabId>,
@@ -589,6 +604,7 @@ struct WorkspaceWindowTabState {
     drag: Option<TabDragState>,
     context_menu: Option<TabContextMenu>,
     close_confirm: Option<TabCloseConfirm>,
+    process_close_check_generation: u64,
     exiting_tabs: Vec<ExitingTabVisual>,
     scroll_handle: ScrollHandle,
     scrollbar_drag: Option<TabbarScrollbarDragState>,
@@ -643,6 +659,7 @@ impl WorkspaceWindowTabState {
             drag: None,
             context_menu: None,
             close_confirm: None,
+            process_close_check_generation: 0,
             exiting_tabs: Vec::new(),
             scroll_handle: ScrollHandle::new(),
             scrollbar_drag: None,

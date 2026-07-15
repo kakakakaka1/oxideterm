@@ -7784,6 +7784,7 @@ dependencies = [
  "oxideterm-trzsz",
  "polling",
  "serialport",
+ "tempfile",
  "tokio",
  "tokio-native-tls",
  "tracing",

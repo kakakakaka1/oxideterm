@@ -608,16 +608,12 @@ impl WorkspaceApp {
             cx.notify();
             return;
         }
-        if self.tabs[index].kind == TabKind::LocalTerminal
-            && self.local_terminal_tab_has_foreground_child_process(index, cx)
-        {
-            // Tauri warns before closing a local terminal whose foreground
-            // process is not the original shell. Native derives the same guard
-            // from the PTY process snapshot refreshed by the terminal tick.
-            self.main_window_tabs.close_confirm =
-                Some(TabCloseConfirm::LocalChildProcess { tab_id });
-            self.reset_standard_confirm_focus();
-            cx.notify();
+        if self.tabs[index].kind == TabKind::LocalTerminal {
+            self.request_local_terminal_close_check(
+                LocalTerminalCloseCheck::Single { tab_id },
+                window,
+                cx,
+            );
             return;
         }
         self.close_tab_at_index(index, window, cx);
@@ -633,39 +629,6 @@ impl WorkspaceApp {
             return;
         };
         self.close_tab_at_index(index, window, cx);
-    }
-
-    pub(in crate::workspace) fn close_other_tabs_or_active_pane(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(active_tab_id) = self.main_window_tabs.active_tab_id else {
-            return;
-        };
-        if self
-            .active_tab()
-            .is_some_and(|tab| matches!(tab.kind, TabKind::LocalTerminal | TabKind::SshTerminal))
-        {
-            if self
-                .active_tab()
-                .and_then(|tab| tab.root_pane.as_ref())
-                .is_some_and(|root| root.pane_count() > 1)
-            {
-                self.close_active_pane(window, cx);
-            }
-            return;
-        }
-
-        let tab_ids = self
-            .tabs
-            .iter()
-            .filter(|tab| tab.id != active_tab_id)
-            .map(|tab| tab.id)
-            .collect::<Vec<_>>();
-        for tab_id in tab_ids {
-            self.close_tab_by_id(tab_id, window, cx);
-        }
     }
 
     pub(in crate::workspace) fn request_close_other_tabs_or_active_pane(
@@ -706,14 +669,11 @@ impl WorkspaceApp {
             cx.notify();
             return;
         }
-        if self.tab_close_ids_include_local_foreground_child_process(&tab_ids, cx) {
-            self.main_window_tabs.close_confirm =
-                Some(TabCloseConfirm::LocalChildProcessBatch { tab_ids });
-            self.reset_standard_confirm_focus();
-            cx.notify();
-            return;
-        }
-        self.close_other_tabs_or_active_pane(window, cx);
+        self.request_local_terminal_close_check(
+            LocalTerminalCloseCheck::Batch { tab_ids },
+            window,
+            cx,
+        );
     }
 
     fn tab_close_ids_include_ssh_terminal(&self, tab_ids: &[TabId]) -> bool {
@@ -724,38 +684,118 @@ impl WorkspaceApp {
         })
     }
 
-    fn tab_close_ids_include_local_foreground_child_process(
-        &self,
-        tab_ids: &[TabId],
+    fn request_local_terminal_close_check(
+        &mut self,
+        request: LocalTerminalCloseCheck,
+        window: &mut Window,
         cx: &mut Context<Self>,
-    ) -> bool {
-        tab_ids.iter().any(|tab_id| {
-            self.tabs
-                .iter()
-                .position(|tab| tab.id == *tab_id && tab.kind == TabKind::LocalTerminal)
-                .is_some_and(|index| {
-                    self.local_terminal_tab_has_foreground_child_process(index, cx)
-                })
-        })
-    }
+    ) {
+        let tab_ids = request.tab_ids();
+        let mut seen_panes = HashSet::new();
+        let probes = tab_ids
+            .iter()
+            .filter_map(|tab_id| {
+                self.tabs
+                    .iter()
+                    .find(|tab| tab.id == *tab_id && tab.kind == TabKind::LocalTerminal)
+            })
+            .filter_map(|tab| tab.root_pane.as_ref())
+            .flat_map(|root_pane| {
+                let mut pane_ids = Vec::new();
+                root_pane.collect_pane_ids(&mut pane_ids);
+                pane_ids
+            })
+            .filter(|pane_id| seen_panes.insert(*pane_id))
+            .filter_map(|pane_id| {
+                let pane = self.panes.get(&pane_id)?.read(cx);
+                Some((pane_id, pane.process_info_probe(), pane.process_info()))
+            })
+            .collect::<Vec<_>>();
 
-    fn local_terminal_tab_has_foreground_child_process(
-        &self,
-        index: usize,
-        cx: &mut Context<Self>,
-    ) -> bool {
-        let Some(root_pane) = self.tabs.get(index).and_then(|tab| tab.root_pane.as_ref()) else {
-            return false;
-        };
-        let mut pane_ids = Vec::new();
-        root_pane.collect_pane_ids(&mut pane_ids);
-        pane_ids.into_iter().any(|pane_id| {
-            let Some(pane) = self.panes.get(&pane_id) else {
-                return false;
-            };
-            let process = pane.read(cx).process_info();
-            terminal_process_info_has_foreground_child_process(&process)
+        if probes.is_empty() {
+            // Preserve immediate close behavior when the selected tabs do not own a live local
+            // terminal pane; there is no process state that needs a background refresh.
+            match request {
+                LocalTerminalCloseCheck::Single { tab_id } => {
+                    self.close_tab_by_id(tab_id, window, cx);
+                }
+                LocalTerminalCloseCheck::Batch { tab_ids } => {
+                    for tab_id in tab_ids {
+                        self.close_tab_by_id(tab_id, window, cx);
+                    }
+                }
+            }
+            return;
+        }
+
+        self.main_window_tabs.process_close_check_generation = self
+            .main_window_tabs
+            .process_close_check_generation
+            .wrapping_add(1);
+        let generation = self.main_window_tabs.process_close_check_generation;
+        let window_handle = window.window_handle();
+        let probe_task = cx.background_executor().spawn(async move {
+            // Each probe owns its duplicated PTY descriptor, so no terminal mutex is held while
+            // platform process and cwd commands run on the background executor.
+            probes
+                .into_iter()
+                .map(|(pane_id, probe, cached)| {
+                    let info = probe
+                        .map(|probe| probe.collect_foreground_only())
+                        .unwrap_or(cached);
+                    (pane_id, info)
+                })
+                .collect::<Vec<_>>()
+        });
+
+        cx.spawn(async move |weak, cx| {
+            let results = probe_task.await;
+            let _ = cx.update_window(window_handle, |_root, window, cx| {
+                let _ = weak.update(cx, |this, cx| {
+                    if this.main_window_tabs.process_close_check_generation != generation {
+                        return;
+                    }
+                    let has_foreground_child = results
+                        .iter()
+                        .any(|(_, info)| terminal_process_info_has_foreground_child_process(info));
+                    for (pane_id, info) in results {
+                        if let Some(pane) = this.panes.get(&pane_id) {
+                            pane.update(cx, |pane, _cx| {
+                                let _ = pane.apply_process_info(info);
+                            });
+                        }
+                    }
+
+                    match request {
+                        LocalTerminalCloseCheck::Single { tab_id } => {
+                            if has_foreground_child {
+                                this.main_window_tabs.close_confirm =
+                                    Some(TabCloseConfirm::LocalChildProcess { tab_id });
+                                this.tab_close_confirm_presence.reopen();
+                                this.reset_standard_confirm_focus();
+                                cx.notify();
+                            } else {
+                                this.close_tab_by_id(tab_id, window, cx);
+                            }
+                        }
+                        LocalTerminalCloseCheck::Batch { tab_ids } => {
+                            if has_foreground_child {
+                                this.main_window_tabs.close_confirm =
+                                    Some(TabCloseConfirm::LocalChildProcessBatch { tab_ids });
+                                this.tab_close_confirm_presence.reopen();
+                                this.reset_standard_confirm_focus();
+                                cx.notify();
+                            } else {
+                                for tab_id in tab_ids {
+                                    this.close_tab_by_id(tab_id, window, cx);
+                                }
+                            }
+                        }
+                    }
+                });
+            });
         })
+        .detach();
     }
 
     pub(in crate::workspace) fn cancel_tab_close_confirm(&mut self, cx: &mut Context<Self>) {
@@ -783,17 +823,11 @@ impl WorkspaceApp {
                 self.close_tab_by_id(tab_id, window, cx);
             }
             TabCloseConfirm::Other { tab_ids } => {
-                if self.tab_close_ids_include_local_foreground_child_process(&tab_ids, cx) {
-                    self.main_window_tabs.close_confirm =
-                        Some(TabCloseConfirm::LocalChildProcessBatch { tab_ids });
-                    self.tab_close_confirm_presence.reopen();
-                    self.reset_standard_confirm_focus();
-                    cx.notify();
-                    return;
-                }
-                for tab_id in tab_ids {
-                    self.close_tab_by_id(tab_id, window, cx);
-                }
+                self.request_local_terminal_close_check(
+                    LocalTerminalCloseCheck::Batch { tab_ids },
+                    window,
+                    cx,
+                );
             }
             TabCloseConfirm::LocalChildProcessBatch { tab_ids } => {
                 for tab_id in tab_ids {

@@ -39,6 +39,7 @@ pub struct LocalPtyConfig {
     pub cwd: Option<PathBuf>,
     pub env: HashMap<String, String>,
     pub load_profile: bool,
+    pub current_directory_shell_integration: bool,
     pub oh_my_posh_enabled: bool,
     pub oh_my_posh_theme: Option<String>,
 }
@@ -50,6 +51,7 @@ impl Default for LocalPtyConfig {
             cwd: None,
             env: HashMap::new(),
             load_profile: true,
+            current_directory_shell_integration: false,
             oh_my_posh_enabled: false,
             oh_my_posh_theme: None,
         }

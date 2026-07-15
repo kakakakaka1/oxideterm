@@ -23,9 +23,10 @@ use oxideterm_terminal::{
     SerialSessionConfig, ShellIntegrationLifecycleState, ShellIntegrationStatus, SshSessionConfig,
     TelnetSessionConfig, TermMode, TerminalCommandMark, TerminalCommandMarkClosedBy,
     TerminalCommandMarkConfidence, TerminalCommandMarkDetectionSource, TerminalCommandMarkEvent,
-    TerminalDrainBudget, TerminalDrainReport, TerminalEvent, TerminalLifecycle,
-    TerminalOutputProcessor, TerminalProcessInfo, TerminalRow, TerminalSession, TerminalSnapshot,
-    TrzszTransferDirection, TrzszTransferSelection, serial_list_ports,
+    TerminalCwdIntegrationLaunchState, TerminalDrainBudget, TerminalDrainReport, TerminalEvent,
+    TerminalLifecycle, TerminalOutputProcessor, TerminalProcessInfo, TerminalProcessProbe,
+    TerminalRow, TerminalSession, TerminalSessionKind, TerminalSnapshot, TrzszTransferDirection,
+    TrzszTransferSelection, serial_list_ports,
 };
 use oxideterm_trzsz::TrzszState;
 use parking_lot::Mutex;
@@ -68,6 +69,13 @@ pub type SharedTerminalSession = Arc<Mutex<TerminalSession>>;
 pub type TerminalInputInterceptor =
     Arc<dyn Fn(&[u8]) -> TerminalInputInterceptorResult + Send + Sync>;
 const PRIVILEGE_PROMPT_DEBUG_ENV: &str = "OXIDETERM_PRIVILEGE_DEBUG";
+const ACTIVE_TERMINAL_POLL_INTERVAL: Duration = Duration::from_millis(16);
+const BACKGROUND_TERMINAL_POLL_INTERVAL: Duration = Duration::from_millis(64);
+const IDLE_TERMINAL_POLL_INTERVAL: Duration = Duration::from_millis(250);
+const DRAIN_BOOST_POLL_INTERVAL: Duration = Duration::from_millis(8);
+const RECENT_TERMINAL_ACTIVITY_WINDOW: Duration = Duration::from_millis(600);
+const RECENT_TERMINAL_INPUT_WINDOW: Duration = Duration::from_millis(220);
+const ACTIVE_PROCESS_INFO_REFRESH_INTERVAL: Duration = Duration::from_secs(1);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TerminalPaneEvent {
@@ -84,9 +92,32 @@ pub enum TerminalWorkingDirectorySource {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TerminalCwdShellIntegrationStatus {
     NotAttempted,
+    Installing,
     Active,
     Failed,
     Disabled,
+}
+
+fn initial_cwd_shell_integration_status(
+    enabled: bool,
+    session_kind: TerminalSessionKind,
+    launch_state: TerminalCwdIntegrationLaunchState,
+) -> TerminalCwdShellIntegrationStatus {
+    if !enabled {
+        return TerminalCwdShellIntegrationStatus::Disabled;
+    }
+    if session_kind != TerminalSessionKind::LocalPty {
+        return TerminalCwdShellIntegrationStatus::NotAttempted;
+    }
+    match launch_state {
+        TerminalCwdIntegrationLaunchState::Prepared => {
+            TerminalCwdShellIntegrationStatus::Installing
+        }
+        TerminalCwdIntegrationLaunchState::Unavailable => TerminalCwdShellIntegrationStatus::Failed,
+        TerminalCwdIntegrationLaunchState::NotRequested => {
+            TerminalCwdShellIntegrationStatus::NotAttempted
+        }
+    }
 }
 
 fn log_privilege_prompt_terminal_pane(args: std::fmt::Arguments<'_>) {
@@ -149,6 +180,26 @@ impl TerminalEventEffect {
     }
 }
 
+fn terminal_poll_interval(
+    focused: bool,
+    drain_budget_exhausted: bool,
+    time_since_input: Duration,
+    time_since_activity: Duration,
+) -> Duration {
+    if drain_budget_exhausted {
+        return DRAIN_BOOST_POLL_INTERVAL;
+    }
+    if focused {
+        return ACTIVE_TERMINAL_POLL_INTERVAL;
+    }
+    if time_since_input <= RECENT_TERMINAL_INPUT_WINDOW
+        || time_since_activity <= RECENT_TERMINAL_ACTIVITY_WINDOW
+    {
+        return BACKGROUND_TERMINAL_POLL_INTERVAL;
+    }
+    IDLE_TERMINAL_POLL_INTERVAL
+}
+
 pub struct TerminalPane {
     terminal: Arc<Mutex<TerminalSession>>,
     raw_tcp_reconnect_config: Option<RawTcpSessionConfig>,
@@ -160,6 +211,7 @@ pub struct TerminalPane {
     settings: TerminalUiSettings,
     theme: TerminalUiTheme,
     snapshot: TerminalSnapshot,
+    snapshot_dirty: bool,
     snapshot_generation: u64,
     terminal_timestamps_enabled: bool,
     // Visual-only metadata keyed by terminal absolute line; never write this
@@ -215,6 +267,8 @@ pub struct TerminalPane {
     last_terminal_input: Instant,
     last_terminal_activity: Instant,
     last_drain_budget_exhausted: bool,
+    process_info_refresh_in_flight: bool,
+    last_process_info_refresh_requested: Instant,
     render_stats: TerminalRenderStats,
     render_stats_window_start: Instant,
     render_stats_window_writes: usize,
@@ -307,10 +361,15 @@ impl TerminalPane {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Result<Self> {
+        let config = LocalPtyConfig {
+            current_directory_shell_integration: preferences.current_directory_awareness_enabled,
+            ..LocalPtyConfig::default()
+        };
         let terminal = Arc::new(Mutex::new(
-            TerminalSession::local_with_graphics_and_encoding(
+            TerminalSession::local_with_config_graphics_and_encoding(
                 DEFAULT_COLS,
                 DEFAULT_ROWS,
+                config,
                 graphics_options_from_preferences(&preferences),
                 preferences.terminal_encoding,
                 preferences.scrollback_lines,
@@ -320,11 +379,13 @@ impl TerminalPane {
     }
 
     pub fn new_local_with_config_and_preferences(
-        config: LocalPtyConfig,
+        mut config: LocalPtyConfig,
         preferences: TerminalUiPreferences,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Result<Self> {
+        config.current_directory_shell_integration =
+            preferences.current_directory_awareness_enabled;
         let terminal = Arc::new(Mutex::new(
             TerminalSession::local_with_config_graphics_and_encoding(
                 DEFAULT_COLS,
@@ -486,7 +547,19 @@ impl TerminalPane {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Result<Self> {
-        let snapshot = terminal.lock().snapshot().with_generation(1);
+        let (snapshot, session_kind, cwd_integration_launch_state) = {
+            let terminal = terminal.lock();
+            (
+                terminal.snapshot().with_generation(1),
+                terminal.kind(),
+                terminal.cwd_integration_launch_state(),
+            )
+        };
+        let cwd_shell_integration_status = initial_cwd_shell_integration_status(
+            preferences.current_directory_awareness_enabled,
+            session_kind,
+            cwd_integration_launch_state,
+        );
         let focus_handle = cx.focus_handle();
         let metrics = TerminalMetrics::measure_with_preferences(window, &preferences);
         window.focus(&focus_handle);
@@ -504,16 +577,16 @@ impl TerminalPane {
         });
 
         cx.spawn(async move |weak, cx| {
+            let mut poll_interval = ACTIVE_TERMINAL_POLL_INTERVAL;
             loop {
-                Timer::after(Duration::from_millis(16)).await;
-                if weak
-                    .update(cx, |this, cx| {
-                        this.tick(cx);
-                    })
-                    .is_err()
-                {
+                Timer::after(poll_interval).await;
+                let Ok(next_poll_interval) = weak.update(cx, |this, cx| {
+                    this.tick(cx);
+                    this.next_poll_interval()
+                }) else {
                     break;
-                }
+                };
+                poll_interval = next_poll_interval;
             }
         })
         .detach();
@@ -529,6 +602,7 @@ impl TerminalPane {
             settings: TerminalUiSettings::from_preferences(&preferences),
             theme: preferences.theme.clone(),
             snapshot,
+            snapshot_dirty: false,
             snapshot_generation: 1,
             terminal_timestamps_enabled: false,
             row_timestamps: HashMap::new(),
@@ -556,7 +630,7 @@ impl TerminalPane {
             cwd_source: None,
             pending_cwd: None,
             cwd_host: None,
-            cwd_shell_integration_status: TerminalCwdShellIntegrationStatus::NotAttempted,
+            cwd_shell_integration_status,
             shell_integration_status: ShellIntegrationStatus {
                 detected: false,
                 state: ShellIntegrationLifecycleState::Idle,
@@ -585,6 +659,10 @@ impl TerminalPane {
             last_terminal_input: Instant::now(),
             last_terminal_activity: Instant::now(),
             last_drain_budget_exhausted: false,
+            process_info_refresh_in_flight: false,
+            last_process_info_refresh_requested: Instant::now()
+                .checked_sub(ACTIVE_PROCESS_INFO_REFRESH_INTERVAL)
+                .unwrap_or_else(Instant::now),
             render_stats: TerminalRenderStats::default(),
             render_stats_window_start: Instant::now(),
             render_stats_window_writes: 0,
@@ -680,8 +758,16 @@ impl TerminalPane {
         self.terminal.lock().process_info()
     }
 
+    pub fn process_info_probe(&self) -> Option<TerminalProcessProbe> {
+        self.terminal.lock().process_info_probe()
+    }
+
+    pub fn apply_process_info(&mut self, info: TerminalProcessInfo) -> bool {
+        self.terminal.lock().apply_process_info(info)
+    }
+
     pub fn buffer_line_count(&self) -> usize {
-        self.terminal.lock().snapshot().lines.len()
+        self.terminal.lock().buffer_line_count()
     }
 
     pub fn shell_integration_status(&self) -> ShellIntegrationStatus {
@@ -779,35 +865,6 @@ impl TerminalPane {
     pub fn can_switch_working_directory_from_chrome(&self) -> bool {
         let mode = self.terminal.lock().mode();
         !mode.contains(TermMode::ALT_SCREEN) && !mode.intersects(TermMode::MOUSE_MODE)
-    }
-
-    pub fn try_install_current_directory_shell_integration(
-        &mut self,
-        command: &str,
-        cx: &mut Context<Self>,
-    ) -> bool {
-        if !self.settings.current_directory_awareness_enabled {
-            self.cwd_shell_integration_status = TerminalCwdShellIntegrationStatus::Disabled;
-            return false;
-        }
-        if self.cwd_shell_integration_status == TerminalCwdShellIntegrationStatus::Active
-            || self.pending_cwd.is_some()
-            || !self.can_switch_working_directory_from_chrome()
-            || !self.shell_integration_status.detected
-            || self.shell_integration_status.state != ShellIntegrationLifecycleState::Prompt
-        {
-            return false;
-        }
-
-        // Runtime hook installation is only safe after a shell-owned prompt
-        // boundary. Without that signal, the bytes could be delivered to a
-        // running full-screen or long-lived program instead of the shell.
-        if self.send_internal_control_command_line(command, cx) {
-            self.cwd_shell_integration_status = TerminalCwdShellIntegrationStatus::Active;
-            return true;
-        }
-        self.cwd_shell_integration_status = TerminalCwdShellIntegrationStatus::Failed;
-        false
     }
 
     pub fn command_marks(&self) -> Vec<TerminalCommandMark> {
@@ -1514,18 +1571,19 @@ impl TerminalPane {
     fn tick(&mut self, cx: &mut Context<Self>) {
         let now = Instant::now();
         let budget = self.next_drain_budget();
-        let (report, events, mode, next_snapshot) = {
+        let (report, events, mode) = {
             let mut terminal = self.terminal.lock();
-            terminal.refresh_process_info();
             let report = terminal.read_pending_with_budget(budget);
             let events = terminal.take_events();
             let mode = terminal.mode();
-            let next_snapshot = report.changed.then(|| terminal.snapshot());
-            (report, events, mode, next_snapshot)
+            (report, events, mode)
         };
         self.last_drain_budget_exhausted = report.budget_exhausted;
         if report.changed {
             self.last_terminal_activity = now;
+            // Parsing stays current for every terminal, but the expensive immutable snapshot is
+            // built only when GPUI actually renders this pane.
+            self.snapshot_dirty = true;
         }
         let render_stats_changed = self.update_render_stats(&report, now);
 
@@ -1535,14 +1593,8 @@ impl TerminalPane {
         }
 
         let cleared_command_mark_selection = self.clear_command_mark_selection_for_tui_mode(mode);
-        let mut needs_notify = event_effect.needs_notify;
-        if let Some(snapshot) = next_snapshot {
-            if snapshot.display_offset == 0 {
-                self.clear_smooth_scroll_remainder();
-            }
-            self.snapshot = self.stamp_snapshot(snapshot);
-            needs_notify = true;
-        } else if (self.preferences.show_performance_overlay && render_stats_changed)
+        let mut needs_notify = event_effect.needs_notify || report.changed;
+        if (self.preferences.show_performance_overlay && render_stats_changed)
             || cleared_command_mark_selection
         {
             needs_notify = true;
@@ -1558,6 +1610,47 @@ impl TerminalPane {
         }
 
         self.update_cursor_blink(cx);
+        self.request_active_process_info_refresh(cx);
+    }
+
+    fn next_poll_interval(&self) -> Duration {
+        terminal_poll_interval(
+            self.focused,
+            self.last_drain_budget_exhausted,
+            self.last_terminal_input.elapsed(),
+            self.last_terminal_activity.elapsed(),
+        )
+    }
+
+    fn request_active_process_info_refresh(&mut self, cx: &mut Context<Self>) {
+        if !self.focused
+            || !self.settings.current_directory_awareness_enabled
+            || self.cwd_shell_integration_status == TerminalCwdShellIntegrationStatus::Active
+            || self.process_info_refresh_in_flight
+            || self.last_process_info_refresh_requested.elapsed()
+                < ACTIVE_PROCESS_INFO_REFRESH_INTERVAL
+        {
+            return;
+        }
+        let Some(probe) = self.process_info_probe() else {
+            return;
+        };
+
+        self.process_info_refresh_in_flight = true;
+        self.last_process_info_refresh_requested = Instant::now();
+        let probe_task = cx
+            .background_executor()
+            .spawn(async move { probe.collect_current_directory() });
+        cx.spawn(async move |weak, cx| {
+            let info = probe_task.await;
+            let _ = weak.update(cx, |this, cx| {
+                this.process_info_refresh_in_flight = false;
+                if this.apply_process_info(info) {
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
     }
 
     fn expire_pending_terminal_cwd(&mut self, now: Instant) -> bool {
@@ -1634,7 +1727,7 @@ impl TerminalPane {
         let drain = self.preferences.render_policy.drain;
         if self.last_drain_budget_exhausted {
             TerminalDrainBudget::new(drain.throughput_bytes, drain.max_events)
-        } else if self.last_terminal_input.elapsed() <= Duration::from_millis(220) {
+        } else if self.last_terminal_input.elapsed() <= RECENT_TERMINAL_INPUT_WINDOW {
             TerminalDrainBudget::new(drain.interactive_bytes, drain.max_events)
         } else {
             TerminalDrainBudget::new(drain.normal_bytes, drain.max_events)
@@ -1644,8 +1737,8 @@ impl TerminalPane {
     fn current_render_tier(&self) -> TerminalRenderTier {
         if self.last_drain_budget_exhausted {
             TerminalRenderTier::Boost
-        } else if self.last_terminal_input.elapsed() <= Duration::from_millis(220)
-            || self.last_terminal_activity.elapsed() <= Duration::from_millis(600)
+        } else if self.last_terminal_input.elapsed() <= RECENT_TERMINAL_INPUT_WINDOW
+            || self.last_terminal_activity.elapsed() <= RECENT_TERMINAL_ACTIVITY_WINDOW
         {
             TerminalRenderTier::Normal
         } else {
@@ -1878,6 +1971,9 @@ impl TerminalPane {
             TerminalEvent::CwdChanged { cwd, host } => {
                 self.cwd = Some(cwd);
                 self.cwd_source = Some(TerminalWorkingDirectorySource::ShellIntegration);
+                // A prepared startup profile becomes active only after the
+                // terminal parser receives a valid directory report.
+                self.cwd_shell_integration_status = TerminalCwdShellIntegrationStatus::Active;
                 self.pending_cwd = None;
                 self.cwd_host = host;
                 TerminalEventEffect::notify()
@@ -2355,6 +2451,82 @@ mod tests {
     use std::{cell::Cell, collections::HashMap, sync::Arc};
 
     use oxideterm_terminal::{TerminalAttrs, TerminalCell, TerminalColor, TerminalCursorShape};
+
+    #[test]
+    fn local_cwd_integration_waits_for_first_report_before_becoming_active() {
+        assert_eq!(
+            initial_cwd_shell_integration_status(
+                true,
+                TerminalSessionKind::LocalPty,
+                TerminalCwdIntegrationLaunchState::Prepared,
+            ),
+            TerminalCwdShellIntegrationStatus::Installing
+        );
+        assert_eq!(
+            initial_cwd_shell_integration_status(
+                true,
+                TerminalSessionKind::LocalPty,
+                TerminalCwdIntegrationLaunchState::Unavailable,
+            ),
+            TerminalCwdShellIntegrationStatus::Failed
+        );
+        assert_eq!(
+            initial_cwd_shell_integration_status(
+                false,
+                TerminalSessionKind::LocalPty,
+                TerminalCwdIntegrationLaunchState::Prepared,
+            ),
+            TerminalCwdShellIntegrationStatus::Disabled
+        );
+    }
+
+    #[test]
+    fn terminal_polling_keeps_focused_panes_responsive() {
+        assert_eq!(
+            terminal_poll_interval(
+                true,
+                false,
+                Duration::from_secs(10),
+                Duration::from_secs(10),
+            ),
+            ACTIVE_TERMINAL_POLL_INTERVAL
+        );
+    }
+
+    #[test]
+    fn terminal_polling_reduces_background_and_idle_work() {
+        assert_eq!(
+            terminal_poll_interval(
+                false,
+                false,
+                Duration::from_secs(10),
+                Duration::from_millis(20),
+            ),
+            BACKGROUND_TERMINAL_POLL_INTERVAL
+        );
+        assert_eq!(
+            terminal_poll_interval(
+                false,
+                false,
+                Duration::from_secs(10),
+                Duration::from_secs(10),
+            ),
+            IDLE_TERMINAL_POLL_INTERVAL
+        );
+    }
+
+    #[test]
+    fn terminal_polling_drains_backpressure_before_other_tiers() {
+        assert_eq!(
+            terminal_poll_interval(
+                false,
+                true,
+                Duration::from_secs(10),
+                Duration::from_secs(10),
+            ),
+            DRAIN_BOOST_POLL_INTERVAL
+        );
+    }
 
     #[test]
     fn osc52_clipboard_read_does_not_touch_clipboard_when_denied() {

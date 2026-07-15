@@ -38,6 +38,72 @@ pub struct TerminalProcessInfo {
     pub cwd: Option<PathBuf>,
 }
 
+pub struct TerminalProcessProbe {
+    shell_pid: Option<u32>,
+    pty_master: Option<File>,
+    previous_command: Option<String>,
+    previous_cwd: Option<PathBuf>,
+}
+
+#[derive(Clone, Copy)]
+enum TerminalProcessProbeScope {
+    Full,
+    ForegroundOnly,
+    CurrentDirectory,
+}
+
+impl TerminalProcessProbe {
+    pub fn collect(self) -> TerminalProcessInfo {
+        self.collect_for_scope(TerminalProcessProbeScope::Full)
+    }
+
+    pub fn collect_foreground_only(self) -> TerminalProcessInfo {
+        self.collect_for_scope(TerminalProcessProbeScope::ForegroundOnly)
+    }
+
+    pub fn collect_current_directory(self) -> TerminalProcessInfo {
+        self.collect_for_scope(TerminalProcessProbeScope::CurrentDirectory)
+    }
+
+    fn collect_for_scope(self, scope: TerminalProcessProbeScope) -> TerminalProcessInfo {
+        // Process table and cwd discovery may launch platform tools. Callers must run this
+        // probe on a blocking/background thread rather than on the terminal paint loop.
+        let foreground_process_group_id = self
+            .pty_master
+            .as_ref()
+            .and_then(foreground_process_group_id)
+            .or(self.shell_pid);
+        let foreground_pid = foreground_process_group_id
+            .and_then(active_process_in_group)
+            .or(foreground_process_group_id);
+        let cwd = if matches!(
+            scope,
+            TerminalProcessProbeScope::Full | TerminalProcessProbeScope::CurrentDirectory
+        ) {
+            foreground_pid
+                .and_then(process_cwd)
+                .or_else(|| self.shell_pid.and_then(process_cwd))
+                .or(self.previous_cwd)
+        } else {
+            // Close confirmation only needs foreground ownership. Preserve the cached cwd and
+            // avoid launching the platform cwd lookup on that latency-sensitive path.
+            self.previous_cwd
+        };
+
+        TerminalProcessInfo {
+            shell_pid: self.shell_pid,
+            foreground_pid,
+            foreground_process_group_id,
+            command: if matches!(scope, TerminalProcessProbeScope::Full) {
+                foreground_pid.and_then(process_command)
+            } else {
+                self.previous_command
+            },
+            cwd,
+        }
+    }
+}
+
 pub(crate) struct ProcessState {
     pub(crate) info: TerminalProcessInfo,
     pty_master: Option<File>,
@@ -71,29 +137,42 @@ impl ProcessState {
         self.info.command = None;
     }
 
+    pub(crate) fn probe(&self) -> Option<TerminalProcessProbe> {
+        if self.info.shell_pid.is_none() && self.pty_master.is_none() {
+            return None;
+        }
+        Some(TerminalProcessProbe {
+            shell_pid: self.info.shell_pid,
+            // A duplicated descriptor lets the probe query the PTY without borrowing session
+            // state or holding the terminal mutex while platform commands execute.
+            pty_master: self
+                .pty_master
+                .as_ref()
+                .and_then(|pty_master| pty_master.try_clone().ok()),
+            previous_command: self.info.command.clone(),
+            previous_cwd: self.info.cwd.clone(),
+        })
+    }
+
+    pub(crate) fn apply_probe_result(&mut self, info: TerminalProcessInfo) -> bool {
+        // Ignore a late result if the session was replaced while the probe was running.
+        if info.shell_pid != self.info.shell_pid {
+            return false;
+        }
+        self.last_refresh = Instant::now();
+        if self.info == info {
+            return false;
+        }
+        self.info = info;
+        true
+    }
+
     pub(crate) fn refresh(&mut self) {
         if self.last_refresh.elapsed() < PROCESS_INFO_REFRESH_INTERVAL {
             return;
         }
-
-        self.last_refresh = Instant::now();
-        let foreground_group = self
-            .pty_master
-            .as_ref()
-            .and_then(foreground_process_group_id)
-            .or(self.info.shell_pid);
-        let foreground_pid = foreground_group
-            .and_then(active_process_in_group)
-            .or(foreground_group);
-
-        self.info.foreground_process_group_id = foreground_group;
-        self.info.foreground_pid = foreground_pid;
-        self.info.command = foreground_pid.and_then(process_command);
-        if let Some(cwd) = foreground_pid
-            .and_then(process_cwd)
-            .or_else(|| self.info.shell_pid.and_then(process_cwd))
-        {
-            self.info.cwd = Some(cwd);
+        if let Some(probe) = self.probe() {
+            let _ = self.apply_probe_result(probe.collect());
         }
     }
 }

@@ -196,7 +196,19 @@ pub trait TerminalSessionBackend: Send {
         self.lifecycle().is_running()
     }
     fn process_info(&self) -> TerminalProcessInfo;
+    fn process_info_probe(&self) -> Option<TerminalProcessProbe> {
+        None
+    }
+    fn cwd_integration_launch_state(&self) -> TerminalCwdIntegrationLaunchState {
+        TerminalCwdIntegrationLaunchState::NotRequested
+    }
+    fn apply_process_info(&mut self, _info: TerminalProcessInfo) -> bool {
+        false
+    }
     fn refresh_process_info(&mut self);
+    fn buffer_line_count(&self) -> usize {
+        self.snapshot().lines.len()
+    }
     fn read_pending(&mut self) -> bool;
     fn read_pending_with_budget(&mut self, budget: TerminalDrainBudget) -> TerminalDrainReport;
     fn take_events(&mut self) -> Vec<TerminalEvent>;

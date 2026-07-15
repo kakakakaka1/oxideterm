@@ -14,6 +14,7 @@ impl WorkspaceApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.refresh_file_manager_drives();
         let initial_path = self.active_local_terminal_cwd_path(cx);
         let tab_id = if let Some(tab) = self
             .tabs
@@ -334,6 +335,22 @@ impl WorkspaceApp {
         self.file_manager.loading = false;
     }
 
+    pub(super) fn refresh_file_manager_with_drives(&mut self) {
+        // Explicit refresh updates both the current directory and mounted volumes.
+        self.refresh_file_manager_drives();
+        self.refresh_file_manager();
+    }
+
+    pub(super) fn open_file_manager_drives_dialog(&mut self) {
+        // Refresh before presenting the picker so newly mounted volumes are visible.
+        self.refresh_file_manager_drives();
+        self.file_manager.dialog = Some(FileManagerDialog::Drives);
+    }
+
+    fn refresh_file_manager_drives(&mut self) {
+        self.file_manager.drives = local_drives();
+    }
+
     pub(super) fn set_file_manager_path(&mut self, path: String) {
         let normalized = normalize_local_path(&path);
         self.file_manager.path = normalized.clone();
@@ -359,7 +376,7 @@ impl WorkspaceApp {
         if let Some(parent) = local_parent_path(&self.file_manager.path) {
             self.set_file_manager_path(parent);
         } else {
-            self.file_manager.dialog = Some(FileManagerDialog::Drives);
+            self.open_file_manager_drives_dialog();
         }
     }
 

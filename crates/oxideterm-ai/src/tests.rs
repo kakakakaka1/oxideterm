@@ -2126,6 +2126,59 @@ fn chat_persistence_loads_metadata_first_and_conversation_on_demand() {
 }
 
 #[test]
+fn chat_persistence_keeps_more_than_legacy_conversation_limit() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("chat_history.redb");
+    let store = AiChatPersistenceStore::new(&path);
+    let mut state = AiChatState::default();
+
+    // Conversation metadata is cheap to load and must not be truncated because
+    // a later full-state save treats absent IDs as explicit deletions.
+    for index in 0..125 {
+        state.create_conversation(
+            format!("conversation-{index}"),
+            Some(format!("Conversation {index}")),
+            index,
+            None,
+        );
+    }
+    store.save_state(&state).unwrap();
+
+    let reloaded = store.load_state().unwrap();
+    assert_eq!(reloaded.conversations.len(), 125);
+    store.save_state(&reloaded).unwrap();
+    assert!(store.load_conversation("conversation-0").unwrap().is_some());
+}
+
+#[test]
+fn chat_persistence_keeps_more_than_legacy_message_limit() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("chat_history.redb");
+    let store = AiChatPersistenceStore::new(&path);
+    let mut state = AiChatState::default();
+    let conversation_id =
+        state.create_conversation("long-conversation".into(), Some("Long".into()), 1, None);
+
+    // Local retention is intentionally wider than prompt history. The prompt
+    // budget and automatic compaction remain responsible for model input size.
+    for index in 0..250 {
+        state.add_message(
+            &conversation_id,
+            chat_message(
+                &format!("message-{index}"),
+                AiChatRole::User,
+                &format!("content-{index}"),
+            ),
+        );
+    }
+    store.save_state(&state).unwrap();
+
+    let reloaded = store.load_conversation(&conversation_id).unwrap().unwrap();
+    assert_eq!(reloaded.messages.len(), 250);
+    assert_eq!(reloaded.messages.first().unwrap().id, "message-0");
+}
+
+#[test]
 fn openai_stream_parser_extracts_content_and_done() {
     let parsed = parse_openai_data_line(
         r#"data: {"choices":[{"delta":{"content":"hello"},"finish_reason":null}]}"#,

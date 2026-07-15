@@ -15,8 +15,24 @@ impl TerminalSessionBackend for LocalPtySession {
         LocalPtySession::process_info(self)
     }
 
+    fn process_info_probe(&self) -> Option<TerminalProcessProbe> {
+        LocalPtySession::process_info_probe(self)
+    }
+
+    fn cwd_integration_launch_state(&self) -> TerminalCwdIntegrationLaunchState {
+        LocalPtySession::shell_integration_launch_state(self)
+    }
+
+    fn apply_process_info(&mut self, info: TerminalProcessInfo) -> bool {
+        LocalPtySession::apply_process_info(self, info)
+    }
+
     fn refresh_process_info(&mut self) {
         LocalPtySession::refresh_process_info(self);
+    }
+
+    fn buffer_line_count(&self) -> usize {
+        LocalPtySession::buffer_line_count(self)
     }
 
     fn read_pending(&mut self) -> bool {

@@ -86,10 +86,17 @@ fn clamp_terminal_context_submenu_position(
     (x, y)
 }
 
-fn terminal_pane_base_is_transparent(bell_flash: bool, has_window_background: bool) -> bool {
+const TERMINAL_VISUAL_BELL_OVERLAY_ALPHA: u8 = 0x66;
+
+fn terminal_pane_base_is_transparent(has_window_background: bool) -> bool {
     // Content-scoped images paint inside the pane above its fallback color.
-    // Only a window-scoped image needs the pane base itself to be transparent.
-    !bell_flash && has_window_background
+    // A window-scoped image always needs a transparent pane base, including
+    // visual-bell frames, so ordinary shell BEL events cannot hide the image.
+    has_window_background
+}
+
+fn terminal_visual_bell_overlay_color(bell_background: u32) -> u32 {
+    serial_color_alpha(bell_background, TERMINAL_VISUAL_BELL_OVERLAY_ALPHA)
 }
 
 impl Focusable for TerminalPane {
@@ -100,6 +107,16 @@ impl Focusable for TerminalPane {
 
 impl Render for TerminalPane {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.snapshot_dirty {
+            // Hidden panes keep their emulator state current without copying the full grid. The
+            // first visible render after activation materializes exactly one latest snapshot.
+            let snapshot = self.terminal.lock().snapshot();
+            if snapshot.display_offset == 0 {
+                self.clear_smooth_scroll_remainder();
+            }
+            self.snapshot = self.stamp_snapshot(snapshot);
+            self.snapshot_dirty = false;
+        }
         self.metrics = TerminalMetrics::measure_with_preferences(window, &self.preferences);
         let scrollbar_display_offset = self.smooth_scroll_display_offset();
         let (mut snapshot, smooth_scroll_y_offset, viewport_rows) =
@@ -129,10 +146,21 @@ impl Render for TerminalPane {
                 self.background_image_cache.render_blurred_image(background),
             )
         });
-        let transparent_pane_base = terminal_pane_base_is_transparent(
-            self.bell_flash,
-            self.preferences.transparent_background,
-        );
+        let transparent_pane_base =
+            terminal_pane_base_is_transparent(self.preferences.transparent_background);
+        let bell_flash_layer = self.bell_flash.then(|| {
+            // Keep the flash above image backgrounds but below terminal text.
+            // This preserves visual feedback without replacing the background.
+            div()
+                .absolute()
+                .top_0()
+                .right_0()
+                .bottom_0()
+                .left_0()
+                .bg(rgba(terminal_visual_bell_overlay_color(
+                    self.theme.bell_background,
+                )))
+        });
         self.drop_retired_images(window, cx);
         let terminal_element = TerminalElement::new_with_images_and_bidi(
             snapshot,
@@ -183,9 +211,7 @@ impl Render for TerminalPane {
             .id("terminal-pane")
             .size_full()
             .relative()
-            .bg(if self.bell_flash {
-                rgb(self.theme.bell_background)
-            } else if transparent_pane_base {
+            .bg(if transparent_pane_base {
                 rgba(0x00000000)
             } else {
                 rgb(self.theme.background)
@@ -257,6 +283,7 @@ impl Render for TerminalPane {
                 this.handle_scroll(event, cx);
             }))
             .when_some(background_layer, |pane, background| pane.child(background))
+            .when_some(bell_flash_layer, |pane, flash| pane.child(flash))
             .child(
                 div()
                     .absolute()
@@ -1708,8 +1735,9 @@ fn apply_theme_defaults_to_snapshot(snapshot: &mut TerminalSnapshot, theme: &Ter
 #[cfg(test)]
 mod tests {
     use super::{
-        clamp_terminal_context_menu_position, clamp_terminal_context_submenu_position,
-        terminal_pane_base_is_transparent,
+        TERMINAL_VISUAL_BELL_OVERLAY_ALPHA, clamp_terminal_context_menu_position,
+        clamp_terminal_context_submenu_position, terminal_pane_base_is_transparent,
+        terminal_visual_bell_overlay_color,
     };
 
     #[test]
@@ -1747,9 +1775,12 @@ mod tests {
     }
 
     #[test]
-    fn terminal_pane_base_exposes_window_background_except_during_bell_flash() {
-        assert!(terminal_pane_base_is_transparent(false, true));
-        assert!(!terminal_pane_base_is_transparent(false, false));
-        assert!(!terminal_pane_base_is_transparent(true, true));
+    fn terminal_pane_base_keeps_window_background_visible_during_visual_bell() {
+        assert!(terminal_pane_base_is_transparent(true));
+        assert!(!terminal_pane_base_is_transparent(false));
+        assert_eq!(
+            terminal_visual_bell_overlay_color(0x17131a) & 0xff,
+            u32::from(TERMINAL_VISUAL_BELL_OVERLAY_ALPHA)
+        );
     }
 }

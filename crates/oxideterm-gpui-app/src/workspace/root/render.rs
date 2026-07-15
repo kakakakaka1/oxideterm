@@ -541,9 +541,14 @@ impl Render for WorkspaceApp {
             }))
             .on_action(cx.listener(|this, _: &NextTab, window, cx| {
                 this.next_tab(true, window, cx);
+                // GPUI dispatches the action before the raw key event. Stop here so the
+                // workspace keybinding capture does not advance the tab a second time.
+                cx.stop_propagation();
             }))
             .on_action(cx.listener(|this, _: &PrevTab, window, cx| {
                 this.next_tab(false, window, cx);
+                // Keep previous-tab navigation on the same single-dispatch path.
+                cx.stop_propagation();
             }))
             .on_action(cx.listener(|this, _: &SplitHorizontal, window, cx| {
                 this.split_active_pane(SplitDirection::Horizontal, window, cx);

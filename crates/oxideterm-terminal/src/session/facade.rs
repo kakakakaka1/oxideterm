@@ -346,8 +346,24 @@ impl TerminalSession {
         self.backend.process_info()
     }
 
+    pub fn process_info_probe(&self) -> Option<TerminalProcessProbe> {
+        self.backend.process_info_probe()
+    }
+
+    pub fn cwd_integration_launch_state(&self) -> TerminalCwdIntegrationLaunchState {
+        self.backend.cwd_integration_launch_state()
+    }
+
+    pub fn apply_process_info(&mut self, info: TerminalProcessInfo) -> bool {
+        self.backend.apply_process_info(info)
+    }
+
     pub fn refresh_process_info(&mut self) {
         self.backend.refresh_process_info();
+    }
+
+    pub fn buffer_line_count(&self) -> usize {
+        self.backend.buffer_line_count()
     }
 
     pub fn terminate_active_task(&mut self) -> Result<()> {

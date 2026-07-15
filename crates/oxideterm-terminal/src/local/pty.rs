@@ -12,6 +12,8 @@ pub struct LocalPtySession {
     title: Option<String>,
     lifecycle: TerminalLifecycle,
     process: ProcessState,
+    _shell_integration: Option<LocalShellIntegration>,
+    shell_integration_launch_state: TerminalCwdIntegrationLaunchState,
     #[cfg(windows)]
     process_job: Option<WindowsTerminalJob>,
     graphics: TerminalGraphicsState,
@@ -80,11 +82,15 @@ impl LocalPtySession {
 
         let shell = local_config.shell.clone().unwrap_or_else(default_shell);
         let shell_program = shell.path.display().to_string();
+        let terminal_env = oxideterm_terminal_env(&local_config, &shell);
         #[cfg(target_os = "windows")]
-        let shell_args = powershell_init_args(&local_config, &shell)
+        let base_shell_args = powershell_init_args(&local_config, &shell)
             .unwrap_or_else(|| shell_args_for_profile(&shell, local_config.load_profile));
         #[cfg(not(target_os = "windows"))]
-        let shell_args = shell_args_for_profile(&shell, local_config.load_profile);
+        let base_shell_args = shell_args_for_profile(&shell, local_config.load_profile);
+        let launch =
+            prepare_local_shell_launch(&local_config, &shell, terminal_env, base_shell_args);
+        let shell_args = launch.args;
 
         let (event_tx, event_rx) = unbounded();
         let (graphics_tx, graphics_rx) = unbounded();
@@ -122,7 +128,7 @@ impl LocalPtySession {
                 shell: Some(Shell::new(shell_program, shell_args)),
                 working_directory,
                 drain_on_exit: true,
-                env: oxideterm_terminal_env(&local_config, &shell),
+                env: launch.env,
                 #[cfg(target_os = "windows")]
                 escape_args: false,
             },
@@ -173,6 +179,8 @@ impl LocalPtySession {
             title: None,
             lifecycle: TerminalLifecycle::Running,
             process,
+            _shell_integration: launch.integration,
+            shell_integration_launch_state: launch.integration_state,
             #[cfg(windows)]
             process_job,
             graphics: TerminalGraphicsState::default(),
@@ -327,6 +335,24 @@ impl LocalPtySession {
         self.process.info.clone()
     }
 
+    pub fn shell_integration_launch_state(&self) -> TerminalCwdIntegrationLaunchState {
+        self.shell_integration_launch_state
+    }
+
+    pub fn buffer_line_count(&self) -> usize {
+        // Line-count consumers do not need an immutable cell snapshot. Reading the emulator's
+        // geometry avoids copying the full scrollback for hidden or detached local sessions.
+        self.term.lock().total_lines()
+    }
+
+    pub fn process_info_probe(&self) -> Option<TerminalProcessProbe> {
+        self.lifecycle.is_running().then(|| self.process.probe()).flatten()
+    }
+
+    pub fn apply_process_info(&mut self, info: TerminalProcessInfo) -> bool {
+        self.process.apply_probe_result(info)
+    }
+
     pub fn refresh_process_info(&mut self) {
         if self.lifecycle.is_running() {
             self.process.refresh();
@@ -434,6 +460,9 @@ impl LocalPtySession {
                 let code = status.code();
                 self.lifecycle = TerminalLifecycle::Exited(code);
                 self.process.mark_exited();
+                // Startup files are session-owned and can be removed as soon
+                // as the shell exits, even if its closed pane remains mounted.
+                self._shell_integration.take();
                 self.pending_events.push(TerminalEvent::ChildExited(code));
                 self.join_io_thread();
                 true
@@ -461,6 +490,7 @@ impl LocalPtySession {
 
         self.lifecycle = TerminalLifecycle::Closed;
         self.process.mark_exited();
+        self._shell_integration.take();
     }
 
     fn join_io_thread(&mut self) {

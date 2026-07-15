@@ -338,7 +338,7 @@ impl WorkspaceApp {
             false,
             has_background,
             |this, _event, _window, _cx| {
-                this.refresh_file_manager();
+                this.refresh_file_manager_with_drives();
             },
             cx,
         ))
@@ -348,7 +348,7 @@ impl WorkspaceApp {
             false,
             has_background,
             |this, _event, _window, _cx| {
-                this.file_manager.dialog = Some(FileManagerDialog::Drives);
+                this.open_file_manager_drives_dialog();
             },
             cx,
         ));
@@ -1076,7 +1076,7 @@ impl WorkspaceApp {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let mut list = div().p(px(12.0)).flex().flex_col().gap(px(8.0));
-        for drive in local_drives() {
+        for drive in &self.file_manager.drives {
             list = list.child(
                 div()
                     .p(px(10.0))

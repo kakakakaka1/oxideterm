@@ -20,8 +20,9 @@ use crate::{
 };
 
 pub const AI_CHAT_DB_VERSION: u32 = 3;
-pub const MAX_CONVERSATIONS: usize = 100;
-pub const MAX_MESSAGES_PER_CONVERSATION: usize = 200;
+// Prompt compaction keeps the active model context bounded independently; this
+// larger guard only limits retained local history for a single conversation.
+pub const MAX_MESSAGES_PER_CONVERSATION: usize = 2_000;
 
 const COMPRESSION_THRESHOLD: usize = 4096;
 const ANCHOR_META_HEADER: &str = "$$ANCHOR_B64$$";
@@ -385,7 +386,6 @@ impl AiChatPersistenceStore {
             return Err(anyhow!("all conversations failed to deserialize"));
         }
         conversations.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
-        conversations.truncate(MAX_CONVERSATIONS);
         Ok(conversations)
     }
 }

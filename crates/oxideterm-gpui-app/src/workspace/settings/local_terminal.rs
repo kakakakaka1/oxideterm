@@ -222,6 +222,12 @@ impl WorkspaceApp {
             cwd,
             env,
             load_profile: settings.load_shell_profile,
+            current_directory_shell_integration: self
+                .settings_store
+                .settings()
+                .terminal
+                .command_bar
+                .current_directory_awareness,
             oh_my_posh_enabled: settings.oh_my_posh_enabled,
             oh_my_posh_theme: settings.oh_my_posh_theme.clone(),
         }

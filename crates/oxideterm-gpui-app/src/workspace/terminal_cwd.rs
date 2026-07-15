@@ -205,9 +205,15 @@ impl WorkspaceApp {
     ) -> Option<CurrentDirectorySnapshot> {
         let pane = self.panes.get(&pane_id)?.read(cx);
 
-        // OSC 7 is the active shell channel's own cwd report.
-        if let Some(cwd) = pane.current_working_directory() {
-            let source = match pane.current_working_directory_source() {
+        let current_cwd = pane.current_working_directory();
+        let current_source = pane.current_working_directory_source();
+        // A pending user-selected directory and a shell-owned OSC report are
+        // more current than an asynchronous process probe.
+        if pane.current_working_directory_is_pending()
+            || current_source == Some(TerminalWorkingDirectorySource::ShellIntegration)
+        {
+            let cwd = current_cwd.clone()?;
+            let source = match current_source {
                 Some(TerminalWorkingDirectorySource::ShellIntegration) => {
                     CurrentDirectorySource::ShellIntegration
                 }
@@ -222,13 +228,27 @@ impl WorkspaceApp {
             return CurrentDirectorySnapshot::new(scope, cwd, source);
         }
         if matches!(&scope, CurrentDirectoryScope::Local) {
-            return pane.process_info().cwd.and_then(|path| {
+            if let Some(snapshot) = pane.process_info().cwd.and_then(|path| {
                 CurrentDirectorySnapshot::new(
-                    scope,
+                    scope.clone(),
                     path.to_string_lossy().to_string(),
                     CurrentDirectorySource::ProcessFallback,
                 )
-            });
+            }) {
+                return Some(snapshot);
+            }
+        }
+        if let Some(cwd) = current_cwd {
+            let source = match current_source {
+                Some(TerminalWorkingDirectorySource::VisibleCommand) => {
+                    CurrentDirectorySource::UserAction
+                }
+                Some(TerminalWorkingDirectorySource::SessionDefault) => {
+                    CurrentDirectorySource::SessionDefault
+                }
+                _ => CurrentDirectorySource::VisibleText,
+            };
+            return CurrentDirectorySnapshot::new(scope, cwd, source);
         }
         None
     }

@@ -367,9 +367,7 @@ impl WorkspaceApp {
         let buffer_lines = session
             .session
             .lock()
-            .snapshot()
-            .lines
-            .len()
+            .buffer_line_count()
             .max(session.buffer_lines);
         div()
             .flex()

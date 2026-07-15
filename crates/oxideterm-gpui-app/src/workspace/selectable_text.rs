@@ -1,6 +1,8 @@
-use std::collections::HashMap;
+use std::cell::{Cell, RefCell};
+use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::ops::Range;
+use std::rc::Rc;
 use std::time::Duration;
 
 use gpui::{
@@ -54,6 +56,17 @@ pub(super) struct SelectableTextRenderState {
     accent: u32,
     active_group_selection: Option<(u64, Range<usize>)>,
     fragments: HashMap<u64, SelectableTextFragmentState>,
+    pending_fragment_updates: Rc<RefCell<Vec<SelectableTextFragmentUpdate>>>,
+    fragment_flush_scheduled: Rc<Cell<bool>>,
+}
+
+struct SelectableTextFragmentUpdate {
+    group_id: u64,
+    fragment_id: u64,
+    order: usize,
+    text: String,
+    layout: TextLayout,
+    anchor: TextInputAnchor,
 }
 
 pub(super) fn selectable_text_id(scope: &str, key: impl Hash) -> u64 {
@@ -287,6 +300,17 @@ impl WorkspaceApp {
             } else {
                 None
             };
+        // Virtual rows only need cached fragments for the selection currently being painted.
+        let fragments = active_group_selection
+            .as_ref()
+            .map(|(active_group_id, _)| {
+                self.selectable_text_fragments
+                    .iter()
+                    .filter(|(_, fragment)| fragment.group_id == *active_group_id)
+                    .map(|(fragment_id, fragment)| (*fragment_id, fragment.clone()))
+                    .collect()
+            })
+            .unwrap_or_default();
         SelectableTextRenderState {
             workspace: cx.entity(),
             ui_font_family: tauri_ui_font_family(
@@ -294,7 +318,9 @@ impl WorkspaceApp {
             ),
             accent: self.tokens.ui.accent,
             active_group_selection,
-            fragments: self.selectable_text_fragments.clone(),
+            fragments,
+            pending_fragment_updates: Rc::new(RefCell::new(Vec::new())),
+            fragment_flush_scheduled: Rc::new(Cell::new(false)),
         }
     }
 
@@ -682,6 +708,54 @@ impl WorkspaceApp {
         }
     }
 
+    fn update_selectable_text_group_fragments(
+        &mut self,
+        updates: Vec<SelectableTextFragmentUpdate>,
+        cx: &mut Context<Self>,
+    ) {
+        if updates.is_empty() {
+            return;
+        }
+
+        // One virtual-list frame can report hundreds of cell anchors. Replace stale row
+        // fragments in one scan instead of scanning the whole cache once per visible row.
+        let replaced_groups = updates
+            .iter()
+            .filter(|update| update.group_id != selectable_document_group_id() && update.order == 0)
+            .map(|update| update.group_id)
+            .collect::<HashSet<_>>();
+        if !replaced_groups.is_empty() {
+            self.selectable_text_fragments
+                .retain(|_, fragment| !replaced_groups.contains(&fragment.group_id));
+        }
+
+        let active_group = match self.active_ime_target() {
+            Some(WorkspaceImeTarget::ReadOnlyText(group_id)) => Some(group_id),
+            _ => None,
+        };
+        let should_notify = active_group.is_some_and(|active_group_id| {
+            updates
+                .iter()
+                .any(|update| update.group_id == active_group_id)
+        });
+        for update in updates {
+            self.selectable_text_fragments.insert(
+                update.fragment_id,
+                SelectableTextFragmentState {
+                    group_id: update.group_id,
+                    order: update.order,
+                    generation: self.selectable_text_generation,
+                    text: update.text,
+                    layout: update.layout,
+                    anchor: update.anchor,
+                },
+            );
+        }
+        if should_notify {
+            cx.notify();
+        }
+    }
+
     pub(super) fn selectable_text_group_text(&self, group_id: u64) -> Option<String> {
         let fragments = self.ordered_selectable_text_fragments(group_id);
         if fragments.is_empty() {
@@ -901,6 +975,8 @@ impl SelectableTextRenderState {
             .unwrap_or(runs);
         let workspace = self.workspace.clone();
         let workspace_for_mouse = self.workspace.clone();
+        let pending_fragment_updates = self.pending_fragment_updates.clone();
+        let fragment_flush_scheduled = self.fragment_flush_scheduled.clone();
         let value_for_anchor = value.clone();
         let styled_text = StyledText::new(text).with_runs(display_runs);
         let layout = styled_text.layout().clone();
@@ -938,20 +1014,29 @@ impl SelectableTextRenderState {
                     },
                 ),
             move |anchor, window: &mut Window, cx| {
-                // Read-only text anchors are render caches. Writing them from
-                // prepaint can re-enter WorkspaceApp while a menu/modal click is
-                // already updating it, so commit the cache after the frame.
+                pending_fragment_updates
+                    .borrow_mut()
+                    .push(SelectableTextFragmentUpdate {
+                        group_id,
+                        fragment_id,
+                        order,
+                        text: value_for_anchor,
+                        layout,
+                        anchor,
+                    });
+                if fragment_flush_scheduled.replace(true) {
+                    return;
+                }
+
+                // Prepaint must not re-enter WorkspaceApp. Flush every virtual-list frame in
+                // one deferred entity update instead of scheduling one update for every cell.
+                let pending_fragment_updates = pending_fragment_updates.clone();
+                let fragment_flush_scheduled = fragment_flush_scheduled.clone();
                 window.defer(cx, move |_window, cx| {
+                    fragment_flush_scheduled.set(false);
+                    let updates = std::mem::take(&mut *pending_fragment_updates.borrow_mut());
                     let _ = workspace.update(cx, |this, cx| {
-                        this.update_selectable_text_group_fragment(
-                            group_id,
-                            fragment_id,
-                            order,
-                            value_for_anchor,
-                            layout,
-                            anchor,
-                            cx,
-                        );
+                        this.update_selectable_text_group_fragments(updates, cx);
                     });
                 });
             },

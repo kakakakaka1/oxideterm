@@ -19,9 +19,9 @@ use oxideterm_gpui_ui::{
 };
 use oxideterm_local_files::{
     BOOKMARKS_FILENAME as FILE_MANAGER_BOOKMARKS_FILENAME, LocalArchiveEntry, LocalArchiveInfo,
-    LocalBookmark, LocalChecksumResult, LocalClipboardMode, LocalFileEntry, LocalFileType,
-    LocalPreview, LocalPreviewMetadata, LocalSidebarLocation, LocalSidebarLocationKind,
-    LocalSortDirection, LocalSortField,
+    LocalBookmark, LocalChecksumResult, LocalClipboardMode, LocalDrive, LocalFileEntry,
+    LocalFileType, LocalPreview, LocalPreviewMetadata, LocalSidebarLocation,
+    LocalSidebarLocationKind, LocalSortDirection, LocalSortField,
 };
 use oxideterm_preview::{
     AudioPreviewBackend, AudioPreviewCommand, AudioPreviewState, RodioAudioPreviewBackend,
@@ -201,6 +201,42 @@ struct FileManagerSortedFilesCache {
     sort_field: LocalSortField,
     sort_direction: LocalSortDirection,
     files: Arc<Vec<LocalFileEntry>>,
+    rows: Arc<Vec<FileManagerListRow>>,
+}
+
+#[derive(Clone)]
+struct FileManagerListRow {
+    display_name: SharedString,
+    size_text: SharedString,
+    modified_text: SharedString,
+    icon: LucideIcon,
+    icon_color: u32,
+}
+
+impl FileManagerListRow {
+    fn new(file: &LocalFileEntry) -> Self {
+        // These values depend only on directory data, so compute them once instead
+        // of repeating extension and local-time formatting on every scroll frame.
+        let display_name = file
+            .symlink_target
+            .as_ref()
+            .map(|target| format!("{} -> {target}", file.name))
+            .unwrap_or_else(|| file.name.clone());
+        let size_text = if file.file_type == LocalFileType::Directory {
+            "-".to_string()
+        } else {
+            format_file_size(file.size)
+        };
+        let modified_text = format_modified(file.modified);
+        let (icon, icon_color) = file_icon_for_entry(file);
+        Self {
+            display_name: display_name.into(),
+            size_text: size_text.into(),
+            modified_text: modified_text.into(),
+            icon,
+            icon_color,
+        }
+    }
 }
 
 pub(super) struct FileManagerState {
@@ -229,6 +265,7 @@ pub(super) struct FileManagerState {
     pub(super) clipboard: Option<LocalClipboard>,
     pub(super) bookmarks: Vec<LocalBookmark>,
     pub(super) sidebar_locations: Vec<LocalSidebarLocation>,
+    pub(super) drives: Vec<LocalDrive>,
     pub(super) bookmarks_path: PathBuf,
     pub(super) bookmarks_visible: bool,
     pub(super) list_scroll: UniformListScrollHandle,
@@ -289,6 +326,9 @@ impl Default for FileManagerState {
             bookmarks: Vec::new(),
             // Resolve system folders once so paint does not repeatedly query the filesystem.
             sidebar_locations: local_sidebar_locations(),
+            // Disk discovery performs synchronous system and filesystem queries.
+            // Cache it outside render and refresh only at explicit interaction boundaries.
+            drives: local_drives(),
             bookmarks_path: default_file_manager_bookmarks_path(),
             bookmarks_visible: true,
             list_scroll: UniformListScrollHandle::new(),
@@ -349,14 +389,32 @@ impl FileManagerState {
             self.sort_field,
             self.sort_direction,
         ));
+        let rows = Arc::new(
+            files
+                .iter()
+                .map(FileManagerListRow::new)
+                .collect::<Vec<_>>(),
+        );
         *self.sorted_files_cache.borrow_mut() = Some(FileManagerSortedFilesCache {
             source_revision: self.source_revision,
             filter: self.filter.clone(),
             sort_field: self.sort_field,
             sort_direction: self.sort_direction,
             files: files.clone(),
+            rows,
         });
         files
+    }
+
+    fn sorted_file_rows(&self) -> Arc<Vec<FileManagerListRow>> {
+        // Populate both aligned caches through the same validation path.
+        let _ = self.sorted_files();
+        self.sorted_files_cache
+            .borrow()
+            .as_ref()
+            .expect("sorted file rows should exist after sorting")
+            .rows
+            .clone()
     }
 
     fn replace_files(&mut self, files: Vec<LocalFileEntry>) {
@@ -433,19 +491,29 @@ mod tests {
         // Unchanged render queries must reuse the same allocation.
         let initial = state.sorted_files();
         let reused = state.sorted_files();
+        let initial_rows = state.sorted_file_rows();
+        let reused_rows = state.sorted_file_rows();
         assert!(Arc::ptr_eq(&initial, &reused));
+        assert!(Arc::ptr_eq(&initial_rows, &reused_rows));
+        assert_eq!(initial_rows[0].display_name.as_ref(), "alpha");
+        assert_eq!(initial_rows[0].size_text.as_ref(), "0 B");
+        assert_eq!(initial_rows[0].modified_text.as_ref(), "-");
 
         // Filter changes invalidate the query without requiring an explicit mutation hook.
         state.filter = "beta".to_string();
         let filtered = state.sorted_files();
+        let filtered_rows = state.sorted_file_rows();
         assert!(!Arc::ptr_eq(&initial, &filtered));
+        assert!(!Arc::ptr_eq(&initial_rows, &filtered_rows));
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].name, "beta");
 
         // A directory refresh invalidates cached results even when the query is unchanged.
         state.replace_files(vec![cache_entry("beta"), cache_entry("beta-2")]);
         let refreshed = state.sorted_files();
+        let refreshed_rows = state.sorted_file_rows();
         assert!(!Arc::ptr_eq(&filtered, &refreshed));
+        assert!(!Arc::ptr_eq(&filtered_rows, &refreshed_rows));
         assert_eq!(refreshed.len(), 2);
     }
 }
