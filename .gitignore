@@ -29,14 +29,10 @@ __pycache__/
 .env.local
 /docs/local
 /docs/tauri
-!/docs/tauri/
-!/docs/tauri/native-cli-parity-gap-checklist.md
 .codex-private/
 .deps
-docs/tauri/*
 AGENTS.md
 tasks/*
 .deepseek/*
 docs/design/*
-docs/testing/visual-appearance-matrix.md
 audit-evidence-archive/
