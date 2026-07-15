@@ -18,7 +18,24 @@ APT_GET_OPTIONS=(
   -o Acquire::ForceIPv4=true
 )
 
-sudo apt-get "${APT_GET_OPTIONS[@]}" update
+# GitHub ARM runners have intermittently lost access to the Ubuntu Ports HTTP
+# endpoint. Keep the canonical mirror while using its reachable HTTPS endpoint.
+readonly UBUNTU_PORTS_HTTP_URI='http://ports.ubuntu.com/ubuntu-ports'
+readonly UBUNTU_PORTS_HTTPS_URI='https://ports.ubuntu.com/ubuntu-ports'
+APT_SOURCE_FILES=(
+  /etc/apt/sources.list
+  /etc/apt/sources.list.d/ubuntu.sources
+)
+for apt_source_file in "${APT_SOURCE_FILES[@]}"; do
+  if [[ -f "${apt_source_file}" ]]; then
+    sudo sed -i \
+      "s|${UBUNTU_PORTS_HTTP_URI}|${UBUNTU_PORTS_HTTPS_URI}|g" \
+      "${apt_source_file}"
+  fi
+done
+
+# Do not continue with stale package indexes when any configured source fails.
+sudo apt-get "${APT_GET_OPTIONS[@]}" -o APT::Update::Error-Mode=any update
 
 # GitHub-hosted Ubuntu images may preinstall LLVM libunwind-*-dev packages
 # that conflict with libunwind-dev (required by GStreamer dev packages).
