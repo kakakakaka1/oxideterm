@@ -12,9 +12,7 @@ use oxideterm_editor_core::{
     BufferOffset, Cursor, EditTransaction, FindMatch, LineCol, Selection, TextBuffer, TextEdit,
     TextRange, word_at,
 };
-use oxideterm_editor_syntax::{
-    BracketPair, HighlightSpan, IndentGuide, LanguageId, SyntaxEdit, SyntaxSession,
-};
+use oxideterm_editor_syntax::{BracketPair, HighlightSpan, LanguageId, SyntaxEdit, SyntaxSession};
 use oxideterm_theme::ThemeTokens;
 
 use crate::{EditorAppearance, EditorMetrics, EditorSettings, EditorViewport};
@@ -22,13 +20,17 @@ use crate::{EditorAppearance, EditorMetrics, EditorSettings, EditorViewport};
 mod commands;
 mod coords;
 mod fold;
+mod indent_index;
 mod input;
+#[cfg(all(test, feature = "perf-baseline"))]
+mod perf;
 mod render;
 mod search;
 mod wrap;
 
 pub use commands::EditorCommand;
 use coords::{byte_column_for_visual_column, visual_column_for_byte_column};
+use indent_index::IndentGuideIndex;
 use wrap::DisplayRow;
 
 pub type SaveCallback =
@@ -189,11 +191,12 @@ pub(super) struct HighlightChunkCacheKey {
     pub range_end: usize,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct LineChunkSpec {
     pub start: usize,
     pub end: usize,
     pub color: u32,
+    pub text: gpui::SharedString,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -254,7 +257,9 @@ pub struct TextEditorView {
     syntax: Option<SyntaxSession>,
     highlight_spans: Vec<HighlightSpan>,
     highlight_line_spans: Vec<Range<usize>>,
-    bracket_pairs: Vec<BracketPair>,
+    // Cursor movement queries bracket matches on every frame. Index every
+    // accepted caret slot so lookup does not rescan the document's pairs.
+    bracket_pair_by_caret: HashMap<usize, BracketPair>,
     content_bounds: Option<Bounds<Pixels>>,
     marked_text: Option<MarkedText>,
     secondary_selections: Vec<Selection>,
@@ -267,7 +272,7 @@ pub struct TextEditorView {
     active_find_index: Option<usize>,
     foldable_ranges: Vec<FoldRange>,
     folded_ranges: Vec<FoldRange>,
-    indent_guides: Vec<IndentGuide>,
+    indent_guide_index: IndentGuideIndex,
     fold_revision: u64,
     display_rows_cache: RefCell<Option<DisplayRowsCache>>,
     highlight_chunk_cache: RefCell<HighlightChunkCache>,
@@ -296,7 +301,7 @@ impl TextEditorView {
             syntax: None,
             highlight_spans: Vec::new(),
             highlight_line_spans: Vec::new(),
-            bracket_pairs: Vec::new(),
+            bracket_pair_by_caret: HashMap::new(),
             content_bounds: None,
             marked_text: None,
             secondary_selections: Vec::new(),
@@ -307,7 +312,7 @@ impl TextEditorView {
             active_find_index: None,
             foldable_ranges: Vec::new(),
             folded_ranges: Vec::new(),
-            indent_guides: Vec::new(),
+            indent_guide_index: IndentGuideIndex::default(),
             fold_revision: 0,
             display_rows_cache: RefCell::new(None),
             highlight_chunk_cache: RefCell::new(HighlightChunkCache::default()),
@@ -502,14 +507,13 @@ impl TextEditorView {
             self.secondary_selections.clear();
             self.marked_text = None;
         }
-        let display_index = self
-            .display_row_index_for_line(line_index)
-            .unwrap_or(line_index);
-        self.viewport.reveal_line(
-            display_index,
-            self.document_row_count(),
-            self.metrics.line_height,
-        );
+        let visual_column = visual_column_for_byte_column(&line_text, byte_column);
+        let display_rows = self.display_rows();
+        let display_index =
+            wrap::display_row_for_visual_column(&display_rows, line_index, visual_column)
+                .map(|(index, _, _)| index)
+                .unwrap_or(line_index);
+        self.reveal_display_row(display_index);
         if unfolded {
             self.viewport
                 .clamp(self.document_row_count(), self.metrics.line_height);
@@ -696,22 +700,46 @@ impl TextEditorView {
         self.highlight_spans
             .sort_by_key(|span| (span.range.start.0, span.range.end.0));
         self.highlight_line_spans = self.build_highlight_line_spans();
-        self.bracket_pairs = self.buffer.with_text(|text| {
+        let bracket_pairs = self.buffer.with_text(|text| {
             self.syntax
                 .as_ref()
                 .map(|syntax| syntax.bracket_pairs(text))
                 .unwrap_or_default()
         });
+        self.bracket_pair_by_caret = build_bracket_pair_index(&bracket_pairs);
         self.highlight_chunk_cache.borrow_mut().clear();
     }
 
     pub(super) fn refresh_indent_guides(&mut self) {
-        self.indent_guides = self.buffer.with_text(|text| {
+        let guides = self.buffer.with_text(|text| {
             self.syntax
                 .as_ref()
                 .map(|syntax| syntax.indent_guides(text, self.settings.tab_size))
                 .unwrap_or_default()
         });
+        self.indent_guide_index = IndentGuideIndex::new(guides);
+    }
+
+    fn active_selections(&self) -> Vec<Selection> {
+        let primary = self.cursor.selection();
+        let mut selections = Vec::new();
+        if !primary.is_caret() {
+            selections.push(primary);
+        }
+        selections.extend(
+            self.secondary_selections
+                .iter()
+                .copied()
+                .filter(|selection| !selection.is_caret()),
+        );
+        if selections.len() > 1 {
+            selections.sort_by_key(|selection| {
+                let range = selection.range();
+                (range.start.0, range.end.0)
+            });
+            selections.dedup();
+        }
+        selections
     }
 
     fn build_highlight_line_spans(&self) -> Vec<Range<usize>> {
@@ -801,6 +829,18 @@ impl TextEditorView {
         if scrolled {
             cx.notify();
         }
+    }
+
+    pub(super) fn vertical_scroll_y_px(&self) -> f32 {
+        self.viewport.scroll_y_px
+    }
+
+    pub(super) fn reveal_display_row(&mut self, display_index: usize) {
+        self.viewport.reveal_line(
+            display_index,
+            self.document_row_count(),
+            self.metrics.line_height,
+        );
     }
 
     fn set_viewport_bounds(
@@ -935,13 +975,19 @@ impl TextEditorView {
             .unwrap_or_else(|_| LineCol::new(0, 0));
         let line_text = self.buffer.line_text(position.line).unwrap_or_default();
         let visual_column = visual_column_for_byte_column(&line_text, position.column);
+        let display_rows = self.display_rows();
+        let (display_index, display_column) =
+            wrap::display_row_for_visual_column(&display_rows, position.line, visual_column)
+                .map(|(index, _, column)| (index, column))
+                .unwrap_or((position.line, visual_column));
         Bounds {
             origin: bounds.origin
                 + point(
                     px(self.metrics.gutter_width + self.metrics.content_padding_x
                         - self.viewport.scroll_x_px
-                        + visual_column as f32 * self.metrics.char_width),
-                    px(position.line as f32 * self.metrics.line_height - self.viewport.scroll_y_px),
+                        + display_column as f32 * self.metrics.char_width),
+                    px(display_index as f32 * self.metrics.line_height
+                        - self.vertical_scroll_y_px()),
                 ),
             size: gpui::size(px(1.0), px(self.metrics.line_height)),
         }
@@ -969,16 +1015,25 @@ impl TextEditorView {
 
     fn matching_bracket_pair(&self) -> Option<BracketPair> {
         let head = self.cursor.selection().head.0;
-        self.bracket_pairs
-            .iter()
-            .find(|pair| {
-                pair.open.0 == head
-                    || pair.close.0 == head
-                    || pair.open.0.saturating_add(1) == head
-                    || pair.close.0.saturating_add(1) == head
-            })
-            .cloned()
+        self.bracket_pair_by_caret.get(&head).cloned()
     }
+}
+
+fn build_bracket_pair_index(pairs: &[BracketPair]) -> HashMap<usize, BracketPair> {
+    let mut index = HashMap::with_capacity(pairs.len().saturating_mul(4));
+    for pair in pairs {
+        for caret in [
+            pair.open.0,
+            pair.open.0.saturating_add(1),
+            pair.close.0,
+            pair.close.0.saturating_add(1),
+        ] {
+            // Preserve the syntax provider's first-match behavior when two
+            // bracket pairs share the caret slot between adjacent tokens.
+            index.entry(caret).or_insert_with(|| pair.clone());
+        }
+    }
+    index
 }
 
 impl Focusable for TextEditorView {
@@ -995,7 +1050,12 @@ fn colored_text(text: &str, color: u32) -> Div {
 mod tests {
     use std::sync::Arc;
 
-    use super::{HighlightChunkCache, HighlightChunkCacheKey, LineChunkSpec};
+    use oxideterm_editor_core::BufferOffset;
+    use oxideterm_editor_syntax::BracketPair;
+
+    use super::{
+        HighlightChunkCache, HighlightChunkCacheKey, LineChunkSpec, build_bracket_pair_index,
+    };
 
     fn cache_key(line: usize) -> HighlightChunkCacheKey {
         HighlightChunkCacheKey {
@@ -1014,6 +1074,7 @@ mod tests {
             start: 0,
             end: 4,
             color: 0xff00ff,
+            text: gpui::SharedString::from("test"),
         }]);
 
         let inserted = cache.insert(key, chunks.clone());
@@ -1041,5 +1102,21 @@ mod tests {
                 .get(&cache_key(HighlightChunkCache::MAX_ENTRIES))
                 .is_some()
         );
+    }
+
+    #[test]
+    fn bracket_index_preserves_first_pair_for_shared_caret_slot() {
+        let first = BracketPair {
+            open: BufferOffset(0),
+            close: BufferOffset(1),
+        };
+        let second = BracketPair {
+            open: BufferOffset(1),
+            close: BufferOffset(2),
+        };
+
+        let index = build_bracket_pair_index(&[first.clone(), second]);
+
+        assert_eq!(index.get(&1), Some(&first));
     }
 }

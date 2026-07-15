@@ -220,11 +220,7 @@ impl TextEditorView {
             .move_to_with_preferred_column(offset, extend, preferred_column);
         self.secondary_selections.clear();
         self.marked_text = None;
-        self.viewport.reveal_line(
-            target_index,
-            self.document_row_count(),
-            self.metrics.line_height,
-        );
+        self.reveal_display_row(target_index);
         cx.notify();
     }
 
@@ -237,23 +233,7 @@ impl TextEditorView {
         let visual_column =
             super::coords::visual_column_for_byte_column(&line_text, position.column);
         let rows = self.display_rows();
-        let index = rows
-            .iter()
-            .enumerate()
-            .rfind(|(_, row)| {
-                row.line == position.line
-                    && visual_column >= row.start_col
-                    && visual_column <= row.end_col
-            })
-            .map(|(index, _)| index)
-            .or_else(|| {
-                rows.iter()
-                    .enumerate()
-                    .rfind(|(_, row)| row.line == position.line)
-                    .map(|(index, _)| index)
-            })?;
-        let row = rows.get(index).copied()?;
-        Some((index, row, visual_column.saturating_sub(row.start_col)))
+        super::wrap::display_row_for_visual_column(&rows, position.line, visual_column)
     }
 
     fn offset_for_line_visual_column(

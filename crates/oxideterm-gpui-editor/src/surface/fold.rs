@@ -38,9 +38,9 @@ impl TextEditorView {
 
     pub(super) fn foldable_range_starting_at(&self, line: usize) -> Option<FoldRange> {
         self.foldable_ranges
-            .iter()
-            .copied()
-            .find(|range| range.start_line == line)
+            .binary_search_by_key(&line, |range| range.start_line)
+            .ok()
+            .map(|index| self.foldable_ranges[index])
     }
 
     pub(super) fn folded_range_containing_line(&self, line: usize) -> Option<FoldRange> {

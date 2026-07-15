@@ -36,7 +36,7 @@ impl IdeSurface {
         let active_tab = self.workspace.active_tab();
         let mut row = div()
             .id("ide-tabs-scroll")
-            .h(px(34.0))
+            .h(px(IDE_WORKSPACE_HEADER_HEIGHT))
             .flex()
             .items_center()
             .overflow_x_scroll()

@@ -19,7 +19,7 @@ pub(super) struct DisplayRow {
 impl TextEditorView {
     pub(super) fn display_row_for_window_y(&self, y: Pixels) -> Option<DisplayRow> {
         let bounds = self.content_bounds?;
-        let relative_y = f32::from(y - bounds.origin.y) + self.viewport.scroll_y_px;
+        let relative_y = f32::from(y - bounds.origin.y) + self.vertical_scroll_y_px();
         let display_index = (relative_y / self.metrics.line_height).floor().max(0.0) as usize;
         self.display_rows().get(display_index).copied()
     }
@@ -54,12 +54,6 @@ impl TextEditorView {
         compute_display_rows_from_line_lengths(&line_lengths, &self.folded_ranges, wrap_column)
     }
 
-    pub(super) fn display_row_index_for_line(&self, line: usize) -> Option<usize> {
-        self.display_rows()
-            .iter()
-            .position(|display_row| display_row.line == line)
-    }
-
     fn wrap_column(&self) -> Option<usize> {
         if !self.settings.soft_wrap {
             return None;
@@ -71,6 +65,25 @@ impl TextEditorView {
         let measured = (available_width / self.metrics.char_width).floor().max(8.0) as usize;
         Some(measured.min(self.settings.soft_wrap_column.max(8)))
     }
+}
+
+pub(super) fn display_row_for_visual_column(
+    rows: &[DisplayRow],
+    line: usize,
+    visual_column: usize,
+) -> Option<(usize, DisplayRow, usize)> {
+    // Wrapped segments share their boundary column. Assign that caret slot to
+    // the later segment, while the physical line ending remains on its last row.
+    let index = rows
+        .iter()
+        .enumerate()
+        .rfind(|(_, row)| {
+            row.line == line && visual_column >= row.start_col && visual_column <= row.end_col
+        })
+        .map(|(index, _)| index)
+        .or_else(|| rows.iter().rposition(|row| row.line == line))?;
+    let row = rows[index];
+    Some((index, row, visual_column.saturating_sub(row.start_col)))
 }
 
 fn compute_display_rows_from_line_lengths(
@@ -127,7 +140,10 @@ fn compute_display_rows_from_line_lengths(
 
 #[cfg(test)]
 mod tests {
-    use super::{DisplayRow, FoldRange, compute_display_rows_from_line_lengths};
+    use super::{
+        DisplayRow, FoldRange, compute_display_rows_from_line_lengths,
+        display_row_for_visual_column,
+    };
 
     #[test]
     fn folded_rows_hide_inner_lines() {
@@ -159,5 +175,14 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn wrapped_boundary_belongs_to_the_later_display_row() {
+        let rows = compute_display_rows_from_line_lengths(&[16], &[], Some(8));
+
+        assert_eq!(display_row_for_visual_column(&rows, 0, 7).unwrap().0, 0);
+        assert_eq!(display_row_for_visual_column(&rows, 0, 8).unwrap().0, 1);
+        assert_eq!(display_row_for_visual_column(&rows, 0, 16).unwrap().0, 1);
     }
 }

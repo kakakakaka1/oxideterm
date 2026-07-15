@@ -1,7 +1,7 @@
 // Copyright (C) 2026 AnalyseDeCircuit
 // SPDX-License-Identifier: GPL-3.0-only
 
-use std::ops::Range;
+use std::{collections::BTreeMap, ops::Range};
 
 use gpui::{
     AnchoredPositionMode, App, Context, Corner, Div, InteractiveElement, IntoElement, MouseButton,
@@ -9,7 +9,7 @@ use gpui::{
     SharedString, Styled, Window, anchored, deferred, div, prelude::FluentBuilder, px, rgb, rgba,
 };
 use oxideterm_editor_core::{BufferOffset, Selection};
-use oxideterm_editor_syntax::SyntaxScope;
+use oxideterm_editor_syntax::{BracketPair, SyntaxScope};
 
 use super::{
     EditorBoundsProbe, HighlightChunkCacheKey, LineChunkSpec, TextEditorView, colored_text,
@@ -45,6 +45,13 @@ const CM_FOLDED_TOKEN: &str = " …";
 const CM_FOLD_OPEN_ICON: &str = "▾";
 const CM_FOLD_CLOSED_ICON: &str = "▸";
 
+struct RenderRowContext {
+    selections: Vec<Selection>,
+    matching_bracket_pair: Option<BracketPair>,
+    indentation_columns_by_line: BTreeMap<usize, Vec<usize>>,
+    primary_caret_display_index: Option<usize>,
+}
+
 impl Render for TextEditorView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.measure_code_metrics(window, cx);
@@ -52,6 +59,8 @@ impl Render for TextEditorView {
         let visible = self
             .viewport
             .visible_rows(display_rows.len(), self.metrics.line_height);
+        let row_context =
+            self.prepare_render_row_context(&display_rows, &display_rows[visible.range.clone()]);
         let view = cx.entity();
 
         let mut rows = div()
@@ -61,16 +70,16 @@ impl Render for TextEditorView {
             .flex()
             .flex_col()
             .w_full()
-            .top(px(visible.top_spacer_px as f32 - self.viewport.scroll_y_px))
+            .top(px(
+                visible.top_spacer_px as f32 - self.vertical_scroll_y_px()
+            ))
             .h(px(display_rows.len() as f32 * self.metrics.line_height));
-
         for display_index in visible.range.clone() {
             let Some(row) = display_rows.get(display_index).copied() else {
                 continue;
             };
-            rows = rows.child(self.render_row(row, cx));
+            rows = rows.child(self.render_row(display_index, row, &row_context, cx));
         }
-
         rows = rows.child(div().h(px(visible.bottom_spacer_px as f32)));
 
         let mut body_content = div()
@@ -146,18 +155,26 @@ impl Render for TextEditorView {
 }
 
 impl TextEditorView {
-    fn render_row(&self, display_row: DisplayRow, cx: &mut Context<Self>) -> Div {
+    fn render_row(
+        &self,
+        display_index: usize,
+        display_row: DisplayRow,
+        row_context: &RenderRowContext,
+        cx: &mut Context<Self>,
+    ) -> Div {
         self.buffer
             .with_line_text(display_row.line, |line_text| {
-                self.render_row_with_text(display_row, line_text, cx)
+                self.render_row_with_text(display_index, display_row, line_text, row_context, cx)
             })
             .unwrap_or_else(|| div().h(px(self.metrics.line_height)).w_full())
     }
 
     fn render_row_with_text(
         &self,
+        display_index: usize,
         display_row: DisplayRow,
         line_text: &str,
+        row_context: &RenderRowContext,
         cx: &mut Context<Self>,
     ) -> Div {
         let line = display_row.line;
@@ -180,9 +197,7 @@ impl TextEditorView {
         let cursor_visual_column = cursor_position
             .map(|position| visual_column_for_byte_column(&line_text, position.column))
             .unwrap_or(0);
-        let show_cursor = cursor_position.is_some()
-            && cursor_visual_column >= display_row.start_col
-            && cursor_visual_column <= display_row.end_col;
+        let show_cursor = row_context.primary_caret_display_index == Some(display_index);
         let cursor_column = cursor_visual_column.saturating_sub(display_row.start_col);
         let line_height = self.metrics.line_height;
         let gutter_width = self.metrics.gutter_width;
@@ -193,10 +208,27 @@ impl TextEditorView {
         let byte_end = byte_column_for_visual_column(&line_text, display_row.end_col);
         let segment_text = &line_text[byte_start..byte_end];
         let segment_range = (line_start + byte_start)..(line_start + byte_end).min(line_end);
-        let selection_rects = self.selection_rects_for_line(&segment_text, segment_range.clone());
-        let find_rects = self.find_rects_for_line(line, &segment_text, segment_range.clone());
-        let bracket_rects = self.bracket_rects_for_line(&segment_text, segment_range.clone());
-        let indent_guides = self.indentation_marker_columns(display_row);
+        let selection_rects = if row_context.selections.is_empty() {
+            Vec::new()
+        } else {
+            self.selection_rects_for_line(
+                &row_context.selections,
+                &segment_text,
+                segment_range.clone(),
+            )
+        };
+        let find_rects = if self.find_matches.is_empty() {
+            Vec::new()
+        } else {
+            self.find_rects_for_line(line, &segment_text, segment_range.clone())
+        };
+        let bracket_rects = row_context
+            .matching_bracket_pair
+            .as_ref()
+            .map(|pair| self.bracket_rects_for_line(pair, &segment_text, segment_range.clone()))
+            .unwrap_or_default();
+        let indent_guides =
+            self.indentation_marker_columns(display_row, &row_context.indentation_columns_by_line);
         let foldable = display_row
             .is_first
             .then(|| self.foldable_range_starting_at(line))
@@ -615,7 +647,7 @@ impl TextEditorView {
                 row = self.append_rendered_text(row, after, chunk.color);
                 cursor_drawn = true;
             } else {
-                row = self.append_rendered_text(row, chunk_text, chunk.color);
+                row = self.append_rendered_chunk(row, chunk);
             }
         }
 
@@ -661,6 +693,15 @@ impl TextEditorView {
         row
     }
 
+    fn append_rendered_chunk(&self, row: Div, chunk: &LineChunkSpec) -> Div {
+        if !self.settings.highlight_special_chars || !contains_special_char(&chunk.text) {
+            // Highlight chunks are cached across scroll frames, so retain the
+            // shared text allocation instead of rebuilding a String per row.
+            return row.child(colored_shared_text(chunk.text.clone(), chunk.color));
+        }
+        self.append_rendered_text(row, &chunk.text, chunk.color)
+    }
+
     fn append_fold_token(&self, row: Div, folded: bool) -> Div {
         if !folded {
             return row;
@@ -674,19 +715,56 @@ impl TextEditorView {
         )
     }
 
-    fn indentation_marker_columns(&self, display_row: DisplayRow) -> Vec<usize> {
+    fn prepare_render_row_context(
+        &self,
+        display_rows: &[DisplayRow],
+        visible_rows: &[DisplayRow],
+    ) -> RenderRowContext {
+        let primary_caret_display_index = self
+            .buffer
+            .offset_to_line_col(self.cursor.selection().head)
+            .ok()
+            .and_then(|position| {
+                let line_text = self.buffer.line_text(position.line).unwrap_or_default();
+                let visual_column = visual_column_for_byte_column(&line_text, position.column);
+                super::wrap::display_row_for_visual_column(
+                    display_rows,
+                    position.line,
+                    visual_column,
+                )
+                .map(|(index, _, _)| index)
+            });
+        RenderRowContext {
+            // Selection ordering and bracket matching depend on editor state,
+            // not on the row, so compute them once for the current frame.
+            selections: self.active_selections(),
+            matching_bracket_pair: self.matching_bracket_pair(),
+            indentation_columns_by_line: visible_indentation_columns(
+                &self.indent_guide_index,
+                visible_rows,
+                self.settings.indentation_markers,
+            ),
+            primary_caret_display_index,
+        }
+    }
+
+    fn indentation_marker_columns(
+        &self,
+        display_row: DisplayRow,
+        columns_by_line: &BTreeMap<usize, Vec<usize>>,
+    ) -> Vec<usize> {
         if !self.settings.indentation_markers {
             return Vec::new();
         }
-        indentation_marker_columns(
-            &self.indent_guides,
-            display_row.line,
-            display_row.start_col,
-            display_row.end_col,
-        )
-        .into_iter()
-        .map(|column| column - display_row.start_col)
-        .collect()
+        let Some(columns) = columns_by_line.get(&display_row.line) else {
+            return Vec::new();
+        };
+        columns
+            .iter()
+            .copied()
+            .filter(|column| *column >= display_row.start_col && *column < display_row.end_col)
+            .map(|column| column - display_row.start_col)
+            .collect()
     }
 
     fn render_placeholder(&self) -> Option<Div> {
@@ -713,11 +791,16 @@ impl TextEditorView {
 
     fn selection_rects_for_line(
         &self,
+        selections: &[Selection],
         line_text: &str,
         line_range: Range<usize>,
     ) -> Vec<(usize, usize)> {
-        self.all_selections()
-            .into_iter()
+        if selections.is_empty() {
+            return Vec::new();
+        }
+        selections
+            .iter()
+            .copied()
             .filter_map(|selection| {
                 selection_columns_for_line(selection, line_text, line_range.clone())
             })
@@ -731,6 +814,9 @@ impl TextEditorView {
         line_range: Range<usize>,
     ) -> Vec<(usize, usize)> {
         let match_range = self.find_line_matches.get(line).cloned().unwrap_or(0..0);
+        if match_range.is_empty() {
+            return Vec::new();
+        }
         self.find_matches
             .get(match_range)
             .unwrap_or(&[])
@@ -747,12 +833,10 @@ impl TextEditorView {
 
     fn bracket_rects_for_line(
         &self,
+        pair: &BracketPair,
         line_text: &str,
         line_range: Range<usize>,
     ) -> Vec<(usize, usize)> {
-        let Some(pair) = self.matching_bracket_pair() else {
-            return Vec::new();
-        };
         [pair.open, pair.close]
             .into_iter()
             .filter_map(|offset| {
@@ -909,7 +993,16 @@ fn push_chunk(
     if !line_text.is_char_boundary(start) || !line_text.is_char_boundary(end) {
         return;
     }
-    chunks.push(LineChunkSpec { start, end, color });
+    chunks.push(LineChunkSpec {
+        start,
+        end,
+        color,
+        text: SharedString::from(line_text[start..end].to_string()),
+    });
+}
+
+fn colored_shared_text(text: SharedString, color: u32) -> Div {
+    div().text_color(rgb(color)).child(text)
 }
 
 fn contains_special_char(text: &str) -> bool {
@@ -924,27 +1017,49 @@ fn special_char_marker(ch: char) -> Option<&'static str> {
     }
 }
 
-fn indentation_marker_columns(
-    guides: &[oxideterm_editor_syntax::IndentGuide],
-    line: usize,
-    first_visible_column: usize,
-    end_visible_column: usize,
-) -> Vec<usize> {
-    guides
-        .iter()
-        .filter(|guide| line > guide.start_line && line <= guide.end_line)
-        .map(|guide| guide.column)
-        .filter(|column| *column >= first_visible_column && *column < end_visible_column)
-        .collect()
+fn visible_indentation_columns(
+    index: &super::indent_index::IndentGuideIndex,
+    visible_rows: &[DisplayRow],
+    enabled: bool,
+) -> BTreeMap<usize, Vec<usize>> {
+    if !enabled {
+        return BTreeMap::new();
+    }
+
+    let mut columns_by_line = BTreeMap::new();
+    let mut previous_line = None;
+    for row in visible_rows {
+        if previous_line == Some(row.line) {
+            continue;
+        }
+        previous_line = Some(row.line);
+        let columns = index.columns_for_line(row.line);
+        if !columns.is_empty() {
+            columns_by_line.insert(row.line, columns);
+        }
+    }
+    columns_by_line
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        contains_special_char, indentation_marker_columns, special_char_marker,
-        visible_highlight_range,
+        contains_special_char, special_char_marker, visible_highlight_range,
+        visible_indentation_columns,
     };
     use oxideterm_editor_syntax::IndentGuide;
+
+    use crate::surface::{indent_index::IndentGuideIndex, wrap::DisplayRow};
+
+    fn display_row(line: usize, start_col: usize, end_col: usize) -> DisplayRow {
+        DisplayRow {
+            line,
+            start_col,
+            end_col,
+            is_first: start_col == 0,
+            is_folded_header: false,
+        }
+    }
 
     #[test]
     fn special_char_markers_ignore_tabs_but_cover_controls() {
@@ -970,11 +1085,11 @@ mod tests {
             },
         ];
 
-        assert_eq!(indentation_marker_columns(&guides, 2, 0, 120), vec![4, 8]);
-        assert_eq!(
-            indentation_marker_columns(&guides, 0, 0, 120),
-            Vec::<usize>::new()
-        );
+        let rows = [display_row(0, 0, 120), display_row(2, 0, 120)];
+        let columns = visible_indentation_columns(&IndentGuideIndex::new(guides), &rows, true);
+
+        assert_eq!(columns.get(&2), Some(&vec![4, 8]));
+        assert_eq!(columns.get(&0), None);
     }
 
     #[test]
@@ -985,7 +1100,22 @@ mod tests {
             column: 8,
         }];
 
-        assert_eq!(indentation_marker_columns(&guides, 2, 4, 12), vec![8]);
+        let rows = [display_row(2, 4, 12)];
+        let columns = visible_indentation_columns(&IndentGuideIndex::new(guides), &rows, true);
+
+        assert_eq!(columns.get(&2), Some(&vec![8]));
+    }
+
+    #[test]
+    fn disabled_indentation_guides_skip_index_queries() {
+        let rows = [display_row(2, 0, 12)];
+        let index = IndentGuideIndex::new(vec![IndentGuide {
+            start_line: 0,
+            end_line: 4,
+            column: 8,
+        }]);
+
+        assert!(visible_indentation_columns(&index, &rows, false).is_empty());
     }
 
     #[test]

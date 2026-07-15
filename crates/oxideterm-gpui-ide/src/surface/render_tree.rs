@@ -101,7 +101,7 @@ impl IdeSurface {
         tree = tree
             .child(
                 div()
-                    .h(px(36.0))
+                    .h(px(IDE_WORKSPACE_HEADER_HEIGHT))
                     .px_3()
                     .flex()
                     .items_center()

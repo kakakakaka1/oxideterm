@@ -4,6 +4,10 @@ edition.workspace = true
 license.workspace = true
 version.workspace = true
 
+[features]
+default = []
+perf-baseline = ["gpui/test-support"]
+
 [dependencies]
 gpui.workspace = true
 oxideterm-editor-core = { path = "../oxideterm-editor-core" }

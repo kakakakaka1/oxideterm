@@ -43,6 +43,8 @@ use crate::{file_icons, labels::IdeLabels};
 const IDE_TREE_DEFAULT_WIDTH: f32 = 280.0;
 const IDE_TREE_MIN_WIDTH: f32 = 200.0;
 const IDE_TREE_MAX_WIDTH: f32 = 500.0;
+// The project header and editor tab strip share one workspace chrome baseline.
+const IDE_WORKSPACE_HEADER_HEIGHT: f32 = 36.0;
 const IDE_STATUS_BAR_HEIGHT: f32 = 24.0;
 const IDE_TAB_PADDING_X: f32 = 12.0;
 const IDE_TAB_PADDING_Y: f32 = 6.0;

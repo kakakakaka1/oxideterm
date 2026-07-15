@@ -75,4 +75,18 @@ mod tests {
             Some((1, 3))
         );
     }
+
+    #[test]
+    fn computes_selection_columns_for_each_wrapped_segment() {
+        let selection = Selection::new(BufferOffset(2), BufferOffset(10));
+
+        assert_eq!(
+            selection_columns_for_line(selection, "abcdefgh", 0..8),
+            Some((2, 8))
+        );
+        assert_eq!(
+            selection_columns_for_line(selection, "ijklmnop", 8..16),
+            Some((0, 2))
+        );
+    }
 }
