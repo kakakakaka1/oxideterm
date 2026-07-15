@@ -27,9 +27,6 @@
   <a href="../../README.md">English</a> | <a href="README.zh-Hans.md">简体中文</a> | <a href="README.zh-Hant.md">繁體中文</a> | <a href="README.ja.md">日本語</a> | <a href="README.ko.md">한국어</a> | <a href="README.fr.md">Français</a> | <a href="README.de.md">Deutsch</a> | <a href="README.es.md">Español</a> | <a href="README.it.md">Italiano</a> | <a href="README.pt-BR.md">Português</a> | <a href="README.vi.md">Tiếng Việt</a>
 </p>
 
-> [!WARNING]
-> **O OxideTerm 2.0 ainda não foi lançado como versão estável.** A branch `main` agora contém o código-fonte da futura versão 2.0. A versão estável mais recente continua sendo a `v1.6.12`; as compilações GPUI Preview são versões de pré-lançamento.
-
 <p align="center">
   <img src="../../docs/media/oxideterm-native-hero.png" alt="Visão geral dos recursos do OxideTerm" width="920">
 </p>

@@ -2,11 +2,11 @@
 
 This file lists third-party Rust crates and detected licenses, including transitive dependencies.
 It is generated from `cargo deny list -f json -l crate`.
-Generated: 2026-07-13T15:33:47.650994Z
+Generated: 2026-07-15T19:01:56.402193Z
 
 ## Summary
 
-- MIT: 1025
+- MIT: 1024
 - Apache-2.0: 811
 - Apache-2.0 WITH LLVM-exception: 60
 - Zlib: 39
@@ -832,7 +832,6 @@ This section is a review prompt for binary distribution; it does not replace leg
 | sha1_smol | 1.0.1 | BSD-3-Clause | registry+https://github.com/rust-lang/crates.io-index |
 | sha2 | 0.10.9 | MIT, Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | sha2 | 0.11.0 | MIT, Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| sha2-asm | 0.6.4 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | sha3 | 0.11.0 | MIT, Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | sha3 | 0.12.0 | MIT, Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | sharded-slab | 0.1.7 | MIT | registry+https://github.com/rust-lang/crates.io-index |
@@ -851,7 +850,7 @@ This section is a review prompt for binary distribution; it does not replace leg
 | smallvec | 1.15.1 | MIT, Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | smol | 2.0.2 | Apache-2.0, MIT | registry+https://github.com/rust-lang/crates.io-index |
 | smol_str | 0.2.2 | MIT, Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| sntrup761 | 0.4.0 | MIT, Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| sntrup | 0.3.0 | MIT, Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | socket2 | 0.6.3 | MIT, Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | spin | 0.9.8 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | spirv | 0.3.0+sdk-1.3.268.0 | Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
