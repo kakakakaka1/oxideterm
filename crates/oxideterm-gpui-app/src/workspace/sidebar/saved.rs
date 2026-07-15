@@ -32,6 +32,7 @@ impl WorkspaceApp {
             .flex_1()
             .min_h(px(0.0))
             .w_full()
+            .pt(px(PRIMARY_SIDEBAR_CONTENT_TOP_INSET))
             .flex()
             .flex_col()
             .gap(px(8.0))

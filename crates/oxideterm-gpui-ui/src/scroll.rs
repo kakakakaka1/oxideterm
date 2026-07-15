@@ -1,9 +1,9 @@
-use std::panic::Location;
+use std::{cell::Cell, panic::Location, rc::Rc};
 
 use gpui::{
-    AnyElement, App, Div, Element, ElementId, InteractiveElement, IntoElement, ParentElement,
-    RenderOnce, ScrollHandle, Stateful, StatefulInteractiveElement, StyleRefinement, Styled,
-    Window, div, prelude::FluentBuilder, px,
+    AnyElement, App, AppContext, CursorStyle, Div, Element, ElementId, EmptyView,
+    InteractiveElement, IntoElement, ParentElement, Point, RenderOnce, ScrollHandle, Stateful,
+    StatefulInteractiveElement, StyleRefinement, Styled, Window, div, prelude::FluentBuilder, px,
 };
 
 const SCROLLBAR_LAYER_WIDTH: f32 = 10.0;
@@ -12,6 +12,92 @@ const SCROLLBAR_THUMB_RADIUS: f32 = 3.0;
 const SCROLLBAR_THUMB_RIGHT_INSET: f32 = 2.0;
 const SCROLLBAR_MIN_THUMB_LENGTH: f32 = 32.0;
 const SCROLLBAR_THUMB_ALPHA: f32 = 0.28;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct ScrollbarGeometry {
+    viewport_length: f32,
+    max_offset: f32,
+    thumb_length: f32,
+    thumb_start: f32,
+}
+
+#[derive(Clone)]
+struct ScrollbarDragState {
+    scroll_handle: ScrollHandle,
+    axis: ScrollbarAxis,
+    grab_offset: Rc<Cell<f32>>,
+}
+
+fn scroll_position_from_handle_offset(offset: f32, max_offset: f32) -> f32 {
+    // GPUI stores scroll offsets as negative content translations.
+    (-offset).clamp(0.0, max_offset)
+}
+
+fn scrollbar_geometry(
+    viewport_length: f32,
+    max_offset: f32,
+    scroll_position: f32,
+) -> Option<ScrollbarGeometry> {
+    if viewport_length <= 0.0 || max_offset <= 0.0 {
+        return None;
+    }
+    let content_length = viewport_length + max_offset;
+    let thumb_length = (viewport_length / content_length * viewport_length)
+        .clamp(SCROLLBAR_MIN_THUMB_LENGTH, viewport_length);
+    let thumb_travel = (viewport_length - thumb_length).max(0.0);
+    let thumb_start = scroll_position.clamp(0.0, max_offset) / max_offset * thumb_travel;
+    Some(ScrollbarGeometry {
+        viewport_length,
+        max_offset,
+        thumb_length,
+        thumb_start,
+    })
+}
+
+fn scroll_position_for_thumb_start(thumb_start: f32, geometry: ScrollbarGeometry) -> f32 {
+    let thumb_travel = (geometry.viewport_length - geometry.thumb_length).max(0.0);
+    if thumb_travel <= 0.0 {
+        return 0.0;
+    }
+    thumb_start.clamp(0.0, thumb_travel) / thumb_travel * geometry.max_offset
+}
+
+impl ScrollbarDragState {
+    fn update(&self, pointer: Point<gpui::Pixels>, window: &mut Window) {
+        let bounds = self.scroll_handle.bounds();
+        let max_offset = self.scroll_handle.max_offset();
+        let (viewport_length, maximum, pointer_position, track_start) = match self.axis {
+            ScrollbarAxis::Vertical => (
+                f32::from(bounds.size.height),
+                f32::from(max_offset.height),
+                f32::from(pointer.y),
+                f32::from(bounds.top()),
+            ),
+            ScrollbarAxis::Horizontal => (
+                f32::from(bounds.size.width),
+                f32::from(max_offset.width),
+                f32::from(pointer.x),
+                f32::from(bounds.left()),
+            ),
+            ScrollbarAxis::Both => return,
+        };
+        let Some(geometry) = scrollbar_geometry(viewport_length, maximum, 0.0) else {
+            return;
+        };
+        let thumb_start = pointer_position - track_start - self.grab_offset.get();
+        let scroll_position = scroll_position_for_thumb_start(thumb_start, geometry);
+        let current = self.scroll_handle.offset();
+        let next = match self.axis {
+            ScrollbarAxis::Vertical => Point::new(current.x, px(-scroll_position)),
+            ScrollbarAxis::Horizontal => Point::new(px(-scroll_position), current.y),
+            ScrollbarAxis::Both => return,
+        };
+        if current != next {
+            self.scroll_handle.set_offset(next);
+            window.refresh();
+        }
+    }
+}
 
 pub trait ScrollableElement: InteractiveElement + Styled + ParentElement + Element + Sized {
     fn vertical_scrollbar(self, scroll_handle: &ScrollHandle) -> Self {
@@ -240,23 +326,18 @@ fn render_vertical_scrollbar(
     let bounds = scroll_handle.bounds();
     let viewport_height = f32::from(bounds.size.height);
     let max_offset_y = f32::from(scroll_handle.max_offset().height);
-    let offset_y = f32::from(scroll_handle.offset().y).clamp(0.0, max_offset_y);
-    if viewport_height <= 0.0 || max_offset_y <= 0.0 {
+    let scroll_position =
+        scroll_position_from_handle_offset(f32::from(scroll_handle.offset().y), max_offset_y);
+    let Some(geometry) = scrollbar_geometry(viewport_height, max_offset_y, scroll_position) else {
         return div().id(id).into_any_element();
-    }
-
-    let content_height = viewport_height + max_offset_y;
-    let thumb_height = (viewport_height / content_height * viewport_height)
-        .clamp(SCROLLBAR_MIN_THUMB_LENGTH, viewport_height);
-    let thumb_top = if max_offset_y <= 0.0 {
-        0.0
-    } else {
-        offset_y / max_offset_y * (viewport_height - thumb_height)
     };
     let thumb_color = window.text_style().color.alpha(SCROLLBAR_THUMB_ALPHA);
+    let drag_state = ScrollbarDragState {
+        scroll_handle: scroll_handle.clone(),
+        axis: ScrollbarAxis::Vertical,
+        grab_offset: Rc::new(Cell::new(0.0)),
+    };
 
-    // The layer is visual-only; wheel/trackpad input remains owned by the
-    // GPUI scroll container through the shared ScrollHandle.
     div()
         .id(id)
         .absolute()
@@ -266,13 +347,23 @@ fn render_vertical_scrollbar(
         .w(px(SCROLLBAR_LAYER_WIDTH))
         .child(
             div()
+                .id("vertical-scrollbar-thumb")
                 .absolute()
                 .right(px(SCROLLBAR_THUMB_RIGHT_INSET))
-                .top(px(thumb_top))
+                .top(px(geometry.thumb_start))
                 .w(px(SCROLLBAR_THUMB_WIDTH))
-                .h(px(thumb_height))
+                .h(px(geometry.thumb_length))
                 .rounded(px(SCROLLBAR_THUMB_RADIUS))
-                .bg(thumb_color),
+                .bg(thumb_color)
+                .cursor(CursorStyle::OpenHand)
+                .on_drag(drag_state.clone(), |drag, position, _window, cx| {
+                    drag.grab_offset.set(f32::from(position.y));
+                    cx.new(|_| EmptyView)
+                })
+                .on_drag_move::<ScrollbarDragState>(|event, window, cx| {
+                    event.drag(cx).update(event.event.position, window);
+                    cx.stop_propagation();
+                }),
         )
         .into_any_element()
 }
@@ -285,20 +376,17 @@ fn render_horizontal_scrollbar(
     let bounds = scroll_handle.bounds();
     let viewport_width = f32::from(bounds.size.width);
     let max_offset_x = f32::from(scroll_handle.max_offset().width);
-    let offset_x = f32::from(scroll_handle.offset().x).clamp(0.0, max_offset_x);
-    if viewport_width <= 0.0 || max_offset_x <= 0.0 {
+    let scroll_position =
+        scroll_position_from_handle_offset(f32::from(scroll_handle.offset().x), max_offset_x);
+    let Some(geometry) = scrollbar_geometry(viewport_width, max_offset_x, scroll_position) else {
         return div().id(id).into_any_element();
-    }
-
-    let content_width = viewport_width + max_offset_x;
-    let thumb_width = (viewport_width / content_width * viewport_width)
-        .clamp(SCROLLBAR_MIN_THUMB_LENGTH, viewport_width);
-    let thumb_left = if max_offset_x <= 0.0 {
-        0.0
-    } else {
-        offset_x / max_offset_x * (viewport_width - thumb_width)
     };
     let thumb_color = window.text_style().color.alpha(SCROLLBAR_THUMB_ALPHA);
+    let drag_state = ScrollbarDragState {
+        scroll_handle: scroll_handle.clone(),
+        axis: ScrollbarAxis::Horizontal,
+        grab_offset: Rc::new(Cell::new(0.0)),
+    };
 
     div()
         .id(id)
@@ -309,13 +397,23 @@ fn render_horizontal_scrollbar(
         .h(px(SCROLLBAR_LAYER_WIDTH))
         .child(
             div()
+                .id("horizontal-scrollbar-thumb")
                 .absolute()
-                .left(px(thumb_left))
+                .left(px(geometry.thumb_start))
                 .bottom(px(SCROLLBAR_THUMB_RIGHT_INSET))
-                .w(px(thumb_width))
+                .w(px(geometry.thumb_length))
                 .h(px(SCROLLBAR_THUMB_WIDTH))
                 .rounded(px(SCROLLBAR_THUMB_RADIUS))
-                .bg(thumb_color),
+                .bg(thumb_color)
+                .cursor(CursorStyle::OpenHand)
+                .on_drag(drag_state.clone(), |drag, position, _window, cx| {
+                    drag.grab_offset.set(f32::from(position.x));
+                    cx.new(|_| EmptyView)
+                })
+                .on_drag_move::<ScrollbarDragState>(|event, window, cx| {
+                    event.drag(cx).update(event.event.position, window);
+                    cx.stop_propagation();
+                }),
         )
         .into_any_element()
 }
@@ -344,5 +442,23 @@ mod tests {
     #[test]
     fn horizontal_tab_scroll_contract_does_not_require_overlay_anchors() {
         assert!(!ScrollViewportContract::new(ScrollViewportKind::HorizontalTabs).anchored_overlays);
+    }
+
+    #[test]
+    fn scrollbar_position_uses_negative_gpui_content_offset() {
+        assert_eq!(scroll_position_from_handle_offset(-125.0, 300.0), 125.0);
+        assert_eq!(scroll_position_from_handle_offset(20.0, 300.0), 0.0);
+    }
+
+    #[test]
+    fn scrollbar_thumb_edges_map_to_scroll_range_edges() {
+        let geometry = scrollbar_geometry(200.0, 600.0, 300.0).expect("scrollbar geometry");
+        let thumb_travel = geometry.viewport_length - geometry.thumb_length;
+
+        assert_eq!(scroll_position_for_thumb_start(0.0, geometry), 0.0);
+        assert_eq!(
+            scroll_position_for_thumb_start(thumb_travel, geometry),
+            geometry.max_offset
+        );
     }
 }

@@ -91,10 +91,10 @@ pub fn settings_section_list_identity(
     tab: SettingsTab,
     terminal_page: TerminalSettingsPage,
     ai_page: AiSettingsPage,
-    keybinding_scope_key: &str,
-    keybinding_query: &str,
 ) -> String {
-    format!("{tab:?}:{terminal_page:?}:{ai_page:?}:{keybinding_scope_key}:{keybinding_query}")
+    // Keybinding filters update row signatures rather than replacing the list;
+    // this keeps the toolbar-mounted selection animation alive.
+    format!("{tab:?}:{terminal_page:?}:{ai_page:?}")
 }
 
 #[derive(Clone, Copy, Debug)]

@@ -384,15 +384,12 @@ impl WorkspaceApp {
     }
 
     pub(in crate::workspace) fn settings_section_list_identity(&self) -> String {
-        // Tauri keys virtual rows by tab plus the nested tab/filter state that
-        // can change the section set. Preserve that identity before asking GPUI
-        // ListState to reuse measured variable-height rows.
+        // Nested settings pages own distinct row sets. Keybinding filtering is
+        // handled by per-row signatures so its toolbar can retain animation state.
         settings_model_section_list_identity(
             self.settings_page.active_tab,
             self.settings_page.terminal_page,
             self.settings_page.ai_page,
-            &format!("{:?}", self.settings_page.keybinding_scope_filter),
-            self.settings_page.keybinding_search_query.trim(),
         )
     }
 
@@ -592,11 +589,15 @@ impl WorkspaceApp {
                     .hash(&mut hasher);
             }
             SettingsTab::Keybindings => {
-                format!("{:?}", self.settings_page.keybinding_scope_filter).hash(&mut hasher);
-                self.settings_page
-                    .keybinding_search_query
-                    .trim()
-                    .hash(&mut hasher);
+                // The toolbar owns the moving scope indicator. Keep row zero
+                // mounted while filtered table rows are replaced underneath it.
+                if index > 0 {
+                    format!("{:?}", self.settings_page.keybinding_scope_filter).hash(&mut hasher);
+                    self.settings_page
+                        .keybinding_search_query
+                        .trim()
+                        .hash(&mut hasher);
+                }
                 settings.keybindings.overrides.len().hash(&mut hasher);
             }
             _ => {}

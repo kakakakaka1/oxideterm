@@ -110,6 +110,7 @@ impl WorkspaceApp {
             .min_h_0()
             .flex_1()
             .w_full()
+            .pt(px(PRIMARY_SIDEBAR_CONTENT_TOP_INSET))
             .overflow_y_scroll()
             .flex()
             .flex_col()

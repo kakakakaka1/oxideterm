@@ -11,6 +11,9 @@ const SESSION_TREE_TEXT_SIZE: f32 = 13.0;
 const SESSION_TREE_META_TEXT_SIZE: f32 = 11.0;
 const SESSION_TREE_ICON_SIZE: f32 = 16.0;
 const SESSION_TREE_CHILD_ICON_SIZE: f32 = 14.0;
+// Primary sidebar content needs a small inset below the header divider so the
+// first interactive surface does not visually merge with workspace chrome.
+const PRIMARY_SIDEBAR_CONTENT_TOP_INSET: f32 = 4.0;
 // Tauri FocusedNodeList uses accent/emerald alpha utility classes such as
 // `bg-oxide-accent/5`, `border-oxide-accent/50`, and `bg-emerald-500/20`.
 // Keep the translated alpha roles named so this card view does not drift into

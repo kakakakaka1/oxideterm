@@ -34,6 +34,7 @@ impl WorkspaceApp {
             .flex_1()
             .min_h(px(0.0))
             .w_full()
+            .pt(px(PRIMARY_SIDEBAR_CONTENT_TOP_INSET))
             .child(tauri_virtual_list(
                 state,
                 spec,
@@ -67,6 +68,7 @@ impl WorkspaceApp {
             .flex_1()
             .min_h(px(0.0))
             .w_full()
+            .pt(px(PRIMARY_SIDEBAR_CONTENT_TOP_INSET))
             .flex()
             .flex_col()
             .child(self.render_active_session_focus_breadcrumb(&rows, focused_node_id.as_ref(), cx))

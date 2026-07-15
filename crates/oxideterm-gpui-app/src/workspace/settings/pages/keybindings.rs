@@ -298,7 +298,8 @@ impl WorkspaceApp {
             );
             items.push(item.into_any_element());
         }
-        // The shared compact control owns both motion and image-aware glass chrome.
+        // Match the runtime header switcher: the compact control owns the
+        // image-aware selected surface and its sliding indicator.
         oxideterm_gpui_ui::segmented_control(
             &self.tokens,
             selection_motion::KEYBINDING_SCOPE_SWITCHER_ID,
