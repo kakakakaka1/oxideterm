@@ -4,7 +4,9 @@ use curve25519_dalek::montgomery::MontgomeryPoint;
 use curve25519_dalek::scalar::Scalar;
 use log::debug;
 use sha2::Digest;
-use sntrup761::{Ciphertext, DecapsulationKey, EncapsulationKey, SharedSecret as SntrupShared};
+use sntrup::sntrup761::{
+    self, Ciphertext, DecapsulationKey, EncapsulationKey, SharedSecret as SntrupShared,
+};
 use ssh_encoding::{Encode, Writer};
 
 use super::{KexAlgorithm, KexAlgorithmImplementor, KexType, SharedSecret, compute_keys};
@@ -100,7 +102,7 @@ impl KexAlgorithmImplementor for Sntrup761X25519Kex {
         c_x25519_public.0.copy_from_slice(c_x25519_public_bytes);
 
         let (s_sntrup_ciphertext, k_sntrup) =
-            c_sntrup_public.encapsulate(sntrup761::rand::rng());
+            c_sntrup_public.encapsulate(&mut rand::rng());
 
         let s_x25519_secret = Scalar::from_bytes_mod_order(rand::random::<[u8; 32]>());
         let s_x25519_public = (ED25519_BASEPOINT_TABLE * &s_x25519_secret).to_montgomery();
@@ -123,7 +125,7 @@ impl KexAlgorithmImplementor for Sntrup761X25519Kex {
         client_ephemeral: &mut Vec<u8>,
         writer: &mut impl Writer,
     ) -> Result<(), Error> {
-        let (sntrup_public, sntrup_secret) = sntrup761::generate_key(sntrup761::rand::rng());
+        let (sntrup_public, sntrup_secret) = sntrup761::generate_key(&mut rand::rng());
 
         let x25519_secret = Scalar::from_bytes_mod_order(rand::random::<[u8; 32]>());
         let x25519_public = (ED25519_BASEPOINT_TABLE * &x25519_secret).to_montgomery();

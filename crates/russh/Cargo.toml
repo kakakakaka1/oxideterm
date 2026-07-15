@@ -255,8 +255,8 @@ version = "0.3"
 [dependencies.module-lattice]
 version = "0.2"
 
-[target.'cfg(not(windows))'.dependencies.sntrup761]
-version = "0.4"
+[dependencies.sntrup]
+version = "0.3"
 
 [dependencies.num-bigint]
 version = "=0.5.0"

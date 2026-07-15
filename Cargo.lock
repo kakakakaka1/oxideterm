@@ -9683,7 +9683,7 @@ dependencies = [
  "sha3 0.11.0",
  "shell-escape",
  "signature",
- "sntrup761",
+ "sntrup",
  "spki 0.8.0",
  "ssh-encoding",
  "ssh-key",
@@ -10459,7 +10459,6 @@ dependencies = [
  "cfg-if",
  "cpufeatures 0.2.17",
  "digest 0.10.7",
- "sha2-asm",
 ]
 
 [[package]]
@@ -10471,15 +10470,6 @@ dependencies = [
  "cfg-if",
  "cpufeatures 0.3.0",
  "digest 0.11.3",
-]
-
-[[package]]
-name = "sha2-asm"
-version = "0.6.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b845214d6175804686b2bd482bcffe96651bb2d1200742b712003504a2dac1ab"
-dependencies = [
- "cc",
 ]
 
 [[package]]
@@ -10669,14 +10659,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dd538fb6910ac1099850255cf94a94df6551fbdd602454387d0adb2d1ca6dead"
 
 [[package]]
-name = "sntrup761"
-version = "0.4.0"
+name = "sntrup"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a7fadfbd0a7d18ce7b04ed753c018a3e5d2ac2b3603f70507cd84012e76fa8a8"
+checksum = "bc6bb156706162d48d82e288c2178ef162b4fd4160d948148bd8ab768bcf2b7b"
 dependencies = [
+ "hex",
  "rand 0.10.1",
  "rand_chacha 0.10.0",
- "sha2 0.10.9",
+ "sha2 0.11.0",
  "subtle",
  "thiserror 2.0.18",
  "zeroize",
