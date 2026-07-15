@@ -3,15 +3,25 @@
 
 use super::*;
 use crate::workspace::settings::{CLI_COMPANION_COMMAND_NAME, LEGACY_CLI_COMPANION_COMMAND_NAME};
+use oxideterm_gpui_settings_view::{animation_label, animation_options};
 use oxideterm_gpui_ui::button::{
     ButtonOptions, ButtonRadius, ButtonSize, ButtonVariant, button_with,
 };
 use oxideterm_gpui_ui::modal::rounded_shell_child_radius;
 use oxideterm_gpui_ui::scroll::ScrollableElement;
 use oxideterm_gpui_ui::{
-    StatusPillOptions, StatusTone, SurfaceKind, SurfaceOptions, SurfacePadding, semantic_surface,
-    status_pill,
+    SegmentedControlOptions, StatusPillOptions, StatusTone, SurfaceKind, SurfaceOptions,
+    SurfacePadding, segmented_control, segmented_control_item, semantic_surface, status_pill,
 };
+use oxideterm_settings::AnimationSpeed;
+
+fn version_migration_animation_speed_index(speed: AnimationSpeed) -> usize {
+    // Use the settings view's canonical ordering so both surfaces stay synchronized.
+    animation_options()
+        .iter()
+        .position(|candidate| *candidate == speed)
+        .unwrap_or_default()
+}
 
 impl WorkspaceApp {
     pub(in crate::workspace) fn render_version_migration_modal(
@@ -170,7 +180,7 @@ impl WorkspaceApp {
             0 => self.version_migration_overview_page(compact),
             1 => self.version_migration_cli_page(compact, cx),
             2 => self.version_migration_gpui_page(compact),
-            3 => self.version_migration_visual_page(compact),
+            3 => self.version_migration_visual_page(compact, cx),
             4 => self.version_migration_features_page(compact),
             _ => self.version_migration_internal_page(compact),
         }
@@ -440,7 +450,7 @@ impl WorkspaceApp {
         )
     }
 
-    fn version_migration_visual_page(&self, compact: bool) -> AnyElement {
+    fn version_migration_visual_page(&self, compact: bool, cx: &mut Context<Self>) -> AnyElement {
         let items = [
             (LucideIcon::Activity, "migration.visual_motion"),
             (LucideIcon::Settings, "migration.visual_motion_control"),
@@ -452,11 +462,7 @@ impl WorkspaceApp {
             .flex_col()
             .gap(px(14.0))
             .child(self.version_migration_feature_grid(&items, compact))
-            .child(self.version_migration_notice(
-                LucideIcon::Settings,
-                "migration.visual_disable_hint",
-                self.tokens.ui.accent,
-            ));
+            .child(self.version_migration_animation_control(cx));
         self.version_migration_page_shell(
             compact,
             "migration.visual_eyebrow",
@@ -464,6 +470,96 @@ impl WorkspaceApp {
             "migration.visual_description",
             body.into_any_element(),
         )
+    }
+
+    fn version_migration_animation_control(&self, cx: &mut Context<Self>) -> AnyElement {
+        let current_speed = self.settings_store.settings().appearance.animation_speed;
+        let active_index = version_migration_animation_speed_index(current_speed);
+        let previous_index = self
+            .version_migration
+            .previous_animation_speed
+            .map(version_migration_animation_speed_index)
+            .unwrap_or(active_index);
+        let mut items = Vec::with_capacity(animation_options().len());
+
+        for (index, &speed) in animation_options().iter().enumerate() {
+            let item = segmented_control_item(
+                &self.tokens,
+                animation_label(speed, &self.i18n),
+                speed == current_speed,
+            )
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, _event, _window, cx| {
+                    let previous_speed = this.settings_store.settings().appearance.animation_speed;
+                    if previous_speed != speed {
+                        this.version_migration.previous_animation_speed = Some(previous_speed);
+                        // Apply the new profile before beginning the selection transition so
+                        // the indicator demonstrates the duration and spatial policy chosen.
+                        this.edit_settings(
+                            |settings| settings.appearance.animation_speed = speed,
+                            cx,
+                        );
+                        this.begin_user_segmented_control_transition(
+                            selection_motion::VERSION_MIGRATION_MOTION_SWITCHER_ID,
+                            index,
+                            cx,
+                        );
+                    }
+                    cx.stop_propagation();
+                }),
+            );
+            items.push(item.into_any_element());
+        }
+
+        div()
+            .w_full()
+            .pt(px(14.0))
+            .border_t_1()
+            .border_color(rgb(self.tokens.ui.border))
+            .flex()
+            .flex_col()
+            .gap(px(self.tokens.spacing.two))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(self.tokens.spacing.one))
+                    .child(
+                        div()
+                            .text_size(px(self.tokens.metrics.ui_text_sm))
+                            .font_weight(gpui::FontWeight::SEMIBOLD)
+                            .text_color(rgb(self.tokens.ui.text))
+                            .child(self.i18n.t("settings_view.appearance.animation")),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(self.tokens.metrics.ui_text_xs))
+                            .line_height(px(self.tokens.metrics.ui_text_xs + 5.0))
+                            .text_color(rgb(self.tokens.ui.text_muted))
+                            .child(self.i18n.t("migration.visual_disable_hint")),
+                    ),
+            )
+            .child(
+                segmented_control(
+                    &self.tokens,
+                    selection_motion::VERSION_MIGRATION_MOTION_SWITCHER_ID,
+                    SegmentedControlOptions::new(
+                        active_index,
+                        previous_index,
+                        animation_options().len(),
+                    )
+                    .user_transition_active(
+                        self.segmented_control_user_transition_active(
+                            selection_motion::VERSION_MIGRATION_MOTION_SWITCHER_ID,
+                            active_index,
+                        ),
+                    ),
+                    items,
+                )
+                .into_any_element(),
+            )
+            .into_any_element()
     }
 
     fn version_migration_features_page(&self, compact: bool) -> AnyElement {
@@ -819,5 +915,20 @@ impl WorkspaceApp {
             }),
         )
         .into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn migration_motion_picker_uses_the_settings_option_order() {
+        for (expected_index, &speed) in animation_options().iter().enumerate() {
+            assert_eq!(
+                version_migration_animation_speed_index(speed),
+                expected_index
+            );
+        }
     }
 }

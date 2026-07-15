@@ -887,7 +887,7 @@
     "visual_language_description": "Des règles communes d'espacement, d'élévation, d'état, de focus et d'interaction renforcent la cohérence des surfaces de travail.",
     "visual_background_title": "Arrière-plans en plein écran",
     "visual_background_description": "Les images d'arrière-plan peuvent désormais s'étendre derrière la barre d'activité, les barres latérales, les onglets, le contenu et les panneaux complémentaires.",
-    "visual_disable_hint": "Pour réduire ou désactiver les animations, ouvrez Paramètres → Apparence → Animations.",
+    "visual_disable_hint": "Changez de profil pour le prévisualiser et l’appliquer immédiatement. Vous pourrez le modifier plus tard dans Paramètres → Apparence.",
     "features_eyebrow": "PAGE 5 · FONCTIONNALITÉS",
     "features_title": "Plus de protocoles, des flux de travail renforcés",
     "features_description": "La version 2.0 étend les types de connexion et les opérations sur les hôtes, tout en reconstruisant les chemins sensibles aux performances comme SFTP.",

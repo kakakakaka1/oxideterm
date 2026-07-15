@@ -10,6 +10,8 @@ pub(in crate::workspace) const CONNECTION_RUNTIME_SWITCHER_ID: &str = "connectio
 pub(in crate::workspace) const NOTIFICATION_CENTER_SWITCHER_ID: &str =
     "notification-center-tab-bar";
 pub(in crate::workspace) const SETTINGS_NAVIGATION_ID: &str = "settings-navigation";
+pub(in crate::workspace) const VERSION_MIGRATION_MOTION_SWITCHER_ID: &str =
+    "version-migration-motion-switcher";
 
 #[derive(Default)]
 pub(super) struct UserSegmentedControlMotionState {

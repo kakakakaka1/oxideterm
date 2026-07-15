@@ -1,4 +1,5 @@
 use super::*;
+use oxideterm_settings::AnimationSpeed;
 
 pub(in crate::workspace) const VERSION_MIGRATION_DIALOG_MAX_WIDTH: f32 = 800.0;
 pub(in crate::workspace) const VERSION_MIGRATION_DIALOG_MAX_HEIGHT: f32 = 720.0;
@@ -16,6 +17,7 @@ pub(in crate::workspace) struct VersionMigrationState {
     pub(in crate::workspace) step: usize,
     pub(in crate::workspace) error: Option<String>,
     pub(in crate::workspace) scroll_handle: ScrollHandle,
+    pub(in crate::workspace) previous_animation_speed: Option<AnimationSpeed>,
 }
 
 impl VersionMigrationState {
@@ -27,6 +29,7 @@ impl VersionMigrationState {
             step: 0,
             error: None,
             scroll_handle: ScrollHandle::new(),
+            previous_animation_speed: None,
         })
     }
 
@@ -37,5 +40,7 @@ impl VersionMigrationState {
         self.step = 0;
         self.error = None;
         self.scroll_handle = ScrollHandle::new();
+        // The first render must be settled even when the persisted profile is not Normal.
+        self.previous_animation_speed = None;
     }
 }

@@ -887,7 +887,7 @@
     "visual_language_description": "共享的间距、层级、状态、焦点和交互规范让各工作区界面更加一致。",
     "visual_background_title": "整窗图片背景",
     "visual_background_description": "图片背景现在可以延伸到活动栏、侧边栏、标签栏、内容区和辅助面板之后。",
-    "visual_disable_hint": "如需减少或关闭动画，请打开“设置 → 外观 → 动画效果”。",
+    "visual_disable_hint": "切换档位即可即时预览并应用，稍后仍可在“设置 → 外观”中修改。",
     "features_eyebrow": "第 5 页 · 功能能力",
     "features_title": "更多协议，更强工作流",
     "features_description": "2.0 扩展了连接类型与主机运维能力，并重构了 SFTP 等性能敏感链路。",

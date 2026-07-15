@@ -887,7 +887,7 @@
     "visual_language_description": "共用的間距、層次、狀態、焦點與互動樣式，讓工作空間各介面更加一致。",
     "visual_background_title": "全視窗圖片背景",
     "visual_background_description": "圖片背景現在可延伸至活動列、側邊欄、分頁、內容與輔助面板後方。",
-    "visual_disable_hint": "若要降低或關閉動效，請開啟「設定 → 外觀 → 動效」。",
+    "visual_disable_hint": "切換檔位即可即時預覽並套用，稍後仍可在「設定 → 外觀」中修改。",
     "features_eyebrow": "第 5 頁 · 功能",
     "features_title": "更多通訊協定，更強的工作流程",
     "features_description": "2.0 擴充連線類型與主機操作，並重新打造 SFTP 等效能敏感路徑。",

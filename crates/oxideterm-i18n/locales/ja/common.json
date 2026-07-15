@@ -887,7 +887,7 @@
     "visual_language_description": "共通の余白、奥行き、状態、フォーカス、操作状態により、ワークスペース全体の一貫性が向上しました。",
     "visual_background_title": "ウィンドウ全体の画像背景",
     "visual_background_description": "画像背景をアクティビティバー、サイドバー、タブ、コンテンツ、コンパニオンパネルの背面まで広げられるようになりました。",
-    "visual_disable_hint": "アニメーションを減らす、または無効にするには、設定 → 外観 → アニメーションを開いてください。",
+    "visual_disable_hint": "プロファイルを切り替えると、その場でプレビューして適用できます。後から「設定 → 外観」で変更できます。",
     "features_eyebrow": "ページ 5・機能",
     "features_title": "対応プロトコルとワークフローを強化",
     "features_description": "2.0 では接続方式とホスト操作を拡充し、SFTP など性能が重要な経路も再構築しました。",
