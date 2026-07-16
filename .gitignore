@@ -36,3 +36,4 @@ tasks/*
 .deepseek/*
 docs/design/*
 audit-evidence-archive/
+.agents/skills/
