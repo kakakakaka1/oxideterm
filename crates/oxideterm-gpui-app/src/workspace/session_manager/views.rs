@@ -460,6 +460,9 @@ impl WorkspaceApp {
     ) -> Div {
         let theme = self.tokens.ui;
         let open_item = item.clone();
+        // Keep the selected connection name aligned with the checkbox's accent treatment.
+        let is_selected = matches!(item, SessionManagerDisplayItem::Connection(_))
+            && self.session_manager.selected_ids.contains(item.id());
         self.session_manager_card_surface(self.tokens.radii.lg, has_background)
             .min_w(px(260.0))
             .flex_grow()
@@ -482,12 +485,7 @@ impl WorkspaceApp {
                 |card| {
                     let id = item.id().to_string();
                     card.child(
-                        checkbox(
-                            &self.tokens,
-                            String::new(),
-                            self.session_manager.selected_ids.contains(item.id()),
-                        )
-                        .on_mouse_down(
+                        checkbox(&self.tokens, String::new(), is_selected).on_mouse_down(
                             MouseButton::Left,
                             cx.listener(move |this, _event, _window, cx| {
                                 this.toggle_connection_selection(&id);
@@ -508,7 +506,11 @@ impl WorkspaceApp {
                             .truncate()
                             .text_size(px(MANAGER_ROW_TEXT_SIZE))
                             .font_weight(gpui::FontWeight::SEMIBOLD)
-                            .text_color(rgb(theme.text))
+                            .text_color(rgb(if is_selected {
+                                theme.accent
+                            } else {
+                                theme.text
+                            }))
                             .child(item.name().to_string()),
                     )
                     .child(
@@ -842,22 +844,21 @@ impl WorkspaceApp {
         let theme = self.tokens.ui;
         let open_item = item.clone();
         let last_used = item.last_used();
+        // List rows mirror the card view so selection feedback is consistent.
+        let is_selected = matches!(item, SessionManagerDisplayItem::Connection(_))
+            && self.session_manager.selected_ids.contains(item.id());
         let selection = if let SessionManagerDisplayItem::Connection(connection) = &item {
             let id = connection.id.clone();
-            checkbox(
-                &self.tokens,
-                String::new(),
-                self.session_manager.selected_ids.contains(item.id()),
-            )
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(move |this, _event, _window, cx| {
-                    this.toggle_connection_selection(&id);
-                    cx.notify();
-                    cx.stop_propagation();
-                }),
-            )
-            .into_any_element()
+            checkbox(&self.tokens, String::new(), is_selected)
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(move |this, _event, _window, cx| {
+                        this.toggle_connection_selection(&id);
+                        cx.notify();
+                        cx.stop_propagation();
+                    }),
+                )
+                .into_any_element()
         } else {
             // Non-SSH profiles keep the selection column reserved so all
             // identity and metadata columns remain aligned.
@@ -895,7 +896,11 @@ impl WorkspaceApp {
                             .truncate()
                             .text_size(px(MANAGER_ROW_TEXT_SIZE))
                             .font_weight(gpui::FontWeight::MEDIUM)
-                            .text_color(rgb(theme.text))
+                            .text_color(rgb(if is_selected {
+                                theme.accent
+                            } else {
+                                theme.text
+                            }))
                             .child(item.name().to_string()),
                     )
                     .child(

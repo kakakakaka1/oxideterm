@@ -1,6 +1,7 @@
 [workspace]
 members = [
   "crates/oxideterm-atomic-file",
+  "crates/oxideterm-app-lock",
   "crates/oxideterm-gpui-markdown",
   "crates/oxideterm-cli",
   "crates/oxideterm-rdp-helper",

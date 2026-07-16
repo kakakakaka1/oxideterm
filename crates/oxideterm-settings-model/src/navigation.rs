@@ -24,9 +24,9 @@ pub fn settings_tab_section_count(
     match tab {
         SettingsTab::General => {
             if cfg!(any(target_os = "windows", target_os = "macos")) {
-                4
+                5
             } else {
-                3
+                4
             }
         }
         SettingsTab::Portable => 1,
@@ -115,6 +115,27 @@ mod tests {
     fn keybindings_page_keeps_an_empty_scope_section() {
         assert_eq!(keybinding_settings_section_count(0), 2);
         assert_eq!(keybinding_settings_section_count(3), 4);
+    }
+
+    #[test]
+    fn general_page_includes_application_lock_card() {
+        let dynamic = SettingsDynamicSectionCounts {
+            terminal_page: TerminalSettingsPage::Display,
+            ai_page: AiSettingsPage::General,
+            visible_keybinding_scope_count: 0,
+            knowledge_has_error: false,
+            knowledge_has_selected_collection: false,
+        };
+        let expected = if cfg!(any(target_os = "windows", target_os = "macos")) {
+            5
+        } else {
+            4
+        };
+
+        assert_eq!(
+            settings_tab_section_count(SettingsTab::General, dynamic),
+            expected
+        );
     }
 
     #[test]

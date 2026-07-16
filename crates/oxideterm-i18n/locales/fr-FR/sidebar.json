@@ -58,6 +58,8 @@
       "switch_tree": "Vue arborescente",
       "switch_focus": "Vue focus",
       "new_connection": "Nouvelle connexion",
+      "lock_app": "Verrouiller OxideTerm",
+      "setup_app_lock": "Configurer le verrouillage",
       "collapse": "Réduire"
     },
     "active_sessions": "Sessions actives",

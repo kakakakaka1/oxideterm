@@ -841,6 +841,16 @@ impl WorkspaceApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        if self.app_lock.locked {
+            window.set_window_title(&SharedString::from(
+                self.i18n.t("settings_view.general.app_lock_window_title"),
+            ));
+            return self.render_detached_tab_message(
+                "OxideTerm",
+                "settings_view.general.app_lock_detached_description",
+                cx,
+            );
+        }
         let Some(tab) = self.tab_by_id(tab_id).cloned() else {
             return self.render_detached_tab_message("OxideTerm", "tabbar.detached_tab_closed", cx);
         };
@@ -895,6 +905,7 @@ impl WorkspaceApp {
                 target,
             )
         });
+        let tab_window_modals = self.render_tab_window_modals(tab_id, &tab.kind, window, cx);
 
         // Keep the native window base opaque while its workspace content fades in.
         div()
@@ -903,6 +914,8 @@ impl WorkspaceApp {
             .bg(rgb(self.tokens.ui.bg))
             .child(window_content)
             .when_some(entry_handoff, |root, handoff| root.child(handoff))
+            // Detached tabs use their own native window root as the modal portal.
+            .children(tab_window_modals)
             .into_any_element()
     }
 

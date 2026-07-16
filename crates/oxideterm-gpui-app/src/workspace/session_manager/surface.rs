@@ -132,13 +132,6 @@ impl WorkspaceApp {
                         .child(status),
                 )
             })
-            .when(self.session_manager.show_new_group, |surface| {
-                surface.child(self.render_new_group_dialog(cx))
-            })
-            .when_some(
-                self.session_manager.delete_confirm.as_ref(),
-                |surface, _| surface.child(self.render_session_manager_delete_confirm(cx)),
-            )
             .when_some(
                 self.session_manager.row_action_menu.clone(),
                 |surface, menu| {
@@ -178,7 +171,7 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    pub(super) fn render_session_manager_delete_confirm(
+    pub(in crate::workspace) fn render_session_manager_delete_confirm(
         &self,
         cx: &mut Context<Self>,
     ) -> AnyElement {

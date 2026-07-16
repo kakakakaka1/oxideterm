@@ -6,6 +6,88 @@ impl Focusable for WorkspaceApp {
     }
 }
 
+impl WorkspaceApp {
+    /// Renders modal overlays owned by the tab displayed in the current window.
+    pub(in crate::workspace) fn render_tab_window_modals(
+        &mut self,
+        tab_id: TabId,
+        tab_kind: &TabKind,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Vec<AnyElement> {
+        let mut modals = Vec::new();
+        match tab_kind {
+            TabKind::Settings => {
+                if let Some(modal) = self.render_ai_mcp_add_server_dialog(cx) {
+                    modals.push(modal);
+                }
+                if let Some(modal) = self.render_knowledge_create_collection_dialog(cx) {
+                    modals.push(modal);
+                }
+                if let Some(modal) = self.render_knowledge_new_document_dialog(cx) {
+                    modals.push(modal);
+                }
+                if let Some(modal) = self.render_knowledge_delete_confirm_dialog(cx) {
+                    modals.push(modal);
+                }
+                if self.settings_page.keybinding_reset_all_confirm_open {
+                    modals.push(self.render_keybinding_reset_all_confirm_dialog(cx));
+                }
+                if let Some(modal) = self.render_settings_managed_key_dialog(cx) {
+                    modals.push(modal);
+                }
+                if let Some(modal) = self.render_portable_password_change_dialog(cx) {
+                    modals.push(modal);
+                }
+            }
+            TabKind::SessionManager => {
+                if self.session_manager.show_new_group {
+                    modals.push(self.render_new_group_dialog(cx));
+                }
+                if self.session_manager.delete_confirm.is_some() {
+                    modals.push(self.render_session_manager_delete_confirm(cx));
+                }
+            }
+            TabKind::Forwards => {
+                let Some(node_id) = self.forward_tab_nodes.get(&tab_id).cloned() else {
+                    return modals;
+                };
+                let has_background = self.background_surface_active("forwards");
+                // The renderers preserve the forwarding module's private state boundary
+                // and return an empty element when no corresponding modal is active.
+                modals.push(self.render_forward_edit_modal(
+                    node_id.clone(),
+                    tab_id,
+                    has_background,
+                    cx,
+                ));
+                modals.push(self.render_forward_delete_confirm(
+                    node_id,
+                    tab_id,
+                    has_background,
+                    cx,
+                ));
+            }
+            TabKind::Sftp => {
+                if let Some(dialog) = self.sftp_view.dialog.clone() {
+                    let has_background = self.terminal_background_preferences("sftp").is_some();
+                    modals.push(self.render_sftp_dialog(dialog, has_background, cx));
+                }
+            }
+            TabKind::FileManager => {
+                if self.file_manager.dialog.is_some() {
+                    let has_background = self
+                        .terminal_background_preferences("file_manager")
+                        .is_some();
+                    modals.push(self.render_file_manager_dialog(window, has_background, cx));
+                }
+            }
+            _ => {}
+        }
+        modals
+    }
+}
+
 impl Render for WorkspaceApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.begin_selectable_text_frame();
@@ -41,6 +123,12 @@ impl Render for WorkspaceApp {
             self.ensure_ai_model_selector_mount_statuses(cx);
         }
         self.observe_active_tab_for_history();
+        if self.app_lock.locked {
+            window.set_window_title(&SharedString::from(
+                self.i18n.t("settings_view.general.app_lock_window_title"),
+            ));
+            return self.render_app_lock_screen(window, cx);
+        }
         let title = self
             .active_tab()
             .map(|tab| self.tab_display_title(tab))
@@ -127,6 +215,11 @@ impl Render for WorkspaceApp {
             window,
             cx,
         );
+        let active_tab_window_modals = self
+            .active_tab()
+            .cloned()
+            .map(|tab| self.render_tab_window_modals(tab.id, &tab.kind, window, cx))
+            .unwrap_or_default();
         let window_background_layer = self.render_workspace_window_background(window, cx);
         let has_window_background = window_background_layer.is_some();
         let toast_layer = self.render_workspace_toasts(cx);
@@ -180,7 +273,10 @@ impl Render for WorkspaceApp {
                     // may not receive the character or IME candidate control.
                     return;
                 }
-                if this.keyboard_interactive_challenge.is_some() {
+                if this.handle_app_lock_dialog_key(event, cx) {
+                    window.prevent_default();
+                    cx.stop_propagation();
+                } else if this.keyboard_interactive_challenge.is_some() {
                     let _ = this.handle_keyboard_interactive_key(event, window, cx);
                     window.prevent_default();
                     cx.stop_propagation();
@@ -894,41 +990,11 @@ impl Render for WorkspaceApp {
                 self.render_native_plugin_confirm_dialog(cx),
                 |root, dialog| root.child(dialog),
             )
+            // Tab-owned dialogs are portaled here so their backdrops cover all window chrome.
+            .children(active_tab_window_modals)
             .when_some(
                 self.render_ai_sidebar_floating_overlay(window, cx),
                 |root, overlay| root.child(overlay),
-            )
-            .when(
-                self.active_tab()
-                    .is_some_and(|tab| matches!(tab.kind, TabKind::Sftp)),
-                |root| {
-                    if let Some(dialog) = self.sftp_view.dialog.as_ref() {
-                        // Tauri's Radix Dialog portals a modal overlay at the window root.
-                        // Keep GPUI SFTP dialogs outside the SFTP pane tree so hit-testing and
-                        // scroll input cannot leak to file rows behind the preview.
-                        let has_background = self.terminal_background_preferences("sftp").is_some();
-                        root.child(self.render_sftp_dialog(dialog.clone(), has_background, cx))
-                    } else {
-                        root
-                    }
-                },
-            )
-            .when(
-                self.active_tab()
-                    .is_some_and(|tab| matches!(tab.kind, TabKind::FileManager)),
-                |root| {
-                    if self.file_manager.dialog.is_some() {
-                        // Tauri QuickLook and file manager dialogs are portaled to
-                        // document.body, so native must not center them inside only
-                        // the file-manager pane.
-                        let has_background = self
-                            .terminal_background_preferences("file_manager")
-                            .is_some();
-                        root.child(self.render_file_manager_dialog(window, has_background, cx))
-                    } else {
-                        root
-                    }
-                },
             )
             .when(self.terminal_broadcast_menu_open, |root| {
                 let placement = if self.settings_store.settings().terminal.command_bar.enabled {
@@ -1009,6 +1075,9 @@ impl Render for WorkspaceApp {
             .when(self.shortcuts_modal.open, |root| {
                 root.child(self.render_shortcuts_modal(cx))
             })
+            .when_some(self.render_app_lock_dialog(cx), |root, dialog| {
+                root.child(dialog)
+            })
             .when(self.mermaid_zoom.is_some(), |root| {
                 root.child(self.render_mermaid_zoom_modal(window, cx))
             })
@@ -1025,6 +1094,7 @@ impl Render for WorkspaceApp {
                 cx.entity(),
                 self.focus_handle.clone(),
             ))
+            .into_any_element()
     }
 }
 

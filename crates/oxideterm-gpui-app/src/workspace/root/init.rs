@@ -102,6 +102,23 @@ impl WorkspaceApp {
         let initial_vibrancy_support = apply_window_vibrancy(window, initial_vibrancy_mode);
         let mut background_image_cache = BackgroundImageRenderCache::default();
         background_image_cache.set_byte_limit(render_policy.image_cache_bytes);
+        let mut background_images = match list_background_images(settings_store.path()) {
+            Ok(paths) => paths
+                .into_iter()
+                .map(|path| path.to_string_lossy().to_string())
+                .collect::<Vec<_>>(),
+            Err(error) => {
+                eprintln!("failed to load background image gallery: {error}");
+                Vec::new()
+            }
+        };
+        if let Some(active_path) = settings.terminal.background_image.as_ref()
+            && !background_images.contains(active_path)
+        {
+            // A pre-gallery GPUI setting may still point directly at a user file.
+            background_images.insert(0, active_path.clone());
+        }
+        let app_lock = app_lock::AppLockState::load(oxideterm_app_lock::AppLockStore::new());
         let ai = ai_state::AiWorkspaceState::new(
             ai_agent_fs,
             (settings.sidebar_ui.ai_sidebar_width as f32)
@@ -536,6 +553,8 @@ impl WorkspaceApp {
             applied_vibrancy_mode: initial_vibrancy_mode,
             vibrancy_support: initial_vibrancy_support,
             background_image_cache,
+            background_images,
+            app_lock,
             settings_store,
             connection_store,
             settings_store_last_modified,

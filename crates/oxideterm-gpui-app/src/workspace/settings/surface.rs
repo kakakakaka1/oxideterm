@@ -97,36 +97,8 @@ impl WorkspaceApp {
                     .child(self.render_settings_section_list_scroll(cx)),
             )
             .when_some(
-                self.render_ai_mcp_add_server_dialog(cx),
-                |surface, modal| surface.child(modal),
-            )
-            .when_some(
-                self.render_knowledge_create_collection_dialog(cx),
-                |surface, modal| surface.child(modal),
-            )
-            .when_some(
-                self.render_knowledge_new_document_dialog(cx),
-                |surface, modal| surface.child(modal),
-            )
-            .when_some(
-                self.render_knowledge_delete_confirm_dialog(cx),
-                |surface, modal| surface.child(modal),
-            )
-            .when(
-                self.settings_page.keybinding_reset_all_confirm_open,
-                |surface| surface.child(self.render_keybinding_reset_all_confirm_dialog(cx)),
-            )
-            .when_some(
                 self.render_settings_select_overlay(cx),
                 |surface, overlay| surface.child(overlay),
-            )
-            .when_some(
-                self.render_settings_managed_key_dialog(cx),
-                |surface, modal| surface.child(modal),
-            )
-            .when_some(
-                self.render_portable_password_change_dialog(cx),
-                |surface, modal| surface.child(modal),
             )
             .into_any_element()
     }
@@ -418,6 +390,20 @@ impl WorkspaceApp {
                     .is_some()
                     .hash(&mut hasher);
                 self.settings_page.cli_companion_status.hash(&mut hasher);
+                let app_lock_section_index =
+                    if cfg!(any(target_os = "windows", target_os = "macos")) {
+                        4
+                    } else {
+                        3
+                    };
+                if index
+                    == oxideterm_settings_model::SETTINGS_SECTION_HEADER_ITEM_COUNT
+                        + app_lock_section_index
+                {
+                    // Only the application-lock card changes height when its
+                    // configured action set switches between one and two buttons.
+                    self.app_lock.configured.hash(&mut hasher);
+                }
             }
             SettingsTab::Terminal => {
                 format!("{:?}", self.settings_page.terminal_page).hash(&mut hasher);

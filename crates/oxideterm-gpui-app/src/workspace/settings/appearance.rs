@@ -1633,35 +1633,25 @@ impl WorkspaceApp {
         settings: &PersistedSettings,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let has_background_image = settings.terminal.background_image.is_some();
-        let pick_label = if has_background_image {
-            self.i18n.t("settings_view.terminal.bg_change")
-        } else {
-            self.i18n.t("settings_view.terminal.bg_add")
-        };
-        let pick_icon = if has_background_image {
-            LucideIcon::Image
-        } else {
-            LucideIcon::Plus
-        };
+        let has_gallery_images = !self.background_images.is_empty();
         let actions = div()
             .flex()
             .flex_row()
             .items_center()
             .gap(px(8.0))
             .child(self.appearance_action_button(
-                pick_icon,
-                pick_label,
+                LucideIcon::Plus,
+                self.i18n.t("settings_view.terminal.bg_add"),
                 cx.listener(|this, _event, _window, cx| {
                     this.pick_background_image(cx);
                     cx.stop_propagation();
                 }),
             ))
-            .when(has_background_image, |actions| {
+            .when(has_gallery_images, |actions| {
                 actions.child(
                     settings_background_clear_all_button(
                         &self.tokens,
-                        self.i18n.t("settings_view.terminal.bg_clear"),
+                        self.i18n.t("settings_view.terminal.bg_clear_all"),
                         Self::render_lucide_icon(
                             LucideIcon::Trash2,
                             14.0,
@@ -1671,12 +1661,8 @@ impl WorkspaceApp {
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(|this, _event, _window, cx| {
-                            this.edit_settings(
-                                |settings| {
-                                    settings.terminal.background_image = None;
-                                },
-                                cx,
-                            );
+                            this.clear_background_image_gallery(cx);
+                            cx.stop_propagation();
                         }),
                     ),
                 )
@@ -1684,7 +1670,7 @@ impl WorkspaceApp {
             .into_any_element();
         settings_background_gallery(
             &self.tokens,
-            self.i18n.t("settings_view.terminal.bg_label"),
+            self.i18n.t("settings_view.terminal.bg_gallery"),
             actions,
             self.background_image_slot_content(settings, cx),
         )
@@ -1695,43 +1681,95 @@ impl WorkspaceApp {
         settings: &PersistedSettings,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let Some(current) = settings.terminal.background_image.as_deref() else {
+        if self.background_images.is_empty() {
             return settings_background_empty_hint(
                 &self.tokens,
                 self.i18n.t("settings_view.terminal.bg_hint"),
             );
-        };
+        }
 
-        settings_background_thumbnails_layout(self.background_thumbnail(current, true, cx))
+        let current = settings.terminal.background_image.as_deref();
+        let thumbnails = self
+            .background_images
+            .iter()
+            .map(|image_path| {
+                self.background_thumbnail(image_path, current == Some(image_path.as_str()), cx)
+            })
+            .collect();
+        settings_background_thumbnails_layout(thumbnails)
     }
 
     pub(in crate::workspace) fn pick_background_image(&mut self, cx: &mut Context<Self>) {
         let receiver = cx.prompt_for_paths(PathPromptOptions {
             files: true,
             directories: false,
-            multiple: false,
+            multiple: true,
             prompt: Some(SharedString::from(
-                self.i18n.t("settings_view.terminal.bg_add"),
+                self.i18n.t("settings_view.terminal.bg_select_title"),
             )),
         });
+        let settings_path = self.settings_store.path().to_path_buf();
+        let current_path = self
+            .settings_store
+            .settings()
+            .terminal
+            .background_image
+            .as_ref()
+            .map(PathBuf::from);
+        let runtime = self.forwarding_runtime.handle().clone();
         cx.spawn(async move |weak, cx| {
             let Ok(Ok(Some(paths))) = receiver.await else {
                 return;
             };
-            let Some(path) = paths.into_iter().next() else {
-                return;
-            };
-            if !is_supported_background_image(&path) {
+            let source_paths = paths
+                .into_iter()
+                .filter(|path| is_supported_background_image(path))
+                .collect::<Vec<_>>();
+            if source_paths.is_empty() {
                 return;
             }
-            let image_path = path.to_string_lossy().to_string();
-            let _ = weak.update(cx, |this, cx| {
-                this.edit_settings(
-                    move |settings| {
-                        settings.terminal.background_image = Some(image_path);
-                    },
-                    cx,
-                );
+            let task = runtime.spawn_blocking(move || -> Result<(Vec<String>, Option<String>)> {
+                let mut active_path = current_path
+                    .filter(|path| path.is_file() && is_supported_background_image(path.as_path()));
+                if let Some(current) = active_path.as_ref()
+                    && !is_managed_background_image(&settings_path, current)
+                {
+                    // Preserve the pre-gallery active image before selecting another one.
+                    active_path =
+                        import_background_images(&settings_path, std::slice::from_ref(current))?
+                            .into_iter()
+                            .next();
+                }
+
+                let imported = import_background_images(&settings_path, &source_paths)?;
+                if active_path.is_none() {
+                    active_path = imported.first().cloned();
+                }
+                let mut gallery = list_background_images(&settings_path)?
+                    .into_iter()
+                    .map(|path| path.to_string_lossy().to_string())
+                    .collect::<Vec<_>>();
+                let active_path = active_path.map(|path| path.to_string_lossy().to_string());
+                if let Some(active) = active_path.as_ref()
+                    && !gallery.contains(active)
+                {
+                    gallery.insert(0, active.clone());
+                }
+                Ok((gallery, active_path))
+            });
+            let result = task
+                .await
+                .map_err(|error| error.to_string())
+                .and_then(|result| result.map_err(|error| error.to_string()));
+            let _ = weak.update(cx, |this, cx| match result {
+                Ok((gallery, active_path)) => {
+                    this.background_images = gallery;
+                    this.edit_settings(
+                        move |settings| settings.terminal.background_image = active_path,
+                        cx,
+                    );
+                }
+                Err(error) => this.report_background_gallery_error(&error),
             });
         })
         .detach();
@@ -1744,6 +1782,7 @@ impl WorkspaceApp {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let image_path = image_path.to_string();
+        let remove_path = image_path.clone();
         let fallback_icon_color = self.tokens.ui.text_muted;
         let thumbnail = settings_background_thumbnail_frame(
             &self.tokens,
@@ -1762,13 +1801,8 @@ impl WorkspaceApp {
                 )
                 .on_mouse_down(
                     MouseButton::Left,
-                    cx.listener(|this, _event, _window, cx| {
-                        this.edit_settings(
-                            |settings| {
-                                settings.terminal.background_image = None;
-                            },
-                            cx,
-                        );
+                    cx.listener(move |this, _event, _window, cx| {
+                        this.remove_background_image_from_gallery(remove_path.clone(), cx);
                         cx.stop_propagation();
                     }),
                 ),
@@ -1788,6 +1822,100 @@ impl WorkspaceApp {
             )
             .into_any_element()
     }
+
+    pub(in crate::workspace) fn remove_background_image_from_gallery(
+        &mut self,
+        image_path: String,
+        cx: &mut Context<Self>,
+    ) {
+        let settings_path = self.settings_store.path().to_path_buf();
+        if !is_managed_background_image(&settings_path, Path::new(&image_path)) {
+            // Compatibility paths reference user-owned files, so removing one only clears it.
+            self.background_images
+                .retain(|candidate| candidate != &image_path);
+            if self
+                .settings_store
+                .settings()
+                .terminal
+                .background_image
+                .as_deref()
+                == Some(image_path.as_str())
+            {
+                self.edit_settings(|settings| settings.terminal.background_image = None, cx);
+            } else {
+                cx.notify();
+            }
+            return;
+        }
+
+        let runtime = self.forwarding_runtime.handle().clone();
+        let removed_path = image_path.clone();
+        cx.spawn(async move |weak, cx| {
+            let task = runtime.spawn_blocking(move || -> Result<Vec<String>> {
+                remove_background_image(&settings_path, Path::new(&removed_path))?;
+                Ok(list_background_images(&settings_path)?
+                    .into_iter()
+                    .map(|path| path.to_string_lossy().to_string())
+                    .collect())
+            });
+            let result = task
+                .await
+                .map_err(|error| error.to_string())
+                .and_then(|result| result.map_err(|error| error.to_string()));
+            let _ = weak.update(cx, |this, cx| match result {
+                Ok(mut gallery) => {
+                    let active_path = this
+                        .settings_store
+                        .settings()
+                        .terminal
+                        .background_image
+                        .clone()
+                        .filter(|active| active != &image_path);
+                    if let Some(active) = active_path.as_ref()
+                        && !gallery.contains(active)
+                    {
+                        gallery.insert(0, active.clone());
+                    }
+                    this.background_images = gallery;
+                    this.edit_settings(
+                        move |settings| settings.terminal.background_image = active_path,
+                        cx,
+                    );
+                }
+                Err(error) => this.report_background_gallery_error(&error),
+            });
+        })
+        .detach();
+    }
+
+    pub(in crate::workspace) fn clear_background_image_gallery(&mut self, cx: &mut Context<Self>) {
+        let settings_path = self.settings_store.path().to_path_buf();
+        let runtime = self.forwarding_runtime.handle().clone();
+        cx.spawn(async move |weak, cx| {
+            let task = runtime.spawn_blocking(move || clear_background_images(&settings_path));
+            let result = task
+                .await
+                .map_err(|error| error.to_string())
+                .and_then(|result| result.map_err(|error| error.to_string()));
+            let _ = weak.update(cx, |this, cx| match result {
+                Ok(()) => {
+                    this.background_images.clear();
+                    this.edit_settings(|settings| settings.terminal.background_image = None, cx);
+                }
+                Err(error) => this.report_background_gallery_error(&error),
+            });
+        })
+        .detach();
+    }
+
+    fn report_background_gallery_error(&self, error: &str) {
+        eprintln!("background image gallery operation failed: {error}");
+        self.send_settings_notice(
+            self.i18n.t("settings_view.terminal.bg_operation_failed"),
+            TerminalNoticeVariant::Error,
+        );
+    }
+
     pub(in crate::workspace) fn appearance_background_tabs(
         &self,
         settings: &PersistedSettings,

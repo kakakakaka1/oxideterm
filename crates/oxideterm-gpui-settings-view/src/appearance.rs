@@ -583,22 +583,19 @@ pub fn settings_theme_editor_color_cell(
         .into_any_element()
 }
 
-pub fn settings_background_thumbnails_layout(thumbnail: AnyElement) -> AnyElement {
+pub fn settings_background_thumbnails_layout(thumbnails: Vec<AnyElement>) -> AnyElement {
     // GPUI's grid row measurement can overestimate aspect-ratio children from
     // full container width, so this mirrors Tauri's quarter-width slot manually.
-    div()
-        .w_full()
-        .flex()
-        .flex_row()
-        .flex_wrap()
-        .gap(px(8.0))
-        .child(
+    let mut layout = div().w_full().flex().flex_row().flex_wrap().gap(px(8.0));
+    for thumbnail in thumbnails {
+        layout = layout.child(
             div()
                 .w(relative(1.0 / BACKGROUND_GALLERY_COLUMNS))
                 .flex_none()
                 .child(thumbnail),
-        )
-        .into_any_element()
+        );
+    }
+    layout.into_any_element()
 }
 
 pub fn settings_background_gallery(

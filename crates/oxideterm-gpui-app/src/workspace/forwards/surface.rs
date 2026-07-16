@@ -117,7 +117,7 @@ impl WorkspaceApp {
         let workspace = cx.entity();
         let spec = self.forwards_section_list_spec();
         let list_node_id = node_id.clone();
-        let mut surface = div()
+        div()
             .id("forwards-view-scroll")
             .size_full()
             .font_family(settings_ui_font_family(
@@ -136,24 +136,8 @@ impl WorkspaceApp {
                         this.render_forwards_section_item(index, tab_id, list_node_id.clone(), cx)
                     })
                 },
-            ));
-        if self.forwarding_view.editing_forward.is_some() {
-            surface = surface.child(self.render_forward_edit_modal(
-                node_id.clone(),
-                tab_id,
-                has_background,
-                cx,
-            ));
-        }
-        if self.forwarding_view.pending_delete_forward.is_some() {
-            surface = surface.child(self.render_forward_delete_confirm(
-                node_id,
-                tab_id,
-                has_background,
-                cx,
-            ));
-        }
-        surface.into_any_element()
+            ))
+            .into_any_element()
     }
 
     fn sync_forwards_section_list_state(&mut self, tab_id: TabId, node_id: &NodeId) {

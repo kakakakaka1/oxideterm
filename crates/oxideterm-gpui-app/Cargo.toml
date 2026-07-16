@@ -23,6 +23,7 @@ oxideterm-backend-classification = { path = "../oxideterm-backend-classification
 oxideterm-ai = { path = "../oxideterm-ai" }
 oxideterm-acp-adapter = { path = "../oxideterm-acp-adapter" }
 oxideterm-atomic-file = { path = "../oxideterm-atomic-file" }
+oxideterm-app-lock = { path = "../oxideterm-app-lock" }
 oxideterm-cloud-sync = { path = "../oxideterm-cloud-sync" }
 oxideterm-connection-monitor = { path = "../oxideterm-connection-monitor" }
 oxideterm-connections = { path = "../oxideterm-connections" }

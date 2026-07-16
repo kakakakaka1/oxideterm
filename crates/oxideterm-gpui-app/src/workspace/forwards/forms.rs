@@ -119,7 +119,7 @@ impl WorkspaceApp {
         )
     }
 
-    pub(super) fn render_forward_edit_modal(
+    pub(in crate::workspace) fn render_forward_edit_modal(
         &self,
         node_id: NodeId,
         tab_id: TabId,
@@ -317,7 +317,7 @@ impl WorkspaceApp {
         true
     }
 
-    pub(super) fn render_forward_delete_confirm(
+    pub(in crate::workspace) fn render_forward_delete_confirm(
         &self,
         node_id: NodeId,
         tab_id: TabId,

@@ -68,19 +68,19 @@ impl WorkspaceApp {
                     .child(self.portable_password_field(
                         "settings_view.general.portable_current_password",
                         SettingsInput::PortableCurrentPassword,
-                        self.portable_current_password.clone(),
+                        &self.portable_current_password,
                         cx,
                     ))
                     .child(self.portable_password_field(
                         "settings_view.general.portable_new_password",
                         SettingsInput::PortableNewPassword,
-                        self.portable_new_password.clone(),
+                        &self.portable_new_password,
                         cx,
                     ))
                     .child(self.portable_password_field(
                         "settings_view.general.portable_confirm_password",
                         SettingsInput::PortableConfirmPassword,
-                        self.portable_confirm_password.clone(),
+                        &self.portable_confirm_password,
                         cx,
                     ))
                     .when_some(
@@ -143,7 +143,7 @@ impl WorkspaceApp {
         &self,
         label_key: &str,
         input: SettingsInput,
-        value: String,
+        value: &str,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         div()
@@ -164,14 +164,14 @@ impl WorkspaceApp {
     pub(in crate::workspace) fn portable_password_input(
         &self,
         input: SettingsInput,
-        value: String,
+        value: &str,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let focused = self.focused_settings_input == Some(input);
         let display_value = if focused {
             self.settings_input_draft.as_str()
         } else {
-            value.as_str()
+            value
         };
         let target = WorkspaceImeTarget::Settings(input);
         let workspace = cx.entity();

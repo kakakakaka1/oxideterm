@@ -58,6 +58,8 @@
       "switch_tree": "Chế độ cây",
       "switch_focus": "Chế độ tập trung",
       "new_connection": "Kết nối mới",
+      "lock_app": "Khóa OxideTerm",
+      "setup_app_lock": "Thiết lập khóa ứng dụng",
       "collapse": "Thu gọn"
     },
     "active_sessions": "Phiên hoạt động",

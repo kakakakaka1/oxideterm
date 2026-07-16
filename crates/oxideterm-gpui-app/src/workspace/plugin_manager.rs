@@ -249,7 +249,8 @@ impl WorkspaceApp {
                         .child(
                             div()
                                 .text_size(px(self.tokens.metrics.ui_text_2xl))
-                                .font_weight(gpui::FontWeight::MEDIUM)
+                                // Page titles use regular weight so the large type does not look over-emphasized.
+                                .font_weight(gpui::FontWeight::NORMAL)
                                 .text_color(rgb(theme.text_heading))
                                 .child(self.i18n.t("plugin.manager_title")),
                         )

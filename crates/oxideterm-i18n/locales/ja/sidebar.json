@@ -58,6 +58,8 @@
       "switch_tree": "ツリービューに切替",
       "switch_focus": "フォーカスビューに切替",
       "new_connection": "新規接続",
+      "lock_app": "OxideTerm をロック",
+      "setup_app_lock": "アプリロックを設定",
       "collapse": "折りたたむ"
     },
     "active_sessions": "アクティブなセッション",

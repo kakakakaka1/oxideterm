@@ -140,15 +140,9 @@ pub fn background_fit_options() -> &'static [BackgroundFit] {
 }
 
 pub fn is_supported_background_image(path: &Path) -> bool {
-    path.extension()
-        .and_then(|extension| extension.to_str())
-        .map(|extension| {
-            matches!(
-                extension.to_ascii_lowercase().as_str(),
-                "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp"
-            )
-        })
-        .unwrap_or(false)
+    // Keep callers on the established settings-view API while validation lives
+    // beside the gallery storage implementation.
+    oxideterm_settings::is_supported_background_image(path)
 }
 
 pub fn background_tab_options() -> &'static [(&'static str, &'static str, SettingsBackgroundTabIcon)]

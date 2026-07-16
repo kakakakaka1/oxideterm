@@ -1,6 +1,7 @@
 mod actions;
 mod ai_lazy;
 mod ai_state;
+mod app_lock;
 mod browser_behavior;
 mod cloud_sync;
 mod command_palette;
@@ -190,7 +191,9 @@ use oxideterm_session_adapter::{
 use oxideterm_settings::{
     AI_SIDEBAR_MAX_WIDTH, AI_SIDEBAR_MIN_WIDTH, BackgroundFit, BackgroundScope,
     CursorStyle as SettingsCursorStyle, FontFamily, FrostedGlassMode, HighlightRuleRenderMode,
-    Language, PersistedSettings, SettingsStore, default_settings_path,
+    Language, PersistedSettings, SettingsStore, clear_background_images, default_settings_path,
+    import_background_images, is_managed_background_image, list_background_images,
+    remove_background_image,
 };
 use oxideterm_settings_model::{
     AiMcpServerDraft, AiModelRefreshDelivery, AiProviderKeyStatusDelivery, SettingsPageModel,
@@ -984,6 +987,9 @@ pub(crate) struct WorkspaceApp {
     applied_vibrancy_mode: NativeVibrancyMode,
     vibrancy_support: VibrancySupport,
     background_image_cache: BackgroundImageRenderCache,
+    // The gallery is loaded at explicit storage boundaries so settings renders never perform IO.
+    background_images: Vec<String>,
+    app_lock: app_lock::AppLockState,
     settings_store: SettingsStore,
     connection_store: ConnectionStore,
     settings_store_last_modified: Option<SystemTime>,

@@ -368,6 +368,10 @@ impl WorkspaceApp {
                     )],
                 )
             }
+            4 if cfg!(any(target_os = "windows", target_os = "macos")) => {
+                self.render_app_lock_settings_card(cx)
+            }
+            3 => self.render_app_lock_settings_card(cx),
             _ => div().into_any_element(),
         }
     }

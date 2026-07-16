@@ -1003,6 +1003,9 @@ impl WorkspaceApp {
             SettingsInput::PortableCurrentPassword => self.portable_current_password.clone(),
             SettingsInput::PortableNewPassword => self.portable_new_password.clone(),
             SettingsInput::PortableConfirmPassword => self.portable_confirm_password.clone(),
+            SettingsInput::AppLockCurrentPassword
+            | SettingsInput::AppLockNewPassword
+            | SettingsInput::AppLockConfirmPassword => self.app_lock_input_value(input).to_string(),
             SettingsInput::ManagedKeyFilePath => self.settings_managed_key_file_path.clone(),
             SettingsInput::ManagedKeyFileName => self.settings_managed_key_file_name.clone(),
             SettingsInput::ManagedKeyFilePassphrase => {
@@ -1127,6 +1130,13 @@ impl WorkspaceApp {
             SettingsInput::PortableConfirmPassword => {
                 zeroize::Zeroize::zeroize(&mut self.portable_confirm_password);
                 self.portable_confirm_password = self.settings_input_draft.clone();
+                cx.notify();
+            }
+            SettingsInput::AppLockCurrentPassword
+            | SettingsInput::AppLockNewPassword
+            | SettingsInput::AppLockConfirmPassword => {
+                let draft = self.settings_input_draft.clone();
+                let _ = self.set_app_lock_input_value(input, &draft);
                 cx.notify();
             }
             SettingsInput::ManagedKeyFilePath => {

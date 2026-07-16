@@ -54,7 +54,10 @@ impl WorkspaceApp {
         )
     }
 
-    pub(super) fn render_new_group_dialog(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::workspace) fn render_new_group_dialog(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let theme = self.tokens.ui;
         let can_create_group = !self.session_manager.new_group_name.trim().is_empty();
         modal_backdrop(rgba(

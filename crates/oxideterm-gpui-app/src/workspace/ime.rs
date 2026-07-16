@@ -490,6 +490,22 @@ impl WorkspaceApp {
     }
 
     pub(super) fn active_ime_target(&self) -> Option<WorkspaceImeTarget> {
+        if self.app_lock.locked {
+            return Some(WorkspaceImeTarget::Settings(
+                SettingsInput::AppLockCurrentPassword,
+            ));
+        }
+        if self.app_lock.dialog.is_some()
+            && let Some(input) = self.focused_settings_input
+            && matches!(
+                input,
+                SettingsInput::AppLockCurrentPassword
+                    | SettingsInput::AppLockNewPassword
+                    | SettingsInput::AppLockConfirmPassword
+            )
+        {
+            return Some(WorkspaceImeTarget::Settings(input));
+        }
         if let Some(challenge) = self.keyboard_interactive_challenge.as_ref() {
             return Some(WorkspaceImeTarget::KeyboardInteractive(
                 challenge.focused_prompt,
