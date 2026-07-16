@@ -50,6 +50,9 @@ const FILE_MANAGER_PREVIEW_STREAM_CHUNK_SIZE: u64 = 128 * 1024; // Tauri Virtual
 const FILE_MANAGER_PREVIEW_CODE_GUTTER_ALPHA: u32 = 0x4d; // Tauri CodeHighlight line-number opacity 30%.
 const FILE_MANAGER_SIDEBAR_WIDTH: f32 = 184.0; // Compact favorites rail keeps file content visually dominant.
 const FILE_MANAGER_SIDEBAR_HIDDEN_WIDTH: f32 = 0.0; // Hidden favorites return all horizontal space to file content.
+const FILE_MANAGER_SIDEBAR_ROW_HEIGHT: f32 = 30.0;
+const FILE_MANAGER_SIDEBAR_SECTION_HEADER_HEIGHT: f32 = 28.0;
+const FILE_MANAGER_SIDEBAR_SECTION_GAP: f32 = 10.0;
 const FILE_MANAGER_TEXT_XS: f32 = 12.0;
 const FILE_MANAGER_TEXT_SM: f32 = 14.0;
 const FILE_MANAGER_ICON_SM: f32 = 12.0;
@@ -81,6 +84,59 @@ const FILE_MANAGER_BLUE: u32 = 0x60a5fa; // Tauri text-blue-400.
 const FILE_MANAGER_GREEN: u32 = 0x22c55e; // Tauri text-green-500.
 const FILE_MANAGER_ORANGE: u32 = 0xfb923c; // Tauri text-orange-400.
 const FILE_MANAGER_PURPLE: u32 = 0xc084fc; // Tauri preview/file accent family.
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct FileManagerSidebarItemGeometry {
+    transition_index: usize,
+    top: f32,
+}
+
+impl FileManagerSidebarItemGeometry {
+    const FIRST: Self = Self {
+        transition_index: 0,
+        top: 0.0,
+    };
+
+    fn next(self) -> Self {
+        // Sidebar rows have a fixed height, so their relative motion remains
+        // stable even when the scroll viewport itself moves.
+        Self {
+            transition_index: self.transition_index + 1,
+            top: self.top + FILE_MANAGER_SIDEBAR_ROW_HEIGHT,
+        }
+    }
+
+    fn after_section_header(self) -> Self {
+        // The Locations heading contributes real space between the two row groups.
+        Self {
+            top: self.top
+                + FILE_MANAGER_SIDEBAR_SECTION_GAP
+                + FILE_MANAGER_SIDEBAR_SECTION_HEADER_HEIGHT,
+            ..self
+        }
+    }
+}
+
+#[cfg(test)]
+mod sidebar_geometry_tests {
+    use super::*;
+
+    #[test]
+    fn sidebar_geometry_preserves_row_and_section_spacing() {
+        let second_row = FileManagerSidebarItemGeometry::FIRST.next();
+        assert_eq!(second_row.transition_index, 1);
+        assert_eq!(second_row.top, FILE_MANAGER_SIDEBAR_ROW_HEIGHT);
+
+        let first_drive = second_row.after_section_header();
+        assert_eq!(first_drive.transition_index, 1);
+        assert_eq!(
+            first_drive.top,
+            FILE_MANAGER_SIDEBAR_ROW_HEIGHT
+                + FILE_MANAGER_SIDEBAR_SECTION_GAP
+                + FILE_MANAGER_SIDEBAR_SECTION_HEADER_HEIGHT
+        );
+    }
+}
 
 fn file_manager_list_virtual_spec() -> TauriVirtualListSpec {
     // Tauri FileList owns FILE_ROW_HEIGHT and useVirtualizer overscan as one

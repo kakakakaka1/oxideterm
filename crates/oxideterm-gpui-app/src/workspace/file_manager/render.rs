@@ -306,6 +306,7 @@ impl WorkspaceApp {
                 true,
                 cx,
             ));
+        let mut item_geometry = FileManagerSidebarItemGeometry::FIRST;
         for location in self.file_manager.sidebar_locations.clone() {
             let (label_key, icon) = file_manager_sidebar_location_presentation(location.kind);
             navigation = navigation.child(self.render_file_manager_sidebar_path_row(
@@ -314,15 +315,19 @@ impl WorkspaceApp {
                 icon,
                 theme.accent,
                 has_background,
+                item_geometry,
                 cx,
             ));
+            item_geometry = item_geometry.next();
         }
         for bookmark in self.file_manager.bookmarks.clone() {
             navigation = navigation.child(self.render_file_manager_sidebar_bookmark_row(
                 bookmark,
                 has_background,
+                item_geometry,
                 cx,
             ));
+            item_geometry = item_geometry.next();
         }
         navigation = navigation.child(div().mt(px(10.0)).child(
             self.render_file_manager_sidebar_section_header(
@@ -332,6 +337,7 @@ impl WorkspaceApp {
                 cx,
             ),
         ));
+        item_geometry = item_geometry.after_section_header();
         for drive in &self.file_manager.drives {
             navigation = navigation.child(self.render_file_manager_sidebar_path_row(
                 drive.path.clone(),
@@ -339,8 +345,10 @@ impl WorkspaceApp {
                 LucideIcon::HardDrive,
                 theme.text_secondary,
                 has_background,
+                item_geometry,
                 cx,
             ));
+            item_geometry = item_geometry.next();
         }
         panel = panel.child(navigation);
         panel = panel.child(
@@ -419,7 +427,7 @@ impl WorkspaceApp {
             })
             .child(label);
         div()
-            .h(px(28.0))
+            .h(px(FILE_MANAGER_SIDEBAR_SECTION_HEADER_HEIGHT))
             .flex()
             .items_center()
             .justify_between()
@@ -451,25 +459,25 @@ impl WorkspaceApp {
         icon: LucideIcon,
         icon_color: u32,
         has_background: bool,
+        item_geometry: FileManagerSidebarItemGeometry,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = self.tokens.ui;
         let active = path == self.file_manager.path;
+        let selection_surface = self.render_file_manager_sidebar_selection(active, item_geometry);
         div()
-            .h(px(30.0))
+            .h(px(FILE_MANAGER_SIDEBAR_ROW_HEIGHT))
             .mx(px(8.0))
             .px(px(8.0))
+            .relative()
             .flex()
             .items_center()
             .gap(px(8.0))
             .rounded(px(self.tokens.radii.sm))
-            .bg(if active {
-                rgba((theme.accent << 8) | FILE_MANAGER_SELECTED_BG_ALPHA)
-            } else {
-                rgba(theme.bg << 8)
-            })
+            .bg(rgba(theme.bg << 8))
             .hover(move |row| row.bg(file_manager_hover_bg(theme.bg_hover, has_background)))
             .cursor_pointer()
+            .when_some(selection_surface, |row, surface| row.child(surface))
             .child(Self::render_lucide_icon(
                 icon,
                 FILE_MANAGER_ICON_MD,
@@ -492,6 +500,7 @@ impl WorkspaceApp {
                 MouseButton::Left,
                 cx.listener(move |this, _event, _window, cx| {
                     this.blur_file_manager_inline_inputs();
+                    this.begin_file_manager_sidebar_transition(&path, item_geometry, cx);
                     this.set_file_manager_path(path.clone());
                     cx.stop_propagation();
                     cx.notify();
@@ -504,25 +513,25 @@ impl WorkspaceApp {
         &self,
         bookmark: LocalBookmark,
         has_background: bool,
+        item_geometry: FileManagerSidebarItemGeometry,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = self.tokens.ui;
         let active = bookmark.path == self.file_manager.path;
+        let selection_surface = self.render_file_manager_sidebar_selection(active, item_geometry);
         div()
-            .h(px(30.0))
+            .h(px(FILE_MANAGER_SIDEBAR_ROW_HEIGHT))
             .mx(px(8.0))
             .px(px(8.0))
+            .relative()
             .flex()
             .items_center()
             .gap(px(8.0))
             .rounded(px(self.tokens.radii.sm))
-            .bg(if active {
-                rgba((theme.accent << 8) | FILE_MANAGER_SELECTED_BG_ALPHA)
-            } else {
-                rgba(theme.bg << 8)
-            })
+            .bg(rgba(theme.bg << 8))
             .hover(move |row| row.bg(file_manager_hover_bg(theme.bg_hover, has_background)))
             .cursor_pointer()
+            .when_some(selection_surface, |row, surface| row.child(surface))
             .child(Self::render_lucide_icon(
                 LucideIcon::Folder,
                 FILE_MANAGER_ICON_MD,
@@ -598,6 +607,7 @@ impl WorkspaceApp {
                     let path = bookmark.path;
                     move |this, _event, _window, cx| {
                         this.blur_file_manager_inline_inputs();
+                        this.begin_file_manager_sidebar_transition(&path, item_geometry, cx);
                         this.set_file_manager_path(path.clone());
                         cx.stop_propagation();
                         cx.notify();
@@ -605,6 +615,108 @@ impl WorkspaceApp {
                 }),
             )
             .into_any_element()
+    }
+
+    fn render_file_manager_sidebar_selection(
+        &self,
+        active: bool,
+        item_geometry: FileManagerSidebarItemGeometry,
+    ) -> Option<AnyElement> {
+        active.then(|| {
+            let theme = self.tokens.ui;
+            let surface = div()
+                .absolute()
+                .inset_0()
+                .rounded(px(self.tokens.radii.sm))
+                .bg(rgba((theme.accent << 8) | FILE_MANAGER_SELECTED_BG_ALPHA));
+            let Some((generation, vertical_offset_y)) = self.segmented_control_user_transition(
+                selection_motion::FILE_MANAGER_NAVIGATION_ID,
+                item_geometry.transition_index,
+            ) else {
+                return surface.into_any_element();
+            };
+            let Some(motion) = oxideterm_gpui_ui::segmented_control_motion(&self.tokens) else {
+                return surface.into_any_element();
+            };
+            let animation_id = (
+                gpui::ElementId::from(selection_motion::FILE_MANAGER_NAVIGATION_ID),
+                format!("selection-{generation}"),
+            );
+            if motion.spatial
+                && let Some(vertical_offset_y) = vertical_offset_y
+            {
+                // Animate only the indicator; icons and labels stay at their
+                // final row just like the Settings navigation treatment.
+                return surface
+                    .with_animation(
+                        animation_id,
+                        Animation::new(motion.duration)
+                            .with_easing(oxideterm_gpui_ui::motion::ease_in_out_cubic),
+                        move |surface, progress| {
+                            let offset =
+                                oxideterm_gpui_ui::motion::lerp(vertical_offset_y, 0.0, progress);
+                            surface.top(px(offset)).bottom(px(-offset))
+                        },
+                    )
+                    .into_any_element();
+            }
+
+            surface
+                .with_animation(
+                    animation_id,
+                    Animation::new(motion.duration)
+                        .with_easing(oxideterm_gpui_ui::motion::ease_out_cubic),
+                    |surface, progress| surface.opacity(progress),
+                )
+                .into_any_element()
+        })
+    }
+
+    fn begin_file_manager_sidebar_transition(
+        &mut self,
+        target_path: &str,
+        target_geometry: FileManagerSidebarItemGeometry,
+        cx: &mut Context<Self>,
+    ) {
+        if self.file_manager.path == target_path {
+            return;
+        }
+        let vertical_offset_y = self
+            .file_manager_sidebar_geometry_for_path(&self.file_manager.path)
+            .map(|source_geometry| source_geometry.top - target_geometry.top);
+        self.begin_user_segmented_control_transition_with_vertical_offset(
+            selection_motion::FILE_MANAGER_NAVIGATION_ID,
+            target_geometry.transition_index,
+            vertical_offset_y,
+            cx,
+        );
+    }
+
+    fn file_manager_sidebar_geometry_for_path(
+        &self,
+        path: &str,
+    ) -> Option<FileManagerSidebarItemGeometry> {
+        let mut item_geometry = FileManagerSidebarItemGeometry::FIRST;
+        for location in &self.file_manager.sidebar_locations {
+            if location.path == path {
+                return Some(item_geometry);
+            }
+            item_geometry = item_geometry.next();
+        }
+        for bookmark in &self.file_manager.bookmarks {
+            if bookmark.path == path {
+                return Some(item_geometry);
+            }
+            item_geometry = item_geometry.next();
+        }
+        item_geometry = item_geometry.after_section_header();
+        for drive in &self.file_manager.drives {
+            if drive.path == path {
+                return Some(item_geometry);
+            }
+            item_geometry = item_geometry.next();
+        }
+        None
     }
 
     fn animate_file_manager_bookmarks_width(&self, panel: gpui::Div, expanded: bool) -> AnyElement {
