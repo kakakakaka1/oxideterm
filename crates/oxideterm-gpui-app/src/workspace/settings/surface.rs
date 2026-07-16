@@ -861,11 +861,11 @@ impl WorkspaceApp {
                 .into_any_element()
         });
         div()
-            // Nav rows share spare vertical space, then stop shrinking and let
-            // the scroll owner take over once the sidebar becomes too short.
-            .min_h(px(40.0))
+            // Keep selection and hover surfaces stable when the settings
+            // window has spare vertical space.
+            .h(px(self.tokens.metrics.ui_button_lg_height))
             .w_full()
-            .flex_1()
+            .flex_none()
             .mb(px(4.0))
             .px_3()
             .relative()
