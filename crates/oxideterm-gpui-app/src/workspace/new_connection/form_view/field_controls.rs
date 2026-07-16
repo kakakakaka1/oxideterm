@@ -1692,24 +1692,15 @@ impl WorkspaceApp {
                 ))
             })
             .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .rounded(px(self.tokens.radii.lg))
-                    .border_1()
-                    .border_color(rgb(self.tokens.ui.border))
-                    .p(px(self.tokens.spacing.three))
-                    .child(
-                        self.render_connection_field(
-                            self.i18n.t("modals.new_connection.telnet_profile_name"),
-                            &form.telnet_profile_name,
-                            self.i18n
-                                .t("modals.new_connection.telnet_profile_name_placeholder"),
-                            NewConnectionField::TelnetProfileName,
-                            false,
-                            cx,
-                        ),
-                    ),
+                self.render_connection_field(
+                    self.i18n.t("modals.new_connection.telnet_profile_name"),
+                    &form.telnet_profile_name,
+                    self.i18n
+                        .t("modals.new_connection.telnet_profile_name_placeholder"),
+                    NewConnectionField::TelnetProfileName,
+                    false,
+                    cx,
+                ),
             )
             .into_any_element()
     }
@@ -1835,24 +1826,15 @@ impl WorkspaceApp {
                     .child(self.render_serial_flow_select(form.serial_flow_control, cx)),
             )
             .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .rounded(px(self.tokens.radii.lg))
-                    .border_1()
-                    .border_color(rgb(self.tokens.ui.border))
-                    .p(px(self.tokens.spacing.three))
-                    .child(
-                        self.render_connection_field(
-                            self.i18n.t("modals.new_connection.serial_profile_name"),
-                            &form.serial_profile_name,
-                            self.i18n
-                                .t("modals.new_connection.serial_profile_name_placeholder"),
-                            NewConnectionField::SerialProfileName,
-                            false,
-                            cx,
-                        ),
-                    ),
+                self.render_connection_field(
+                    self.i18n.t("modals.new_connection.serial_profile_name"),
+                    &form.serial_profile_name,
+                    self.i18n
+                        .t("modals.new_connection.serial_profile_name_placeholder"),
+                    NewConnectionField::SerialProfileName,
+                    false,
+                    cx,
+                ),
             )
             .into_any_element()
     }
