@@ -3,6 +3,23 @@
 Stable releases are listed newest first. The release workflow uses each versioned
 section as the detailed changelog attached to the corresponding GitHub Release.
 
+## 2.0.1
+
+OxideTerm 2.0.1 is a maintenance release focused on Linux startup reliability,
+cross-version updater compatibility, and settings navigation consistency.
+
+### Fixes
+
+- Fixed a Linux startup panic caused by a Rust/WGSL backdrop-blur structure name mismatch in the Blade renderer.
+- Kept stable updater manifests compatible with 1.x clients, including the gzip-compressed macOS application archives and installer-specific platform keys expected by the legacy Tauri updater.
+- Fixed settings navigation selection and hover surfaces stretching vertically when the window had spare height.
+
+### Release Maintenance
+
+- Stable releases now become GitHub's Latest release automatically, while prereleases remain excluded from Latest promotion.
+- Added release-time validation for the legacy updater package contract so future 2.x releases remain reachable from 1.x installations.
+- Removed obsolete preview-status messaging from the localized READMEs and refreshed third-party notices.
+
 ## 2.0.0
 
 OxideTerm 2.0 is the largest release in the project's history. The desktop application has been rebuilt around Rust and GPUI, replacing the bundled WebView application shell with a GPU-rendered workspace while preserving OxideTerm's local-first approach to remote operations.
