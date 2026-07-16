@@ -1,5 +1,29 @@
 use super::*;
+use gpui::{Animation, AnimationExt};
 use oxideterm_settings_model::parse_rgb24_hex;
+
+const NEW_CONNECTION_TRANSPORT_ROW_HEIGHT: f32 = 36.0;
+const NEW_CONNECTION_TRANSPORT_ROW_GAP: f32 = 4.0;
+
+fn new_connection_transport_index(transport: NewConnectionTransport) -> usize {
+    match transport {
+        NewConnectionTransport::Ssh => 0,
+        NewConnectionTransport::Telnet => 1,
+        NewConnectionTransport::Serial => 2,
+        NewConnectionTransport::Rdp => 3,
+        NewConnectionTransport::Vnc => 4,
+        NewConnectionTransport::WslGraphics => 5,
+    }
+}
+
+fn new_connection_transport_vertical_offset(
+    source: NewConnectionTransport,
+    target: NewConnectionTransport,
+) -> f32 {
+    let row_stride = NEW_CONNECTION_TRANSPORT_ROW_HEIGHT + NEW_CONNECTION_TRANSPORT_ROW_GAP;
+    (new_connection_transport_index(source) as f32 - new_connection_transport_index(target) as f32)
+        * row_stride
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum AuthSelectorContext {
@@ -1337,38 +1361,99 @@ impl WorkspaceApp {
 
         for (transport, label, focus_field, icon) in choices {
             let active = active_transport == transport;
+            let transport_index = new_connection_transport_index(transport);
             let row_text = if active {
                 theme.accent
             } else {
                 theme.text_muted
             };
+            let selection_transition = active.then_some(()).and_then(|()| {
+                self.segmented_control_user_transition(
+                    crate::workspace::selection_motion::NEW_CONNECTION_TRANSPORT_SELECTOR_ID,
+                    transport_index,
+                )
+            });
+            let selection_surface = active.then(|| {
+                let surface = div()
+                    .absolute()
+                    .inset_0()
+                    .border_l_2()
+                    .border_color(rgba((theme.accent << 8) | 0xff))
+                    .bg(rgba((theme.accent << 8) | 0x16));
+
+                let Some((generation, vertical_offset_y)) = selection_transition else {
+                    return surface.into_any_element();
+                };
+                let Some(motion) = oxideterm_gpui_ui::segmented_control_motion(&self.tokens) else {
+                    return surface.into_any_element();
+                };
+                let animation_id = (
+                    gpui::ElementId::from(
+                        crate::workspace::selection_motion::NEW_CONNECTION_TRANSPORT_SELECTOR_ID,
+                    ),
+                    format!("selection-{generation}"),
+                );
+
+                if motion.spatial
+                    && let Some(vertical_offset_y) = vertical_offset_y
+                {
+                    return surface
+                        .with_animation(
+                            animation_id,
+                            Animation::new(motion.duration)
+                                .with_easing(oxideterm_gpui_ui::motion::ease_in_out_cubic),
+                            move |surface, progress| {
+                                let offset = oxideterm_gpui_ui::motion::lerp(
+                                    vertical_offset_y,
+                                    0.0,
+                                    progress,
+                                );
+                                // Move both edges so the highlight keeps its
+                                // fixed row height during vertical travel.
+                                surface.top(px(offset)).bottom(px(-offset))
+                            },
+                        )
+                        .into_any_element();
+                }
+
+                surface
+                    .with_animation(
+                        animation_id,
+                        Animation::new(motion.duration)
+                            .with_easing(oxideterm_gpui_ui::motion::ease_out_cubic),
+                        |surface, progress| surface.opacity(progress),
+                    )
+                    .into_any_element()
+            });
             let row = div()
                 .w_full()
-                .min_h(px(36.0))
+                .h(px(NEW_CONNECTION_TRANSPORT_ROW_HEIGHT))
+                .flex_none()
+                .relative()
                 .flex()
                 .items_center()
                 .gap(px(self.tokens.spacing.two))
                 .px(px(self.tokens.spacing.two))
-                .py(px(6.0))
-                .border_l_2()
-                .border_color(if active {
-                    rgba((theme.accent << 8) | 0xff)
-                } else {
-                    rgba((theme.border << 8) | 0x00)
-                })
                 .cursor_pointer()
                 .text_size(px(self.tokens.metrics.ui_text_sm))
                 .text_color(rgb(row_text))
-                .when(active, |row| row.bg(rgba((theme.accent << 8) | 0x16)))
                 .when(!active, |row| row.hover(|row| row.bg(rgb(theme.bg_hover))))
+                .when_some(selection_surface, |row, surface| row.child(surface))
                 .child(Self::render_lucide_icon(icon, 14.0, rgb(row_text)))
                 .child(div().min_w(px(0.0)).truncate().child(label))
                 .on_mouse_down(
                     MouseButton::Left,
                     cx.listener(move |this, _event, _window, cx| {
                         let mut should_refresh_ports = false;
+                        let mut selection_offset = None;
                         if let Some(form) = this.new_connection_form.as_mut() {
                             let previous_transport = form.transport;
+                            if previous_transport != transport {
+                                selection_offset = Some(new_connection_transport_vertical_offset(
+                                    previous_transport,
+                                    transport,
+                                ));
+                            }
                             apply_transport_default_port(form, previous_transport, transport);
                             apply_transport_default_username(form, previous_transport, transport);
                             form.transport = transport;
@@ -1379,6 +1464,14 @@ impl WorkspaceApp {
                             should_refresh_ports = transport == NewConnectionTransport::Serial
                                 && form.serial_ports.is_empty()
                                 && !form.serial_ports_loading;
+                        }
+                        if let Some(vertical_offset_y) = selection_offset {
+                            this.begin_user_segmented_control_transition_with_vertical_offset(
+                                crate::workspace::selection_motion::NEW_CONNECTION_TRANSPORT_SELECTOR_ID,
+                                transport_index,
+                                Some(vertical_offset_y),
+                                cx,
+                            );
                         }
                         this.close_new_connection_select();
                         if should_refresh_ports {
@@ -2331,5 +2424,36 @@ pub(super) fn serial_port_display_label(port: &oxideterm_terminal::SerialPortInf
         port.port_path.clone()
     } else {
         port.display_name.clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn transport_selection_offset_matches_fixed_row_stride() {
+        assert_eq!(
+            new_connection_transport_vertical_offset(
+                NewConnectionTransport::Ssh,
+                NewConnectionTransport::Vnc,
+            ),
+            -160.0,
+        );
+        assert_eq!(
+            new_connection_transport_vertical_offset(
+                NewConnectionTransport::Vnc,
+                NewConnectionTransport::Telnet,
+            ),
+            120.0,
+        );
+    }
+
+    #[test]
+    fn windows_only_transport_follows_shared_transport_order() {
+        assert_eq!(
+            new_connection_transport_index(NewConnectionTransport::WslGraphics),
+            5,
+        );
     }
 }

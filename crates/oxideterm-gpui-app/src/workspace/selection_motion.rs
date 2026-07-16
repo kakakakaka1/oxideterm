@@ -11,6 +11,8 @@ pub(in crate::workspace) const HOST_TOOLS_SWITCHER_ID: &str = "host-tools-tab-ba
 pub(in crate::workspace) const NOTIFICATION_CENTER_SWITCHER_ID: &str =
     "notification-center-tab-bar";
 pub(in crate::workspace) const SETTINGS_NAVIGATION_ID: &str = "settings-navigation";
+pub(in crate::workspace) const NEW_CONNECTION_TRANSPORT_SELECTOR_ID: &str =
+    "new-connection-transport-selector";
 pub(in crate::workspace) const VERSION_MIGRATION_MOTION_SWITCHER_ID: &str =
     "version-migration-motion-switcher";
 
