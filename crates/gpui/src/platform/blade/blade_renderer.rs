@@ -3,9 +3,10 @@
 
 use super::{BladeAtlas, BladeContext};
 use crate::{
-    BackdropBlur as SceneBackdropBlur, Background, Bounds, DevicePixels, GpuSpecs,
-    MonochromeSprite, Path, Point, PolychromeSprite, PrimitiveBatch, Quad, ScaledPixels, Scene,
-    Shadow, Size, Underline, backdrop_blur_batch_signature, backdrop_blur_work_area,
+    AtlasTextureKind, AtlasTile, BackdropBlur as SceneBackdropBlur, Background, Bounds,
+    DevicePixels, GpuSpecs, MonochromeSprite, Path, Point,
+    PolychromeSprite as ScenePolychromeSprite, PrimitiveBatch, Quad, ScaledPixels, Scene, Shadow,
+    Size, Underline, backdrop_blur_batch_signature, backdrop_blur_work_area,
 };
 use blade_graphics as gpu;
 use blade_graphics::traits::RenderEncoder;
@@ -100,6 +101,84 @@ struct BackdropBlurPassParams {
     pad_0: f32,
     pad_1: f32,
     pad_2: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct PodAtlasTextureId {
+    index: u32,
+    kind: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct PodAtlasBounds {
+    origin: [i32; 2],
+    size: [i32; 2],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct PodAtlasTile {
+    texture_id: PodAtlasTextureId,
+    tile_id: u32,
+    padding: u32,
+    bounds: PodAtlasBounds,
+}
+
+impl From<&AtlasTile> for PodAtlasTile {
+    fn from(tile: &AtlasTile) -> Self {
+        let kind = match tile.texture_id.kind {
+            AtlasTextureKind::Monochrome => 0,
+            AtlasTextureKind::Polychrome => 1,
+        };
+        Self {
+            texture_id: PodAtlasTextureId {
+                index: tile.texture_id.index,
+                kind,
+            },
+            tile_id: tile.tile_id.0,
+            padding: tile.padding,
+            bounds: PodAtlasBounds {
+                origin: [tile.bounds.origin.x.0, tile.bounds.origin.y.0],
+                size: [tile.bounds.size.width.0, tile.bounds.size.height.0],
+            },
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+// Blade reads grayscale as a WGSL u32, so never upload Rust bool padding.
+struct PolychromeSprite {
+    order: u32,
+    pad: u32,
+    grayscale: u32,
+    opacity: f32,
+    bounds: PodBounds,
+    content_mask: PodBounds,
+    corner_radii: PodCorners,
+    tile: PodAtlasTile,
+}
+
+impl From<&ScenePolychromeSprite> for PolychromeSprite {
+    fn from(sprite: &ScenePolychromeSprite) -> Self {
+        Self {
+            order: sprite.order,
+            pad: sprite.pad,
+            grayscale: u32::from(sprite.grayscale),
+            opacity: sprite.opacity,
+            bounds: sprite.bounds.into(),
+            content_mask: sprite.content_mask.bounds.into(),
+            corner_radii: PodCorners {
+                top_left: sprite.corner_radii.top_left.0,
+                top_right: sprite.corner_radii.top_right.0,
+                bottom_right: sprite.corner_radii.bottom_right.0,
+                bottom_left: sprite.corner_radii.bottom_left.0,
+            },
+            tile: PodAtlasTile::from(&sprite.tile),
+        }
+    }
 }
 
 #[derive(blade_macros::ShaderData)]
@@ -1166,8 +1245,12 @@ impl BladeRenderer {
                     sprites,
                 } => {
                     let tex_info = self.atlas.get_texture_info(texture_id);
+                    let sprites = sprites
+                        .iter()
+                        .map(PolychromeSprite::from)
+                        .collect::<Vec<_>>();
                     let instance_buf =
-                        unsafe { self.instance_belt.alloc_typed(sprites, &self.gpu) };
+                        unsafe { self.instance_belt.alloc_typed(&sprites, &self.gpu) };
                     let mut encoder = pass.with(&self.pipelines.poly_sprites);
                     encoder.bind(
                         0,
@@ -1560,46 +1643,192 @@ impl RenderingParameters {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{
+        AtlasTextureId, BackgroundTag, BorderStyle, ColorSpace, ContentMask, Corners, Edges, Hsla,
+        LinearColorStop, TileId, TransformationMatrix,
+    };
+    use std::collections::BTreeSet;
 
-    fn assert_shader_struct_size<T>(module: &naga::Module) {
-        let host_name = std::any::type_name::<T>().rsplit("::").next().unwrap();
-        let shader_size = module
-            .types
-            .iter()
-            .find_map(|(_, shader_type)| {
-                (shader_type.name.as_deref() == Some(host_name)).then(|| match shader_type.inner {
-                    naga::TypeInner::Struct { span, .. } => span as usize,
-                    _ => panic!("shader type '{host_name}' is not a struct"),
-                })
-            })
-            .unwrap_or_else(|| panic!("shader struct '{host_name}' was not found"));
-
-        assert_eq!(
-            std::mem::size_of::<T>(),
-            shader_size,
-            "host struct '{host_name}' size does not match WGSL"
-        );
-    }
-
-    fn shader_struct_member_offset(module: &naga::Module, type_name: &str, member: &str) -> usize {
+    fn shader_struct<'a>(module: &'a naga::Module, name: &str) -> &'a naga::TypeInner {
         module
             .types
             .iter()
             .find_map(|(_, shader_type)| {
-                (shader_type.name.as_deref() == Some(type_name)).then_some(&shader_type.inner)
+                (shader_type.name.as_deref() == Some(name)).then_some(&shader_type.inner)
             })
-            .and_then(|shader_type| match shader_type {
-                naga::TypeInner::Struct { members, .. } => members
-                    .iter()
-                    .find(|shader_member| shader_member.name.as_deref() == Some(member))
-                    .map(|shader_member| shader_member.offset as usize),
-                _ => None,
-            })
-            .unwrap_or_else(|| panic!("shader member '{type_name}.{member}' was not found"))
+            .unwrap_or_else(|| panic!("shader struct '{name}' was not found"))
+    }
+
+    fn assert_shader_struct_layout<T>(
+        module: &naga::Module,
+        shader_name: &str,
+        host_members: &[(&str, usize)],
+    ) {
+        let naga::TypeInner::Struct { members, span } = shader_struct(module, shader_name) else {
+            panic!("shader type '{shader_name}' is not a struct");
+        };
+
+        assert_eq!(
+            std::mem::size_of::<T>(),
+            *span as usize,
+            "host struct for '{shader_name}' has the wrong size"
+        );
+        assert_eq!(
+            host_members.len(),
+            members.len(),
+            "host struct for '{shader_name}' has the wrong field count"
+        );
+        for ((host_name, host_offset), shader_member) in host_members.iter().zip(members) {
+            assert_eq!(
+                Some(*host_name),
+                shader_member.name.as_deref(),
+                "host and WGSL fields differ in '{shader_name}'"
+            );
+            assert_eq!(
+                *host_offset, shader_member.offset as usize,
+                "host field '{shader_name}.{host_name}' has the wrong offset"
+            );
+        }
+    }
+
+    macro_rules! assert_struct_layout {
+        ($module:expr, $host:ty => $shader:literal { $($field:ident),+ $(,)? }) => {
+            assert_shader_struct_layout::<$host>(
+                $module,
+                $shader,
+                &[$((stringify!($field), std::mem::offset_of!($host, $field))),+],
+            );
+        };
+    }
+
+    fn collect_buffer_structs(
+        module: &naga::Module,
+        type_handle: naga::Handle<naga::Type>,
+        names: &mut BTreeSet<String>,
+    ) {
+        let shader_type = &module.types[type_handle];
+        match &shader_type.inner {
+            naga::TypeInner::Struct { members, .. } => {
+                if let Some(name) = &shader_type.name {
+                    names.insert(name.clone());
+                }
+                for member in members {
+                    collect_buffer_structs(module, member.ty, names);
+                }
+            }
+            naga::TypeInner::Array { base, .. }
+            | naga::TypeInner::BindingArray { base, .. }
+            | naga::TypeInner::Pointer { base, .. } => {
+                collect_buffer_structs(module, *base, names);
+            }
+            _ => {}
+        }
+    }
+
+    fn assert_all_buffer_structs_are_audited(module: &naga::Module) {
+        let mut actual = BTreeSet::new();
+        for (_, variable) in module.global_variables.iter() {
+            if matches!(
+                variable.space,
+                naga::AddressSpace::Uniform | naga::AddressSpace::Storage { .. }
+            ) {
+                collect_buffer_structs(module, variable.ty, &mut actual);
+            }
+        }
+        let expected = BTreeSet::from_iter(
+            [
+                "AtlasBounds",
+                "AtlasTextureId",
+                "AtlasTile",
+                "BackdropBlur",
+                "BackdropBlurPassParams",
+                "Background",
+                "Bounds",
+                "Corners",
+                "Edges",
+                "GlobalParams",
+                "Hsla",
+                "LinearColorStop",
+                "MonochromeSprite",
+                "PathRasterizationVertex",
+                "PathSprite",
+                "PolychromeSprite",
+                "Quad",
+                "Shadow",
+                "SurfaceParams",
+                "TransformationMatrix",
+                "Underline",
+            ]
+            .map(str::to_string),
+        );
+
+        assert_eq!(
+            actual, expected,
+            "the Blade buffer layout audit is incomplete"
+        );
+    }
+
+    fn global_variable<'a>(module: &'a naga::Module, name: &str) -> &'a naga::GlobalVariable {
+        module
+            .global_variables
+            .iter()
+            .find_map(|(_, variable)| (variable.name.as_deref() == Some(name)).then_some(variable))
+            .unwrap_or_else(|| panic!("shader global '{name}' was not found"))
+    }
+
+    fn assert_storage_array_stride<T>(module: &naga::Module, global_name: &str, item_name: &str) {
+        let variable = global_variable(module, global_name);
+        assert!(matches!(variable.space, naga::AddressSpace::Storage { .. }));
+        let naga::TypeInner::Array { base, stride, .. } = module.types[variable.ty].inner else {
+            panic!("shader storage '{global_name}' is not an array");
+        };
+        assert_eq!(module.types[base].name.as_deref(), Some(item_name));
+        assert_eq!(
+            stride as usize,
+            std::mem::size_of::<T>(),
+            "storage array '{global_name}' has the wrong item stride"
+        );
+    }
+
+    fn assert_uniform_size<T>(module: &naga::Module, global_name: &str) {
+        let variable = global_variable(module, global_name);
+        assert_eq!(variable.space, naga::AddressSpace::Uniform);
+        let mut layouter = naga::proc::Layouter::default();
+        layouter
+            .update(module.to_ctx())
+            .expect("WGSL type layout should resolve");
+        assert_eq!(
+            layouter[variable.ty].size as usize,
+            std::mem::size_of::<T>(),
+            "uniform '{global_name}' has the wrong host size"
+        );
+    }
+
+    fn assert_background_layout(module: &naga::Module) {
+        // Background's final pad is private to the color module. repr(C) places
+        // it directly after the fixed color-stop array, which supplies its
+        // exact host offset without widening that field's visibility.
+        let pad_offset =
+            std::mem::offset_of!(Background, colors) + std::mem::size_of::<[LinearColorStop; 2]>();
+        assert_shader_struct_layout::<Background>(
+            module,
+            "Background",
+            &[
+                ("tag", std::mem::offset_of!(Background, tag)),
+                ("color_space", std::mem::offset_of!(Background, color_space)),
+                ("solid", std::mem::offset_of!(Background, solid)),
+                (
+                    "gradient_angle_or_pattern_height",
+                    std::mem::offset_of!(Background, gradient_angle_or_pattern_height),
+                ),
+                ("colors", std::mem::offset_of!(Background, colors)),
+                ("pad", pad_offset),
+            ],
+        );
     }
 
     #[test]
-    fn blade_shader_host_struct_layouts_match_wgsl() {
+    fn blade_shader_buffer_contract_matches_rust() {
         let module = naga::front::wgsl::parse_str(include_str!("shaders.wgsl"))
             .expect("Blade WGSL should parse");
         let validation_flags =
@@ -1608,45 +1837,119 @@ mod tests {
             .validate(&module)
             .expect("Blade WGSL should pass startup validation");
 
-        // Mirror every startup reflection check so a layout mismatch is caught
-        // without requiring a display server or GPU-backed renderer startup.
-        assert_shader_struct_size::<GlobalParams>(&module);
-        assert_shader_struct_size::<SurfaceParams>(&module);
-        assert_shader_struct_size::<Quad>(&module);
-        assert_shader_struct_size::<Shadow>(&module);
-        assert_shader_struct_size::<PathRasterizationVertex>(&module);
-        assert_shader_struct_size::<PathSprite>(&module);
-        assert_shader_struct_size::<Underline>(&module);
-        assert_shader_struct_size::<MonochromeSprite>(&module);
-        assert_shader_struct_size::<PolychromeSprite>(&module);
-        assert_shader_struct_size::<BackdropBlur>(&module);
-        assert_shader_struct_size::<BackdropBlurPassParams>(&module);
+        assert_all_buffer_structs_are_audited(&module);
 
-        // Size equality alone can hide a field offset mismatch, so verify the
-        // uniform that triggered #333 member by member as well.
-        assert_eq!(
-            std::mem::offset_of!(BackdropBlurPassParams, texture_size),
-            shader_struct_member_offset(&module, "BackdropBlurPassParams", "texture_size")
+        // Audit every host structure reachable from a uniform or storage
+        // binding, including nested structures and every field offset.
+        assert_struct_layout!(&module, GlobalParams => "GlobalParams" {
+            viewport_size, premultiplied_alpha, pad
+        });
+        assert_struct_layout!(&module, Bounds<ScaledPixels> => "Bounds" { origin, size });
+        assert_struct_layout!(&module, PodBounds => "Bounds" { origin, size });
+        assert_struct_layout!(&module, Corners<ScaledPixels> => "Corners" {
+            top_left, top_right, bottom_right, bottom_left
+        });
+        assert_struct_layout!(&module, PodCorners => "Corners" {
+            top_left, top_right, bottom_right, bottom_left
+        });
+        assert_struct_layout!(&module, Edges<ScaledPixels> => "Edges" {
+            top, right, bottom, left
+        });
+        assert_struct_layout!(&module, Hsla => "Hsla" { h, s, l, a });
+        assert_struct_layout!(&module, LinearColorStop => "LinearColorStop" {
+            color, percentage
+        });
+        assert_background_layout(&module);
+        assert_struct_layout!(&module, AtlasTextureId => "AtlasTextureId" { index, kind });
+        assert_struct_layout!(&module, PodAtlasTextureId => "AtlasTextureId" { index, kind });
+        assert_struct_layout!(&module, Bounds<DevicePixels> => "AtlasBounds" { origin, size });
+        assert_struct_layout!(&module, PodAtlasBounds => "AtlasBounds" { origin, size });
+        assert_struct_layout!(&module, AtlasTile => "AtlasTile" {
+            texture_id, tile_id, padding, bounds
+        });
+        assert_struct_layout!(&module, PodAtlasTile => "AtlasTile" {
+            texture_id, tile_id, padding, bounds
+        });
+        assert_struct_layout!(&module, TransformationMatrix => "TransformationMatrix" {
+            rotation_scale, translation
+        });
+        assert_struct_layout!(&module, Quad => "Quad" {
+            order, border_style, bounds, content_mask, background, border_color,
+            corner_radii, border_widths
+        });
+        assert_struct_layout!(&module, Shadow => "Shadow" {
+            order, blur_radius, bounds, corner_radii, content_mask, color
+        });
+        assert_struct_layout!(&module, PathRasterizationVertex => "PathRasterizationVertex" {
+            xy_position, st_position, color, bounds
+        });
+        assert_struct_layout!(&module, PathSprite => "PathSprite" { bounds });
+        assert_struct_layout!(&module, BackdropBlurPassParams => "BackdropBlurPassParams" {
+            texture_size, direction, radius, pad_0, pad_1, pad_2
+        });
+        assert_struct_layout!(&module, BackdropBlur => "BackdropBlur" {
+            bounds, content_mask, corner_radii, overlay_color
+        });
+        assert_struct_layout!(&module, Underline => "Underline" {
+            order, pad, bounds, content_mask, color, thickness, wavy
+        });
+        assert_struct_layout!(&module, MonochromeSprite => "MonochromeSprite" {
+            order, pad, bounds, content_mask, color, tile, transformation
+        });
+        assert_struct_layout!(&module, PolychromeSprite => "PolychromeSprite" {
+            order, pad, grayscale, opacity, bounds, content_mask, corner_radii, tile
+        });
+        assert_struct_layout!(&module, SurfaceParams => "SurfaceParams" {
+            bounds, content_mask
+        });
+
+        // Storage arrays must advance by the exact Rust item size, while direct
+        // uniforms must expose the exact byte width uploaded by ShaderData.
+        assert_storage_array_stride::<Quad>(&module, "b_quads", "Quad");
+        assert_storage_array_stride::<Shadow>(&module, "b_shadows", "Shadow");
+        assert_storage_array_stride::<PathRasterizationVertex>(
+            &module,
+            "b_path_vertices",
+            "PathRasterizationVertex",
         );
-        assert_eq!(
-            std::mem::offset_of!(BackdropBlurPassParams, direction),
-            shader_struct_member_offset(&module, "BackdropBlurPassParams", "direction")
+        assert_storage_array_stride::<PathSprite>(&module, "b_path_sprites", "PathSprite");
+        assert_storage_array_stride::<BackdropBlur>(&module, "b_backdrop_blurs", "BackdropBlur");
+        assert_storage_array_stride::<Underline>(&module, "b_underlines", "Underline");
+        assert_storage_array_stride::<MonochromeSprite>(
+            &module,
+            "b_mono_sprites",
+            "MonochromeSprite",
         );
-        assert_eq!(
-            std::mem::offset_of!(BackdropBlurPassParams, radius),
-            shader_struct_member_offset(&module, "BackdropBlurPassParams", "radius")
+        assert_storage_array_stride::<PolychromeSprite>(
+            &module,
+            "b_poly_sprites",
+            "PolychromeSprite",
         );
-        assert_eq!(
-            std::mem::offset_of!(BackdropBlurPassParams, pad_0),
-            shader_struct_member_offset(&module, "BackdropBlurPassParams", "pad_0")
-        );
-        assert_eq!(
-            std::mem::offset_of!(BackdropBlurPassParams, pad_1),
-            shader_struct_member_offset(&module, "BackdropBlurPassParams", "pad_1")
-        );
-        assert_eq!(
-            std::mem::offset_of!(BackdropBlurPassParams, pad_2),
-            shader_struct_member_offset(&module, "BackdropBlurPassParams", "pad_2")
-        );
+        assert_uniform_size::<GlobalParams>(&module, "globals");
+        assert_uniform_size::<[f32; 4]>(&module, "gamma_ratios");
+        assert_uniform_size::<f32>(&module, "grayscale_enhanced_contrast");
+        assert_uniform_size::<BackdropBlurPassParams>(&module, "pass_params");
+        assert_uniform_size::<SurfaceParams>(&module, "surface_locals");
+
+        // WGSL exposes these host wrappers and C-layout enums as 32-bit
+        // scalars. Check both width and discriminants used by shader branches.
+        assert_eq!(std::mem::size_of::<ScaledPixels>(), 4);
+        assert_eq!(std::mem::size_of::<DevicePixels>(), 4);
+        assert_eq!(std::mem::size_of::<TileId>(), 4);
+        assert_eq!(std::mem::size_of::<ContentMask<ScaledPixels>>(), 16);
+        assert_eq!(std::mem::offset_of!(ContentMask<ScaledPixels>, bounds), 0);
+        assert_eq!(std::mem::size_of::<BorderStyle>(), 4);
+        assert_eq!(BorderStyle::Solid as u32, 0);
+        assert_eq!(BorderStyle::Dashed as u32, 1);
+        assert_eq!(std::mem::size_of::<BackgroundTag>(), 4);
+        assert_eq!(BackgroundTag::Solid as u32, 0);
+        assert_eq!(BackgroundTag::LinearGradient as u32, 1);
+        assert_eq!(BackgroundTag::PatternSlash as u32, 2);
+        assert_eq!(std::mem::size_of::<ColorSpace>(), 4);
+        assert_eq!(ColorSpace::Srgb as u32, 0);
+        assert_eq!(ColorSpace::Oklab as u32, 1);
+        assert_eq!(std::mem::size_of::<AtlasTextureKind>(), 4);
+        assert_eq!(AtlasTextureKind::Monochrome as u32, 0);
+        assert_eq!(AtlasTextureKind::Polychrome as u32, 1);
     }
 }
