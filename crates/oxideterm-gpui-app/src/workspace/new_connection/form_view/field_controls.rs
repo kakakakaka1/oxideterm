@@ -1363,6 +1363,11 @@ impl WorkspaceApp {
             let active = active_transport == transport;
             let transport_index = new_connection_transport_index(transport);
             let row_text = if active {
+                theme.text_heading
+            } else {
+                theme.text
+            };
+            let icon_color = if active {
                 theme.accent
             } else {
                 theme.text_muted
@@ -1377,9 +1382,11 @@ impl WorkspaceApp {
                 let surface = div()
                     .absolute()
                     .inset_0()
-                    .border_l_2()
-                    .border_color(rgba((theme.accent << 8) | 0xff))
-                    .bg(rgba((theme.accent << 8) | 0x16));
+                    .rounded(px(self.tokens.radii.md))
+                    .border_1()
+                    .border_color(rgb(theme.border))
+                    .bg(self.settings_panel_background(theme.bg_panel));
+                let surface = oxideterm_gpui_ui::theme_card_surface_shadow(surface, &self.tokens);
 
                 let Some((generation, vertical_offset_y)) = selection_transition else {
                     return surface.into_any_element();
@@ -1437,9 +1444,11 @@ impl WorkspaceApp {
                 .cursor_pointer()
                 .text_size(px(self.tokens.metrics.ui_text_sm))
                 .text_color(rgb(row_text))
-                .when(!active, |row| row.hover(|row| row.bg(rgb(theme.bg_hover))))
+                .when(!active, |row| {
+                    row.hover(|row| row.bg(rgba((theme.bg_hover << 8) | 0x80)))
+                })
                 .when_some(selection_surface, |row, surface| row.child(surface))
-                .child(Self::render_lucide_icon(icon, 14.0, rgb(row_text)))
+                .child(Self::render_lucide_icon(icon, 14.0, rgb(icon_color)))
                 .child(div().min_w(px(0.0)).truncate().child(label))
                 .on_mouse_down(
                     MouseButton::Left,
