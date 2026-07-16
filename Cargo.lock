@@ -7013,6 +7013,9 @@ dependencies = [
  "anyhow",
  "argon2 0.5.3",
  "base64",
+ "block2",
+ "objc2",
+ "objc2-foundation",
  "oxideterm-portable-runtime",
  "oxideterm-secret-store",
  "rand 0.8.6",
@@ -7020,6 +7023,9 @@ dependencies = [
  "serde_json",
  "subtle",
  "whoami",
+ "windows 0.61.3",
+ "windows-core 0.61.2",
+ "windows-future 0.2.1",
  "zeroize",
 ]
 

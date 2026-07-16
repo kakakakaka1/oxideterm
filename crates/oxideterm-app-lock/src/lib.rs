@@ -13,6 +13,12 @@ use serde::{Deserialize, Serialize};
 use subtle::ConstantTimeEq;
 use zeroize::Zeroizing;
 
+mod biometric;
+
+pub use biometric::{
+    BiometricAvailability, BiometricOutcome, authenticate_biometric, biometric_availability,
+};
+
 const APP_LOCK_SERVICE: &str = "com.oxideterm.app-lock";
 const APP_LOCK_ACCOUNT_SUFFIX: &str = "workspace-lock-verifier";
 const VERIFIER_VERSION: u32 = 1;

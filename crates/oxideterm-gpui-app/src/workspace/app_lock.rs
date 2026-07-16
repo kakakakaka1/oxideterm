@@ -1,6 +1,9 @@
 use super::*;
 
-use oxideterm_app_lock::AppLockStore;
+use oxideterm_app_lock::{
+    AppLockStore, BiometricAvailability, BiometricOutcome, authenticate_biometric,
+    biometric_availability,
+};
 use oxideterm_gpui_settings_view::SettingsInput;
 use oxideterm_gpui_ui::{
     button::{ButtonOptions, ButtonRadius, ButtonSize, ButtonVariant, ToolbarButtonOptions},
@@ -41,6 +44,8 @@ pub(super) struct AppLockState {
     pub(super) dialog: Option<AppLockDialog>,
     lock_after_configure: bool,
     pending: bool,
+    biometric_available: bool,
+    biometric_check_pending: bool,
     current_password: String,
     new_password: String,
     confirm_password: String,
@@ -65,6 +70,8 @@ impl AppLockState {
             dialog: None,
             lock_after_configure: false,
             pending: false,
+            biometric_available: false,
+            biometric_check_pending: false,
             current_password: String::new(),
             new_password: String::new(),
             confirm_password: String::new(),
@@ -117,6 +124,7 @@ impl WorkspaceApp {
         self.clear_app_lock_input_state();
         self.app_lock.locked = true;
         self.app_lock.error = None;
+        self.refresh_app_lock_biometric_availability(cx);
         self.focus_app_lock_input(SettingsInput::AppLockCurrentPassword, window, cx);
         window.set_window_title(&SharedString::from(
             self.i18n.t("settings_view.general.app_lock_window_title"),
@@ -297,6 +305,7 @@ impl WorkspaceApp {
                             this.app_lock.locked = true;
                             this.focused_settings_input =
                                 Some(SettingsInput::AppLockCurrentPassword);
+                            this.refresh_app_lock_biometric_availability(cx);
                         }
                         cx.refresh_windows();
                     }
@@ -366,6 +375,83 @@ impl WorkspaceApp {
                         );
                     }
                 }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    pub(in crate::workspace) fn submit_biometric_unlock(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.app_lock.pending || !self.app_lock.biometric_available {
+            return;
+        }
+        let reason = self
+            .i18n
+            .t("settings_view.general.app_lock_biometric_reason");
+        let native_window_handle = app_lock_native_window_handle(window);
+        let runtime = self.forwarding_runtime.handle().clone();
+        self.app_lock.pending = true;
+        self.app_lock.error = None;
+        cx.spawn(async move |weak, cx| {
+            let task = runtime
+                .spawn_blocking(move || authenticate_biometric(&reason, native_window_handle));
+            let result = task
+                .await
+                .map_err(|error| error.to_string())
+                .and_then(|result| result.map_err(|error| error.to_string()));
+            let _ = weak.update(cx, |this, cx| {
+                this.app_lock.pending = false;
+                match result {
+                    Ok(BiometricOutcome::Verified) => {
+                        this.app_lock.locked = false;
+                        this.app_lock.failed_attempts = 0;
+                        this.app_lock.retry_at = None;
+                        this.clear_app_lock_input_state();
+                        this.needs_active_pane_focus = true;
+                        cx.refresh_windows();
+                    }
+                    Ok(BiometricOutcome::Canceled) => {
+                        // Cancellation is not an authentication failure; password remains ready.
+                    }
+                    Ok(BiometricOutcome::Failed) => {
+                        this.app_lock.error =
+                            Some("settings_view.general.app_lock_biometric_failed".to_string());
+                    }
+                    Ok(BiometricOutcome::Unavailable) => {
+                        this.app_lock.biometric_available = false;
+                        this.app_lock.error = Some(
+                            "settings_view.general.app_lock_biometric_unavailable".to_string(),
+                        );
+                    }
+                    Err(_) => {
+                        this.app_lock.error =
+                            Some("settings_view.general.app_lock_biometric_failed".to_string());
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn refresh_app_lock_biometric_availability(&mut self, cx: &mut Context<Self>) {
+        if self.app_lock.biometric_check_pending {
+            return;
+        }
+        self.app_lock.biometric_available = false;
+        self.app_lock.biometric_check_pending = true;
+        let runtime = self.forwarding_runtime.handle().clone();
+        cx.spawn(async move |weak, cx| {
+            // Windows availability is a WinRT async operation; keep it off the GPUI thread.
+            let availability = runtime.spawn_blocking(biometric_availability).await;
+            let _ = weak.update(cx, |this, cx| {
+                this.app_lock.biometric_check_pending = false;
+                this.app_lock.biometric_available =
+                    matches!(availability, Ok(BiometricAvailability::Available));
                 cx.notify();
             });
         })
@@ -578,6 +664,13 @@ impl WorkspaceApp {
                 )
                 .child(actions)
                 .into_any_element(),
+            self.general_checkbox_row(
+                "settings_view.general.app_lock_show_sidebar_icon",
+                "settings_view.general.app_lock_show_sidebar_icon_hint",
+                self.settings_store.settings().sidebar_ui.show_app_lock_icon,
+                |settings, enabled| settings.sidebar_ui.show_app_lock_icon = enabled,
+                cx,
+            ),
             self.app_lock
                 .error
                 .clone()
@@ -820,21 +913,48 @@ impl WorkspaceApp {
                 .when_some(self.app_lock.error.clone(), |card, error| {
                     card.child(self.app_lock_error_message(error))
                 })
-                .child(self.standard_footer_action_button(
-                    if self.app_lock.pending {
-                        self.i18n.t("settings_view.general.app_lock_unlocking")
-                    } else if blocked {
-                        self.i18n
-                            .t("settings_view.general.app_lock_wait_before_retry")
-                    } else {
-                        self.i18n.t("settings_view.general.app_lock_unlock")
-                    },
-                    ButtonVariant::Default,
-                    ConfirmDialogAction::Confirm,
-                    !can_submit,
-                    |this, _event, _window, cx| this.submit_app_unlock(cx),
-                    cx,
-                )),
+                .child(
+                    div()
+                        .flex()
+                        .flex_wrap()
+                        .items_center()
+                        .justify_center()
+                        .gap(px(10.0))
+                        .when(self.app_lock.biometric_available, |actions| {
+                            actions.child(self.standard_footer_action_button(
+                                if self.app_lock.pending {
+                                    self.i18n
+                                        .t("settings_view.general.app_lock_biometric_verifying")
+                                } else {
+                                    self.i18n.t(if cfg!(target_os = "windows") {
+                                        "settings_view.general.app_lock_windows_hello_unlock"
+                                    } else {
+                                        "settings_view.general.app_lock_biometric_unlock"
+                                    })
+                                },
+                                ButtonVariant::Outline,
+                                ConfirmDialogAction::Cancel,
+                                self.app_lock.pending,
+                                |this, _event, window, cx| this.submit_biometric_unlock(window, cx),
+                                cx,
+                            ))
+                        })
+                        .child(self.standard_footer_action_button(
+                            if self.app_lock.pending {
+                                self.i18n.t("settings_view.general.app_lock_unlocking")
+                            } else if blocked {
+                                self.i18n
+                                    .t("settings_view.general.app_lock_wait_before_retry")
+                            } else {
+                                self.i18n.t("settings_view.general.app_lock_unlock")
+                            },
+                            ButtonVariant::Default,
+                            ConfirmDialogAction::Confirm,
+                            !can_submit,
+                            |this, _event, _window, cx| this.submit_app_unlock(cx),
+                            cx,
+                        )),
+                ),
             &self.tokens,
         );
 
@@ -894,6 +1014,22 @@ impl WorkspaceApp {
             .child(message)
             .into_any_element()
     }
+}
+
+#[cfg(target_os = "windows")]
+fn app_lock_native_window_handle(window: &Window) -> Option<isize> {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+
+    let handle = HasWindowHandle::window_handle(window).ok()?;
+    let RawWindowHandle::Win32(handle) = handle.as_raw() else {
+        return None;
+    };
+    Some(handle.hwnd.get())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn app_lock_native_window_handle(_window: &Window) -> Option<isize> {
+    None
 }
 
 #[cfg(test)]

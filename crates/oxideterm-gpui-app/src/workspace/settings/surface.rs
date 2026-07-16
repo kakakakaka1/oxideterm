@@ -403,6 +403,7 @@ impl WorkspaceApp {
                     // Only the application-lock card changes height when its
                     // configured action set switches between one and two buttons.
                     self.app_lock.configured.hash(&mut hasher);
+                    settings.sidebar_ui.show_app_lock_icon.hash(&mut hasher);
                 }
             }
             SettingsTab::Terminal => {

@@ -570,6 +570,7 @@ mod tests {
         assert_eq!(settings.appearance.render_profile, RenderProfile::Auto);
         assert_eq!(settings.connection_defaults.username, "root");
         assert_eq!(settings.sidebar_ui.width, 300);
+        assert!(settings.sidebar_ui.show_app_lock_icon);
         assert_eq!(settings.sftp.max_concurrent_transfers, 3);
         assert_eq!(settings.sftp.directory_parallelism, 4);
         assert_eq!(settings.sftp.conflict_action, ConflictAction::Ask);
@@ -649,6 +650,7 @@ mod tests {
         assert_eq!(sanitized.settings.terminal.font_size, 32);
         assert_eq!(sanitized.settings.terminal.line_height, 3.0);
         assert_eq!(sanitized.settings.sidebar_ui.width, 600);
+        assert!(sanitized.settings.sidebar_ui.show_app_lock_icon);
         assert_eq!(sanitized.settings.connection_pool.idle_timeout_secs, 1);
         assert!(!sanitized.validation_warnings.is_empty());
     }

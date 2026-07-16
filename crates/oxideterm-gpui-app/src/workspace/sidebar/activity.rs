@@ -139,7 +139,9 @@ impl WorkspaceApp {
         }
         // App lock is a global action rather than a selectable panel. Keep it
         // directly below Host Tools as the final primary activity action.
-        primary_items = primary_items.child(self.render_app_lock_activity_icon(cx));
+        if self.settings_store.settings().sidebar_ui.show_app_lock_icon {
+            primary_items = primary_items.child(self.render_app_lock_activity_icon(cx));
+        }
 
         let mut bottom = div()
             .relative()
