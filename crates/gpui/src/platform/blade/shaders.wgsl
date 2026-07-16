@@ -1087,7 +1087,11 @@ struct BackdropBlurPassParams {
     texture_size: vec2<f32>,
     direction: vec2<f32>,
     radius: f32,
-    pad: vec3<f32>,
+    // Keep padding scalar so WGSL and the C-layout host struct both remain
+    // 32 bytes. A vec3 would start at the next 16-byte boundary in a uniform.
+    pad_0: f32,
+    pad_1: f32,
+    pad_2: f32,
 }
 var<uniform> pass_params: BackdropBlurPassParams;
 

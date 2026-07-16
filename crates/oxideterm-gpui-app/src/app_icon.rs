@@ -34,6 +34,7 @@ pub(crate) fn app_icon_variant_file_name(variant: AppIconVariant) -> &'static st
     }
 }
 
+#[cfg(any(target_os = "windows", test))]
 fn app_icon_variant_ico_file_name(variant: AppIconVariant) -> String {
     app_icon_variant_file_name(variant).replace(".png", ".ico")
 }

@@ -97,7 +97,9 @@ struct BackdropBlurPassParams {
     texture_size: [f32; 2],
     direction: [f32; 2],
     radius: f32,
-    pad: [f32; 3],
+    pad_0: f32,
+    pad_1: f32,
+    pad_2: f32,
 }
 
 #[derive(blade_macros::ShaderData)]
@@ -932,7 +934,9 @@ impl BladeRenderer {
                         ],
                         direction,
                         radius,
-                        pad: [0.0; 3],
+                        pad_0: 0.0,
+                        pad_1: 0.0,
+                        pad_2: 0.0,
                     },
                     t_source: source_view,
                     s_source: self.backdrop_sampler,
@@ -1557,14 +1561,92 @@ impl RenderingParameters {
 mod tests {
     use super::*;
 
-    #[test]
-    fn backdrop_blur_host_type_name_matches_wgsl() {
-        let host_name = std::any::type_name::<BackdropBlur>()
-            .rsplit("::")
-            .next()
-            .unwrap();
-        let shader_struct = format!("struct {host_name} {{");
+    fn assert_shader_struct_size<T>(module: &naga::Module) {
+        let host_name = std::any::type_name::<T>().rsplit("::").next().unwrap();
+        let shader_size = module
+            .types
+            .iter()
+            .find_map(|(_, shader_type)| {
+                (shader_type.name.as_deref() == Some(host_name)).then(|| match shader_type.inner {
+                    naga::TypeInner::Struct { span, .. } => span as usize,
+                    _ => panic!("shader type '{host_name}' is not a struct"),
+                })
+            })
+            .unwrap_or_else(|| panic!("shader struct '{host_name}' was not found"));
 
-        assert!(include_str!("shaders.wgsl").contains(&shader_struct));
+        assert_eq!(
+            std::mem::size_of::<T>(),
+            shader_size,
+            "host struct '{host_name}' size does not match WGSL"
+        );
+    }
+
+    fn shader_struct_member_offset(module: &naga::Module, type_name: &str, member: &str) -> usize {
+        module
+            .types
+            .iter()
+            .find_map(|(_, shader_type)| {
+                (shader_type.name.as_deref() == Some(type_name)).then_some(&shader_type.inner)
+            })
+            .and_then(|shader_type| match shader_type {
+                naga::TypeInner::Struct { members, .. } => members
+                    .iter()
+                    .find(|shader_member| shader_member.name.as_deref() == Some(member))
+                    .map(|shader_member| shader_member.offset as usize),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("shader member '{type_name}.{member}' was not found"))
+    }
+
+    #[test]
+    fn blade_shader_host_struct_layouts_match_wgsl() {
+        let module = naga::front::wgsl::parse_str(include_str!("shaders.wgsl"))
+            .expect("Blade WGSL should parse");
+        let validation_flags =
+            naga::valid::ValidationFlags::all() ^ naga::valid::ValidationFlags::BINDINGS;
+        naga::valid::Validator::new(validation_flags, naga::valid::Capabilities::empty())
+            .validate(&module)
+            .expect("Blade WGSL should pass startup validation");
+
+        // Mirror every startup reflection check so a layout mismatch is caught
+        // without requiring a display server or GPU-backed renderer startup.
+        assert_shader_struct_size::<GlobalParams>(&module);
+        assert_shader_struct_size::<SurfaceParams>(&module);
+        assert_shader_struct_size::<Quad>(&module);
+        assert_shader_struct_size::<Shadow>(&module);
+        assert_shader_struct_size::<PathRasterizationVertex>(&module);
+        assert_shader_struct_size::<PathSprite>(&module);
+        assert_shader_struct_size::<Underline>(&module);
+        assert_shader_struct_size::<MonochromeSprite>(&module);
+        assert_shader_struct_size::<PolychromeSprite>(&module);
+        assert_shader_struct_size::<BackdropBlur>(&module);
+        assert_shader_struct_size::<BackdropBlurPassParams>(&module);
+
+        // Size equality alone can hide a field offset mismatch, so verify the
+        // uniform that triggered #333 member by member as well.
+        assert_eq!(
+            std::mem::offset_of!(BackdropBlurPassParams, texture_size),
+            shader_struct_member_offset(&module, "BackdropBlurPassParams", "texture_size")
+        );
+        assert_eq!(
+            std::mem::offset_of!(BackdropBlurPassParams, direction),
+            shader_struct_member_offset(&module, "BackdropBlurPassParams", "direction")
+        );
+        assert_eq!(
+            std::mem::offset_of!(BackdropBlurPassParams, radius),
+            shader_struct_member_offset(&module, "BackdropBlurPassParams", "radius")
+        );
+        assert_eq!(
+            std::mem::offset_of!(BackdropBlurPassParams, pad_0),
+            shader_struct_member_offset(&module, "BackdropBlurPassParams", "pad_0")
+        );
+        assert_eq!(
+            std::mem::offset_of!(BackdropBlurPassParams, pad_1),
+            shader_struct_member_offset(&module, "BackdropBlurPassParams", "pad_1")
+        );
+        assert_eq!(
+            std::mem::offset_of!(BackdropBlurPassParams, pad_2),
+            shader_struct_member_offset(&module, "BackdropBlurPassParams", "pad_2")
+        );
     }
 }
