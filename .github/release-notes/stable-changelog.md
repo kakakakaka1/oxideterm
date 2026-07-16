@@ -3,6 +3,24 @@
 Stable releases are listed newest first. The release workflow uses each versioned
 section as the detailed changelog attached to the corresponding GitHub Release.
 
+## 2.0.2
+
+OxideTerm 2.0.2 improves application privacy controls, terminal session ownership,
+and visual consistency across the native workspace.
+
+### Highlights
+
+- Added application locking with macOS Touch ID and Windows Hello unlock support, plus a setting to hide the lock action from the activity bar.
+- Improved terminal, pane, tab, and SSH node ownership so independent consumers keep shared sessions alive and terminal endpoints remain traceable.
+- Added animated authentication selection while preserving the existing connection form appearance and reduced-motion behavior.
+
+### Fixes
+
+- Fixed modal backdrops so confirmations dim the complete application window instead of only the current content surface.
+- Refined plugin manager typography, selected connection styling, sidebar selection motion, and other native workspace details.
+- Improved terminal graphics cache ownership, rendering state, session cleanup, and transfer integration.
+- Fixed local terminal background lifecycle handling and several tab, split-pane, SFTP, forwarding, cloud-sync, and plugin host edge cases.
+
 ## 2.0.1
 
 OxideTerm 2.0.1 is a maintenance release focused on Linux startup reliability,

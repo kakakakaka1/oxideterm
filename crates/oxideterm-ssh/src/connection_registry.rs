@@ -636,13 +636,16 @@ impl SshConnectionRegistry {
             })
             .clone();
 
-        entry.ref_count.fetch_add(1, Ordering::SeqCst);
         entry.cancel_idle_timer();
         entry.touch();
         {
             let mut consumers = entry.consumers.write();
             if !consumers.contains(&consumer) {
                 consumers.push(consumer);
+                // Consumer identity is the ownership unit. Reacquiring the same
+                // logical consumer must be idempotent or the numeric reference
+                // count can outlive the consumer set and prevent idle cleanup.
+                entry.ref_count.fetch_add(1, Ordering::SeqCst);
             }
         }
         // `acquire` only records a logical consumer. The physical SSH transport
@@ -1927,6 +1930,23 @@ mod tests {
         sleep(Duration::from_millis(40)).await;
 
         assert!(registry.get(handle.connection_id()).is_none());
+    }
+
+    #[test]
+    fn acquire_is_idempotent_for_the_same_consumer() {
+        let registry = SshConnectionRegistry::default();
+        let config = SshConfig::password("idempotent.example", 22, "alice", "pw");
+        let consumer = ConnectionConsumer::Terminal("term-1".into());
+
+        let first = registry.acquire(config.clone(), consumer.clone());
+        let second = registry.acquire(config, consumer.clone());
+
+        assert_eq!(first.connection_id(), second.connection_id());
+        assert_eq!(first.info().ref_count, 1);
+        assert_eq!(first.info().consumers, vec![consumer.clone()]);
+
+        registry.release(first.connection_id(), &consumer);
+        assert_eq!(first.info().ref_count, 0);
     }
 
     #[tokio::test]

@@ -2080,6 +2080,9 @@ impl WorkspaceApp {
     }
 
     pub(super) fn sync_tab_titles(&mut self, _cx: &App) {
+        // Localized tab titles are derived only when the locale changes. Keeping
+        // this work out of render avoids allocating every translated title on
+        // unrelated terminal repaint frames.
         for tab in &mut self.tabs {
             if let TabTitleSource::I18nKey(key) = tab.title_source {
                 tab.title = self.i18n.t(key);

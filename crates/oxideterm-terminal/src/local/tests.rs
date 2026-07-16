@@ -119,12 +119,14 @@ printf '%s\n' "$child" > "$marker"
 wait
 "#;
         let mut config = LocalPtyConfig::default();
-        config.shell = Some(ShellInfo::new("test-sh", "Test sh", "/bin/sh").with_args(vec![
-            "-c".to_string(),
-            script.to_string(),
-            "oxideterm-pty-test".to_string(),
-            marker_path.display().to_string(),
-        ]));
+        config.shell = Some(
+            ShellInfo::new("test-sh", "Test sh", "/bin/sh").with_args(vec![
+                "-c".to_string(),
+                script.to_string(),
+                "oxideterm-pty-test".to_string(),
+                marker_path.display().to_string(),
+            ]),
+        );
         config.load_profile = false;
 
         let mut session = LocalPtySession::spawn_with_config_graphics_and_encoding(
@@ -205,26 +207,22 @@ wait
         session.drain_output();
         session.take_events();
         session
-            .write_text(
-                "print -r -- OXIDETERM_HISTORY_COUNT=${#history[@]}\n",
-            )
+            .write_text("print -r -- OXIDETERM_HISTORY_COUNT=${#history[@]}\n")
             .expect("query Zsh history count");
 
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
         let mut screen = String::new();
         let parse_history_count = |output: &str| {
-            output
-                .rsplit("OXIDETERM_HISTORY_COUNT=")
-                .find_map(|value| {
-                    let digits = value
-                        .trim_start()
-                        .chars()
-                        .take_while(char::is_ascii_digit)
-                        .collect::<String>();
-                    (!digits.is_empty())
-                        .then(|| digits.parse::<usize>().ok())
-                        .flatten()
-                })
+            output.rsplit("OXIDETERM_HISTORY_COUNT=").find_map(|value| {
+                let digits = value
+                    .trim_start()
+                    .chars()
+                    .take_while(char::is_ascii_digit)
+                    .collect::<String>();
+                (!digits.is_empty())
+                    .then(|| digits.parse::<usize>().ok())
+                    .flatten()
+            })
         };
         while std::time::Instant::now() < deadline && parse_history_count(&screen).is_none() {
             session.drain_output();
@@ -277,10 +275,13 @@ wait
         let mut reported_cwd = None;
         while std::time::Instant::now() < deadline && reported_cwd.is_none() {
             session.drain_output();
-            reported_cwd = session.take_events().into_iter().find_map(|event| match event {
-                TerminalEvent::CwdChanged { cwd, .. } => Some(cwd),
-                _ => None,
-            });
+            reported_cwd = session
+                .take_events()
+                .into_iter()
+                .find_map(|event| match event {
+                    TerminalEvent::CwdChanged { cwd, .. } => Some(cwd),
+                    _ => None,
+                });
             std::thread::sleep(Duration::from_millis(10));
         }
         session.shutdown();
@@ -484,6 +485,33 @@ wait
 
         assert!(graphics.images.contains_key(&TerminalImageId(7)));
         assert!(graphics.placements.is_empty());
+    }
+
+    #[test]
+    fn graphics_state_uses_monotonic_versions_across_deleted_image_ids() {
+        let mut graphics = TerminalGraphicsState::default();
+        let image = |id| TerminalImageData {
+            id: TerminalImageId(id),
+            protocol: TerminalImageProtocol::Kitty,
+            version: 0,
+            width: 1,
+            height: 1,
+            rgba: vec![0, 0, 0, 255].into(),
+            frames: Vec::new(),
+            animation: TerminalImageAnimationState::default(),
+            name: None,
+        };
+
+        graphics.handle_event(TerminalGraphicsEvent::ImageReady(image(100)));
+        let first_version = graphics.images[&TerminalImageId(100)].version;
+        graphics.handle_event(TerminalGraphicsEvent::Delete {
+            id: Some(TerminalImageId(100)),
+        });
+        graphics.handle_event(TerminalGraphicsEvent::ImageReady(image(200)));
+        let second_version = graphics.images[&TerminalImageId(200)].version;
+
+        assert!(second_version > first_version);
+        assert_eq!(graphics.images.len(), 1);
     }
 
     #[test]
@@ -974,9 +1002,12 @@ wait
         let mut integration = crate::shell_integration::TerminalShellIntegration::default();
         let mut events = Vec::new();
 
-        integration.advance(&mut parser, &mut term, b"\x1b]633;A\x07$ \x1b]633;B\x07", |event| {
-            events.push(event)
-        });
+        integration.advance(
+            &mut parser,
+            &mut term,
+            b"\x1b]633;A\x07$ \x1b]633;B\x07",
+            |event| events.push(event),
+        );
         integration.advance(&mut parser, &mut term, b"\x1b]633;E;pwd", |event| {
             events.push(event)
         });

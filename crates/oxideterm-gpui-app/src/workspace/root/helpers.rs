@@ -1210,6 +1210,7 @@ impl WorkspaceApp {
                 state: NodeState::default(),
                 connection_id: None,
                 terminal_session_id: None,
+                terminal_endpoints: Vec::new(),
                 sftp_session_id: None,
                 created_at_ms: node.created_at_ms,
                 generation: node.generation,

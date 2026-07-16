@@ -73,6 +73,131 @@ mod tests {
     }
 
     #[test]
+    fn removing_primary_terminal_elects_another_endpoint() {
+        let router = NodeRouter::new(SshConnectionRegistry::default());
+        let node = NodeId::new("node-a");
+        router.upsert_node(node.clone(), SshConfig::password("host", 22, "me", "pw"));
+        let first = TerminalEndpoint {
+            ws_port: 0,
+            ws_token: "first-token".to_string(),
+            session_id: "term-a".to_string(),
+        };
+        let second = TerminalEndpoint {
+            ws_port: 0,
+            ws_token: "second-token".to_string(),
+            session_id: "term-b".to_string(),
+        };
+
+        router.bind_terminal_endpoint(&node, first.clone()).unwrap();
+        router.bind_terminal_endpoint(&node, second.clone()).unwrap();
+        assert_eq!(router.terminal_url(&node).unwrap(), first);
+
+        router.unbind_terminal_session(&node, "term-a").unwrap();
+
+        assert_eq!(router.terminal_url(&node).unwrap(), second);
+        let snapshot = router.runtime_store().snapshot(&node).unwrap();
+        assert_eq!(snapshot.terminal_session_id.as_deref(), Some("term-b"));
+        assert_eq!(snapshot.terminal_endpoints.len(), 1);
+    }
+
+    #[test]
+    fn snapshot_rejects_parent_cycles_without_mutating_existing_tree() {
+        let store = NodeRuntimeStore::default();
+        let existing = NodeId::new("existing");
+        store.upsert_node(
+            existing.clone(),
+            SshConfig::password("existing", 22, "me", "pw"),
+        );
+        let node_a = snapshot_node("a", Some("b"), 99, vec![NodeId::new("b")]);
+        let node_b = snapshot_node("b", Some("a"), 99, vec![NodeId::new("a")]);
+
+        let result = store.apply_snapshot(NodeTreeSnapshot {
+            version: 1,
+            exported_at_ms: now_ms(),
+            root_ids: Vec::new(),
+            nodes: vec![node_a, node_b],
+        });
+
+        assert!(matches!(result, Err(RouteError::ConnectionError(_))));
+        assert!(store.snapshot(&existing).is_some());
+    }
+
+    #[test]
+    fn snapshot_derives_children_depth_and_roots_from_parent_links() {
+        let store = NodeRuntimeStore::default();
+        let child = snapshot_node("child", Some("root"), 42, Vec::new());
+        let root = snapshot_node("root", None, 42, Vec::new());
+
+        store
+            .apply_snapshot(NodeTreeSnapshot {
+                version: 1,
+                exported_at_ms: now_ms(),
+                root_ids: vec![NodeId::new("wrong")],
+                nodes: vec![child, root],
+            })
+            .unwrap();
+
+        let flat = store.flatten();
+        assert_eq!(flat.iter().map(|node| node.id.as_str()).collect::<Vec<_>>(), vec!["root", "child"]);
+        assert_eq!(flat[1].depth, 1);
+    }
+
+    #[test]
+    fn snapshot_preserves_valid_root_and_sibling_order_hints() {
+        let store = NodeRuntimeStore::default();
+        let child_b = snapshot_node("child-b", Some("root-a"), 1, Vec::new());
+        let root_b = snapshot_node("root-b", None, 0, Vec::new());
+        let child_a = snapshot_node("child-a", Some("root-a"), 1, Vec::new());
+        let root_a = snapshot_node(
+            "root-a",
+            None,
+            0,
+            vec![NodeId::new("child-a"), NodeId::new("child-b")],
+        );
+
+        store
+            .apply_snapshot(NodeTreeSnapshot {
+                version: 1,
+                exported_at_ms: now_ms(),
+                root_ids: vec![NodeId::new("root-a"), NodeId::new("root-b")],
+                nodes: vec![child_b, root_b, child_a, root_a],
+            })
+            .unwrap();
+
+        assert_eq!(
+            store
+                .flatten()
+                .iter()
+                .map(|node| node.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["root-a", "child-a", "child-b", "root-b"]
+        );
+    }
+
+    fn snapshot_node(
+        id: &str,
+        parent_id: Option<&str>,
+        depth: u32,
+        children_ids: Vec<NodeId>,
+    ) -> NodeTreeSnapshotNode {
+        NodeTreeSnapshotNode {
+            id: NodeId::new(id),
+            parent_id: parent_id.map(NodeId::new),
+            children_ids,
+            depth,
+            config: SshConfig::password(id, 22, "me", "pw"),
+            origin: NodeOrigin::Direct,
+            state: NodeState::default(),
+            connection_id: None,
+            terminal_session_id: None,
+            terminal_endpoints: Vec::new(),
+            sftp_session_id: None,
+            created_at_ms: now_ms(),
+            generation: 0,
+        }
+    }
+
+    #[test]
     fn runtime_tree_snapshot_preserves_origin_and_topology() {
         let store = NodeRuntimeStore::default();
         let root = NodeId::new("root");
@@ -288,6 +413,7 @@ mod tests {
                         state: snapshot.state,
                         connection_id: snapshot.connection_id,
                         terminal_session_id: snapshot.terminal_session_id,
+                        terminal_endpoints: snapshot.terminal_endpoints,
                         sftp_session_id: snapshot.sftp_session_id,
                         created_at_ms: snapshot.created_at_ms,
                         generation: snapshot.generation,
@@ -333,6 +459,7 @@ mod tests {
                     },
                     connection_id: Some("missing-connection".to_string()),
                     terminal_session_id: Some("term-a".to_string()),
+                    terminal_endpoints: Vec::new(),
                     sftp_session_id: Some("sftp-a".to_string()),
                     created_at_ms: now_ms(),
                     generation: 1,

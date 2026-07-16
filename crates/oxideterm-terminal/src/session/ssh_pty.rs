@@ -15,7 +15,7 @@ pub struct SshPtySession {
     graphics_ingress: GraphicsIngress,
     graphics: TerminalGraphicsState,
     graphics_alt_screen_active: bool,
-    output_queue: VecDeque<Vec<u8>>,
+    output_queue: VecDeque<SshOutputChunk>,
     output_queue_bytes: usize,
     magic_scan: MagicScanWindow,
     encoding: TerminalEncoding,

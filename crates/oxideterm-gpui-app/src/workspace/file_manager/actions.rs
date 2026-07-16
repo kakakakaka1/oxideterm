@@ -34,6 +34,9 @@ impl WorkspaceApp {
             });
             tab_id
         };
+        if self.focus_detached_tab_window(tab_id, cx) {
+            return;
+        }
         self.main_window_tabs.active_tab_id = Some(tab_id);
         self.active_surface = ActiveSurface::Terminal;
         self.needs_active_pane_focus = false;
@@ -1606,6 +1609,7 @@ impl WorkspaceApp {
             root_pane: Some(PaneNode::leaf(pane_id, session_id)),
             active_pane_id: Some(pane_id),
         });
+        self.bind_terminal_location(tab_id, pane_id, session_id);
         self.main_window_tabs.active_tab_id = Some(tab_id);
         self.active_surface = ActiveSurface::Terminal;
         self.needs_active_pane_focus = true;

@@ -113,6 +113,22 @@ pub struct Tab {
     pub active_pane_id: Option<PaneId>,
 }
 
+/// A split child keeps its layout share beside the node it sizes.
+///
+/// Keeping these values together makes it impossible for tree edits to leave
+/// parallel child and size vectors with different lengths.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PaneSplitChild {
+    pub node: PaneNode,
+    pub size: f32,
+}
+
+impl PaneSplitChild {
+    pub fn new(node: PaneNode, size: f32) -> Self {
+        Self { node, size }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum PaneNode {
     Leaf {
@@ -122,8 +138,7 @@ pub enum PaneNode {
     Group {
         id: PaneId,
         direction: SplitDirection,
-        children: Vec<PaneNode>,
-        sizes: Vec<f32>,
+        children: Vec<PaneSplitChild>,
     },
 }
 
@@ -138,23 +153,25 @@ impl PaneNode {
     pub fn pane_count(&self) -> usize {
         match self {
             Self::Leaf { .. } => 1,
-            Self::Group { children, .. } => children.iter().map(Self::pane_count).sum(),
+            Self::Group { children, .. } => {
+                children.iter().map(|child| child.node.pane_count()).sum()
+            }
         }
     }
 
     pub fn first_pane_id(&self) -> PaneId {
         match self {
             Self::Leaf { pane_id, .. } => *pane_id,
-            Self::Group { children, .. } => children[0].first_pane_id(),
+            Self::Group { children, .. } => children[0].node.first_pane_id(),
         }
     }
 
     pub fn contains_pane(&self, target: PaneId) -> bool {
         match self {
             Self::Leaf { pane_id, .. } => *pane_id == target,
-            Self::Group { children, .. } => {
-                children.iter().any(|child| child.contains_pane(target))
-            }
+            Self::Group { children, .. } => children
+                .iter()
+                .any(|child| child.node.contains_pane(target)),
         }
     }
 
@@ -167,7 +184,7 @@ impl PaneNode {
             Self::Leaf { .. } => None,
             Self::Group { children, .. } => children
                 .iter()
-                .find_map(|child| child.pane_id_for_session(target)),
+                .find_map(|child| child.node.pane_id_for_session(target)),
         }
     }
 
@@ -180,7 +197,7 @@ impl PaneNode {
             Self::Leaf { .. } => None,
             Self::Group { children, .. } => children
                 .iter()
-                .find_map(|child| child.session_id_for_pane(target)),
+                .find_map(|child| child.node.session_id_for_pane(target)),
         }
     }
 
@@ -202,7 +219,9 @@ impl PaneNode {
             }
             Self::Leaf { .. } => None,
             Self::Group { children, .. } => children.iter_mut().find_map(|child| {
-                child.replace_session(old_session_id, new_pane_id, new_session_id)
+                child
+                    .node
+                    .replace_session(old_session_id, new_pane_id, new_session_id)
             }),
         }
     }
@@ -212,7 +231,7 @@ impl PaneNode {
             Self::Leaf { pane_id, .. } => panes.push(*pane_id),
             Self::Group { children, .. } => {
                 for child in children {
-                    child.collect_pane_ids(panes);
+                    child.node.collect_pane_ids(panes);
                 }
             }
         }
@@ -223,7 +242,7 @@ impl PaneNode {
             Self::Leaf { session_id, .. } => sessions.push(*session_id),
             Self::Group { children, .. } => {
                 for child in children {
-                    child.collect_session_ids(sessions);
+                    child.node.collect_session_ids(sessions);
                 }
             }
         }
@@ -249,14 +268,16 @@ impl PaneNode {
                 *self = Self::Group {
                     id: group_id,
                     direction,
-                    children: vec![old, Self::leaf(new_pane_id, new_session_id)],
-                    sizes: vec![50.0, 50.0],
+                    children: vec![
+                        PaneSplitChild::new(old, 50.0),
+                        PaneSplitChild::new(Self::leaf(new_pane_id, new_session_id), 50.0),
+                    ],
                 };
                 true
             }
             Self::Leaf { .. } => false,
             Self::Group { children, .. } => children.iter_mut().any(|child| {
-                child.split_active(
+                child.node.split_active(
                     active_pane_id,
                     group_id,
                     direction,
@@ -270,25 +291,20 @@ impl PaneNode {
     pub fn close_pane(&mut self, target: PaneId) -> Option<PaneId> {
         match self {
             Self::Leaf { .. } => None,
-            Self::Group {
-                children, sizes, ..
-            } => {
+            Self::Group { children, .. } => {
                 let mut removed = false;
                 let mut index = 0;
                 while index < children.len() {
-                    if matches!(&children[index], Self::Leaf { pane_id, .. } if *pane_id == target)
+                    if matches!(&children[index].node, Self::Leaf { pane_id, .. } if *pane_id == target)
                     {
                         children.remove(index);
-                        if index < sizes.len() {
-                            sizes.remove(index);
-                        }
                         removed = true;
                         break;
                     }
-                    if children[index].contains_pane(target) {
-                        let fallback = children[index].close_pane(target);
-                        if let Some(replacement) = children[index].single_child_replacement() {
-                            children[index] = replacement;
+                    if children[index].node.contains_pane(target) {
+                        let fallback = children[index].node.close_pane(target);
+                        if let Some(replacement) = children[index].node.single_child_replacement() {
+                            children[index].node = replacement;
                         }
                         removed = fallback.is_some();
                         break;
@@ -300,15 +316,15 @@ impl PaneNode {
                     return None;
                 }
 
-                normalize_sizes(sizes, children.len());
-                children.first().map(Self::first_pane_id)
+                normalize_children(children);
+                children.first().map(|child| child.node.first_pane_id())
             }
         }
     }
 
     pub fn single_child_replacement(&mut self) -> Option<PaneNode> {
         match self {
-            Self::Group { children, .. } if children.len() == 1 => Some(children.remove(0)),
+            Self::Group { children, .. } if children.len() == 1 => Some(children.remove(0).node),
             _ => None,
         }
     }
@@ -316,38 +332,46 @@ impl PaneNode {
     pub fn update_group_sizes(&mut self, group_id: PaneId, next_sizes: &[f32]) -> bool {
         match self {
             Self::Leaf { .. } => false,
-            Self::Group {
-                id,
-                children,
-                sizes,
-                ..
-            } if *id == group_id && next_sizes.len() == children.len() => {
-                *sizes = balanced_sizes(next_sizes, children.len());
+            Self::Group { id, children, .. }
+                if *id == group_id && next_sizes.len() == children.len() =>
+            {
+                let sizes = balanced_sizes(next_sizes, children.len());
+                for (child, size) in children.iter_mut().zip(sizes) {
+                    child.size = size;
+                }
                 true
             }
             Self::Group { children, .. } => children
                 .iter_mut()
-                .any(|child| child.update_group_sizes(group_id, next_sizes)),
+                .any(|child| child.node.update_group_sizes(group_id, next_sizes)),
         }
     }
 
     pub fn reset_group_sizes(&mut self, group_id: PaneId) -> bool {
         match self {
             Self::Leaf { .. } => false,
-            Self::Group {
-                id,
-                children,
-                sizes,
-                ..
-            } if *id == group_id => {
+            Self::Group { id, children, .. } if *id == group_id => {
                 // Reset only the addressed split group so nested pane ratios
                 // remain untouched when a sibling divider is double-clicked.
-                *sizes = equal_sizes(children.len());
+                let sizes = equal_sizes(children.len());
+                for (child, size) in children.iter_mut().zip(sizes) {
+                    child.size = size;
+                }
                 true
             }
             Self::Group { children, .. } => children
                 .iter_mut()
-                .any(|child| child.reset_group_sizes(group_id)),
+                .any(|child| child.node.reset_group_sizes(group_id)),
+        }
+    }
+
+    pub fn split_sizes(&self) -> Vec<f32> {
+        match self {
+            Self::Group { children, .. } => balanced_sizes(
+                &children.iter().map(|child| child.size).collect::<Vec<_>>(),
+                children.len(),
+            ),
+            Self::Leaf { .. } => Vec::new(),
         }
     }
 }
@@ -388,8 +412,14 @@ pub fn equal_sizes(count: usize) -> Vec<f32> {
     vec![100.0 / count as f32; count]
 }
 
-fn normalize_sizes(sizes: &mut Vec<f32>, count: usize) {
-    *sizes = balanced_sizes(sizes, count);
+fn normalize_children(children: &mut [PaneSplitChild]) {
+    let sizes = balanced_sizes(
+        &children.iter().map(|child| child.size).collect::<Vec<_>>(),
+        children.len(),
+    );
+    for (child, size) in children.iter_mut().zip(sizes) {
+        child.size = size;
+    }
 }
 
 impl fmt::Display for TabId {
@@ -418,6 +448,19 @@ mod tests {
         )
     }
 
+    fn split_children(
+        pane_a: PaneId,
+        pane_b: PaneId,
+        session_a: TerminalSessionId,
+        session_b: TerminalSessionId,
+        sizes: [f32; 2],
+    ) -> Vec<PaneSplitChild> {
+        vec![
+            PaneSplitChild::new(PaneNode::leaf(pane_a, session_a), sizes[0]),
+            PaneSplitChild::new(PaneNode::leaf(pane_b, session_b), sizes[1]),
+        ]
+    }
+
     #[test]
     fn split_active_leaf_creates_group_and_focusable_leaf() {
         let (pane_a, pane_b, group, session_a, session_b) = ids();
@@ -435,11 +478,7 @@ mod tests {
         let mut node = PaneNode::Group {
             id: group,
             direction: SplitDirection::Horizontal,
-            children: vec![
-                PaneNode::leaf(pane_a, session_a),
-                PaneNode::leaf(pane_b, session_b),
-            ],
-            sizes: vec![50.0, 50.0],
+            children: split_children(pane_a, pane_b, session_a, session_b, [50.0, 50.0]),
         };
 
         assert_eq!(node.close_pane(pane_b), Some(pane_a));
@@ -455,11 +494,7 @@ mod tests {
         let node = PaneNode::Group {
             id: group,
             direction: SplitDirection::Horizontal,
-            children: vec![
-                PaneNode::leaf(pane_a, session_a),
-                PaneNode::leaf(pane_b, session_b),
-            ],
-            sizes: vec![50.0, 50.0],
+            children: split_children(pane_a, pane_b, session_a, session_b, [50.0, 50.0]),
         };
 
         assert_eq!(node.pane_id_for_session(session_b), Some(pane_b));
@@ -472,11 +507,7 @@ mod tests {
         let node = PaneNode::Group {
             id: group,
             direction: SplitDirection::Horizontal,
-            children: vec![
-                PaneNode::leaf(pane_a, session_a),
-                PaneNode::leaf(pane_b, session_b),
-            ],
-            sizes: vec![50.0, 50.0],
+            children: split_children(pane_a, pane_b, session_a, session_b, [50.0, 50.0]),
         };
 
         assert_eq!(node.session_id_for_pane(pane_a), Some(session_a));
@@ -489,11 +520,7 @@ mod tests {
         let node = PaneNode::Group {
             id: group,
             direction: SplitDirection::Horizontal,
-            children: vec![
-                PaneNode::leaf(pane_a, session_a),
-                PaneNode::leaf(pane_b, session_b),
-            ],
-            sizes: vec![50.0, 50.0],
+            children: split_children(pane_a, pane_b, session_a, session_b, [50.0, 50.0]),
         };
         let mut sessions = Vec::new();
 
@@ -510,11 +537,7 @@ mod tests {
         let mut node = PaneNode::Group {
             id: group,
             direction: SplitDirection::Horizontal,
-            children: vec![
-                PaneNode::leaf(pane_a, session_a),
-                PaneNode::leaf(pane_b, session_b),
-            ],
-            sizes: vec![50.0, 50.0],
+            children: split_children(pane_a, pane_b, session_a, session_b, [50.0, 50.0]),
         };
 
         assert_eq!(
@@ -543,17 +566,18 @@ mod tests {
         let mut node = PaneNode::Group {
             id: group,
             direction: SplitDirection::Horizontal,
-            children: vec![
-                PaneNode::leaf(pane_a, session_a),
-                PaneNode::leaf(pane_b, session_b),
-            ],
-            sizes: vec![70.0, 30.0],
+            children: split_children(pane_a, pane_b, session_a, session_b, [70.0, 30.0]),
         };
 
         assert!(node.reset_group_sizes(group));
 
         match node {
-            PaneNode::Group { sizes, .. } => assert_eq!(sizes, vec![50.0, 50.0]),
+            PaneNode::Group { children, .. } => {
+                assert_eq!(
+                    children.iter().map(|child| child.size).collect::<Vec<_>>(),
+                    vec![50.0, 50.0]
+                );
+            }
             PaneNode::Leaf { .. } => panic!("expected split group"),
         }
     }

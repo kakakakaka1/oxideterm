@@ -5,9 +5,13 @@ use dashmap::DashMap;
 use oxideterm_sftp::{SftpError, SftpSession};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, VecDeque},
     fmt,
-    sync::{Arc, mpsc},
+    sync::{
+        Arc, Weak,
+        atomic::{AtomicU64, Ordering},
+        mpsc,
+    },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use thiserror::Error;
@@ -179,7 +183,7 @@ struct NodeConnectionRuntime {
     sftp_session_id: Option<String>,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum NodeStateEvent {
     ConnectionStatusChanged {
@@ -272,6 +276,7 @@ pub struct NodeRuntimeSnapshot {
     pub origin: NodeOrigin,
     pub connection_id: Option<String>,
     pub terminal_session_id: Option<String>,
+    pub terminal_endpoints: Vec<TerminalEndpoint>,
     pub sftp_session_id: Option<String>,
     pub state: NodeState,
     pub created_at_ms: u64,
@@ -287,6 +292,7 @@ struct NodeRuntimeEntry {
     origin: NodeOrigin,
     connection_id: Option<String>,
     terminal_session_id: Option<String>,
+    terminal_endpoints: Vec<TerminalEndpoint>,
     sftp_session_id: Option<String>,
     state: NodeState,
     created_at_ms: u64,
@@ -314,6 +320,11 @@ pub struct NodeTreeSnapshotNode {
     pub state: NodeState,
     pub connection_id: Option<String>,
     pub terminal_session_id: Option<String>,
+    /// All native terminal endpoints owned by this node.
+    ///
+    /// Older snapshots omit this field and are hydrated from `state.ws_endpoint`.
+    #[serde(default)]
+    pub terminal_endpoints: Vec<TerminalEndpoint>,
     pub sftp_session_id: Option<String>,
     pub created_at_ms: u64,
     pub generation: u64,

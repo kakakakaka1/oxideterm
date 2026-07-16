@@ -21,7 +21,20 @@ impl WorkspaceApp {
 
     pub(in crate::workspace) fn active_tab_index(&self) -> Option<usize> {
         let active = self.main_window_tabs.active_tab_id?;
-        self.tabs.iter().position(|tab| tab.id == active)
+        if let Some((cached_id, cached_index)) = self.main_window_tabs.active_tab_index_cache.get()
+            && cached_id == active
+            && self
+                .tabs
+                .get(cached_index)
+                .is_some_and(|tab| tab.id == active)
+        {
+            return Some(cached_index);
+        }
+        let index = self.tabs.iter().position(|tab| tab.id == active)?;
+        self.main_window_tabs
+            .active_tab_index_cache
+            .set(Some((active, index)));
+        Some(index)
     }
 
     pub(in crate::workspace) fn tab_index_by_id(&self, tab_id: TabId) -> Option<usize> {

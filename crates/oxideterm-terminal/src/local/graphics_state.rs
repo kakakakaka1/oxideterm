@@ -1,6 +1,6 @@
 pub(crate) struct TerminalGraphicsState {
     images: HashMap<TerminalImageId, Arc<TerminalImageData>>,
-    image_versions: HashMap<TerminalImageId, u64>,
+    next_image_version: u64,
     placements: Vec<TerminalImagePlacement>,
     image_order: VecDeque<TerminalImageId>,
     storage_bytes: usize,
@@ -11,7 +11,7 @@ impl Default for TerminalGraphicsState {
     fn default() -> Self {
         Self {
             images: HashMap::new(),
-            image_versions: HashMap::new(),
+            next_image_version: 1,
             placements: Vec::new(),
             image_order: VecDeque::new(),
             storage_bytes: 0,
@@ -31,14 +31,8 @@ impl TerminalGraphicsState {
                     self.image_order.retain(|id| *id != image.id);
                     self.placements.retain(|placement| placement.id != image.id);
                 }
-                let next_version = self
-                    .image_versions
-                    .get(&image.id)
-                    .copied()
-                    .unwrap_or_default()
-                    + 1;
+                let next_version = self.allocate_image_version();
                 image.version = next_version;
-                self.image_versions.insert(image.id, next_version);
                 self.storage_bytes += image_storage_bytes(&image);
                 self.image_order.push_back(image.id);
                 self.images.insert(image.id, Arc::new(image));
@@ -51,14 +45,8 @@ impl TerminalGraphicsState {
                         .storage_bytes
                         .saturating_sub(image_storage_bytes(&previous));
                 }
-                let next_version = self
-                    .image_versions
-                    .get(&image.id)
-                    .copied()
-                    .unwrap_or_default()
-                    + 1;
+                let next_version = self.allocate_image_version();
                 image.version = next_version;
-                self.image_versions.insert(image.id, next_version);
                 self.storage_bytes += image_storage_bytes(&image);
                 if !self.image_order.iter().any(|id| *id == image.id) {
                     self.image_order.push_back(image.id);
@@ -95,6 +83,13 @@ impl TerminalGraphicsState {
         self.placements.clear();
         self.image_order.clear();
         self.storage_bytes = 0;
+    }
+
+    fn allocate_image_version(&mut self) -> u64 {
+        // A global content revision avoids retaining a tombstone for every image id ever seen.
+        let version = self.next_image_version;
+        self.next_image_version = self.next_image_version.wrapping_add(1).max(1);
+        version
     }
 
     pub(crate) fn clear_for_alt_screen_transition<T: EventListener>(

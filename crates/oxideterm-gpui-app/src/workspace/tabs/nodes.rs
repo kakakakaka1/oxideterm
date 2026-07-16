@@ -139,8 +139,12 @@ impl WorkspaceApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        const NODE_EVENT_BUDGET_PER_TICK: usize = 64;
+
         let mut events = Vec::new();
-        while let Ok(event) = self.node_event_rx.try_recv() {
+        while events.len() < NODE_EVENT_BUDGET_PER_TICK
+            && let Ok(event) = self.node_event_rx.try_recv()
+        {
             events.push(event);
         }
 
@@ -158,11 +162,11 @@ impl WorkspaceApp {
         let terminal_nodes = self.terminal_ssh_nodes.clone();
         for (session_id, node_id) in terminal_nodes {
             let locked = self.ssh_terminal_input_locked_for_node(&node_id);
-            let Some(pane_id) = self.tabs.iter().find_map(|tab| {
-                tab.root_pane
-                    .as_ref()
-                    .and_then(|root| root.pane_id_for_session(session_id))
-            }) else {
+            let Some(pane_id) = self
+                .terminal_locations
+                .get(&session_id)
+                .map(|location| location.pane_id)
+            else {
                 continue;
             };
             if let Some(pane) = self.panes.get(&pane_id) {
@@ -833,7 +837,7 @@ impl WorkspaceApp {
     }
 
     pub(in crate::workspace) fn emit_node_event(&self, event: NodeStateEvent) {
-        let _ = self.node_event_tx.send(event);
+        self.node_router.emitter().emit(event);
     }
 
     fn apply_node_event(
@@ -1214,14 +1218,11 @@ impl WorkspaceApp {
                 continue;
             };
             let old_session_id = TerminalSessionId(raw_old_session_id);
-            let Some((tab_id, old_pane_id)) = self.tabs.iter().find_map(|tab| {
-                tab.root_pane
-                    .as_ref()
-                    .and_then(|root| root.pane_id_for_session(old_session_id))
-                    .map(|pane_id| (tab.id, pane_id))
-            }) else {
+            let Some(location) = self.terminal_locations.get(&old_session_id).copied() else {
                 continue;
             };
+            let tab_id = location.tab_id;
+            let old_pane_id = location.pane_id;
             let Ok((new_pane_id, new_session_id)) =
                 self.create_ssh_terminal_pane_for_existing_node(node_id, window, cx)
             else {
@@ -1247,6 +1248,7 @@ impl WorkspaceApp {
                 if let Some(pane) = self.remove_terminal_pane(&replaced_pane_id) {
                     let _ = pane.update(cx, |pane, _cx| pane.shutdown());
                 }
+                self.bind_terminal_location(tab_id, new_pane_id, new_session_id);
                 self.unregister_ssh_terminal_session(old_session_id);
                 remounted += 1;
             } else {

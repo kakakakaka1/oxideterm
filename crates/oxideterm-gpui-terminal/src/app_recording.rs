@@ -18,8 +18,8 @@ impl TerminalPane {
         self.recorder = Some(TerminalRecorder::start(
             self.snapshot.cols,
             self.snapshot.rows,
-                options,
-            ));
+            options,
+        ));
         self.set_recording_output_events_enabled(true);
         cx.notify();
     }
@@ -61,8 +61,10 @@ impl TerminalPane {
             terminal.snapshot()
         };
         self.snapshot = self.stamp_snapshot(snapshot);
+        self.mark_terminal_content_changed();
         self.selection = None;
         self.search_query = None;
+        self.search_cache = None;
         self.selected_search_match = None;
         cx.notify();
     }
@@ -75,6 +77,7 @@ impl TerminalPane {
             terminal.snapshot()
         };
         self.snapshot = self.stamp_snapshot(snapshot);
+        self.mark_terminal_content_changed();
         cx.notify();
     }
 
@@ -85,15 +88,13 @@ impl TerminalPane {
             terminal.snapshot()
         };
         self.snapshot = self.stamp_snapshot(snapshot);
+        self.mark_terminal_content_changed();
         cx.notify();
     }
 
     fn set_recording_output_events_enabled(&mut self, enabled: bool) {
         // Output events duplicate decoded terminal bytes and are only consumed by
         // TerminalRecorder, so keep them disabled outside active recording.
-        self.terminal
-            .lock()
-            .set_output_events_enabled(enabled);
+        self.terminal.lock().set_output_events_enabled(enabled);
     }
-
 }

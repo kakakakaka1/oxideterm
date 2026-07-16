@@ -353,6 +353,26 @@ fn terminal_element_maps_rtl_search_highlight_to_visual_rect() {
 }
 
 #[test]
+fn terminal_element_keeps_precomputed_empty_search_result_empty() {
+    let layout = TerminalElement::new(
+        selection_snapshot("needle"),
+        None,
+        test_metrics(),
+        true,
+        None,
+        Some("needle".to_string()),
+        Vec::new(),
+        None,
+        None,
+        None,
+    )
+    .precomputed_search_matches()
+    .layout();
+
+    assert!(layout.search_matches.is_empty());
+}
+
+#[test]
 fn terminal_element_keeps_powerline_separators_as_cell_painted_runs() {
     let snapshot =
         selection_snapshot("a\u{e0b0}\u{e0b1}\u{e0b2}\u{e0b3}\u{e0b4}\u{e0b5}\u{e0b6}\u{e0b7}b");

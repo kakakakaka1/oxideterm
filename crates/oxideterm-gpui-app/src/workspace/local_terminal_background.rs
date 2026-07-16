@@ -183,6 +183,7 @@ impl WorkspaceApp {
             root_pane: Some(PaneNode::leaf(pane_id, detached.session_id)),
             active_pane_id: Some(pane_id),
         });
+        self.bind_terminal_location(tab_id, pane_id, detached.session_id);
         self.main_window_tabs.active_tab_id = Some(tab_id);
         self.active_surface = ActiveSurface::Terminal;
         self.needs_active_pane_focus = true;
@@ -229,9 +230,10 @@ impl WorkspaceApp {
             return None;
         }
         let theme = self.tokens.ui;
-        let sessions = self.sorted_detached_local_terminal_sessions();
-        self.sync_detached_local_terminal_list_state(&sessions);
-        let list_height = (sessions.len() as f32 * DETACHED_LOCAL_TERMINAL_LIST_ESTIMATED_HEIGHT)
+        self.sync_detached_local_terminal_order();
+        self.sync_detached_local_terminal_list_state();
+        let list_height = (self.detached_local_terminal_order.len() as f32
+            * DETACHED_LOCAL_TERMINAL_LIST_ESTIMATED_HEIGHT)
             .min(DETACHED_TERMINAL_POPOVER_MAX_HEIGHT);
         let state = self.detached_local_terminal_list_state.clone();
         let spec = self.detached_local_terminal_list_spec();
@@ -311,22 +313,24 @@ impl WorkspaceApp {
         Some(popover.into_any_element())
     }
 
-    fn sorted_detached_local_terminal_sessions(&self) -> Vec<DetachedLocalTerminalSession> {
+    fn sync_detached_local_terminal_order(&mut self) {
         let mut sessions = self
             .detached_local_terminals
             .values()
-            .cloned()
+            .map(|session| (session.session_id, session.detached_at))
             .collect::<Vec<_>>();
-        sessions.sort_by(|left, right| left.detached_at.cmp(&right.detached_at));
-        sessions
+        sessions.sort_by_key(|(_, detached_at)| *detached_at);
+        self.detached_local_terminal_order = sessions
+            .into_iter()
+            .map(|(session_id, _)| session_id)
+            .collect();
     }
 
-    fn sync_detached_local_terminal_list_state(
-        &mut self,
-        sessions: &[DetachedLocalTerminalSession],
-    ) {
-        let signatures = sessions
+    fn sync_detached_local_terminal_list_state(&mut self) {
+        let signatures = self
+            .detached_local_terminal_order
             .iter()
+            .filter_map(|session_id| self.detached_local_terminals.get(session_id))
             .map(detached_local_terminal_signature)
             .collect::<Vec<_>>();
         sync_tauri_variable_list_state_by_signatures(
@@ -350,8 +354,12 @@ impl WorkspaceApp {
         index: usize,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let sessions = self.sorted_detached_local_terminal_sessions();
-        let Some(session) = sessions.get(index).cloned() else {
+        let Some(session) = self
+            .detached_local_terminal_order
+            .get(index)
+            .and_then(|session_id| self.detached_local_terminals.get(session_id))
+            .cloned()
+        else {
             return div().into_any_element();
         };
         self.render_detached_local_terminal_row(session, cx)

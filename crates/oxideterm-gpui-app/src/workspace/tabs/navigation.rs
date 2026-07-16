@@ -177,6 +177,9 @@ impl WorkspaceApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.focus_detached_tab_window(tab_id, cx) {
+            return;
+        }
         if self
             .tabs
             .iter()
@@ -375,15 +378,13 @@ impl WorkspaceApp {
             return;
         };
         node.terminal_ids.retain(|id| *id != session_id);
-        if node.terminal_ids.is_empty() {
-            let endpoint_session_id = endpoint_session
-                .as_ref()
-                .map(|owner| owner.endpoint.session_id.clone())
-                .unwrap_or_else(|| session_id.0.to_string());
-            let _ = self
-                .node_router
-                .unbind_terminal_session(&node_id, &endpoint_session_id);
-        }
+        let endpoint_session_id = endpoint_session
+            .as_ref()
+            .map(|owner| owner.endpoint.session_id.clone())
+            .unwrap_or_else(|| session_id.0.to_string());
+        let _ = self
+            .node_router
+            .unbind_terminal_session(&node_id, &endpoint_session_id);
         self.persist_session_tree_snapshot();
     }
 
@@ -393,17 +394,18 @@ impl WorkspaceApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        let Some((tab_id, pane_id)) = self.tabs.iter().find_map(|tab| {
-            tab.root_pane
-                .as_ref()
-                .and_then(|root| root.pane_id_for_session(session_id))
-                .map(|pane_id| (tab.id, pane_id))
-        }) else {
+        let Some(location) = self.terminal_locations.get(&session_id).copied() else {
             return false;
         };
-        self.main_window_tabs.active_tab_id = Some(tab_id);
-        if let Some(tab) = self.tabs.iter_mut().find(|tab| tab.id == tab_id) {
-            tab.active_pane_id = Some(pane_id);
+        if self.detached_tabs.contains(&location.tab_id) {
+            // A detached terminal already has a native window owner. Do not
+            // mount the same terminal entity into the main window as well;
+            // focus its existing owner so session-tree activation still works.
+            return self.focus_detached_tab_window(location.tab_id, cx);
+        }
+        self.main_window_tabs.active_tab_id = Some(location.tab_id);
+        if let Some(tab) = self.tab_mut_by_id(location.tab_id) {
+            tab.active_pane_id = Some(location.pane_id);
         }
         if let Some(node_id) = self.terminal_ssh_nodes.get(&session_id)
             && let Some(node) = self.ssh_nodes.get_mut(node_id)
@@ -881,6 +883,7 @@ impl WorkspaceApp {
         let exiting_visual = self.tab_exit_visual(index);
         let tab = self.tabs.remove(index);
         self.detached_tabs.remove(&tab.id);
+        self.detached_tab_windows.remove(&tab.id);
         if self
             .main_window_tabs
             .context_menu

@@ -40,11 +40,53 @@ impl WorkspaceApp {
         self.panes.insert(pane_id, pane);
     }
 
+    pub(super) fn bind_terminal_location(
+        &mut self,
+        tab_id: TabId,
+        pane_id: PaneId,
+        session_id: TerminalSessionId,
+    ) {
+        let previous = self
+            .terminal_locations
+            .insert(session_id, TerminalLocation { tab_id, pane_id });
+        debug_assert!(
+            previous.is_none_or(|location| location == TerminalLocation { tab_id, pane_id }),
+            "terminal session was rebound without removing its previous location"
+        );
+        self.debug_assert_terminal_location(session_id);
+    }
+
+    fn unbind_terminal_location_for_pane(&mut self, pane_id: PaneId) {
+        let session_id = self
+            .terminal_locations
+            .iter()
+            .find_map(|(session_id, location)| {
+                (location.pane_id == pane_id).then_some(*session_id)
+            });
+        if let Some(session_id) = session_id {
+            self.terminal_locations.remove(&session_id);
+        }
+    }
+
+    fn debug_assert_terminal_location(&self, session_id: TerminalSessionId) {
+        #[cfg(debug_assertions)]
+        if let Some(location) = self.terminal_locations.get(&session_id) {
+            let tree_location = self.tab_by_id(location.tab_id).and_then(|tab| {
+                tab.root_pane
+                    .as_ref()
+                    .and_then(|root| root.pane_id_for_session(session_id))
+            });
+            debug_assert_eq!(tree_location, Some(location.pane_id));
+            debug_assert!(self.panes.contains_key(&location.pane_id));
+        }
+    }
+
     pub(super) fn remove_terminal_pane(
         &mut self,
         pane_id: &PaneId,
     ) -> Option<gpui::Entity<TerminalPane>> {
         self.terminal_pane_subscriptions.remove(pane_id);
+        self.unbind_terminal_location_for_pane(*pane_id);
         self.panes.remove(pane_id)
     }
 
@@ -125,6 +167,7 @@ impl WorkspaceApp {
         let Some(active_pane_id) = self.tabs[active_index].active_pane_id else {
             return;
         };
+        let tab_id = self.tabs[active_index].id;
         if self.tabs[active_index]
             .root_pane
             .as_ref()
@@ -163,6 +206,7 @@ impl WorkspaceApp {
         }) {
             tab.active_pane_id = Some(pane_id);
             self.register_terminal_pane(pane_id, session_id, pane.clone(), cx);
+            self.bind_terminal_location(tab_id, pane_id, session_id);
             self.needs_active_pane_focus = true;
             pane.read(cx).focus(window);
             cx.notify();
@@ -456,9 +500,8 @@ impl WorkspaceApp {
                 id,
                 direction,
                 children,
-                sizes,
             } => {
-                let sizes = balanced_sizes(sizes, children.len());
+                let sizes = node.split_sizes();
                 let mut group = div()
                     .id(("workspace-pane-group", id.0))
                     .size_full()
@@ -486,7 +529,7 @@ impl WorkspaceApp {
                                     .left_0()
                                     .right_0()
                                     .bottom_0()
-                                    .child(self.render_pane_tree_for_tab(tab_id, child, cx)),
+                                    .child(self.render_pane_tree_for_tab(tab_id, &child.node, cx)),
                             ),
                     );
                     if index + 1 < children.len() {

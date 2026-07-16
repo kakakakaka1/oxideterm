@@ -56,10 +56,10 @@ pub use reconnect::{
     ReconnectOrchestratorStore, ReconnectPhase, ReconnectSnapshot, ReconnectTiming,
 };
 pub use router::{
-    FlatNode, NodeEventEmitter, NodeEventSequencer, NodeId, NodeOrigin, NodeReadiness, NodeRouter,
-    NodeRuntimeStore, NodeState, NodeStateEvent, NodeStateSnapshot, NodeTreeExpansion,
-    NodeTreeSnapshot, NodeTreeSnapshotNode, ResolvedConnection, RouteError, SessionTreeSummary,
-    TerminalEndpoint,
+    FlatNode, NodeEventEmitter, NodeEventReceiver, NodeEventSequencer, NodeEventSubscription,
+    NodeId, NodeOrigin, NodeReadiness, NodeRouter, NodeRuntimeStore, NodeState, NodeStateEvent,
+    NodeStateSnapshot, NodeTreeExpansion, NodeTreeSnapshot, NodeTreeSnapshotNode,
+    ResolvedConnection, RouteError, SessionTreeSummary, TerminalEndpoint,
 };
 pub use session_tree_plan::{
     NativeSessionTreeConnectAction, NativeSessionTreeConnectChallenge,
@@ -68,9 +68,9 @@ pub use session_tree_plan::{
 pub use transport::{
     BoxedSshForwardStream, KeyboardInteractivePrompt, KeyboardInteractivePromptRequest,
     KeyboardInteractiveResponses, ManagedKeyResolver, RemoteForwardHandler, RemoteForwardedTcpIp,
-    SshCommandOutput, SshForwardStream, SshPromptError, SshPromptHandler, SshPtyHandle,
-    SshShellBootstrap, SshShellChannel, SshTransportClient, SshTransportCommand, SshTransportError,
-    X11ForwardHandler, X11ForwardedChannel,
+    SshCommandOutput, SshForwardStream, SshOutputChunk, SshPromptError, SshPromptHandler,
+    SshPtyHandle, SshShellBootstrap, SshShellChannel, SshTransportClient, SshTransportCommand,
+    SshTransportError, X11ForwardHandler, X11ForwardedChannel,
 };
 pub use upstream_proxy::{
     UpstreamProxyAuth, UpstreamProxyConfig, UpstreamProxyError, UpstreamProxyProtocol,

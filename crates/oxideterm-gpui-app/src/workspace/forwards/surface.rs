@@ -80,6 +80,9 @@ impl WorkspaceApp {
             tab_id
         };
 
+        if self.focus_detached_tab_window(tab_id, cx) {
+            return;
+        }
         self.main_window_tabs.active_tab_id = Some(tab_id);
         self.active_surface = ActiveSurface::Terminal;
         self.active_ssh_node_id = Some(node_id.clone());

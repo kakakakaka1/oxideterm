@@ -91,7 +91,6 @@ impl WorkspaceApp {
 impl Render for WorkspaceApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.begin_selectable_text_frame();
-        self.sync_tab_titles(cx);
         self.schedule_pending_auto_close_terminal_sessions(window, cx);
         self.poll_forwarding_worker_results(cx);
         self.poll_graphics_worker_results(window, cx);

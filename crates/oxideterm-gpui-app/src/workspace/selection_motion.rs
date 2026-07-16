@@ -14,6 +14,15 @@ pub(in crate::workspace) const SETTINGS_NAVIGATION_ID: &str = "settings-navigati
 pub(in crate::workspace) const FILE_MANAGER_NAVIGATION_ID: &str = "file-manager-navigation";
 pub(in crate::workspace) const NEW_CONNECTION_TRANSPORT_SELECTOR_ID: &str =
     "new-connection-transport-selector";
+pub(in crate::workspace) const NEW_CONNECTION_AUTH_SELECTOR_ID: &str =
+    "new-connection-auth-selector";
+pub(in crate::workspace) const EDIT_CONNECTION_AUTH_SELECTOR_ID: &str =
+    "edit-connection-auth-selector";
+pub(in crate::workspace) const PROMPT_CONNECTION_AUTH_SELECTOR_ID: &str =
+    "prompt-connection-auth-selector";
+pub(in crate::workspace) const DRILL_DOWN_AUTH_SELECTOR_ID: &str = "drill-down-auth-selector";
+pub(in crate::workspace) const JUMP_CONNECTION_AUTH_SELECTOR_ID: &str =
+    "jump-connection-auth-selector";
 pub(in crate::workspace) const VERSION_MIGRATION_MOTION_SWITCHER_ID: &str =
     "version-migration-motion-switcher";
 
@@ -27,6 +36,7 @@ pub(super) struct UserSegmentedControlMotionState {
 struct ActiveUserTransition {
     generation: u64,
     target_index: usize,
+    previous_index: Option<usize>,
     vertical_offset_y: Option<f32>,
 }
 
@@ -34,6 +44,16 @@ impl UserSegmentedControlMotionState {
     fn begin_with_vertical_offset(
         &mut self,
         control_id: &'static str,
+        target_index: usize,
+        vertical_offset_y: Option<f32>,
+    ) -> u64 {
+        self.begin_with_previous_index(control_id, None, target_index, vertical_offset_y)
+    }
+
+    fn begin_with_previous_index(
+        &mut self,
+        control_id: &'static str,
+        previous_index: Option<usize>,
         target_index: usize,
         vertical_offset_y: Option<f32>,
     ) -> u64 {
@@ -46,6 +66,7 @@ impl UserSegmentedControlMotionState {
             ActiveUserTransition {
                 generation,
                 target_index,
+                previous_index,
                 vertical_offset_y,
             },
         );
@@ -85,6 +106,13 @@ impl UserSegmentedControlMotionState {
             .filter(|transition| transition.target_index == active_index)
             .map(|transition| (transition.generation, transition.vertical_offset_y))
     }
+
+    fn previous_index_for(&self, control_id: &'static str, active_index: usize) -> Option<usize> {
+        self.active_transitions
+            .get(control_id)
+            .filter(|transition| transition.target_index == active_index)
+            .and_then(|transition| transition.previous_index)
+    }
 }
 
 impl WorkspaceApp {
@@ -102,9 +130,42 @@ impl WorkspaceApp {
         );
     }
 
+    pub(in crate::workspace) fn begin_user_segmented_control_transition_from(
+        &mut self,
+        control_id: &'static str,
+        previous_index: usize,
+        target_index: usize,
+        cx: &mut Context<Self>,
+    ) {
+        self.begin_user_segmented_control_transition_with_history(
+            control_id,
+            Some(previous_index),
+            target_index,
+            None,
+            cx,
+        );
+    }
+
     pub(in crate::workspace) fn begin_user_segmented_control_transition_with_vertical_offset(
         &mut self,
         control_id: &'static str,
+        target_index: usize,
+        vertical_offset_y: Option<f32>,
+        cx: &mut Context<Self>,
+    ) {
+        self.begin_user_segmented_control_transition_with_history(
+            control_id,
+            None,
+            target_index,
+            vertical_offset_y,
+            cx,
+        );
+    }
+
+    fn begin_user_segmented_control_transition_with_history(
+        &mut self,
+        control_id: &'static str,
+        previous_index: Option<usize>,
         target_index: usize,
         vertical_offset_y: Option<f32>,
         cx: &mut Context<Self>,
@@ -113,9 +174,18 @@ impl WorkspaceApp {
             self.segmented_control_user_motion.clear(control_id);
             return;
         };
-        let generation = self
-            .segmented_control_user_motion
-            .begin_with_vertical_offset(control_id, target_index, vertical_offset_y);
+        let generation = if previous_index.is_some() {
+            self.segmented_control_user_motion
+                .begin_with_previous_index(
+                    control_id,
+                    previous_index,
+                    target_index,
+                    vertical_offset_y,
+                )
+        } else {
+            self.segmented_control_user_motion
+                .begin_with_vertical_offset(control_id, target_index, vertical_offset_y)
+        };
         // User intent outlives a virtual-list row only for the real transition,
         // then expires so remounts and programmatic navigation render settled.
         cx.spawn(async move |weak, cx| {
@@ -148,6 +218,15 @@ impl WorkspaceApp {
     ) -> Option<(u64, Option<f32>)> {
         self.segmented_control_user_motion
             .transition_for(control_id, active_index)
+    }
+
+    pub(in crate::workspace) fn segmented_control_user_previous_index(
+        &self,
+        control_id: &'static str,
+        active_index: usize,
+    ) -> Option<usize> {
+        self.segmented_control_user_motion
+            .previous_index_for(control_id, active_index)
     }
 }
 
@@ -218,5 +297,22 @@ mod tests {
             Some((latest_generation, Some(91.0)))
         );
         assert_eq!(state.transition_for(SETTINGS_NAVIGATION_ID, 3), None);
+    }
+
+    #[test]
+    fn horizontal_transition_retains_its_previous_index_until_completion() {
+        let mut state = UserSegmentedControlMotionState::default();
+        let generation =
+            state.begin_with_previous_index(NEW_CONNECTION_AUTH_SELECTOR_ID, Some(0), 2, None);
+
+        assert_eq!(
+            state.previous_index_for(NEW_CONNECTION_AUTH_SELECTOR_ID, 2),
+            Some(0)
+        );
+        assert!(state.finish(NEW_CONNECTION_AUTH_SELECTOR_ID, generation));
+        assert_eq!(
+            state.previous_index_for(NEW_CONNECTION_AUTH_SELECTOR_ID, 2),
+            None
+        );
     }
 }

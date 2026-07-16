@@ -279,6 +279,31 @@ mod tests {
         assert_eq!(batcher.take_final_flush(), Some(vec![0xe4, 0xbd]));
     }
 
+    #[tokio::test]
+    async fn ssh_output_channel_releases_byte_capacity_after_consumption() {
+        let (sender, mut receiver) = ssh_output_channel();
+        let chunk = vec![b'x'; SSH_OUTPUT_BATCH_MAX_BYTES];
+        for _ in 0..(SSH_OUTPUT_BACKLOG_BYTES / SSH_OUTPUT_BATCH_MAX_BYTES) {
+            sender.send(chunk.clone()).await.unwrap();
+        }
+
+        let blocked_sender = sender.clone();
+        let blocked_chunk = chunk.clone();
+        let mut blocked = tokio::spawn(async move { blocked_sender.send(blocked_chunk).await });
+        assert!(
+            tokio::time::timeout(Duration::from_millis(10), &mut blocked)
+                .await
+                .is_err()
+        );
+
+        drop(receiver.try_recv().unwrap());
+        tokio::time::timeout(Duration::from_secs(1), blocked)
+            .await
+            .expect("released bytes should wake the producer")
+            .unwrap()
+            .unwrap();
+    }
+
     #[test]
     fn output_batcher_flushes_complete_text() {
         let mut batcher = SshOutputBatcher::new();

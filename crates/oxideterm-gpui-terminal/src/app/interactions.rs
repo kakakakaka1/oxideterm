@@ -1,4 +1,4 @@
-use std::{env, time::Duration};
+use std::{env, sync::Arc, time::Duration};
 
 use gpui::{
     ClipboardItem, Context, KeyDownEvent, KeyUpEvent, Modifiers, MouseButton, MouseDownEvent,
@@ -697,11 +697,8 @@ impl TerminalPane {
         cx.notify();
     }
 
-    fn current_search_matches(&self) -> Vec<TerminalSearchMatch> {
-        self.search_query
-            .as_deref()
-            .map(|query| self.terminal.lock().search_matches(query))
-            .unwrap_or_default()
+    fn current_search_matches(&mut self) -> Arc<[TerminalSearchMatch]> {
+        self.refresh_search_cache()
     }
 
     pub(super) fn select_next_search_match(&mut self, forward: bool, cx: &mut Context<Self>) {
@@ -723,7 +720,8 @@ impl TerminalPane {
         } else {
             current - 1
         });
-        self.scroll_to_search_match(&matches[self.selected_search_match.unwrap()], cx);
+        let selected = matches[self.selected_search_match.unwrap()].clone();
+        self.scroll_to_search_match(&selected, cx);
     }
 
     pub(super) fn scroll_to_selected_search_match(&mut self, cx: &mut Context<Self>) {
@@ -734,7 +732,8 @@ impl TerminalPane {
         else {
             return;
         };
-        self.scroll_to_search_match(&matches[index], cx);
+        let selected = matches[index].clone();
+        self.scroll_to_search_match(&selected, cx);
     }
 
     fn scroll_to_search_match(

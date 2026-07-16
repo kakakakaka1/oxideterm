@@ -2031,21 +2031,23 @@ impl WorkspaceApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<(PaneId, gpui::Entity<oxideterm_gpui_terminal::TerminalPane>)> {
-        let (tab_index, tab_id, pane_id) =
-            self.tabs.iter().enumerate().find_map(|(index, tab)| {
-                let pane_id = tab
-                    .root_pane
-                    .as_ref()
-                    .and_then(|root| root.pane_id_for_session(session_id))?;
-                Some((index, tab.id, pane_id))
-            })?;
+        let location = self.terminal_locations.get(&session_id).copied()?;
+        let tab_id = location.tab_id;
+        let pane_id = location.pane_id;
         let pane = self.panes.get(&pane_id)?.clone();
+
+        if self.detached_tabs.contains(&tab_id) {
+            // The detached window already owns this pane entity. Focus that
+            // owner without mounting the same terminal into the main window.
+            self.focus_detached_tab_window(tab_id, cx);
+            return Some((pane_id, pane));
+        }
 
         // AI terminal tools must act on the same pane the user can see. The
         // model may target a non-active session from context, so make that tab
         // and pane visible before writing input or reading command output.
         self.main_window_tabs.active_tab_id = Some(tab_id);
-        if let Some(tab) = self.tabs.get_mut(tab_index) {
+        if let Some(tab) = self.tab_mut_by_id(tab_id) {
             tab.active_pane_id = Some(pane_id);
         }
         self.sync_active_tab_surface();

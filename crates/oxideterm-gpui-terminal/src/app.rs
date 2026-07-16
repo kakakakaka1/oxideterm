@@ -25,8 +25,8 @@ use oxideterm_terminal::{
     TerminalCommandMarkDetectionSource, TerminalCommandMarkEvent,
     TerminalCwdIntegrationLaunchState, TerminalDrainBudget, TerminalDrainReport, TerminalEvent,
     TerminalLifecycle, TerminalOutputProcessor, TerminalProcessInfo, TerminalProcessProbe,
-    TerminalRow, TerminalSession, TerminalSessionKind, TerminalSnapshot, TrzszTransferDirection,
-    TrzszTransferSelection, serial_list_ports,
+    TerminalRow, TerminalSearchMatch, TerminalSession, TerminalSessionKind, TerminalSnapshot,
+    TrzszTransferDirection, TrzszTransferSelection, serial_list_ports,
 };
 use oxideterm_trzsz::TrzszState;
 use parking_lot::Mutex;
@@ -214,10 +214,7 @@ pub struct TerminalPane {
     terminal_timestamps_enabled: bool,
     // Visual-only metadata keyed by terminal absolute line; never write this
     // into the PTY buffer, copied text, or search/indexed terminal content.
-    row_timestamps: HashMap<i64, String>,
-    // Tracks the last painted content signature for each stamped row so the
-    // gutter follows line modification time instead of first-seen time.
-    row_timestamp_signatures: HashMap<i64, u64>,
+    row_timestamps: Arc<HashMap<i64, TerminalRowTimestamp>>,
     metrics: TerminalMetrics,
     selection: Option<TerminalSelection>,
     pending_paste: Option<String>,
@@ -230,6 +227,8 @@ pub struct TerminalPane {
     privilege_prompt_inline_hint: Option<String>,
     privilege_prompt_submit_requested: bool,
     search_query: Option<String>,
+    terminal_content_revision: u64,
+    search_cache: Option<TerminalSearchCache>,
     selected_search_match: Option<usize>,
     hovered_link: Option<TerminalLinkRange>,
     hovered_command_mark_id: Option<String>,
@@ -334,6 +333,25 @@ struct PendingTerminalCwd {
     path: String,
     command: String,
     created_at: Instant,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct TerminalRowTimestamp {
+    pub(crate) label: String,
+    signature: u64,
+}
+
+#[derive(Clone)]
+struct TerminalSearchCache {
+    query: String,
+    content_revision: u64,
+    matches: Arc<[oxideterm_terminal::TerminalSearchMatch]>,
+}
+
+impl TerminalSearchCache {
+    fn is_current(&self, query: &str, content_revision: u64) -> bool {
+        self.query == query && self.content_revision == content_revision
+    }
 }
 
 const PTY_RESIZE_DEBOUNCE: Duration = Duration::from_millis(100);
@@ -557,8 +575,7 @@ impl TerminalPane {
             snapshot_dirty: false,
             snapshot_generation: 1,
             terminal_timestamps_enabled: false,
-            row_timestamps: HashMap::new(),
-            row_timestamp_signatures: HashMap::new(),
+            row_timestamps: Arc::new(HashMap::new()),
             metrics,
             selection: None,
             pending_paste: None,
@@ -571,6 +588,8 @@ impl TerminalPane {
             privilege_prompt_inline_hint: None,
             privilege_prompt_submit_requested: false,
             search_query: None,
+            terminal_content_revision: 1,
+            search_cache: None,
             selected_search_match: None,
             hovered_link: None,
             hovered_command_mark_id: None,
@@ -665,8 +684,7 @@ impl TerminalPane {
         // last modified, not the time it first became visible in the viewport.
         let label = current_terminal_timestamp_label();
         record_timestampable_snapshot_rows(
-            &mut self.row_timestamps,
-            &mut self.row_timestamp_signatures,
+            Arc::make_mut(&mut self.row_timestamps),
             snapshot,
             &label,
         );
@@ -675,8 +693,7 @@ impl TerminalPane {
 
     fn trim_row_timestamps(&mut self, snapshot: &TerminalSnapshot) {
         let Some(max_line) = snapshot.lines.iter().map(|row| row.absolute_line).max() else {
-            self.row_timestamps.clear();
-            self.row_timestamp_signatures.clear();
+            Arc::make_mut(&mut self.row_timestamps).clear();
             return;
         };
         let retained_rows = self
@@ -686,9 +703,7 @@ impl TerminalPane {
             .saturating_add(1024)
             .max(2048) as i64;
         let min_line = max_line.saturating_sub(retained_rows);
-        self.row_timestamps.retain(|line, _| *line >= min_line);
-        self.row_timestamp_signatures
-            .retain(|line, _| *line >= min_line);
+        Arc::make_mut(&mut self.row_timestamps).retain(|line, _| *line >= min_line);
     }
 
     pub fn terminal_timestamps_enabled(&self) -> bool {
@@ -1007,6 +1022,7 @@ impl TerminalPane {
         self.serial_reconnect_config = Some(config);
         self.serial_port_available = Some(true);
         self.snapshot = self.stamp_snapshot(snapshot);
+        self.mark_terminal_content_changed();
         self.terminal_exited = false;
         self.input_locked = false;
         self.title = SharedString::from("OxideTerm");
@@ -1018,6 +1034,7 @@ impl TerminalPane {
         self.privilege_prompt_inline_hint = None;
         self.privilege_prompt_submit_requested = false;
         self.search_query = None;
+        self.search_cache = None;
         self.selected_search_match = None;
         self.hovered_link = None;
         self.hovered_command_mark_id = None;
@@ -1142,6 +1159,8 @@ impl TerminalPane {
         cx: &mut Context<Self>,
     ) -> TerminalSearchStatus {
         self.search_query = query;
+        self.search_cache = None;
+        self.refresh_search_cache();
         let match_count = self.search_match_count();
         self.selected_search_match = if match_count == 0 {
             None
@@ -1178,10 +1197,43 @@ impl TerminalPane {
     }
 
     fn search_match_count(&self) -> usize {
-        self.search_query
-            .as_deref()
-            .map(|query| self.terminal.lock().search_matches(query).len())
+        self.search_cache
+            .as_ref()
+            .filter(|cache| {
+                self.search_query
+                    .as_deref()
+                    .is_some_and(|query| cache.is_current(query, self.terminal_content_revision))
+            })
+            .map(|cache| cache.matches.len())
             .unwrap_or_default()
+    }
+
+    fn mark_terminal_content_changed(&mut self) {
+        self.terminal_content_revision = self.terminal_content_revision.wrapping_add(1).max(1);
+        self.search_cache = None;
+    }
+
+    fn refresh_search_cache(&mut self) -> Arc<[TerminalSearchMatch]> {
+        let Some(query) = self
+            .search_query
+            .as_deref()
+            .filter(|query| !query.is_empty())
+        else {
+            self.search_cache = None;
+            return Arc::from([]);
+        };
+        if let Some(cache) = &self.search_cache
+            && cache.is_current(query, self.terminal_content_revision)
+        {
+            return cache.matches.clone();
+        }
+        let matches: Arc<[TerminalSearchMatch]> = self.terminal.lock().search_matches(query).into();
+        self.search_cache = Some(TerminalSearchCache {
+            query: query.to_string(),
+            content_revision: self.terminal_content_revision,
+            matches: matches.clone(),
+        });
+        matches
     }
 
     pub fn copy_to_clipboard(&mut self, cx: &mut Context<Self>) {
@@ -1324,6 +1376,7 @@ impl TerminalPane {
         };
         self.clear_smooth_scroll_remainder();
         self.snapshot = self.stamp_snapshot(snapshot);
+        self.mark_terminal_content_changed();
         self.selection = None;
         self.search_query = None;
         self.selected_search_match = None;
@@ -1379,6 +1432,7 @@ impl TerminalPane {
             // Parsing stays current for every terminal, but the expensive immutable snapshot is
             // built only when GPUI actually renders this pane.
             self.snapshot_dirty = true;
+            self.mark_terminal_content_changed();
         }
         let render_stats_changed = self.update_render_stats(&report, now);
 
@@ -2077,6 +2131,7 @@ impl TerminalPane {
             }
             self.clear_smooth_scroll_remainder();
             self.snapshot = self.stamp_snapshot(snapshot);
+            self.mark_terminal_content_changed();
             cx.notify();
         }
     }
@@ -2151,25 +2206,30 @@ fn current_terminal_timestamp_label() -> String {
 }
 
 fn record_timestampable_snapshot_rows(
-    row_timestamps: &mut HashMap<i64, String>,
-    row_timestamp_signatures: &mut HashMap<i64, u64>,
+    row_timestamps: &mut HashMap<i64, TerminalRowTimestamp>,
     snapshot: &TerminalSnapshot,
     label: &str,
 ) {
     for row in &snapshot.lines {
         if terminal_row_has_timestamp_content(row) {
             let timestamp_signature = terminal_row_timestamp_signature(row);
-            let line_changed = row_timestamp_signatures.get(&row.absolute_line).copied()
+            let line_changed = row_timestamps
+                .get(&row.absolute_line)
+                .map(|timestamp| timestamp.signature)
                 != Some(timestamp_signature);
             if line_changed {
-                row_timestamps.insert(row.absolute_line, label.to_string());
-                row_timestamp_signatures.insert(row.absolute_line, timestamp_signature);
+                row_timestamps.insert(
+                    row.absolute_line,
+                    TerminalRowTimestamp {
+                        label: label.to_string(),
+                        signature: timestamp_signature,
+                    },
+                );
             }
         } else {
             // Blank viewport rows are recycled later. Removing their metadata
             // prevents new output from inheriting a stale line-modification time.
             row_timestamps.remove(&row.absolute_line);
-            row_timestamp_signatures.remove(&row.absolute_line);
         }
     }
 }
@@ -2458,65 +2518,56 @@ mod tests {
     #[test]
     fn row_timestamps_track_last_modified_nonblank_content() {
         let mut row_timestamps = HashMap::new();
-        let mut row_timestamp_signatures = HashMap::new();
         let blank_snapshot = timestamp_test_snapshot(timestamp_test_row(42, "   "));
-        record_timestampable_snapshot_rows(
-            &mut row_timestamps,
-            &mut row_timestamp_signatures,
-            &blank_snapshot,
-            "10:00:00",
-        );
+        record_timestampable_snapshot_rows(&mut row_timestamps, &blank_snapshot, "10:00:00");
 
         assert!(!row_timestamps.contains_key(&42));
-        assert!(!row_timestamp_signatures.contains_key(&42));
 
         let content_snapshot = timestamp_test_snapshot(timestamp_test_row(42, "ls"));
-        record_timestampable_snapshot_rows(
-            &mut row_timestamps,
-            &mut row_timestamp_signatures,
-            &content_snapshot,
-            "10:00:01",
-        );
+        record_timestampable_snapshot_rows(&mut row_timestamps, &content_snapshot, "10:00:01");
 
         assert_eq!(
-            row_timestamps.get(&42).map(String::as_str),
+            row_timestamps
+                .get(&42)
+                .map(|timestamp| timestamp.label.as_str()),
             Some("10:00:01")
         );
 
         let unchanged_snapshot =
             timestamp_test_snapshot(timestamp_test_row_with_cursor(42, "ls", Some(1), true));
-        record_timestampable_snapshot_rows(
-            &mut row_timestamps,
-            &mut row_timestamp_signatures,
-            &unchanged_snapshot,
-            "10:00:02",
-        );
+        record_timestampable_snapshot_rows(&mut row_timestamps, &unchanged_snapshot, "10:00:02");
         assert_eq!(
-            row_timestamps.get(&42).map(String::as_str),
+            row_timestamps
+                .get(&42)
+                .map(|timestamp| timestamp.label.as_str()),
             Some("10:00:01")
         );
 
         let changed_snapshot = timestamp_test_snapshot(timestamp_test_row(42, "pwd"));
-        record_timestampable_snapshot_rows(
-            &mut row_timestamps,
-            &mut row_timestamp_signatures,
-            &changed_snapshot,
-            "10:00:03",
-        );
+        record_timestampable_snapshot_rows(&mut row_timestamps, &changed_snapshot, "10:00:03");
         assert_eq!(
-            row_timestamps.get(&42).map(String::as_str),
+            row_timestamps
+                .get(&42)
+                .map(|timestamp| timestamp.label.as_str()),
             Some("10:00:03")
         );
 
         let cleared_snapshot = timestamp_test_snapshot(timestamp_test_row(42, ""));
-        record_timestampable_snapshot_rows(
-            &mut row_timestamps,
-            &mut row_timestamp_signatures,
-            &cleared_snapshot,
-            "10:00:04",
-        );
+        record_timestampable_snapshot_rows(&mut row_timestamps, &cleared_snapshot, "10:00:04");
 
         assert!(!row_timestamps.contains_key(&42));
-        assert!(!row_timestamp_signatures.contains_key(&42));
+    }
+
+    #[test]
+    fn search_cache_requires_matching_query_and_content_revision() {
+        let cache = TerminalSearchCache {
+            query: "needle".to_string(),
+            content_revision: 7,
+            matches: Arc::from([]),
+        };
+
+        assert!(cache.is_current("needle", 7));
+        assert!(!cache.is_current("other", 7));
+        assert!(!cache.is_current("needle", 8));
     }
 }

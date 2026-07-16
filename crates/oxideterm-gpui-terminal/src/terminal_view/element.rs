@@ -17,7 +17,7 @@ use oxideterm_terminal_unicode::{TerminalVisualLine, visual_line_for_row};
 use parking_lot::Mutex;
 use unicode_width::UnicodeWidthChar;
 
-use crate::app::{TerminalInputHandler, TerminalPane, TerminalRenderedImage};
+use crate::app::{TerminalInputHandler, TerminalPane, TerminalRenderedImage, TerminalRowTimestamp};
 use crate::terminal_ui::*;
 use crate::terminal_view::highlight::{TerminalHighlightLayout, terminal_highlights_for_rows};
 use crate::terminal_view::links::*;
@@ -43,7 +43,8 @@ pub(crate) struct TerminalElement {
     marked_text: Option<String>,
     ghost_text: Option<String>,
     search_query: Option<String>,
-    search_matches: Vec<TerminalSearchMatch>,
+    search_matches: Arc<[TerminalSearchMatch]>,
+    search_matches_precomputed: bool,
     selected_search_match: Option<usize>,
     command_marks: Vec<TerminalCommandMark>,
     selected_command_mark_id: Option<String>,
@@ -53,7 +54,7 @@ pub(crate) struct TerminalElement {
     bidi_enabled: bool,
     input: Option<TerminalElementInput>,
     transparent_background: bool,
-    row_timestamps: Option<Arc<HashMap<i64, String>>>,
+    row_timestamps: Option<Arc<HashMap<i64, TerminalRowTimestamp>>>,
     layout_cache: Option<Arc<Mutex<TerminalLayoutCache>>>,
     viewport_rows: usize,
     scrollbar_display_offset: f32,
@@ -282,7 +283,7 @@ impl TerminalElement {
         cursor_visible: bool,
         marked_text: Option<String>,
         search_query: Option<String>,
-        search_matches: Vec<TerminalSearchMatch>,
+        search_matches: impl Into<Arc<[TerminalSearchMatch]>>,
         selected_search_match: Option<usize>,
         hovered_link: Option<TerminalLinkRange>,
         input: Option<TerminalElementInput>,
@@ -312,7 +313,7 @@ impl TerminalElement {
         cursor_visible: bool,
         marked_text: Option<String>,
         search_query: Option<String>,
-        search_matches: Vec<TerminalSearchMatch>,
+        search_matches: impl Into<Arc<[TerminalSearchMatch]>>,
         selected_search_match: Option<usize>,
         hovered_link: Option<TerminalLinkRange>,
         input: Option<TerminalElementInput>,
@@ -343,7 +344,7 @@ impl TerminalElement {
         cursor_visible: bool,
         marked_text: Option<String>,
         search_query: Option<String>,
-        search_matches: Vec<TerminalSearchMatch>,
+        search_matches: impl Into<Arc<[TerminalSearchMatch]>>,
         selected_search_match: Option<usize>,
         hovered_link: Option<TerminalLinkRange>,
         bidi_enabled: bool,
@@ -360,7 +361,8 @@ impl TerminalElement {
             cursor_visible,
             marked_text,
             search_query,
-            search_matches,
+            search_matches: search_matches.into(),
+            search_matches_precomputed: false,
             selected_search_match,
             command_marks: Vec::new(),
             selected_command_mark_id: None,
@@ -432,9 +434,16 @@ impl TerminalElement {
 
     pub(crate) fn row_timestamps(
         mut self,
-        row_timestamps: Option<Arc<HashMap<i64, String>>>,
+        row_timestamps: Option<Arc<HashMap<i64, TerminalRowTimestamp>>>,
     ) -> Self {
         self.row_timestamps = row_timestamps;
+        self
+    }
+
+    pub(crate) fn precomputed_search_matches(mut self) -> Self {
+        // An empty result is still a computed result. This flag prevents the
+        // visible-row fallback search from rescanning on every repaint.
+        self.search_matches_precomputed = true;
         self
     }
 
@@ -489,7 +498,7 @@ impl TerminalElement {
         let search_matches = map_rects_to_visual(
             &self.snapshot,
             self.bidi_enabled,
-            if self.search_matches.is_empty() {
+            if !self.search_matches_precomputed && self.search_matches.is_empty() {
                 search_match_rects_for_rows(
                     &self.snapshot,
                     self.search_query.as_deref(),
@@ -633,7 +642,12 @@ impl TerminalElement {
         row_index: usize,
         absolute_line: i64,
     ) -> Option<BatchedTextRun> {
-        let label = self.row_timestamps.as_ref()?.get(&absolute_line)?.clone();
+        let label = self
+            .row_timestamps
+            .as_ref()?
+            .get(&absolute_line)?
+            .label
+            .clone();
         Some(BatchedTextRun {
             row: row_index,
             col: 0,
@@ -754,12 +768,12 @@ impl TerminalElement {
             {
                 highlight_fg
             } else {
-                to_hsla(cell.fg)
+                to_hsla(resolve_terminal_foreground(cell.fg, &self.theme))
             };
             let bg = if block_cursor {
                 to_hsla(terminal_color_from_hex(self.theme.header_foreground))
             } else {
-                to_hsla(cell.bg)
+                to_hsla(resolve_terminal_background(cell.bg, &self.theme))
             };
             let cell_width = if cell.wide { 2 } else { 1 };
 
@@ -872,10 +886,15 @@ impl TerminalElement {
     fn row_layout_cache_key(&self, row_index: usize) -> TerminalRowLayoutCacheKey {
         let mut hasher = DefaultHasher::new();
         self.snapshot.cols.hash(&mut hasher);
-        self.snapshot.cursor_shape.hash(&mut hasher);
         if let Some(row) = self.snapshot.lines.get(row_index) {
             row.absolute_line.hash(&mut hasher);
             row.signature.hash(&mut hasher);
+            let has_cursor = row.cells.iter().any(|cell| cell.cursor);
+            has_cursor.hash(&mut hasher);
+            if has_cursor {
+                self.snapshot.cursor_shape.hash(&mut hasher);
+                self.cursor_visible.hash(&mut hasher);
+            }
         }
         hash_logical_line_signatures(&self.snapshot, row_index, &mut hasher);
         f32::from(self.metrics.font_size)
@@ -890,9 +909,14 @@ impl TerminalElement {
         self.theme.background.hash(&mut hasher);
         self.theme.foreground.hash(&mut hasher);
         self.theme.header_foreground.hash(&mut hasher);
-        self.cursor_visible.hash(&mut hasher);
         self.bidi_enabled.hash(&mut hasher);
-        hash_selection(self.selection, &mut hasher);
+        hash_selection_for_row(
+            self.selection,
+            row_index,
+            self.snapshot.display_offset,
+            self.snapshot.cols,
+            &mut hasher,
+        );
         hash_highlight_rules(&self.highlight_rules, &mut hasher);
         TerminalRowLayoutCacheKey {
             signature: hasher.finish(),
@@ -1176,16 +1200,50 @@ fn relative_link_layout(ranges: Vec<TerminalLinkRange>) -> TerminalRowLinkLayout
     }
 }
 
-fn hash_selection(selection: Option<TerminalSelection>, hasher: &mut impl Hasher) {
+fn hash_selection_for_row(
+    selection: Option<TerminalSelection>,
+    row: usize,
+    display_offset: usize,
+    cols: usize,
+    hasher: &mut impl Hasher,
+) {
     let Some(selection) = selection else {
         0u8.hash(hasher);
         return;
     };
+    let line = row as i32 - display_offset as i32;
+    let selected_span =
+        if selection.mode == crate::terminal_view::selection::TerminalSelectionMode::Block {
+            let row_start = selection.anchor.line.min(selection.head.line);
+            let row_end = selection.anchor.line.max(selection.head.line);
+            (line >= row_start && line <= row_end).then(|| {
+                (
+                    selection.anchor.col.min(selection.head.col),
+                    selection.anchor.col.max(selection.head.col),
+                )
+            })
+        } else {
+            let (start, end) = selection.normalized();
+            if line < start.line || line > end.line {
+                None
+            } else {
+                Some((
+                    if line == start.line { start.col } else { 0 },
+                    if line == end.line {
+                        end.col
+                    } else {
+                        cols.saturating_sub(1)
+                    },
+                ))
+            }
+        };
+    let Some((start_col, end_col)) = selected_span else {
+        0u8.hash(hasher);
+        return;
+    };
     1u8.hash(hasher);
-    selection.anchor.line.hash(hasher);
-    selection.anchor.col.hash(hasher);
-    selection.head.line.hash(hasher);
-    selection.head.col.hash(hasher);
+    start_col.hash(hasher);
+    end_col.hash(hasher);
     match selection.mode {
         crate::terminal_view::selection::TerminalSelectionMode::Simple => 0u8,
         crate::terminal_view::selection::TerminalSelectionMode::Block => 1,
@@ -1193,6 +1251,22 @@ fn hash_selection(selection: Option<TerminalSelection>, hasher: &mut impl Hasher
         crate::terminal_view::selection::TerminalSelectionMode::Lines => 3,
     }
     .hash(hasher);
+}
+
+fn resolve_terminal_foreground(color: TerminalColor, theme: &TerminalUiTheme) -> TerminalColor {
+    if color == terminal_color_from_hex(OXIDETERM_TERMINAL_FOREGROUND) {
+        terminal_color_from_hex(theme.foreground)
+    } else {
+        color
+    }
+}
+
+fn resolve_terminal_background(color: TerminalColor, theme: &TerminalUiTheme) -> TerminalColor {
+    if color == terminal_color_from_hex(OXIDETERM_TERMINAL_BACKGROUND) {
+        terminal_color_from_hex(theme.background)
+    } else {
+        color
+    }
 }
 
 fn hash_highlight_rules(rules: &[TerminalHighlightRule], hasher: &mut impl Hasher) {
@@ -1817,6 +1891,64 @@ mod cache_tests {
         assert_eq!(
             before.logical_highlight_cache_key(1..2),
             after.logical_highlight_cache_key(0..1)
+        );
+    }
+
+    #[test]
+    fn row_layout_cache_key_ignores_selection_on_other_rows() {
+        let mut before = element(snapshot(0, vec![row(0, 'a'), row(1, 'b')]));
+        before.selection = Some(TerminalSelection {
+            anchor: crate::terminal_view::selection::TerminalGridPoint { line: 1, col: 0 },
+            head: crate::terminal_view::selection::TerminalGridPoint { line: 1, col: 0 },
+            mode: crate::terminal_view::selection::TerminalSelectionMode::Lines,
+        });
+        let mut after = element(snapshot(0, vec![row(0, 'a'), row(1, 'b')]));
+        after.selection = Some(TerminalSelection {
+            anchor: crate::terminal_view::selection::TerminalGridPoint { line: 1, col: 0 },
+            head: crate::terminal_view::selection::TerminalGridPoint { line: 1, col: 1 },
+            mode: crate::terminal_view::selection::TerminalSelectionMode::Lines,
+        });
+
+        assert_eq!(
+            before.row_layout_cache_key(0),
+            after.row_layout_cache_key(0)
+        );
+    }
+
+    #[test]
+    fn row_layout_cache_key_ignores_cursor_blink_on_non_cursor_rows() {
+        let mut before = element(snapshot(0, vec![row(0, 'a'), row(1, 'b')]));
+        before.cursor_visible = true;
+        let mut after = element(snapshot(0, vec![row(0, 'a'), row(1, 'b')]));
+        after.cursor_visible = false;
+
+        assert_eq!(
+            before.row_layout_cache_key(1),
+            after.row_layout_cache_key(1)
+        );
+    }
+
+    #[test]
+    fn default_terminal_colors_resolve_without_mutating_rows() {
+        let theme = TerminalUiTheme {
+            foreground: 0x112233,
+            background: 0x445566,
+            ..TerminalUiTheme::default()
+        };
+
+        assert_eq!(
+            resolve_terminal_foreground(
+                terminal_color_from_hex(OXIDETERM_TERMINAL_FOREGROUND),
+                &theme,
+            ),
+            terminal_color_from_hex(theme.foreground)
+        );
+        assert_eq!(
+            resolve_terminal_background(
+                terminal_color_from_hex(OXIDETERM_TERMINAL_BACKGROUND),
+                &theme,
+            ),
+            terminal_color_from_hex(theme.background)
         );
     }
 }

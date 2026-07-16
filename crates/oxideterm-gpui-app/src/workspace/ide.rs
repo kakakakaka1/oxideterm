@@ -93,8 +93,13 @@ impl WorkspaceApp {
             tab_id
         };
 
-        self.main_window_tabs.active_tab_id = Some(tab_id);
-        self.active_surface = oxideterm_gpui_settings_view::ActiveSurface::Terminal;
+        if self.focus_detached_tab_window(tab_id, cx) {
+            return;
+        }
+        if !self.detached_tabs.contains(&tab_id) {
+            self.main_window_tabs.active_tab_id = Some(tab_id);
+            self.active_surface = oxideterm_gpui_settings_view::ActiveSurface::Terminal;
+        }
         self.active_ssh_node_id = Some(node_id.clone());
         self.expanded_ssh_nodes.insert(node_id.clone());
         // The folder chooser is a node/SFTP consumer like Tauri's IDE tree.
@@ -221,8 +226,10 @@ impl WorkspaceApp {
             tab_id
         };
 
-        self.main_window_tabs.active_tab_id = Some(tab_id);
-        self.active_surface = oxideterm_gpui_settings_view::ActiveSurface::Terminal;
+        if !self.detached_tabs.contains(&tab_id) {
+            self.main_window_tabs.active_tab_id = Some(tab_id);
+            self.active_surface = oxideterm_gpui_settings_view::ActiveSurface::Terminal;
+        }
         self.active_ssh_node_id = Some(target_node_id.clone());
         self.expanded_ssh_nodes.insert(target_node_id);
         cx.notify();
@@ -537,6 +544,7 @@ impl WorkspaceApp {
         let removed_was_active = self.main_window_tabs.active_tab_id == Some(tab_id);
         let tab = self.tabs.remove(index);
         self.detached_tabs.remove(&tab.id);
+        self.detached_tab_windows.remove(&tab.id);
         self.ide_tab_surfaces.remove(&tab.id);
         self.ide_surface_subscriptions.remove(&tab.id);
         self.ide_tab_nodes.remove(&tab.id);

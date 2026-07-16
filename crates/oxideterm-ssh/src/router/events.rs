@@ -27,6 +27,40 @@ pub struct NodeEventEmitter {
     sequencer: NodeEventSequencer,
     connection_nodes: Arc<DashMap<String, NodeId>>,
     listeners: Arc<parking_lot::RwLock<Vec<mpsc::Sender<NodeStateEvent>>>>,
+    mailbox_listeners: Arc<parking_lot::RwLock<HashMap<u64, Weak<NodeEventMailbox>>>>,
+    next_listener_id: Arc<AtomicU64>,
+}
+
+struct NodeEventMailbox {
+    queue: parking_lot::Mutex<VecDeque<NodeStateEvent>>,
+    capacity: usize,
+}
+
+pub struct NodeEventReceiver {
+    mailbox: Arc<NodeEventMailbox>,
+}
+
+pub struct NodeEventSubscription {
+    listener_id: u64,
+    listeners: Weak<parking_lot::RwLock<HashMap<u64, Weak<NodeEventMailbox>>>>,
+}
+
+impl Drop for NodeEventSubscription {
+    fn drop(&mut self) {
+        if let Some(listeners) = self.listeners.upgrade() {
+            listeners.write().remove(&self.listener_id);
+        }
+    }
+}
+
+impl NodeEventReceiver {
+    pub fn try_recv(&self) -> Result<NodeStateEvent, mpsc::TryRecvError> {
+        self.mailbox
+            .queue
+            .lock()
+            .pop_front()
+            .ok_or(mpsc::TryRecvError::Empty)
+    }
 }
 
 impl NodeEventEmitter {
@@ -40,6 +74,32 @@ impl NodeEventEmitter {
 
     pub fn subscribe(&self, sender: mpsc::Sender<NodeStateEvent>) {
         self.listeners.write().push(sender);
+    }
+
+    pub fn subscribe_bounded(
+        &self,
+        capacity: usize,
+    ) -> (NodeEventSubscription, NodeEventReceiver) {
+        assert!(capacity > 0, "node event mailbox capacity must be positive");
+        let listener_id = self.next_listener_id.fetch_add(1, Ordering::Relaxed);
+        let mailbox = Arc::new(NodeEventMailbox {
+            queue: parking_lot::Mutex::new(VecDeque::with_capacity(capacity)),
+            capacity,
+        });
+        self.mailbox_listeners
+            .write()
+            .insert(listener_id, Arc::downgrade(&mailbox));
+        (
+            NodeEventSubscription {
+                listener_id,
+                listeners: Arc::downgrade(&self.mailbox_listeners),
+            },
+            NodeEventReceiver { mailbox },
+        )
+    }
+
+    pub fn emit(&self, event: NodeStateEvent) {
+        self.dispatch(&event);
     }
 
     pub fn register(&self, connection_id: impl Into<String>, node_id: NodeId) {
@@ -149,9 +209,166 @@ impl NodeEventEmitter {
     }
 
     fn dispatch(&self, event: &NodeStateEvent) {
-        let listeners = self.listeners.read().clone();
-        for listener in listeners {
-            let _ = listener.send(event.clone());
+        self.listeners
+            .write()
+            .retain(|listener| listener.send(event.clone()).is_ok());
+
+        let mut listeners = self.mailbox_listeners.write();
+        listeners.retain(|_, listener| {
+            let Some(mailbox) = listener.upgrade() else {
+                return false;
+            };
+            let mut queue = mailbox.queue.lock();
+            if queue.iter().any(|queued| queued == event) {
+                // NodeRouter callers may also forward the returned event. Drop
+                // only exact duplicate deliveries, not distinct transitions.
+                return true;
+            }
+            if !node_event_requires_reliable_delivery(event)
+                && let Some(index) = queue
+                .iter()
+                .position(|queued| {
+                    !node_event_requires_reliable_delivery(queued)
+                        && node_event_coalesce_key(queued) == node_event_coalesce_key(event)
+                })
+            {
+                // Move replacements to the back so per-node generations remain
+                // ordered across different event kinds in the shared mailbox.
+                queue.remove(index);
+            }
+            if queue.len() >= mailbox.capacity
+                && let Some(index) = queue
+                    .iter()
+                    .position(|queued| !node_event_requires_reliable_delivery(queued))
+            {
+                queue.remove(index);
+            }
+            // Error/disconnect transitions carry one-shot cleanup side effects.
+            // They may temporarily exceed the level-event capacity rather than
+            // being silently discarded while the UI is suspended.
+            queue.push_back(event.clone());
+            true
+        });
+    }
+}
+
+fn node_event_coalesce_key(event: &NodeStateEvent) -> (&str, u8) {
+    match event {
+        NodeStateEvent::ConnectionStatusChanged { connection_id, .. } => (connection_id, 0),
+        NodeStateEvent::ConnectionStateChanged { node_id, .. } => (node_id, 1),
+        NodeStateEvent::SftpReady { node_id, .. } => (node_id, 2),
+        NodeStateEvent::TerminalEndpointChanged { node_id, .. } => (node_id, 3),
+    }
+}
+
+fn node_event_requires_reliable_delivery(event: &NodeStateEvent) -> bool {
+    match event {
+        NodeStateEvent::ConnectionStatusChanged { status, .. } => {
+            matches!(status.as_str(), "link_down" | "disconnected")
+        }
+        NodeStateEvent::ConnectionStateChanged { state, .. } => {
+            matches!(state, NodeReadiness::Error | NodeReadiness::Disconnected)
+        }
+        NodeStateEvent::SftpReady { .. } | NodeStateEvent::TerminalEndpointChanged { .. } => false,
+    }
+}
+
+#[cfg(test)]
+mod mailbox_tests {
+    use super::*;
+
+    #[test]
+    fn bounded_subscription_coalesces_latest_event_and_unsubscribes_on_drop() {
+        let emitter = NodeEventEmitter::new();
+        let (subscription, receiver) = emitter.subscribe_bounded(1);
+        emitter.emit_connection_state_changed_for_test("node-a", NodeReadiness::Connecting);
+        emitter.emit_connection_state_changed_for_test("node-a", NodeReadiness::Ready);
+
+        assert!(matches!(
+            receiver.try_recv().unwrap(),
+            NodeStateEvent::ConnectionStateChanged { state: NodeReadiness::Ready, .. }
+        ));
+        drop(subscription);
+        emitter.emit_connection_state_changed_for_test("node-a", NodeReadiness::Error);
+        assert!(receiver.try_recv().is_err());
+    }
+
+    #[test]
+    fn coalesced_events_keep_cross_kind_generation_order() {
+        let emitter = NodeEventEmitter::new();
+        let (_subscription, receiver) = emitter.subscribe_bounded(2);
+        emitter.dispatch(&NodeStateEvent::ConnectionStateChanged {
+            node_id: "node-a".to_string(),
+            generation: 1,
+            state: NodeReadiness::Connecting,
+            reason: String::new(),
+        });
+        emitter.dispatch(&NodeStateEvent::SftpReady {
+            node_id: "node-a".to_string(),
+            generation: 2,
+            ready: true,
+            cwd: None,
+        });
+        emitter.dispatch(&NodeStateEvent::ConnectionStateChanged {
+            node_id: "node-a".to_string(),
+            generation: 3,
+            state: NodeReadiness::Ready,
+            reason: String::new(),
+        });
+
+        assert!(matches!(
+            receiver.try_recv().unwrap(),
+            NodeStateEvent::SftpReady { generation: 2, .. }
+        ));
+        assert!(matches!(
+            receiver.try_recv().unwrap(),
+            NodeStateEvent::ConnectionStateChanged { generation: 3, .. }
+        ));
+    }
+
+    #[test]
+    fn error_transition_is_not_coalesced_by_reconnecting_state() {
+        let emitter = NodeEventEmitter::new();
+        let (_subscription, receiver) = emitter.subscribe_bounded(1);
+        emitter.dispatch(&NodeStateEvent::ConnectionStateChanged {
+            node_id: "node-a".to_string(),
+            generation: 1,
+            state: NodeReadiness::Error,
+            reason: "link down".to_string(),
+        });
+        emitter.dispatch(&NodeStateEvent::ConnectionStateChanged {
+            node_id: "node-a".to_string(),
+            generation: 2,
+            state: NodeReadiness::Connecting,
+            reason: String::new(),
+        });
+
+        assert!(matches!(
+            receiver.try_recv().unwrap(),
+            NodeStateEvent::ConnectionStateChanged {
+                generation: 1,
+                state: NodeReadiness::Error,
+                ..
+            }
+        ));
+        assert!(matches!(
+            receiver.try_recv().unwrap(),
+            NodeStateEvent::ConnectionStateChanged {
+                generation: 2,
+                state: NodeReadiness::Connecting,
+                ..
+            }
+        ));
+    }
+
+    impl NodeEventEmitter {
+        fn emit_connection_state_changed_for_test(&self, node_id: &str, state: NodeReadiness) {
+            self.dispatch(&NodeStateEvent::ConnectionStateChanged {
+                node_id: node_id.to_string(),
+                generation: 0,
+                state,
+                reason: String::new(),
+            });
         }
     }
 }

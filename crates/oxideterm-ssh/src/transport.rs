@@ -108,6 +108,7 @@ fn upstream_proxy_protocol_label(protocol: UpstreamProxyProtocol) -> &'static st
 const SSH_COMMAND_CHANNEL_CAPACITY: usize = 1024;
 const SSH_OUTPUT_CHANNEL_CAPACITY: usize = 1024;
 const SSH_OUTPUT_BATCH_MAX_BYTES: usize = 64 * 1024;
+const SSH_OUTPUT_BACKLOG_BYTES: usize = 1024 * 1024;
 const SSH_OUTPUT_FLUSH_MS: u64 = 4;
 const SSH_OUTPUT_INTERACTIVE_FLUSH_MS: u64 = 1;
 const SSH_OUTPUT_INTERACTIVE_WINDOW_MS: u64 = 120;
@@ -436,10 +437,85 @@ pub trait SshPromptHandler: Send + Sync {
 pub struct SshPtyHandle {
     pub session_id: String,
     pub command_tx: mpsc::Sender<SshTransportCommand>,
-    pub output_rx: mpsc::Receiver<Vec<u8>>,
+    pub output_rx: SshOutputReceiver,
     auth_banners: AuthBannerSink,
     ssh_connection: Option<SshConnectionHandle>,
     registry_release: Option<(SshConnectionRegistry, String, ConnectionConsumer)>,
+}
+
+pub struct SshOutputChunk {
+    bytes: Vec<u8>,
+    _byte_permit: tokio::sync::OwnedSemaphorePermit,
+}
+
+impl SshOutputChunk {
+    pub fn len(&self) -> usize {
+        self.bytes.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.bytes.is_empty()
+    }
+}
+
+impl std::ops::Deref for SshOutputChunk {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        &self.bytes
+    }
+}
+
+pub struct SshOutputReceiver {
+    receiver: mpsc::Receiver<SshOutputChunk>,
+}
+
+impl SshOutputReceiver {
+    pub fn try_recv(&mut self) -> Result<SshOutputChunk, mpsc::error::TryRecvError> {
+        self.receiver.try_recv()
+    }
+}
+
+#[derive(Clone)]
+struct SshOutputSender {
+    sender: mpsc::Sender<SshOutputChunk>,
+    byte_permits: Arc<tokio::sync::Semaphore>,
+}
+
+impl SshOutputSender {
+    async fn send(&self, bytes: Vec<u8>) -> Result<(), Vec<u8>> {
+        let Ok(byte_count) = u32::try_from(bytes.len()) else {
+            return Err(bytes);
+        };
+        let permit = match self
+            .byte_permits
+            .clone()
+            .acquire_many_owned(byte_count)
+            .await
+        {
+            Ok(permit) => permit,
+            Err(_) => return Err(bytes),
+        };
+        self.sender
+            .send(SshOutputChunk {
+                bytes,
+                _byte_permit: permit,
+            })
+            .await
+            .map_err(|error| error.0.bytes)
+    }
+}
+
+fn ssh_output_channel() -> (SshOutputSender, SshOutputReceiver) {
+    let (sender, receiver) = mpsc::channel(SSH_OUTPUT_CHANNEL_CAPACITY);
+    let byte_permits = Arc::new(tokio::sync::Semaphore::new(SSH_OUTPUT_BACKLOG_BYTES));
+    (
+        SshOutputSender {
+            sender,
+            byte_permits,
+        },
+        SshOutputReceiver { receiver },
+    )
 }
 
 struct RegistryConsumerGuard {

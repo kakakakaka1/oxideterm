@@ -54,8 +54,9 @@ impl WorkspaceApp {
             NodeRouter::with_runtime_store(ssh_registry.clone(), node_runtime_store.clone());
         let (ssh_worker_tx, ssh_worker_rx) = std::sync::mpsc::channel();
         let (forwarding_worker_tx, forwarding_worker_rx) = std::sync::mpsc::channel();
-        let (node_event_tx, node_event_rx) = std::sync::mpsc::channel();
-        node_router.emitter().subscribe(node_event_tx.clone());
+        // Node state is a latest-value stream. Bound and coalesce its mailbox so
+        // a suspended UI cannot retain an unbounded event backlog.
+        let (node_event_subscription, node_event_rx) = node_router.emitter().subscribe_bounded(256);
         let (reconnect_worker_tx, reconnect_worker_rx) = std::sync::mpsc::channel();
         let (sftp_worker_tx, mut sftp_worker_rx) = tokio::sync::mpsc::unbounded_channel();
         let (terminal_notice_tx, terminal_notice_rx) = std::sync::mpsc::channel();
@@ -134,6 +135,7 @@ impl WorkspaceApp {
             tabs: Vec::new(),
             main_window_tabs: WorkspaceWindowTabState::new(),
             detached_tabs: HashSet::new(),
+            detached_tab_windows: HashMap::new(),
             detached_tab_return_drag: None,
             detached_tab_return_handoff: None,
             next_tab_window_handoff_generation: 0,
@@ -141,6 +143,7 @@ impl WorkspaceApp {
             node_disconnect_confirm: None,
             node_disconnect_confirm_presence: oxideterm_gpui_ui::motion::ExitPresence::visible(),
             panes: HashMap::new(),
+            terminal_locations: HashMap::new(),
             terminal_pane_subscriptions: HashMap::new(),
             pending_auto_close_terminal_sessions: HashSet::new(),
             auto_close_terminal_sessions_scheduled: false,
@@ -172,6 +175,7 @@ impl WorkspaceApp {
             terminal_project_rx,
             terminal_project_panel: terminal_project::TerminalProjectPanelState::default(),
             detached_local_terminals: HashMap::new(),
+            detached_local_terminal_order: Vec::new(),
             serial_terminal_configs: HashMap::new(),
             detached_local_terminals_popover_open: false,
             terminal_cast_player: None,
@@ -405,7 +409,7 @@ impl WorkspaceApp {
             sftp_progress_store,
             node_runtime_store,
             node_router,
-            node_event_tx,
+            _node_event_subscription: node_event_subscription,
             node_event_rx,
             node_event_generations: HashMap::new(),
             reconnect_orchestrator: ReconnectOrchestratorStore::new(

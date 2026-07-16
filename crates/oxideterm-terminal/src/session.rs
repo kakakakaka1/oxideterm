@@ -19,7 +19,8 @@ use crossbeam_channel::{Receiver, unbounded};
 use oxideterm_modem_transfer::{ModemConsumer, ModemConsumerEvent, ModemTransfer};
 use oxideterm_ssh::{
     ConnectionConsumer, ManagedKeyResolver, SshConfig, SshConnectionHandle, SshConnectionRegistry,
-    SshPromptHandler, SshPtyHandle, SshShellBootstrap, SshTransportClient, SshTransportCommand,
+    SshOutputChunk, SshPromptHandler, SshPtyHandle, SshShellBootstrap, SshTransportClient,
+    SshTransportCommand,
 };
 use oxideterm_terminal_encoding::{
     EncodingMismatchDetector, TerminalEncoding, TerminalInputEncoder, TerminalOutputDecoder,

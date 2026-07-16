@@ -79,9 +79,9 @@ use self::{
 };
 use anyhow::Result;
 use gpui::{
-    AnchoredPositionMode, Animation, AnimationExt, AnyElement, App, Bounds, ClipboardEntry,
-    ClipboardItem, Context, Corner, CursorStyle, Entity, FocusHandle, Focusable, Image,
-    ImageFormat, IntoElement, KeyDownEvent, KeyUpEvent, ListAlignment, ListState,
+    AnchoredPositionMode, Animation, AnimationExt, AnyElement, AnyWindowHandle, App, Bounds,
+    ClipboardEntry, ClipboardItem, Context, Corner, CursorStyle, Entity, FocusHandle, Focusable,
+    Image, ImageFormat, IntoElement, KeyDownEvent, KeyUpEvent, ListAlignment, ListState,
     ModifiersChangedEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ObjectFit,
     ParentElement, PathPromptOptions, Pixels, Point, Render, RenderImage, Rgba, ScrollHandle,
     ScrollWheelEvent, SharedString, Styled, StyledImage, Subscription, TextLayout, Timer,
@@ -207,13 +207,13 @@ use oxideterm_sftp::{
 use oxideterm_ssh::{
     AuthMethod, ConnectionConsumer, ConnectionPoolConfig, ConnectionState, ConnectionTraceEvent,
     ConnectionTraceMode, ConnectionTracePlan, ConnectionTraceStage, ConnectionTraceState,
-    ConnectionTraceStatus, MAX_RETAINED_RECONNECT_JOBS, NodeId, NodeOrigin, NodeReadiness,
-    NodeRouter, NodeRuntimeStore, NodeState, NodeStateEvent, NodeTreeExpansion, NodeTreeSnapshot,
-    NodeTreeSnapshotNode, PhaseResult, ProbeConnectionStatus, ProxyHopConfig, ReconnectForwardRule,
-    ReconnectForwardRuleSnapshot, ReconnectJob, ReconnectNodeConnectionSnapshot,
-    ReconnectNodeTerminalSnapshot, ReconnectNodeTransferSnapshot, ReconnectOrchestratorStore,
-    ReconnectPhase, ReconnectSnapshot, SshAlgorithmDiagnosticKind, SshConfig,
-    SshConnectionRegistry, SshTransportClient, TerminalEndpoint, UpstreamProxyConfig,
+    ConnectionTraceStatus, MAX_RETAINED_RECONNECT_JOBS, NodeEventReceiver, NodeEventSubscription,
+    NodeId, NodeOrigin, NodeReadiness, NodeRouter, NodeRuntimeStore, NodeState, NodeStateEvent,
+    NodeTreeExpansion, NodeTreeSnapshot, NodeTreeSnapshotNode, PhaseResult, ProbeConnectionStatus,
+    ProxyHopConfig, ReconnectForwardRule, ReconnectForwardRuleSnapshot, ReconnectJob,
+    ReconnectNodeConnectionSnapshot, ReconnectNodeTerminalSnapshot, ReconnectNodeTransferSnapshot,
+    ReconnectOrchestratorStore, ReconnectPhase, ReconnectSnapshot, SshAlgorithmDiagnosticKind,
+    SshConfig, SshConnectionRegistry, SshTransportClient, TerminalEndpoint, UpstreamProxyConfig,
 };
 use oxideterm_ssh_launch::TemporarySshLaunch;
 use oxideterm_terminal::{
@@ -227,7 +227,7 @@ use oxideterm_theme::{
 use oxideterm_workspace::{
     ActiveSessionNode, ActiveSessionReadiness, ActiveSessionStatus,
     CommandPaletteMode as PaletteMode, MAX_PANES_PER_TAB, PaneId, PaneNode, SplitDirection, Tab,
-    TabId, TabKind, TabTitleSource, TerminalSessionId, adjusted_split_sizes, balanced_sizes,
+    TabId, TabKind, TabTitleSource, TerminalSessionId, adjusted_split_sizes,
 };
 
 use self::actions::SearchBarState;
@@ -600,6 +600,7 @@ impl LocalTerminalCloseCheck {
 
 struct WorkspaceWindowTabState {
     active_tab_id: Option<TabId>,
+    active_tab_index_cache: Cell<Option<(TabId, usize)>>,
     navigation_history: Vec<TabId>,
     navigation_index: Option<usize>,
     navigation_replaying: bool,
@@ -655,6 +656,7 @@ impl WorkspaceWindowTabState {
     fn new() -> Self {
         Self {
             active_tab_id: None,
+            active_tab_index_cache: Cell::new(None),
             navigation_history: Vec::new(),
             navigation_index: None,
             navigation_replaying: false,
@@ -711,6 +713,7 @@ pub(crate) struct WorkspaceApp {
     tabs: Vec<Tab>,
     main_window_tabs: WorkspaceWindowTabState,
     detached_tabs: HashSet<TabId>,
+    detached_tab_windows: HashMap<TabId, AnyWindowHandle>,
     detached_tab_return_drag: Option<DetachedTabReturnDrag>,
     detached_tab_return_handoff: Option<DetachedTabReturnHandoff>,
     next_tab_window_handoff_generation: u64,
@@ -718,6 +721,7 @@ pub(crate) struct WorkspaceApp {
     node_disconnect_confirm: Option<NodeDisconnectConfirm>,
     node_disconnect_confirm_presence: oxideterm_gpui_ui::motion::ExitPresence,
     panes: HashMap<PaneId, gpui::Entity<TerminalPane>>,
+    terminal_locations: HashMap<TerminalSessionId, TerminalLocation>,
     terminal_pane_subscriptions: HashMap<PaneId, Subscription>,
     pending_auto_close_terminal_sessions: HashSet<TerminalSessionId>,
     auto_close_terminal_sessions_scheduled: bool,
@@ -749,6 +753,7 @@ pub(crate) struct WorkspaceApp {
     terminal_project_rx: std::sync::mpsc::Receiver<terminal_project::TerminalProjectDelivery>,
     terminal_project_panel: terminal_project::TerminalProjectPanelState,
     detached_local_terminals: HashMap<TerminalSessionId, DetachedLocalTerminalSession>,
+    detached_local_terminal_order: Vec<TerminalSessionId>,
     serial_terminal_configs: HashMap<TerminalSessionId, SerialSessionConfig>,
     detached_local_terminals_popover_open: bool,
     terminal_cast_player: Option<TerminalCastPlayerState>,
@@ -910,8 +915,9 @@ pub(crate) struct WorkspaceApp {
     sftp_progress_store: Arc<dyn ProgressStore>,
     node_runtime_store: NodeRuntimeStore,
     node_router: NodeRouter,
-    node_event_tx: std::sync::mpsc::Sender<NodeStateEvent>,
-    node_event_rx: std::sync::mpsc::Receiver<NodeStateEvent>,
+    // The subscription token owns the bounded router listener for this workspace.
+    _node_event_subscription: NodeEventSubscription,
+    node_event_rx: NodeEventReceiver,
     node_event_generations: HashMap<NodeId, u64>,
     reconnect_orchestrator: ReconnectOrchestratorStore,
     reconnect_worker_tx: std::sync::mpsc::Sender<ReconnectWorkerResult>,
@@ -1258,6 +1264,12 @@ struct WorkspaceTooltipPending {
 struct WorkspaceTerminalEndpointSession {
     endpoint: TerminalEndpoint,
     session: SharedTerminalSession,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct TerminalLocation {
+    tab_id: TabId,
+    pane_id: PaneId,
 }
 
 #[derive(Clone)]

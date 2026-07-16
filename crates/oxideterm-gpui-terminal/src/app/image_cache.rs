@@ -1,8 +1,4 @@
-use std::{
-    collections::{HashMap, VecDeque},
-    sync::Arc,
-    time::Instant,
-};
+use std::{collections::HashMap, sync::Arc, time::Instant};
 
 use gpui::RenderImage;
 use image::{Delay, Frame, RgbaImage};
@@ -19,10 +15,10 @@ pub(crate) struct TerminalRenderedImage {
 
 pub(crate) struct ImageRenderCache {
     entries: HashMap<ImageCacheKey, CachedRenderImage>,
-    order: VecDeque<ImageCacheKey>,
     retired_images: Vec<Arc<RenderImage>>,
     bytes: usize,
     byte_limit: usize,
+    usage_clock: u64,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -39,16 +35,17 @@ struct CachedRenderImage {
     image: Arc<RenderImage>,
     bytes: usize,
     animation_started_at: Option<Instant>,
+    last_used: u64,
 }
 
 impl Default for ImageRenderCache {
     fn default() -> Self {
         Self {
             entries: HashMap::new(),
-            order: VecDeque::new(),
             retired_images: Vec::new(),
             bytes: 0,
             byte_limit: DEFAULT_RENDER_IMAGE_CACHE_BYTES,
+            usage_clock: 0,
         }
     }
 }
@@ -56,7 +53,7 @@ impl Default for ImageRenderCache {
 impl ImageRenderCache {
     pub(crate) fn set_byte_limit(&mut self, byte_limit: usize) {
         self.byte_limit = byte_limit;
-        self.evict_over_budget();
+        self.evict_over_budget(None);
     }
 
     pub(crate) fn take_retired_images(&mut self) -> Vec<Arc<RenderImage>> {
@@ -105,12 +102,11 @@ impl ImageRenderCache {
             source_width: snapshot.source_width,
             source_height: snapshot.source_height,
         };
-        if self.entries.contains_key(&key) {
-            self.touch(key);
-            return self
-                .entries
-                .get(&key)
-                .map(|cached| (cached.image.clone(), cached.animation_started_at));
+        self.usage_clock = self.usage_clock.wrapping_add(1);
+        if let Some(cached) = self.entries.get_mut(&key) {
+            // Cache hits remain O(1); eviction scans only when admitting new pixel data.
+            cached.last_used = self.usage_clock;
+            return Some((cached.image.clone(), cached.animation_started_at));
         }
 
         let data = snapshot.data.as_deref()?;
@@ -123,23 +119,25 @@ impl ImageRenderCache {
                 image: render_image.clone(),
                 bytes: byte_len,
                 animation_started_at,
+                last_used: self.usage_clock,
             },
         );
-        self.order.push_back(key);
         self.bytes += byte_len;
-        self.evict_over_budget();
+        self.evict_over_budget(Some(key));
         Some((render_image, animation_started_at))
     }
 
-    fn touch(&mut self, key: ImageCacheKey) {
-        self.order.retain(|existing| *existing != key);
-        self.order.push_back(key);
-    }
-
-    fn evict_over_budget(&mut self) {
-        while self.bytes > self.byte_limit {
-            let Some(key) = self.order.pop_front() else {
-                self.bytes = 0;
+    fn evict_over_budget(&mut self, protected: Option<ImageCacheKey>) {
+        // Keep one oversized image resident. Re-decoding it every frame is more expensive than
+        // temporarily exceeding the configured budget, while all competing entries are evicted.
+        while self.bytes > self.byte_limit && self.entries.len() > 1 {
+            let Some(key) = self
+                .entries
+                .iter()
+                .filter(|(key, _)| Some(**key) != protected)
+                .min_by_key(|(_, entry)| entry.last_used)
+                .map(|(key, _)| *key)
+            else {
                 break;
             };
             if let Some(entry) = self.entries.remove(&key) {
@@ -452,7 +450,7 @@ mod tests {
     }
 
     #[test]
-    fn render_cache_tracks_evicted_images_for_gpui_drop() {
+    fn render_cache_keeps_single_oversized_image_resident() {
         let mut cache = ImageRenderCache::default();
         cache.set_byte_limit(4);
         let snapshot = TerminalImageSnapshot {
@@ -484,13 +482,16 @@ mod tests {
             })),
         };
 
-        let rendered = cache.render_images(&[snapshot], true);
+        let first = cache.render_images(std::slice::from_ref(&snapshot), true);
+        let second = cache.render_images(&[snapshot], true);
         let evicted = cache.take_retired_images();
 
-        assert_eq!(evicted.len(), 1);
+        assert!(evicted.is_empty());
+        assert_eq!(cache.entries.len(), 1);
+        assert!(cache.bytes > cache.byte_limit);
         assert!(Arc::ptr_eq(
-            &evicted[0],
-            rendered[0].render_image.as_ref().unwrap()
+            first[0].render_image.as_ref().unwrap(),
+            second[0].render_image.as_ref().unwrap()
         ));
     }
 }

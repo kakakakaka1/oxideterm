@@ -28,6 +28,7 @@ impl NodeRuntimeStore {
                 origin,
                 connection_id: None,
                 terminal_session_id: None,
+                terminal_endpoints: Vec::new(),
                 sftp_session_id: None,
                 state: NodeState::default(),
                 created_at_ms: now_ms(),
@@ -51,6 +52,7 @@ impl NodeRuntimeStore {
             origin: route.origin.clone(),
             connection_id: route.connection_id.clone(),
             terminal_session_id: route.terminal_session_id.clone(),
+            terminal_endpoints: route.terminal_endpoints.clone(),
             sftp_session_id: route.sftp_session_id.clone(),
             state: route.state.clone(),
             created_at_ms: route.created_at_ms,
@@ -119,6 +121,7 @@ impl NodeRuntimeStore {
                 origin,
                 connection_id: None,
                 terminal_session_id: None,
+                terminal_endpoints: Vec::new(),
                 sftp_session_id: None,
                 state: NodeState::default(),
                 created_at_ms: now_ms(),
@@ -330,6 +333,7 @@ impl NodeRuntimeStore {
                     state: route.state.clone(),
                     connection_id: route.connection_id.clone(),
                     terminal_session_id: route.terminal_session_id.clone(),
+                    terminal_endpoints: route.terminal_endpoints.clone(),
                     sftp_session_id: route.sftp_session_id.clone(),
                     created_at_ms: route.created_at_ms,
                     generation: route.generation,
@@ -352,6 +356,11 @@ impl NodeRuntimeStore {
             .iter()
             .map(|node| node.id.clone())
             .collect::<HashSet<_>>();
+        if node_ids.len() != snapshot.nodes.len() {
+            return Err(RouteError::ConnectionError(
+                "invalid node tree snapshot: duplicate node identifiers".to_string(),
+            ));
+        }
         for node in &snapshot.nodes {
             if let Some(parent_id) = &node.parent_id
                 && !node_ids.contains(parent_id)
@@ -360,29 +369,62 @@ impl NodeRuntimeStore {
             }
         }
 
+        let parent_by_id = snapshot
+            .nodes
+            .iter()
+            .map(|node| (node.id.clone(), node.parent_id.clone()))
+            .collect::<HashMap<_, _>>();
+        validate_snapshot_parent_graph(&parent_by_id)?;
+        if parent_by_id
+            .keys()
+            .any(|node_id| snapshot_node_depth(node_id, &parent_by_id) > MAX_SESSION_TREE_DEPTH)
+        {
+            return Err(RouteError::MaxDepthExceeded(MAX_SESSION_TREE_DEPTH));
+        }
+        let mut children_by_parent: HashMap<NodeId, Vec<NodeId>> = HashMap::new();
+        for node in &snapshot.nodes {
+            if let Some(parent_id) = &node.parent_id {
+                children_by_parent
+                    .entry(parent_id.clone())
+                    .or_default()
+                    .push(node.id.clone());
+            }
+        }
+        for node in &snapshot.nodes {
+            if let Some(derived_children) = children_by_parent.get_mut(&node.id) {
+                *derived_children = ordered_snapshot_ids(&node.children_ids, derived_children);
+            }
+        }
+        let ordered_root_ids =
+            ordered_snapshot_ids(&snapshot.root_ids, &root_ids_from_nodes(&snapshot.nodes));
         self.nodes.clear();
         self.connection_nodes.clear();
         {
             let mut root_ids = self.root_ids.write();
             root_ids.clear();
-            root_ids.extend(snapshot.root_ids);
+            root_ids.extend(ordered_root_ids);
         }
 
         for node in snapshot.nodes {
+            let node_id = node.id.clone();
             if let Some(connection_id) = node.connection_id.as_ref() {
                 self.connection_nodes
-                    .insert(connection_id.clone(), node.id.clone());
+                    .insert(connection_id.clone(), node_id.clone());
             }
             self.nodes.insert(
-                node.id,
+                node_id.clone(),
                 NodeRuntimeEntry {
                     config: node.config,
-                    parent_id: node.parent_id,
-                    children_ids: node.children_ids,
-                    depth: node.depth,
+                    parent_id: node.parent_id.clone(),
+                    children_ids: children_by_parent.remove(&node_id).unwrap_or_default(),
+                    depth: snapshot_node_depth(&node_id, &parent_by_id),
                     origin: node.origin,
                     connection_id: node.connection_id,
                     terminal_session_id: node.terminal_session_id,
+                    terminal_endpoints: restored_terminal_endpoints(
+                        &node.terminal_endpoints,
+                        node.state.ws_endpoint.as_ref(),
+                    ),
                     sftp_session_id: node.sftp_session_id,
                     state: node.state,
                     created_at_ms: node.created_at_ms,
@@ -455,6 +497,7 @@ impl NodeRuntimeStore {
                 None => {
                     route.connection_id = None;
                     route.terminal_session_id = None;
+                    route.terminal_endpoints.clear();
                     route.sftp_session_id = None;
                     route.state.ws_endpoint = None;
                     route.state.sftp_ready = false;
@@ -587,6 +630,7 @@ impl NodeRuntimeStore {
             self.connection_nodes.remove(&connection_id);
         }
         route.terminal_session_id = None;
+        route.terminal_endpoints.clear();
         route.sftp_session_id = None;
         route.state.readiness = NodeReadiness::Disconnected;
         route.state.error = None;
@@ -611,8 +655,10 @@ impl NodeRuntimeStore {
             .nodes
             .get_mut(node_id)
             .ok_or_else(|| RouteError::NodeNotFound(node_id.0.clone()))?;
-        route.terminal_session_id = Some(session_id);
-        route.state.ws_endpoint = None;
+        if route.terminal_session_id.is_none() {
+            route.terminal_session_id = Some(session_id);
+            route.state.ws_endpoint = None;
+        }
         route.generation += 1;
         Ok(())
     }
@@ -626,8 +672,21 @@ impl NodeRuntimeStore {
             .nodes
             .get_mut(node_id)
             .ok_or_else(|| RouteError::NodeNotFound(node_id.0.clone()))?;
-        route.terminal_session_id = Some(endpoint.session_id.clone());
-        route.state.ws_endpoint = Some(endpoint.clone());
+        if let Some(existing) = route
+            .terminal_endpoints
+            .iter_mut()
+            .find(|existing| existing.session_id == endpoint.session_id)
+        {
+            *existing = endpoint.clone();
+        } else {
+            route.terminal_endpoints.push(endpoint.clone());
+        }
+        if route.terminal_session_id.is_none()
+            || route.terminal_session_id.as_deref() == Some(endpoint.session_id.as_str())
+        {
+            route.terminal_session_id = Some(endpoint.session_id.clone());
+            route.state.ws_endpoint = Some(endpoint.clone());
+        }
         route.generation += 1;
         Ok(NodeStateEvent::TerminalEndpointChanged {
             node_id: node_id.0.clone(),
@@ -646,9 +705,18 @@ impl NodeRuntimeStore {
             .nodes
             .get_mut(node_id)
             .ok_or_else(|| RouteError::NodeNotFound(node_id.0.clone()))?;
+        let before = route.terminal_endpoints.len();
+        route
+            .terminal_endpoints
+            .retain(|endpoint| endpoint.session_id != session_id);
         if route.terminal_session_id.as_deref() == Some(session_id) {
-            route.terminal_session_id = None;
-            route.state.ws_endpoint = None;
+            let replacement = route.terminal_endpoints.first().cloned();
+            route.terminal_session_id = replacement
+                .as_ref()
+                .map(|endpoint| endpoint.session_id.clone());
+            route.state.ws_endpoint = replacement;
+            route.generation += 1;
+        } else if route.terminal_endpoints.len() != before {
             route.generation += 1;
         }
         Ok(())
@@ -829,4 +897,71 @@ impl NodeRuntimeStore {
             }
         }
     }
+}
+
+fn restored_terminal_endpoints(
+    endpoints: &[TerminalEndpoint],
+    legacy_primary: Option<&TerminalEndpoint>,
+) -> Vec<TerminalEndpoint> {
+    if !endpoints.is_empty() {
+        return endpoints.to_vec();
+    }
+    legacy_primary.cloned().into_iter().collect()
+}
+
+fn root_ids_from_nodes(nodes: &[NodeTreeSnapshotNode]) -> Vec<NodeId> {
+    nodes
+        .iter()
+        .filter(|node| node.parent_id.is_none())
+        .map(|node| node.id.clone())
+        .collect()
+}
+
+fn ordered_snapshot_ids(preferred: &[NodeId], derived: &[NodeId]) -> Vec<NodeId> {
+    let derived_ids = derived.iter().cloned().collect::<HashSet<_>>();
+    let mut seen = HashSet::new();
+    let mut ordered = preferred
+        .iter()
+        .filter(|node_id| derived_ids.contains(*node_id) && seen.insert((*node_id).clone()))
+        .cloned()
+        .collect::<Vec<_>>();
+    ordered.extend(
+        derived
+            .iter()
+            .filter(|node_id| seen.insert((*node_id).clone()))
+            .cloned(),
+    );
+    ordered
+}
+
+fn validate_snapshot_parent_graph(
+    parent_by_id: &HashMap<NodeId, Option<NodeId>>,
+) -> Result<(), RouteError> {
+    for start in parent_by_id.keys() {
+        let mut path = HashSet::new();
+        let mut current = Some(start.clone());
+        while let Some(node_id) = current {
+            if !path.insert(node_id.clone()) {
+                return Err(RouteError::ConnectionError(format!(
+                    "invalid node tree snapshot: parent cycle contains {}",
+                    node_id.0
+                )));
+            }
+            current = parent_by_id.get(&node_id).cloned().flatten();
+        }
+    }
+    Ok(())
+}
+
+fn snapshot_node_depth(
+    node_id: &NodeId,
+    parent_by_id: &HashMap<NodeId, Option<NodeId>>,
+) -> u32 {
+    let mut depth = 0_u32;
+    let mut current = parent_by_id.get(node_id).cloned().flatten();
+    while let Some(parent_id) = current {
+        depth = depth.saturating_add(1);
+        current = parent_by_id.get(&parent_id).cloned().flatten();
+    }
+    depth
 }

@@ -183,11 +183,17 @@ impl WorkspaceApp {
             },
         );
 
-        if open_result.is_err() {
-            self.detached_tabs.remove(&tab_id);
-            self.main_window_tabs.active_tab_id = Some(tab_id);
-        } else if let Some(exiting_visual) = exiting_visual {
-            self.begin_tab_visual_exit(exiting_visual, cx);
+        match open_result {
+            Ok(handle) => {
+                self.detached_tab_windows.insert(tab_id, handle.into());
+                if let Some(exiting_visual) = exiting_visual {
+                    self.begin_tab_visual_exit(exiting_visual, cx);
+                }
+            }
+            Err(_) => {
+                self.detached_tabs.remove(&tab_id);
+                self.main_window_tabs.active_tab_id = Some(tab_id);
+            }
         }
         self.sync_active_tab_surface();
         cx.notify();
@@ -229,11 +235,25 @@ impl WorkspaceApp {
         cx: &mut Context<Self>,
     ) {
         if self.detached_tabs.remove(&tab_id) {
+            self.detached_tab_windows.remove(&tab_id);
             self.main_window_tabs.active_tab_id = Some(tab_id);
             self.detached_tab_return_drag = None;
             self.sync_active_tab_surface();
             cx.notify();
         }
+    }
+
+    pub(in crate::workspace) fn focus_detached_tab_window(
+        &self,
+        tab_id: TabId,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(handle) = self.detached_tab_windows.get(&tab_id).copied() else {
+            return false;
+        };
+        handle
+            .update(cx, |_root, window, _cx| window.activate_window())
+            .is_ok()
     }
 
     fn detached_window_screen_point(window: &Window, window_point: Point<Pixels>) -> Point<Pixels> {

@@ -807,7 +807,10 @@ impl SshTransportClient {
         let session_id = uuid::Uuid::new_v4().to_string();
         let (command_tx, mut command_rx) =
             mpsc::channel::<SshTransportCommand>(SSH_COMMAND_CHANNEL_CAPACITY);
-        let (output_tx, output_rx) = mpsc::channel::<Vec<u8>>(SSH_OUTPUT_CHANNEL_CAPACITY);
+        // Output is bounded by retained bytes rather than message count. The
+        // permit stays attached until the terminal finishes processing a chunk,
+        // so a slow or hidden pane cannot accumulate tens of MiB per session.
+        let (output_tx, output_rx) = ssh_output_channel();
         let task_session_id = session_id.clone();
         let agent_forwarding = self.config.agent_forwarding;
         let x11_forwarding = self.config.x11_forwarding.clone();

@@ -59,6 +59,7 @@ impl WorkspaceApp {
             root_pane: Some(PaneNode::leaf(pane_id, session_id)),
             active_pane_id: Some(pane_id),
         });
+        self.bind_terminal_location(tab_id, pane_id, session_id);
         self.main_window_tabs.active_tab_id = Some(tab_id);
         self.active_surface = ActiveSurface::Terminal;
         self.needs_active_pane_focus = true;
@@ -98,6 +99,7 @@ impl WorkspaceApp {
             root_pane: Some(PaneNode::leaf(pane_id, session_id)),
             active_pane_id: Some(pane_id),
         });
+        self.bind_terminal_location(tab_id, pane_id, session_id);
         self.main_window_tabs.active_tab_id = Some(tab_id);
         self.active_surface = ActiveSurface::Terminal;
         self.needs_active_pane_focus = true;
@@ -138,6 +140,7 @@ impl WorkspaceApp {
             root_pane: Some(PaneNode::leaf(pane_id, session_id)),
             active_pane_id: Some(pane_id),
         });
+        self.bind_terminal_location(tab_id, pane_id, session_id);
         self.main_window_tabs.active_tab_id = Some(tab_id);
         self.active_surface = ActiveSurface::Terminal;
         self.needs_active_pane_focus = true;
@@ -585,6 +588,7 @@ impl WorkspaceApp {
             root_pane: Some(PaneNode::leaf(pane_id, session_id)),
             active_pane_id: Some(pane_id),
         });
+        self.bind_terminal_location(tab_id, pane_id, session_id);
         self.main_window_tabs.active_tab_id = Some(tab_id);
         self.active_surface = ActiveSurface::Terminal;
         if self.sidebar_collapsed {
@@ -1052,15 +1056,10 @@ impl WorkspaceApp {
                 session,
             },
         );
-        let should_bind_primary = self
-            .node_runtime_store
-            .snapshot(node_id)
-            .and_then(|snapshot| snapshot.terminal_session_id)
-            .is_none();
-        if should_bind_primary {
-            if let Ok(event) = self.node_router.bind_terminal_endpoint(node_id, endpoint) {
-                self.emit_node_event(event);
-            }
+        // Register every endpoint. NodeRouter keeps the first endpoint primary
+        // and can elect another live endpoint when that terminal closes.
+        if let Ok(event) = self.node_router.bind_terminal_endpoint(node_id, endpoint) {
+            self.emit_node_event(event);
         }
         self.persist_session_tree_snapshot();
     }
@@ -1084,6 +1083,9 @@ impl WorkspaceApp {
             });
             tab_id
         };
+        if self.focus_detached_tab_window(tab_id, cx) {
+            return;
+        }
         self.main_window_tabs.active_tab_id = Some(tab_id);
         self.active_surface = ActiveSurface::Settings;
         self.needs_active_pane_focus = false;

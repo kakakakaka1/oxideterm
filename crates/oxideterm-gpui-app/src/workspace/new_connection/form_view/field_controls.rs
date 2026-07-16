@@ -825,26 +825,102 @@ impl WorkspaceApp {
                 self.i18n.t("ssh.form.authentication")
             }
         };
-        let mut row = segmented_tabs(&self.tokens);
-        for (family, label_key) in Self::auth_family_choices(context) {
-            row = row.child(
-                segmented_tab(
-                    &self.tokens,
-                    self.i18n.t(label_key),
-                    *family == active_family,
-                )
-                .min_h(px(self.tokens.metrics.ui_tabs_list_height))
-                .whitespace_normal()
-                .text_align(gpui::TextAlign::Center)
-                .line_height(px(self.tokens.metrics.ui_text_sm + 2.0))
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(move |this, _event, _window, cx| {
-                        this.set_new_connection_auth_family(*family, context, jump_form, cx);
-                    }),
-                ),
+        let choices = Self::auth_family_choices(context);
+        let active_index = choices
+            .iter()
+            .position(|(family, _)| *family == active_family)
+            .unwrap_or(0);
+        let control_id = Self::auth_selector_motion_id(context);
+        let previous_index = self
+            .segmented_control_user_previous_index(control_id, active_index)
+            .unwrap_or(active_index);
+        let transition_generation = self
+            .segmented_control_user_transition(control_id, active_index)
+            .map(|(generation, _)| generation);
+        let mut items = Vec::with_capacity(choices.len());
+        for (choice_index, (family, label_key)) in choices.iter().enumerate() {
+            let family = *family;
+            let item = segmented_tab(
+                &self.tokens,
+                self.i18n.t(label_key),
+                family == active_family,
+            )
+            // The moving surface owns the selected background; the trigger keeps
+            // the exact legacy typography, spacing, and inactive appearance.
+            .bg(rgba(0x00000000))
+            .min_h(px(self.tokens.metrics.ui_tabs_list_height))
+            .whitespace_normal()
+            .text_align(gpui::TextAlign::Center)
+            .line_height(px(self.tokens.metrics.ui_text_sm + 2.0))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, _event, _window, cx| {
+                    this.set_new_connection_auth_family(family, context, jump_form, cx);
+                    if choice_index != active_index {
+                        this.begin_user_segmented_control_transition_from(
+                            control_id,
+                            active_index,
+                            choice_index,
+                            cx,
+                        );
+                    }
+                }),
             );
+            items.push(item.into_any_element());
         }
+        let item_width = 1.0 / choices.len().max(1) as f32;
+        let active_left = active_index as f32 * item_width;
+        let previous_left = previous_index as f32 * item_width;
+        let indicator = div()
+            .absolute()
+            .top_0()
+            .bottom_0()
+            .w(gpui::relative(item_width))
+            .rounded(px(self.tokens.radii.xs))
+            .bg(rgb(self.tokens.ui.bg));
+        let indicator = match (
+            transition_generation,
+            oxideterm_gpui_ui::segmented_control_motion(&self.tokens),
+        ) {
+            (Some(generation), Some(motion)) if motion.spatial => indicator
+                .with_animation(
+                    (
+                        gpui::ElementId::from(control_id),
+                        format!("selection-{generation}"),
+                    ),
+                    Animation::new(motion.duration)
+                        .with_easing(oxideterm_gpui_ui::motion::ease_in_out_cubic),
+                    move |indicator, progress| {
+                        indicator.left(gpui::relative(oxideterm_gpui_ui::motion::lerp(
+                            previous_left,
+                            active_left,
+                            progress,
+                        )))
+                    },
+                )
+                .into_any_element(),
+            (Some(generation), Some(motion)) => indicator
+                .left(gpui::relative(active_left))
+                .with_animation(
+                    (
+                        gpui::ElementId::from(control_id),
+                        format!("selection-{generation}"),
+                    ),
+                    Animation::new(motion.duration),
+                    |indicator, progress| indicator.opacity(progress),
+                )
+                .into_any_element(),
+            _ => indicator
+                .left(gpui::relative(active_left))
+                .into_any_element(),
+        };
+        let mut inner = div().relative().w_full().flex().flex_row().child(indicator);
+        for item in items {
+            inner = inner.child(item);
+        }
+        // Preserve the original authentication selector shell exactly; only
+        // its selected fill moves between the existing option cells.
+        let row = segmented_tabs(&self.tokens).child(inner);
 
         div()
             .flex()
@@ -887,6 +963,26 @@ impl WorkspaceApp {
                 (SshAuthFamily::Agent, "ssh.auth.agent"),
                 (SshAuthFamily::TwoFactor, "ssh.auth.two_factor"),
             ],
+        }
+    }
+
+    fn auth_selector_motion_id(context: AuthSelectorContext) -> &'static str {
+        match context {
+            AuthSelectorContext::Standard => {
+                crate::workspace::selection_motion::NEW_CONNECTION_AUTH_SELECTOR_ID
+            }
+            AuthSelectorContext::EditProperties => {
+                crate::workspace::selection_motion::EDIT_CONNECTION_AUTH_SELECTOR_ID
+            }
+            AuthSelectorContext::Prompt => {
+                crate::workspace::selection_motion::PROMPT_CONNECTION_AUTH_SELECTOR_ID
+            }
+            AuthSelectorContext::DrillDown => {
+                crate::workspace::selection_motion::DRILL_DOWN_AUTH_SELECTOR_ID
+            }
+            AuthSelectorContext::Jump => {
+                crate::workspace::selection_motion::JUMP_CONNECTION_AUTH_SELECTOR_ID
+            }
         }
     }
 

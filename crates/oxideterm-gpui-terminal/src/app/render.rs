@@ -122,7 +122,6 @@ impl Render for TerminalPane {
         let (mut snapshot, smooth_scroll_y_offset, viewport_rows) =
             self.render_snapshot_for_smooth_scroll();
         snapshot.cursor_shape = self.preferences.cursor_shape;
-        apply_theme_defaults_to_snapshot(&mut snapshot, &self.theme);
         let rendered_images = self.image_cache.render_images(
             &snapshot.images,
             self.preferences
@@ -133,7 +132,8 @@ impl Render for TerminalPane {
         self.drop_retired_images(window, cx);
         let row_timestamps = self
             .terminal_timestamps_enabled
-            .then(|| Arc::new(self.row_timestamps.clone()));
+            .then(|| self.row_timestamps.clone());
+        let search_matches = self.refresh_search_cache();
 
         let background = self.preferences.background.clone().filter(|_background| {
             // Keep terminal repaint frames off the filesystem hot path; image
@@ -171,10 +171,7 @@ impl Render for TerminalPane {
             self.cursor_visible,
             self.marked_text.clone(),
             self.search_query.clone(),
-            self.search_query
-                .as_deref()
-                .map(|query| self.terminal.lock().search_matches(query))
-                .unwrap_or_default(),
+            search_matches,
             self.selected_search_match,
             self.hovered_link.clone(),
             self.settings.bidi_enabled,
@@ -183,6 +180,7 @@ impl Render for TerminalPane {
                 view: cx.entity(),
             }),
         )
+        .precomputed_search_matches()
         .command_marks(
             if self.settings.command_marks_enabled {
                 self.command_marks.clone()
@@ -1683,33 +1681,6 @@ fn terminal_background_object_fit(fit: TerminalBackgroundFit) -> ObjectFit {
         TerminalBackgroundFit::Contain => ObjectFit::Contain,
         TerminalBackgroundFit::Fill => ObjectFit::Fill,
         TerminalBackgroundFit::Tile => ObjectFit::None,
-    }
-}
-
-fn apply_theme_defaults_to_snapshot(snapshot: &mut TerminalSnapshot, theme: &TerminalUiTheme) {
-    let default_background = terminal_color_from_hex(OXIDETERM_TERMINAL_BACKGROUND);
-    let default_foreground = terminal_color_from_hex(OXIDETERM_TERMINAL_FOREGROUND);
-    let themed_background = terminal_color_from_hex(theme.background);
-    let themed_foreground = terminal_color_from_hex(theme.foreground);
-
-    for row in &mut snapshot.lines {
-        let uses_default_theme = row
-            .cells
-            .iter()
-            .any(|cell| cell.bg == default_background || cell.fg == default_foreground);
-        if !uses_default_theme {
-            continue;
-        }
-
-        for cell in row.cells_mut() {
-            if cell.bg == default_background {
-                cell.bg = themed_background;
-            }
-            if cell.fg == default_foreground {
-                cell.fg = themed_foreground;
-            }
-        }
-        row.refresh_signature();
     }
 }
 
