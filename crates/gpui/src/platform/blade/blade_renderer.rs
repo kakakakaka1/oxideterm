@@ -3,9 +3,9 @@
 
 use super::{BladeAtlas, BladeContext};
 use crate::{
-    BackdropBlur, Background, Bounds, DevicePixels, GpuSpecs, MonochromeSprite, Path, Point,
-    PolychromeSprite, PrimitiveBatch, Quad, ScaledPixels, Scene, Shadow, Size, Underline,
-    backdrop_blur_batch_signature, backdrop_blur_work_area,
+    BackdropBlur as SceneBackdropBlur, Background, Bounds, DevicePixels, GpuSpecs,
+    MonochromeSprite, Path, Point, PolychromeSprite, PrimitiveBatch, Quad, ScaledPixels, Scene,
+    Shadow, Size, Underline, backdrop_blur_batch_signature, backdrop_blur_work_area,
 };
 use blade_graphics as gpu;
 use blade_graphics::traits::RenderEncoder;
@@ -62,15 +62,16 @@ struct PodCorners {
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
-struct PodBackdropBlur {
+// Blade reflects this Rust type name against the matching WGSL structure.
+struct BackdropBlur {
     bounds: PodBounds,
     content_mask: PodBounds,
     corner_radii: PodCorners,
     overlay_color: [f32; 4],
 }
 
-impl From<&BackdropBlur> for PodBackdropBlur {
-    fn from(backdrop_blur: &BackdropBlur) -> Self {
+impl From<&SceneBackdropBlur> for BackdropBlur {
+    fn from(backdrop_blur: &SceneBackdropBlur) -> Self {
         Self {
             bounds: backdrop_blur.bounds.into(),
             content_mask: backdrop_blur.content_mask.bounds.into(),
@@ -229,7 +230,7 @@ impl BladePipelines {
         shader.check_struct_size::<Underline>();
         shader.check_struct_size::<MonochromeSprite>();
         shader.check_struct_size::<PolychromeSprite>();
-        shader.check_struct_size::<PodBackdropBlur>();
+        shader.check_struct_size::<BackdropBlur>();
         shader.check_struct_size::<BackdropBlurPassParams>();
 
         // See https://apoorvaj.io/alpha-compositing-opengl-blending-and-premultiplied-alpha/
@@ -795,7 +796,7 @@ impl BladeRenderer {
 
     fn prepare_backdrop_blur_texture(
         &mut self,
-        backdrop_blurs: &[BackdropBlur],
+        backdrop_blurs: &[SceneBackdropBlur],
         frame_texture: gpu::Texture,
     ) {
         let size = self.surface_config.size;
@@ -1031,7 +1032,7 @@ impl BladeRenderer {
                     );
                     let backdrop_blurs = backdrop_blurs
                         .iter()
-                        .map(PodBackdropBlur::from)
+                        .map(BackdropBlur::from)
                         .collect::<Vec<_>>();
                     let instance_buf =
                         unsafe { self.instance_belt.alloc_typed(&backdrop_blurs, &self.gpu) };
@@ -1549,5 +1550,21 @@ impl RenderingParameters {
             ratios[2] * NORM13,
             ratios[3] * NORM24,
         ]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn backdrop_blur_host_type_name_matches_wgsl() {
+        let host_name = std::any::type_name::<BackdropBlur>()
+            .rsplit("::")
+            .next()
+            .unwrap();
+        let shader_struct = format!("struct {host_name} {{");
+
+        assert!(include_str!("shaders.wgsl").contains(&shader_struct));
     }
 }
