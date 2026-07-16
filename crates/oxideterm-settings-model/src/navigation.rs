@@ -66,7 +66,8 @@ pub fn terminal_settings_section_count(page: TerminalSettingsPage) -> usize {
 
 pub fn ai_settings_section_count(page: AiSettingsPage) -> usize {
     let page_cards = match page {
-        AiSettingsPage::General => 1,
+        // Feature activation and privacy guidance are independent cards.
+        AiSettingsPage::General => 2,
         AiSettingsPage::Providers => 1,
         AiSettingsPage::Agents => 1,
         // Context controls, prompt, memory, reasoning, and model windows are
@@ -174,6 +175,11 @@ mod tests {
     #[test]
     fn ai_tools_page_counts_tool_policy_and_mcp_cards() {
         assert_eq!(ai_settings_section_count(AiSettingsPage::Tools), 3);
+    }
+
+    #[test]
+    fn ai_general_page_counts_toggle_and_privacy_cards() {
+        assert_eq!(ai_settings_section_count(AiSettingsPage::General), 3);
     }
 
     #[test]

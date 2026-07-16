@@ -23,8 +23,7 @@ impl WorkspaceApp {
                     .text_color(rgb(self.tokens.ui.text))
                     .child(self.i18n.t("settings_view.ai.general").to_uppercase()),
             )
-            .child(self.ai_enabled_row(settings.ai.enabled, cx))
-            .child(self.ai_privacy_notice());
+            .child(self.ai_enabled_row(settings.ai.enabled, cx));
         self.settings_card_surface(card, self.tokens.ui.bg_card)
             .into_any_element()
     }
@@ -70,7 +69,6 @@ impl WorkspaceApp {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         div()
-            .mb(px(24.0))
             .flex()
             .items_center()
             .justify_between()
@@ -119,27 +117,38 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    pub(in crate::workspace) fn ai_privacy_notice(&self) -> AnyElement {
-        div()
-            .mb(px(24.0))
-            .p(px(12.0))
-            .rounded(px(self.tokens.radii.sm))
+    pub(in crate::workspace) fn ai_privacy_settings_card(&self) -> AnyElement {
+        // Privacy guidance is a peer settings section rather than auxiliary
+        // chrome nested inside the feature-toggle card.
+        let card = div()
+            .w_full()
+            .min_w(px(0.0))
+            .rounded(px(self.tokens.radii.lg))
             .border_1()
             .border_color(rgb(self.tokens.ui.border))
-            // Keep the nested notice as border-only chrome; the surrounding
-            // settings card already owns the Tauri card elevation.
-            .bg(self.settings_panel_background(self.tokens.ui.bg_card))
+            .p(px(20.0))
+            .flex()
+            .flex_col()
+            .gap(px(12.0))
+            .child(
+                div()
+                    .text_size(px(self.tokens.metrics.ui_text_sm))
+                    .font_weight(gpui::FontWeight::MEDIUM)
+                    .text_color(rgb(self.tokens.ui.text))
+                    .child(
+                        self.i18n
+                            .t("settings_view.ai.privacy_notice")
+                            .to_uppercase(),
+                    ),
+            )
             .child(
                 div()
                     .text_size(px(self.tokens.metrics.ui_text_xs))
                     .text_color(rgb(self.tokens.ui.text_muted))
                     .line_height(px(18.0))
-                    .child(format!(
-                        "{}: {}",
-                        self.i18n.t("settings_view.ai.privacy_notice"),
-                        self.i18n.t("settings_view.ai.privacy_text")
-                    )),
-            )
+                    .child(self.i18n.t("settings_view.ai.privacy_text")),
+            );
+        self.settings_card_surface(card, self.tokens.ui.bg_card)
             .into_any_element()
     }
 

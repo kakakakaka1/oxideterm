@@ -224,6 +224,7 @@ impl WorkspaceApp {
                 let settings = self.settings_store.settings();
                 self.ai_general_settings_card(settings, cx)
             }
+            (AiSettingsPage::General, 1) => self.ai_privacy_settings_card(),
             (AiSettingsPage::Providers, 0) => {
                 let provider_views = self.ai_provider_views_for_settings_render(cx);
                 let settings = self.settings_store.settings();
