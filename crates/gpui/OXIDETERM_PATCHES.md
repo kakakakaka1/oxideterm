@@ -6,7 +6,9 @@ root `Cargo.toml`, so all `gpui = 0.2.2` users in this workspace resolve to this
 local crate.
 
 Before upgrading it, compare this tree against the exact upstream GPUI release
-and preserve the OxideTerm-specific dynamic texture patches listed below.
+and preserve every OxideTerm-specific patch listed below. The local differences
+currently cover mutable remote-desktop textures and cross-platform backdrop
+blur rendering, including the Linux Blade shader buffer contract.
 
 ## Why GPUI Is Vendored
 
@@ -36,8 +38,8 @@ remote framebuffer backing buffer
   -> one painted desktop sprite
 ```
 
-This is intentionally a small rendering extension, not a general fork of GPUI's
-layout, input, windowing, or element system.
+This remains a rendering-focused fork, not a general fork of GPUI's layout,
+input, windowing, or element system.
 
 ## Required Local Patches
 
@@ -78,6 +80,47 @@ Keep these patches when updating GPUI:
 - `examples/image.rs` and `examples/image_gallery.rs`
   - Use `gpui_http_client`'s fake test client so the vendored examples compile
     in the OxideTerm workspace without Zed's `reqwest_client` crate.
+
+### Backdrop Blur Rendering
+
+OxideTerm also carries a framebuffer-backed backdrop blur primitive used by
+translucent workspace and modal surfaces. Preserve these files as one patch
+set; changing only one renderer or shader can leave the host and GPU layouts
+incompatible:
+
+- `src/scene.rs`
+  - Define the `BackdropBlur` scene primitive, batching, work-area calculation,
+    and cached-frame signature.
+- `src/window.rs`
+  - Add `PaintBackdropBlur` and `Window::paint_backdrop_blur(...)`.
+- `src/platform/mac/metal_renderer.rs` and `src/platform/mac/shaders.metal`
+  - Snapshot, downsample, blur, and composite the framebuffer through Metal.
+- `src/platform/windows/directx_renderer.rs` and
+  `src/platform/windows/shaders.hlsl`
+  - Implement the equivalent DirectX pipeline. Preserve the render-target copy
+    direction fixed by `88d72256`.
+- `src/platform/blade/blade_renderer.rs` and
+  `src/platform/blade/shaders.wgsl`
+  - Implement the Linux/FreeBSD Blade pipeline.
+  - Keep Rust reflection type names identical to their WGSL structure names.
+  - Keep `BackdropBlurPassParams` at 32 bytes on both sides. Its trailing
+    padding is three scalar `f32` fields; a WGSL `vec3<f32>` would move to the
+    next 16-byte uniform boundary and expand the shader structure to 48 bytes.
+  - Convert scene `PolychromeSprite::grayscale` from Rust `bool` to an explicit
+    POD `u32` before uploading it to WGSL. Equal structure sizes do not make a
+    one-byte Rust boolean compatible with a four-byte WGSL integer.
+  - Maintain the headless buffer-contract test. It recursively enumerates every
+    structure reachable from a uniform or storage binding and verifies names,
+    field counts, field offsets, structure sizes, storage-array strides,
+    uniform sizes, scalar widths, and enum discriminants.
+- `Cargo.toml`
+  - Keep the `naga` development dependency with `wgsl-in`; the headless Blade
+    contract test uses the same WGSL parser and layout rules as renderer startup.
+
+The Linux fixes are represented by `99e7bb15`, `d8737492`, and `be03ead0`.
+When rebasing onto a newer GPUI, re-evaluate the resulting behavior instead of
+blindly replaying these commits: upstream may have added its own backdrop blur
+or changed Blade/Naga layout rules.
 
 ## API Contract
 
@@ -130,7 +173,14 @@ When updating GPUI:
    as `paint_image`.
 5. Confirm every platform backend used by OxideTerm implements
    `PlatformAtlas::update(...)`.
-6. Run the verification commands below.
+6. Confirm every backdrop blur backend still implements the same scene
+   primitive semantics: framebuffer snapshot, two-pass blur, clipping, rounded
+   mask, and overlay compositing.
+7. For Blade, enumerate all WGSL `var<uniform>` and `var<storage>` roots and
+   confirm the buffer-contract test contains every recursively reachable
+   structure. The test intentionally fails if a new shared structure is added
+   without being audited.
+8. Run the verification commands below.
 
 ## Verification
 
@@ -139,6 +189,7 @@ After changing this vendor fork or the remote desktop renderer, run:
 ```sh
 cargo fmt --check
 cargo test -p gpui
+cargo test -p gpui --features macos-blade blade_shader_buffer_contract_matches_rust
 cargo check -p oxideterm-gpui-app
 cargo test -p oxideterm-gpui-remote-desktop
 cargo test -p oxideterm-gpui-app remote_desktop
@@ -156,3 +207,8 @@ The remote desktop tests should cover:
 The important regression signal is that ordinary dirty updates do not create or
 retire remote desktop framebuffer `RenderImage` tiles anymore. They should reuse
 one dynamic texture and queue sub-rectangle uploads instead.
+
+The Blade contract test requires no display server or GPU. On Linux the Blade
+module is already enabled by the X11/Wayland features. On macOS, the explicit
+`macos-blade` feature makes the same Linux renderer module available for this
+headless contract test; it does not change the production macOS Metal backend.
