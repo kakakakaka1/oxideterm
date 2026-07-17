@@ -3,6 +3,25 @@
 Stable releases are listed newest first. The release workflow uses each versioned
 section as the detailed changelog attached to the corresponding GitHub Release.
 
+## 2.0.3
+
+OxideTerm 2.0.3 improves terminal input compatibility, remote directory awareness,
+Linux desktop integration, and interface scaling across the native workspace.
+
+### Highlights
+
+- Added user-controlled remote Shell integration for exact SSH working-directory awareness, with inspectable hook files, ask/always/disabled deployment policies, and explicit install, repair, and removal actions.
+- Added an application-wide UI font-size setting and a temporary on-screen indicator when terminal font-size shortcuts are used.
+- Added a terminal link activation preference that requires Ctrl + click by default on Linux and Windows, or Command + click on macOS, while retaining direct-click activation as an option.
+
+### Fixes
+
+- Restored Ctrl + Insert and Shift + Insert clipboard shortcuts in terminal panes.
+- Fixed Linux window identification so the running application matches the stable desktop entry in Ubuntu Dock and other desktop shells.
+- Fixed terminal mouse hit testing during fractional smooth scrolling so selections and command blocks align with the painted rows.
+- Kept terminal-grid completion owned by the active Shell or TUI application by limiting OxideTerm ghost text to privilege prompts.
+- Prevented edited saved connections and jump-host routes from reusing stale SSH nodes that point to an earlier endpoint.
+
 ## 2.0.2
 
 OxideTerm 2.0.2 improves application privacy controls, terminal session ownership,
