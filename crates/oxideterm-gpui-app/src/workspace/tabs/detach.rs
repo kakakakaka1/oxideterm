@@ -1068,57 +1068,8 @@ impl WorkspaceApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let maximize_glyph = if window.is_maximized() { "❐" } else { "□" };
-        div()
-            .h_full()
-            .flex()
-            .child(self.detached_client_titlebar_button("−", gpui::WindowControlArea::Min, cx))
-            .child(self.detached_client_titlebar_button(
-                maximize_glyph,
-                gpui::WindowControlArea::Max,
-                cx,
-            ))
-            .child(self.detached_client_titlebar_button("×", gpui::WindowControlArea::Close, cx))
-            .into_any_element()
-    }
-
-    fn detached_client_titlebar_button(
-        &self,
-        glyph: &'static str,
-        control_area: gpui::WindowControlArea,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        div()
-            .w(px(46.0))
-            .h_full()
-            .flex()
-            .items_center()
-            .justify_center()
-            .text_size(px(13.0))
-            .text_color(rgb(self.tokens.ui.text_muted))
-            .hover({
-                let hover_bg = self.tokens.ui.bg_hover;
-                move |button| button.bg(rgb(hover_bg))
-            })
-            .when(cfg!(target_os = "windows"), |button| {
-                button.window_control_area(control_area)
-            })
-            .when(!cfg!(target_os = "windows"), |button| {
-                button.on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(move |_this, _event, window, cx| {
-                        match control_area {
-                            gpui::WindowControlArea::Min => window.minimize_window(),
-                            gpui::WindowControlArea::Max => window.zoom_window(),
-                            gpui::WindowControlArea::Close => window.remove_window(),
-                            gpui::WindowControlArea::Drag => {}
-                        }
-                        cx.stop_propagation();
-                    }),
-                )
-            })
-            .child(glyph)
-            .into_any_element()
+        let theme = self.tokens.ui;
+        self.render_client_titlebar_controls(theme.bg, theme.text_muted, window.is_maximized(), cx)
     }
 
     fn render_detached_tab_message(

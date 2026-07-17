@@ -1,5 +1,51 @@
 use super::*;
 
+const TITLEBAR_CONTROL_ICON_SIZE: f32 = 12.0;
+
+#[derive(Clone, Copy)]
+pub(in crate::workspace) enum ClientTitlebarIcon {
+    Minimize,
+    Maximize,
+    Restore,
+    Close,
+}
+
+impl ClientTitlebarIcon {
+    fn path(self) -> &'static str {
+        match self {
+            Self::Minimize => "window-controls/minimize.svg",
+            Self::Maximize => "window-controls/maximize.svg",
+            Self::Restore => "window-controls/restore.svg",
+            Self::Close => "window-controls/close.svg",
+        }
+    }
+
+    fn ids(self) -> (&'static str, &'static str, &'static str) {
+        match self {
+            Self::Minimize => (
+                "titlebar-control-minimize",
+                "titlebar-control-minimize-icon",
+                "titlebar-control-minimize-group",
+            ),
+            Self::Maximize => (
+                "titlebar-control-maximize",
+                "titlebar-control-maximize-icon",
+                "titlebar-control-maximize-group",
+            ),
+            Self::Restore => (
+                "titlebar-control-restore",
+                "titlebar-control-restore-icon",
+                "titlebar-control-restore-group",
+            ),
+            Self::Close => (
+                "titlebar-control-close",
+                "titlebar-control-close-icon",
+                "titlebar-control-close-group",
+            ),
+        }
+    }
+}
+
 impl WorkspaceApp {
     pub(in crate::workspace) fn render_window_drag_region(
         &self,
@@ -111,13 +157,17 @@ impl WorkspaceApp {
         is_maximized: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let maximize_glyph = if is_maximized { "❐" } else { "□" };
+        let maximize_icon = if is_maximized {
+            ClientTitlebarIcon::Restore
+        } else {
+            ClientTitlebarIcon::Maximize
+        };
         div()
             .h_full()
             .flex()
             .flex_row()
             .child(self.client_titlebar_button(
-                "−",
+                ClientTitlebarIcon::Minimize,
                 gpui::WindowControlArea::Min,
                 titlebar_button_hover(titlebar_bg),
                 text_color,
@@ -125,7 +175,7 @@ impl WorkspaceApp {
                 cx,
             ))
             .child(self.client_titlebar_button(
-                maximize_glyph,
+                maximize_icon,
                 gpui::WindowControlArea::Max,
                 titlebar_button_hover(titlebar_bg),
                 text_color,
@@ -133,7 +183,7 @@ impl WorkspaceApp {
                 cx,
             ))
             .child(self.client_titlebar_button(
-                "×",
+                ClientTitlebarIcon::Close,
                 gpui::WindowControlArea::Close,
                 0xc42b1c,
                 text_color,
@@ -145,7 +195,7 @@ impl WorkspaceApp {
 
     pub(in crate::workspace) fn client_titlebar_button(
         &self,
-        glyph: &'static str,
+        icon: ClientTitlebarIcon,
         control_area: gpui::WindowControlArea,
         hover_bg: u32,
         text_color: u32,
@@ -153,19 +203,27 @@ impl WorkspaceApp {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let use_native_caption_hit_test = cfg!(target_os = "windows");
+        let (button_id, icon_id, group_id) = icon.ids();
 
         div()
+            .group(group_id)
+            .id(button_id)
             .occlude()
             .w(px(46.0))
             .h_full()
             .flex()
             .items_center()
             .justify_center()
-            .text_size(px(13.0))
             .text_color(rgb(text_color))
-            // The close glyph stays theme-readable at rest and turns white
+            // The close icon stays theme-readable at rest and turns white
             // only against its destructive hover background.
             .hover(move |button| button.bg(rgb(hover_bg)).text_color(rgb(hover_text_color)))
+            // Native Windows caption hit testing routes pointer movement through
+            // WM_NCMOUSEMOVE. Force a view refresh so moving directly from one
+            // caption button to the next cannot leave the previous hover paint.
+            .when(use_native_caption_hit_test, |button| {
+                button.on_mouse_move(cx.listener(|_this, _event, _window, cx| cx.notify()))
+            })
             // Windows owns caption buttons through non-client HT* hit testing;
             // stopping the GPUI mouse event would prevent minimize/restore.
             .when(use_native_caption_hit_test, |button| {
@@ -193,7 +251,14 @@ impl WorkspaceApp {
                     }),
                 )
             })
-            .child(glyph)
+            .child(
+                svg()
+                    .path(icon.path())
+                    .size(px(TITLEBAR_CONTROL_ICON_SIZE))
+                    .text_color(rgb(text_color))
+                    .group_hover(group_id, move |icon| icon.text_color(rgb(hover_text_color)))
+                    .id(icon_id),
+            )
             .into_any_element()
     }
 }
