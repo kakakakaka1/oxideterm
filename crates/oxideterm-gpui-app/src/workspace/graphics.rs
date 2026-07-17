@@ -1255,7 +1255,9 @@ impl WorkspaceApp {
             .justify_center()
             .child(
                 div()
+                    .w_full()
                     .max_w(px(520.0))
+                    .min_w(px(0.0))
                     .px(px(GRAPHICS_STATUS_OVERLAY_PADDING_X))
                     .py(px(GRAPHICS_STATUS_OVERLAY_PADDING_Y))
                     .rounded(px(self.tokens.radii.md))
@@ -1272,6 +1274,10 @@ impl WorkspaceApp {
                     })
                     .child(
                         div()
+                            // Long prerequisite errors must shrink and wrap inside the overlay.
+                            .min_w(px(0.0))
+                            .flex_1()
+                            .whitespace_normal()
                             .text_size(px(13.0))
                             .text_color(rgb(theme.text))
                             .child(text),
