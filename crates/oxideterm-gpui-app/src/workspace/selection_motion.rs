@@ -25,6 +25,8 @@ pub(in crate::workspace) const JUMP_CONNECTION_AUTH_SELECTOR_ID: &str =
     "jump-connection-auth-selector";
 pub(in crate::workspace) const VERSION_MIGRATION_MOTION_SWITCHER_ID: &str =
     "version-migration-motion-switcher";
+pub(in crate::workspace) const APPEARANCE_BACKGROUND_SCOPE_SWITCHER_ID: &str =
+    "appearance-background-scope-switcher";
 
 #[derive(Default)]
 pub(super) struct UserSegmentedControlMotionState {

@@ -10,6 +10,24 @@ pub(in crate::workspace) const THEME_EDITOR_BODY_GAP: f32 = 16.0; // Tauri space
 pub(in crate::workspace) const THEME_EDITOR_INPUT_HEIGHT: f32 = 32.0; // Tauri Input h-8.
 pub(in crate::workspace) const THEME_EDITOR_DUPLICATE_WIDTH: f32 = 180.0; // Tauri duplicate select w-[180px].
 
+const BACKGROUND_SCOPE_OPTIONS: [(BackgroundScope, &str); 2] = [
+    (
+        BackgroundScope::Content,
+        "settings_view.terminal.bg_scope_content",
+    ),
+    (
+        BackgroundScope::Window,
+        "settings_view.terminal.bg_scope_window",
+    ),
+];
+
+fn background_scope_index(scope: BackgroundScope) -> usize {
+    BACKGROUND_SCOPE_OPTIONS
+        .iter()
+        .position(|(option, _)| *option == scope)
+        .unwrap_or(0)
+}
+
 impl WorkspaceApp {
     pub(in crate::workspace) fn settings_appearance_section(
         &self,
@@ -387,27 +405,70 @@ impl WorkspaceApp {
         selected: BackgroundScope,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let mut control = div()
-            .flex()
-            .items_center()
-            .p(px(2.0))
+        let active_index = background_scope_index(selected);
+        let control_id = selection_motion::APPEARANCE_BACKGROUND_SCOPE_SWITCHER_ID;
+        let previous_index = self
+            .segmented_control_user_previous_index(control_id, active_index)
+            .unwrap_or(active_index);
+        let transition_generation = self
+            .segmented_control_user_transition(control_id, active_index)
+            .map(|(generation, _)| generation);
+        let item_width = 1.0 / BACKGROUND_SCOPE_OPTIONS.len() as f32;
+        let active_left = active_index as f32 * item_width;
+        let previous_left = previous_index as f32 * item_width;
+        let indicator = div()
+            .absolute()
+            .top_0()
+            .bottom_0()
+            .w(relative(item_width))
             .rounded(px(self.tokens.radii.sm))
-            .border_1()
-            .border_color(rgb(self.tokens.ui.border))
-            .bg(rgb(self.tokens.ui.bg_sunken));
-        for (scope, label_key) in [
-            (
-                BackgroundScope::Content,
-                "settings_view.terminal.bg_scope_content",
-            ),
-            (
-                BackgroundScope::Window,
-                "settings_view.terminal.bg_scope_window",
-            ),
-        ] {
+            .bg(rgba((self.tokens.ui.accent << 8) | 0x24));
+        let indicator = match (
+            transition_generation,
+            oxideterm_gpui_ui::segmented_control_motion(&self.tokens),
+        ) {
+            (Some(generation), Some(motion)) if motion.spatial => indicator
+                .with_animation(
+                    (
+                        gpui::ElementId::from(control_id),
+                        format!("selection-{generation}"),
+                    ),
+                    Animation::new(motion.duration)
+                        .with_easing(oxideterm_gpui_ui::motion::ease_in_out_cubic),
+                    move |indicator, progress| {
+                        indicator.left(relative(oxideterm_gpui_ui::motion::lerp(
+                            previous_left,
+                            active_left,
+                            progress,
+                        )))
+                    },
+                )
+                .into_any_element(),
+            (Some(generation), Some(motion)) => indicator
+                .left(relative(active_left))
+                .with_animation(
+                    (
+                        gpui::ElementId::from(control_id),
+                        format!("selection-{generation}"),
+                    ),
+                    Animation::new(motion.duration),
+                    |indicator, progress| indicator.opacity(progress),
+                )
+                .into_any_element(),
+            _ => indicator.left(relative(active_left)).into_any_element(),
+        };
+        let mut options = div()
+            .relative()
+            .grid()
+            .grid_cols(BACKGROUND_SCOPE_OPTIONS.len() as u16)
+            .child(indicator);
+        for (target_index, (scope, label_key)) in
+            BACKGROUND_SCOPE_OPTIONS.iter().copied().enumerate()
+        {
             let active = scope == selected;
-            control = control.child(
+            options = options.child(
                 div()
+                    .relative()
                     .h(px(28.0))
                     .px(px(12.0))
                     .flex()
@@ -421,11 +482,6 @@ impl WorkspaceApp {
                     } else {
                         self.tokens.ui.text_muted
                     }))
-                    .bg(if active {
-                        rgba((self.tokens.ui.accent << 8) | 0x24)
-                    } else {
-                        rgba(0x00000000)
-                    })
                     .cursor_pointer()
                     .hover({
                         let hover = self.tokens.ui.bg_hover;
@@ -435,16 +491,35 @@ impl WorkspaceApp {
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(move |this, _event, _window, cx| {
-                            this.edit_settings(
-                                |settings| settings.terminal.background_scope = scope,
-                                cx,
-                            );
+                            if target_index != active_index {
+                                this.edit_settings(
+                                    |settings| settings.terminal.background_scope = scope,
+                                    cx,
+                                );
+                                this.begin_user_segmented_control_transition_from(
+                                    control_id,
+                                    active_index,
+                                    target_index,
+                                    cx,
+                                );
+                            }
                             cx.stop_propagation();
                         }),
                     ),
             );
         }
-        control.into_any_element()
+        // The grid keeps both localized labels at equal intrinsic widths while
+        // the existing shell remains unchanged around the moving selection.
+        div()
+            .flex()
+            .items_center()
+            .p(px(2.0))
+            .rounded(px(self.tokens.radii.sm))
+            .border_1()
+            .border_color(rgb(self.tokens.ui.border))
+            .bg(rgb(self.tokens.ui.bg_sunken))
+            .child(options)
+            .into_any_element()
     }
 
     pub(in crate::workspace) fn appearance_card(

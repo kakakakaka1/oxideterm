@@ -273,7 +273,9 @@ impl RedbProgressStore {
             })?;
         let store = Self { db };
         store.ensure_tables()?;
-        store.rebuild_incomplete_indexes()?;
+        // LazyProgressStore does not publish this store until construction
+        // finishes, so normalization cannot race transfers in this process.
+        store.normalize_stale_progress_and_rebuild_indexes()?;
         Ok(store)
     }
 
@@ -305,7 +307,7 @@ impl RedbProgressStore {
         })
     }
 
-    fn rebuild_incomplete_indexes(&self) -> Result<(), SftpError> {
+    fn normalize_stale_progress_and_rebuild_indexes(&self) -> Result<(), SftpError> {
         let read_txn = self.db.begin_read().map_err(|error| {
             SftpError::StorageError(format!("Failed to begin read transaction: {error}"))
         })?;
@@ -313,7 +315,8 @@ impl RedbProgressStore {
             SftpError::StorageError(format!("Failed to open progress table: {error}"))
         })?;
         let mut incomplete_entries = Vec::new();
-        let mut invalid_entries = Vec::new();
+        let mut recovered_active_entries = Vec::new();
+        let mut entries_to_delete = Vec::new();
         for item in table.iter().map_err(|error| {
             SftpError::StorageError(format!("Failed to iterate progress table: {error}"))
         })? {
@@ -332,12 +335,27 @@ impl RedbProgressStore {
                         error = %error,
                         "dropping unreadable SFTP transfer progress row during index rebuild"
                     );
-                    invalid_entries.push(transfer_id);
+                    entries_to_delete.push(transfer_id);
                     continue;
                 }
             };
-            if progress.is_incomplete() {
-                incomplete_entries.push((progress.transfer_id, progress.session_id));
+            match progress.status {
+                TransferStatus::Active => {
+                    let mut recovered = progress;
+                    recovered.mark_paused();
+                    let serialized = rmp_serde::to_vec_named(&recovered).map_err(|error| {
+                        SftpError::StorageError(format!(
+                            "Failed to serialize recovered progress: {error}"
+                        ))
+                    })?;
+                    recovered_active_entries.push((transfer_id, recovered.session_id, serialized));
+                }
+                TransferStatus::Paused | TransferStatus::Failed => {
+                    incomplete_entries.push((transfer_id, progress.session_id));
+                }
+                TransferStatus::Completed | TransferStatus::Cancelled => {
+                    entries_to_delete.push(transfer_id);
+                }
             }
         }
         drop(table);
@@ -379,12 +397,36 @@ impl RedbProgressStore {
                         "Failed to clear session incomplete index table: {error}"
                     ))
                 })?;
-            for transfer_id in invalid_entries {
+            for transfer_id in entries_to_delete {
                 progress_table
                     .remove(transfer_id.as_str())
                     .map_err(|error| {
                         SftpError::StorageError(format!(
-                            "Failed to remove unreadable progress entry: {error}"
+                            "Failed to remove stale progress entry: {error}"
+                        ))
+                    })?;
+            }
+            for (transfer_id, session_id, serialized) in recovered_active_entries {
+                progress_table
+                    .insert(transfer_id.as_str(), serialized.as_slice())
+                    .map_err(|error| {
+                        SftpError::StorageError(format!(
+                            "Failed to recover active progress entry: {error}"
+                        ))
+                    })?;
+                incomplete_table
+                    .insert(transfer_id.as_str(), serialized.as_slice())
+                    .map_err(|error| {
+                        SftpError::StorageError(format!(
+                            "Failed to index recovered progress entry: {error}"
+                        ))
+                    })?;
+                let session_key = session_incomplete_index_key(&session_id, &transfer_id);
+                session_index_table
+                    .insert(session_key.as_str(), transfer_id.as_str())
+                    .map_err(|error| {
+                        SftpError::StorageError(format!(
+                            "Failed to index recovered progress session: {error}"
                         ))
                     })?;
             }
@@ -739,6 +781,66 @@ mod tests {
         store.save(&progress).await.expect("save progress");
 
         assert!(path.exists());
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn reopening_store_normalizes_only_records_left_by_the_previous_process() {
+        let path = temp_progress_path("startup-normalization");
+        let store = RedbProgressStore::new(&path).expect("open progress store");
+
+        let active = StoredTransferProgress::new(
+            "active-transfer".to_string(),
+            TransferType::Download,
+            PathBuf::from("/remote/active"),
+            PathBuf::from("/local/active"),
+            128,
+            "session-1".to_string(),
+        );
+        let mut paused = active.clone();
+        paused.transfer_id = "paused-transfer".to_string();
+        paused.mark_paused();
+        let mut failed = active.clone();
+        failed.transfer_id = "failed-transfer".to_string();
+        failed.mark_failed("connection lost".to_string());
+        let mut completed = active.clone();
+        completed.transfer_id = "completed-transfer".to_string();
+        completed.mark_completed();
+        let mut cancelled = active.clone();
+        cancelled.transfer_id = "cancelled-transfer".to_string();
+        cancelled.mark_cancelled();
+
+        for progress in [&active, &paused, &failed, &completed, &cancelled] {
+            store.save(progress).await.expect("seed progress record");
+        }
+        drop(store);
+
+        // Reopening is the only point where no transfer can yet hold the lazy
+        // store, so stale state can be normalized without racing live writes.
+        let reopened = RedbProgressStore::new(&path).expect("reopen progress store");
+        let recovered_active = reopened
+            .load("active-transfer")
+            .await
+            .expect("load recovered active transfer")
+            .expect("active transfer remains recoverable");
+        assert_eq!(recovered_active.status, TransferStatus::Paused);
+        assert!(reopened.load("completed-transfer").await.unwrap().is_none());
+        assert!(reopened.load("cancelled-transfer").await.unwrap().is_none());
+
+        let mut incomplete_ids = reopened
+            .list_all_incomplete()
+            .await
+            .expect("list normalized incomplete transfers")
+            .into_iter()
+            .map(|progress| progress.transfer_id)
+            .collect::<Vec<_>>();
+        incomplete_ids.sort();
+        assert_eq!(
+            incomplete_ids,
+            vec!["active-transfer", "failed-transfer", "paused-transfer"]
+        );
+
+        drop(reopened);
         let _ = std::fs::remove_file(path);
     }
 
