@@ -20,6 +20,7 @@ impl SftpSession {
             sftp: Arc::new(sftp),
             channel_factory,
             session_id,
+            home: cwd.clone(),
             cwd,
         })
     }
@@ -30,6 +31,11 @@ impl SftpSession {
 
     pub fn cwd(&self) -> &str {
         &self.cwd
+    }
+
+    /// Returns the SFTP server's initial directory even after the file manager changes cwd.
+    pub fn home(&self) -> &str {
+        &self.home
     }
 
     pub fn set_cwd(&mut self, path: String) {
@@ -211,6 +217,73 @@ impl SftpSession {
                 })
             }
         }
+    }
+
+    /// Replaces a user configuration file without following-path or metadata loss.
+    pub async fn replace_config_content(
+        &self,
+        path: &str,
+        content: &[u8],
+    ) -> Result<WriteContentResult, SftpError> {
+        let canonical_path = match self.resolve_path(path).await {
+            Ok(path) => path,
+            Err(_) => self.resolve_new_file_path(path).await?,
+        };
+        let metadata = self.sftp.metadata(&canonical_path).await.ok();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
+        let swap_path = format!("{canonical_path}.oxideterm-{suffix}.tmp");
+        let backup_path = format!("{canonical_path}.oxideterm-{suffix}.bak");
+
+        self.write_direct(&swap_path, content).await?;
+        let written = self.read_file_limited(&swap_path, content.len()).await?;
+        if written != content {
+            let _ = self.sftp.remove_file(&swap_path).await;
+            return Err(SftpError::WriteError(format!(
+                "Remote configuration verification failed for {canonical_path}"
+            )));
+        }
+        if let Some(metadata) = metadata.as_ref() {
+            let preserved = FileAttributes {
+                uid: metadata.uid,
+                gid: metadata.gid,
+                permissions: metadata.permissions,
+                ..FileAttributes::empty()
+            };
+            if let Err(error) = self.sftp.set_metadata(&swap_path, preserved).await {
+                let _ = self.sftp.remove_file(&swap_path).await;
+                return Err(SftpError::WriteError(format!(
+                    "Failed to preserve metadata for {canonical_path}: {error}"
+                )));
+            }
+            if let Err(error) = self.sftp.rename(&canonical_path, &backup_path).await {
+                let _ = self.sftp.remove_file(&swap_path).await;
+                return Err(self.map_sftp_error(error, &canonical_path));
+            }
+        }
+
+        if let Err(error) = self.sftp.rename(&swap_path, &canonical_path).await {
+            let rollback_error = if metadata.is_some() {
+                self.sftp
+                    .rename(&backup_path, &canonical_path)
+                    .await
+                    .err()
+            } else {
+                None
+            };
+            let _ = self.sftp.remove_file(&swap_path).await;
+            if let Some(rollback_error) = rollback_error {
+                return Err(SftpError::WriteError(format!(
+                    "Failed to replace {canonical_path}: {error}; rollback failed: {rollback_error}. The original file remains at {backup_path}"
+                )));
+            }
+            return Err(SftpError::WriteError(format!(
+                "Failed to replace {canonical_path}: {error}"
+            )));
+        }
+        if metadata.is_some() {
+            let _ = self.sftp.remove_file(&backup_path).await;
+        }
+        Ok(WriteContentResult { atomic_write: true })
     }
 }
 

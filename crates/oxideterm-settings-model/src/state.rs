@@ -783,11 +783,11 @@ mod tests {
         let mut model = SettingsPageModel::default();
 
         model.set_active_tab(SettingsTab::Keybindings);
-        model.set_terminal_page(TerminalSettingsPage::History);
+        model.set_terminal_page(TerminalSettingsPage::Awareness);
         model.set_keybinding_scope_filter(SettingsKeybindingScopeFilter::Terminal);
 
         assert_eq!(model.active_tab, SettingsTab::Keybindings);
-        assert_eq!(model.terminal_page, TerminalSettingsPage::History);
+        assert_eq!(model.terminal_page, TerminalSettingsPage::Awareness);
         assert_eq!(model.previous_terminal_page, TerminalSettingsPage::Display);
         assert_eq!(
             model.keybinding_scope_filter,

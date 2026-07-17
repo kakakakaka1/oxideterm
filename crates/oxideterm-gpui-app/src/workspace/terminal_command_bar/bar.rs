@@ -125,12 +125,18 @@ impl WorkspaceApp {
         // inference so local shells that are currently inside SSH show the
         // remote identity consistently in both places.
         let target_label = self.terminal_command_active_target_label(cx);
-        let cwd_awareness_enabled = self.terminal_current_directory_awareness_enabled();
-        let cwd_snapshot = cwd_awareness_enabled
+        let cwd_display_enabled = self.terminal_current_directory_awareness_enabled()
+            && self
+                .settings_store
+                .settings()
+                .terminal
+                .command_bar
+                .show_current_directory;
+        let cwd_snapshot = cwd_display_enabled
             .then(|| self.active_terminal_cwd_snapshot(cx))
             .flatten();
         let cwd_supported =
-            cwd_awareness_enabled && self.active_terminal_cwd_scope_and_pane().is_some();
+            cwd_display_enabled && self.active_terminal_cwd_scope_and_pane().is_some();
         let git_snapshot = self.active_terminal_git_snapshot(cx);
         let project_tasks_enabled = self.terminal_project_tasks_enabled();
         let project_snapshot = project_tasks_enabled
@@ -140,6 +146,12 @@ impl WorkspaceApp {
         let is_local_terminal = self
             .active_tab()
             .is_some_and(|tab| tab.kind == TabKind::LocalTerminal);
+        let can_configure_remote_integration = self.active_ssh_terminal_node_id().is_some();
+        let remote_integration_pending = self.remote_shell_integration_pending();
+        let remote_integration_tooltip_id = "terminal-command-configure-directory-tracking";
+        let remote_integration_tooltip_title = self
+            .i18n
+            .t("settings_view.connections.shell_integration.toolbar_action");
         let target_indicator_is_local =
             is_local_terminal && target_label == self.i18n.t("terminal.command_bar.local_shell");
         let can_split = self.active_tab().is_some_and(|tab| {
@@ -208,7 +220,7 @@ impl WorkspaceApp {
                 bar.child(self.render_terminal_git_branch_picker(cx))
             })
             .when(
-                cwd_awareness_enabled && self.terminal_cwd_picker.open,
+                cwd_display_enabled && self.terminal_cwd_picker.open,
                 |bar| bar.child(self.render_terminal_cwd_picker(cx)),
             )
             .when(
@@ -386,6 +398,46 @@ impl WorkspaceApp {
                                         },
                                         cx,
                                     ))
+                            })
+                            .when(can_configure_remote_integration, |actions| {
+                                actions.child(
+                                    self.terminal_command_action_button(
+                                        LucideIcon::FolderSync,
+                                        rgb(theme.text_muted),
+                                        remote_integration_pending,
+                                        None,
+                                        |this, _event, _window, cx| {
+                                            this.open_remote_shell_integration_confirm(cx);
+                                            cx.stop_propagation();
+                                        },
+                                        cx,
+                                    )
+                                    .id(remote_integration_tooltip_id)
+                                    .on_mouse_move({
+                                        let title = remote_integration_tooltip_title;
+                                        cx.listener(
+                                            move |this, event: &MouseMoveEvent, _window, cx| {
+                                                this.queue_workspace_tooltip(
+                                                    remote_integration_tooltip_id,
+                                                    title.clone(),
+                                                    f32::from(event.position.x) + 12.0,
+                                                    f32::from(event.position.y) + 16.0,
+                                                    cx,
+                                                );
+                                            },
+                                        )
+                                    })
+                                    .on_hover(cx.listener(
+                                        move |this, hovered: &bool, _window, cx| {
+                                            if !*hovered {
+                                                this.clear_workspace_tooltip(
+                                                    remote_integration_tooltip_id,
+                                                    cx,
+                                                );
+                                            }
+                                        },
+                                    )),
+                                )
                             })
                             .child(select_anchor_probe(
                                 SelectAnchorId::TerminalBroadcastMenu,

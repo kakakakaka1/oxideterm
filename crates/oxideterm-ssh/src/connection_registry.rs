@@ -42,8 +42,8 @@ const REMOTE_ENV_PHASE_A_TIMEOUT: Duration = Duration::from_secs(3);
 const REMOTE_ENV_PHASE_B_TIMEOUT: Duration = Duration::from_secs(5);
 const REMOTE_ENV_MAX_OUTPUT_SIZE: usize = 8192;
 const REMOTE_ENV_PHASE_A_CMD: &str = "echo '===DETECT==='; if [ -n \"$PSModulePath\" ]; then echo 'PLATFORM=windows'; else echo \"PLATFORM=$(uname -s 2>/dev/null || echo unknown)\"; fi; echo '===END==='";
-const REMOTE_ENV_PHASE_B_UNIX_CMD: &str = "echo '===ENV==='; uname -s 2>/dev/null; echo '===ARCH==='; uname -m 2>/dev/null; echo '===KERNEL==='; uname -r 2>/dev/null; echo '===SHELL==='; echo $SHELL 2>/dev/null; echo '===DISTRO==='; cat /etc/os-release 2>/dev/null | grep -E '^(PRETTY_NAME|ID)=' | head -2; echo '===END==='";
-const REMOTE_ENV_PHASE_B_WINDOWS_CMD: &str = "echo '===ENV==='; [System.Environment]::OSVersion.VersionString; echo '===ARCH==='; $env:PROCESSOR_ARCHITECTURE; echo '===SHELL==='; \"PowerShell $($PSVersionTable.PSVersion)\"; echo '===END==='";
+const REMOTE_ENV_PHASE_B_UNIX_CMD: &str = "echo '===ENV==='; uname -s 2>/dev/null; echo '===ARCH==='; uname -m 2>/dev/null; echo '===KERNEL==='; uname -r 2>/dev/null; echo '===SHELL==='; echo $SHELL 2>/dev/null; echo '===HOME==='; echo $HOME 2>/dev/null; echo '===ZDOTDIR==='; echo $ZDOTDIR 2>/dev/null; echo '===XDG_CONFIG_HOME==='; echo $XDG_CONFIG_HOME 2>/dev/null; echo '===DISTRO==='; cat /etc/os-release 2>/dev/null | grep -E '^(PRETTY_NAME|ID)=' | head -2; echo '===END==='";
+const REMOTE_ENV_PHASE_B_WINDOWS_CMD: &str = "echo '===ENV==='; [System.Environment]::OSVersion.VersionString; echo '===ARCH==='; $env:PROCESSOR_ARCHITECTURE; echo '===SHELL==='; \"PowerShell $($PSVersionTable.PSVersion)\"; echo '===HOME==='; $HOME; echo '===ZDOTDIR==='; echo '===XDG_CONFIG_HOME==='; echo '===END==='";
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -100,6 +100,12 @@ pub struct RemoteEnvInfo {
     pub kernel: Option<String>,
     pub arch: Option<String>,
     pub shell: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub home: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub zdotdir: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub xdg_config_home: Option<String>,
     pub detected_at: i64,
 }
 
@@ -111,6 +117,9 @@ impl RemoteEnvInfo {
             kernel: None,
             arch: None,
             shell: None,
+            home: None,
+            zdotdir: None,
+            xdg_config_home: None,
             detected_at: remote_env_detected_at(),
         }
     }
@@ -1498,6 +1507,9 @@ async fn detect_remote_env_inner(handle: &SshConnectionHandle) -> RemoteEnvInfo 
             kernel: None,
             arch: None,
             shell: None,
+            home: None,
+            zdotdir: None,
+            xdg_config_home: None,
             detected_at: remote_env_detected_at(),
         },
     }
@@ -1514,7 +1526,16 @@ fn parse_remote_unix_env(output: &str, raw_platform: &str) -> RemoteEnvInfo {
     let kernel = extract_section_between(output, "===KERNEL===", "===SHELL===")
         .map(clean_remote_env_value)
         .filter(|value| !value.is_empty());
-    let shell = extract_section_between(output, "===SHELL===", "===DISTRO===")
+    let shell = extract_section_between(output, "===SHELL===", "===HOME===")
+        .map(clean_remote_env_value)
+        .filter(|value| !value.is_empty());
+    let home = extract_section_between(output, "===HOME===", "===ZDOTDIR===")
+        .map(clean_remote_env_value)
+        .filter(|value| !value.is_empty());
+    let zdotdir = extract_section_between(output, "===ZDOTDIR===", "===XDG_CONFIG_HOME===")
+        .map(clean_remote_env_value)
+        .filter(|value| !value.is_empty());
+    let xdg_config_home = extract_section_between(output, "===XDG_CONFIG_HOME===", "===DISTRO===")
         .map(clean_remote_env_value)
         .filter(|value| !value.is_empty());
     let distro_block =
@@ -1529,6 +1550,9 @@ fn parse_remote_unix_env(output: &str, raw_platform: &str) -> RemoteEnvInfo {
         kernel,
         arch,
         shell,
+        home,
+        zdotdir,
+        xdg_config_home,
         detected_at: remote_env_detected_at(),
     }
 }
@@ -1543,9 +1567,14 @@ fn parse_remote_windows_env(output: &str) -> RemoteEnvInfo {
         arch: extract_section_between(output, "===ARCH===", "===SHELL===")
             .map(clean_remote_env_value)
             .filter(|value| !value.is_empty()),
-        shell: extract_section_between(output, "===SHELL===", "===END===")
+        shell: extract_section_between(output, "===SHELL===", "===HOME===")
             .map(clean_remote_env_value)
             .filter(|value| !value.is_empty()),
+        home: extract_section_between(output, "===HOME===", "===ZDOTDIR===")
+            .map(clean_remote_env_value)
+            .filter(|value| !value.is_empty()),
+        zdotdir: None,
+        xdg_config_home: None,
         detected_at: remote_env_detected_at(),
     }
 }
@@ -1685,6 +1714,9 @@ mod tests {
             kernel: Some("6.0".to_string()),
             arch: Some("x86_64".to_string()),
             shell: Some("/bin/bash".to_string()),
+            home: Some("/home/me".to_string()),
+            zdotdir: None,
+            xdg_config_home: None,
             detected_at: 1,
         };
         let second = RemoteEnvInfo {
@@ -1693,6 +1725,9 @@ mod tests {
             kernel: None,
             arch: None,
             shell: Some("/bin/zsh".to_string()),
+            home: Some("/Users/me".to_string()),
+            zdotdir: None,
+            xdg_config_home: None,
             detected_at: 2,
         };
 
@@ -1742,6 +1777,20 @@ mod tests {
         assert_eq!(classify_remote_unix_os("Darwin"), "macOS");
         assert_eq!(classify_remote_unix_os("MINGW64_NT-10.0"), "Windows_MinGW");
         assert_eq!(classify_remote_unix_os(""), "Unknown");
+    }
+
+    #[test]
+    fn remote_env_parser_preserves_shell_configuration_directories() {
+        let output = "===ENV===\nLinux\n===ARCH===\nx86_64\n===KERNEL===\n6.8\n===SHELL===\n/bin/zsh\n===HOME===\n/home/alice\n===ZDOTDIR===\n/home/alice/.config/zsh\n===XDG_CONFIG_HOME===\n/home/alice/.config\n===DISTRO===\nPRETTY_NAME=Ubuntu\nID=ubuntu\n===END===\n";
+        let parsed = parse_remote_unix_env(output, "Linux");
+
+        assert_eq!(parsed.shell.as_deref(), Some("/bin/zsh"));
+        assert_eq!(parsed.home.as_deref(), Some("/home/alice"));
+        assert_eq!(parsed.zdotdir.as_deref(), Some("/home/alice/.config/zsh"));
+        assert_eq!(
+            parsed.xdg_config_home.as_deref(),
+            Some("/home/alice/.config")
+        );
     }
 
     #[test]

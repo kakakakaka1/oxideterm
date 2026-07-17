@@ -217,8 +217,9 @@ use oxideterm_ssh::{
 };
 use oxideterm_ssh_launch::TemporarySshLaunch;
 use oxideterm_terminal::{
-    LocalPtyConfig, SerialSessionConfig, ShellInfo, SshSessionConfig, TelnetSessionConfig,
-    TerminalCommandMarkDetectionSource, TerminalCursorShape, TerminalLifecycle, scan_shells,
+    LocalPtyConfig, RemoteShellIntegrationStatus, SerialSessionConfig, ShellInfo, SshSessionConfig,
+    TelnetSessionConfig, TerminalCommandMarkDetectionSource, TerminalCursorShape,
+    TerminalLifecycle, scan_shells,
 };
 use oxideterm_theme::{
     AppUiColors, TerminalTheme, ThemeTokens, UiDensityProfile, UiMotionProfile, UiRadii,
@@ -778,6 +779,7 @@ pub(crate) struct WorkspaceApp {
     ai_text_editor: Option<Entity<oxideterm_gpui_editor::TextEditorView>>,
     settings_managed_key_dialog: Option<SettingsManagedKeyDialog>,
     settings_managed_key_status: Option<String>,
+    remote_shell_integration: settings::RemoteShellIntegrationUiState,
     settings_managed_key_file_path: String,
     settings_managed_key_file_name: String,
     settings_managed_key_file_passphrase: String,

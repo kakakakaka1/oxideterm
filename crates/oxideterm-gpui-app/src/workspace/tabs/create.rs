@@ -614,10 +614,8 @@ impl WorkspaceApp {
         // Tauri passes postConnectCommand as a createTerminalForNode option.
         // Keep it one-shot for this terminal instead of letting every future
         // terminal opened from the same node replay the saved command.
-        let remote_metadata_token = uuid::Uuid::new_v4().to_string();
         let session_config = SshSessionConfig::from(config)
             .with_post_connect_command(post_connect_command)
-            .with_remote_metadata_token(Some(remote_metadata_token))
             .with_registry(self.ssh_registry.clone(), consumer)
             .with_prompt_handler(prompt_handler)
             .with_managed_key_resolver(managed_key_resolver)
@@ -818,13 +816,11 @@ impl WorkspaceApp {
             std::sync::Arc::new(NativeSshPromptHandler::new(self.ssh_worker_tx.clone()));
         let managed_key_resolver =
             oxideterm_session_adapter::managed_key_resolver_from_store(&self.connection_store);
-        let remote_metadata_token = uuid::Uuid::new_v4().to_string();
         // Opening another terminal for an already-connected node mirrors
         // Tauri's createTerminalForNode(nodeId) path: no post-connect command
         // is replayed unless the caller explicitly supplies one.
         let session_config = SshSessionConfig::from(node.config)
             .with_post_connect_command(None)
-            .with_remote_metadata_token(Some(remote_metadata_token))
             .with_registry(self.ssh_registry.clone(), consumer)
             .with_prompt_handler(prompt_handler)
             .with_managed_key_resolver(managed_key_resolver)

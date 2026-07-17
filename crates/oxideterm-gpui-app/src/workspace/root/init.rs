@@ -213,6 +213,7 @@ impl WorkspaceApp {
             ai_text_editor: None,
             settings_managed_key_dialog: None,
             settings_managed_key_status: None,
+            remote_shell_integration: settings::RemoteShellIntegrationUiState::default(),
             settings_managed_key_file_path: String::new(),
             settings_managed_key_file_name: String::new(),
             settings_managed_key_file_passphrase: String::new(),

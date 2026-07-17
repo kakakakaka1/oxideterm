@@ -63,6 +63,7 @@ pub struct SftpSession {
     sftp: Arc<RusshSftpSession>,
     channel_factory: SftpChannelFactory,
     session_id: String,
+    home: String,
     cwd: String,
 }
 
@@ -85,6 +86,7 @@ impl fmt::Debug for SftpSession {
         formatter
             .debug_struct("SftpSession")
             .field("session_id", &self.session_id)
+            .field("home", &self.home)
             .field("cwd", &self.cwd)
             .finish_non_exhaustive()
     }

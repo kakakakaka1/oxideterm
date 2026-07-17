@@ -55,6 +55,8 @@ pub struct TerminalCommandBarSettings {
     pub project_tasks: bool,
     #[serde(default = "default_command_bar_current_directory_awareness")]
     pub current_directory_awareness: bool,
+    #[serde(default = "default_command_bar_show_current_directory")]
+    pub show_current_directory: bool,
     pub smart_completion: bool,
     pub quick_commands_enabled: bool,
     pub quick_commands_confirm_before_run: bool,
@@ -99,6 +101,7 @@ impl Default for TerminalCommandBarSettings {
             git_status: true,
             project_tasks: true,
             current_directory_awareness: true,
+            show_current_directory: true,
             smart_completion: true,
             quick_commands_enabled: true,
             quick_commands_confirm_before_run: false,
@@ -117,6 +120,10 @@ fn default_command_bar_project_tasks() -> bool {
 }
 
 fn default_command_bar_current_directory_awareness() -> bool {
+    true
+}
+
+fn default_command_bar_show_current_directory() -> bool {
     true
 }
 

@@ -187,6 +187,7 @@ mod network_page;
 mod pages;
 mod portable_runtime;
 mod privilege_credentials_page;
+mod remote_shell_integration;
 mod sftp_page;
 mod surface;
 mod terminal_controls;
@@ -205,6 +206,7 @@ use connections_page::{
 };
 use network_page::{NetworkProxyAuthMode, network_proxy_auth_label, network_proxy_protocol_label};
 use pages::settings_keybinding_scope_matches;
+pub(in crate::workspace) use remote_shell_integration::RemoteShellIntegrationUiState;
 pub(in crate::workspace) use update::{
     NativeUpdateDelivery, NativeUpdateUiState, native_update_progress_hint,
     native_update_progress_ratio,

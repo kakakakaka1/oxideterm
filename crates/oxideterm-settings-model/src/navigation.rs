@@ -52,12 +52,12 @@ pub fn settings_tab_section_count(
 
 pub fn terminal_settings_section_count(page: TerminalSettingsPage) -> usize {
     let page_cards = match page {
-        TerminalSettingsPage::Display => 2,
+        TerminalSettingsPage::Display => 4,
         TerminalSettingsPage::Input => 1,
         // The dedicated keybindings page owns shortcut discovery and editing.
         TerminalSettingsPage::Local => 4,
         TerminalSettingsPage::CommandBar => 3,
-        TerminalSettingsPage::History => 2,
+        TerminalSettingsPage::Awareness => 2,
         TerminalSettingsPage::Transfer => 1,
         TerminalSettingsPage::Highlight => 1,
     };
@@ -148,7 +148,7 @@ mod tests {
     fn terminal_page_count_includes_subtab_picker() {
         assert_eq!(
             terminal_settings_section_count(TerminalSettingsPage::Display),
-            3
+            5
         );
         assert_eq!(
             terminal_settings_section_count(TerminalSettingsPage::Input),
@@ -157,6 +157,10 @@ mod tests {
         assert_eq!(
             terminal_settings_section_count(TerminalSettingsPage::CommandBar),
             4
+        );
+        assert_eq!(
+            terminal_settings_section_count(TerminalSettingsPage::Awareness),
+            3
         );
         assert_eq!(
             terminal_settings_section_count(TerminalSettingsPage::Local),

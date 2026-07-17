@@ -1,0 +1,473 @@
+use super::*;
+
+#[derive(Clone, Debug, Default)]
+pub(in crate::workspace) struct RemoteShellIntegrationUiState {
+    node_id: Option<NodeId>,
+    status: Option<RemoteShellIntegrationStatus>,
+    pending: bool,
+    error: Option<String>,
+    confirm_node_id: Option<NodeId>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RemoteShellIntegrationAction {
+    Inspect,
+    Install,
+    RemoveReference,
+    RemoveAll,
+}
+
+impl WorkspaceApp {
+    pub(in crate::workspace) fn remote_shell_integration_pending(&self) -> bool {
+        self.remote_shell_integration.pending
+    }
+
+    pub(in crate::workspace) fn active_ssh_terminal_node_id(&self) -> Option<NodeId> {
+        let tab = self.active_tab()?;
+        if tab.kind != TabKind::SshTerminal {
+            return None;
+        }
+        let pane_id = tab.active_pane_id?;
+        let session_id = tab.root_pane.as_ref()?.session_id_for_pane(pane_id)?;
+        self.terminal_ssh_nodes.get(&session_id).cloned()
+    }
+
+    pub(in crate::workspace) fn open_remote_shell_integration_confirm(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) {
+        self.remote_shell_integration.confirm_node_id = self.active_ssh_terminal_node_id();
+        cx.notify();
+    }
+
+    pub(in crate::workspace) fn render_remote_shell_integration_confirm(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        let node_id = self.remote_shell_integration.confirm_node_id.as_ref()?;
+        let host = self
+            .ssh_nodes
+            .get(node_id)
+            .map(|node| node.title.clone())
+            .unwrap_or_else(|| node_id.0.clone());
+        let description = self
+            .i18n
+            .t("settings_view.connections.shell_integration.confirm_description")
+            .replace("{{host}}", &host);
+        Some(oxideterm_gpui_ui::confirm::confirm_dialog(
+            &self.tokens,
+            ConfirmDialogView {
+                variant: ConfirmDialogVariant::Default,
+                title: div()
+                    .child(
+                        self.i18n
+                            .t("settings_view.connections.shell_integration.confirm_title"),
+                    )
+                    .into_any_element(),
+                description: Some(div().child(description).into_any_element()),
+                cancel_label: div()
+                    .child(self.i18n.t("common.actions.cancel"))
+                    .into_any_element(),
+                confirm_label: div()
+                    .child(
+                        self.i18n
+                            .t("settings_view.connections.shell_integration.install"),
+                    )
+                    .into_any_element(),
+            },
+            cx.listener(|this, _event, _window, cx| {
+                this.remote_shell_integration.confirm_node_id = None;
+                cx.stop_propagation();
+                cx.notify();
+            }),
+            cx.listener(|this, _event, _window, cx| {
+                let node_id = this.remote_shell_integration.confirm_node_id.take();
+                if let Some(node_id) = node_id {
+                    this.run_remote_shell_integration_action_for_node(
+                        RemoteShellIntegrationAction::Install,
+                        node_id,
+                        cx,
+                    );
+                }
+                cx.stop_propagation();
+            }),
+        ))
+    }
+
+    pub(in crate::workspace) fn remote_shell_integration_card(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let node_id = self.active_ssh_node_id.clone();
+        let node_title = node_id
+            .as_ref()
+            .and_then(|node_id| self.ssh_nodes.get(node_id))
+            .map(|node| node.title.clone());
+        let state_matches_node = self.remote_shell_integration.node_id == node_id;
+        let status = state_matches_node
+            .then(|| self.remote_shell_integration.status.clone())
+            .flatten();
+        let error = state_matches_node
+            .then(|| self.remote_shell_integration.error.clone())
+            .flatten();
+        // The backend owns one operation at a time even if the user selects a
+        // different host while the previous operation is still completing.
+        let pending = self.remote_shell_integration.pending;
+
+        let mut content = div()
+            .w_full()
+            .min_w_0()
+            .flex()
+            .flex_col()
+            .gap(px(16.0))
+            .child(self.remote_shell_integration_disclosure());
+
+        if let Some(node_title) = node_title {
+            content = content
+                .child(self.remote_shell_integration_detail_row(
+                    "settings_view.connections.shell_integration.active_host",
+                    node_title,
+                ))
+                .when_some(status.clone(), |content, status| {
+                    content
+                        .child(self.remote_shell_integration_detail_row(
+                            "settings_view.connections.shell_integration.status",
+                            self.remote_shell_integration_state_label(status.state),
+                        ))
+                        .child(self.remote_shell_integration_detail_row(
+                            "settings_view.connections.shell_integration.detected_shell",
+                            status.shell.display_name().to_string(),
+                        ))
+                        .child(self.remote_shell_integration_detail_row(
+                            "settings_view.connections.shell_integration.directory",
+                            status.integration_directory,
+                        ))
+                        .child(self.remote_shell_integration_detail_row(
+                            "settings_view.connections.shell_integration.startup_file",
+                            status.startup_file,
+                        ))
+                })
+                .when_some(error, |content, error| {
+                    content.child(
+                        div()
+                            .rounded(px(self.tokens.radii.md))
+                            .border_1()
+                            .border_color(rgb(self.tokens.ui.error))
+                            .px(px(12.0))
+                            .py(px(10.0))
+                            .text_size(px(self.tokens.metrics.ui_text_xs))
+                            .text_color(rgb(self.tokens.ui.error))
+                            .child(error),
+                    )
+                })
+                .child(
+                    div()
+                        .w_full()
+                        .flex()
+                        .flex_wrap()
+                        .items_center()
+                        .gap(px(8.0))
+                        .children([
+                            self.remote_shell_integration_action_button(
+                                "settings_view.connections.shell_integration.inspect",
+                                LucideIcon::RefreshCw,
+                                ButtonVariant::Outline,
+                                pending,
+                                RemoteShellIntegrationAction::Inspect,
+                                cx,
+                            ),
+                            self.remote_shell_integration_action_button(
+                                if status.as_ref().is_some_and(|status| {
+                                    status.state
+                                        == oxideterm_terminal::RemoteShellIntegrationState::Installed
+                                }) {
+                                    "settings_view.connections.shell_integration.reinstall"
+                                } else {
+                                    "settings_view.connections.shell_integration.install"
+                                },
+                                LucideIcon::Download,
+                                ButtonVariant::Secondary,
+                                pending,
+                                RemoteShellIntegrationAction::Install,
+                                cx,
+                            ),
+                            self.remote_shell_integration_action_button(
+                                "settings_view.connections.shell_integration.remove_reference",
+                                LucideIcon::Trash2,
+                                ButtonVariant::Ghost,
+                                pending,
+                                RemoteShellIntegrationAction::RemoveReference,
+                                cx,
+                            ),
+                            self.remote_shell_integration_action_button(
+                                "settings_view.connections.shell_integration.remove_all",
+                                LucideIcon::Trash2,
+                                ButtonVariant::Destructive,
+                                pending,
+                                RemoteShellIntegrationAction::RemoveAll,
+                                cx,
+                            ),
+                        ]),
+                )
+                .child(
+                    div()
+                        .text_size(px(self.tokens.metrics.ui_text_xs))
+                        .text_color(rgb(self.tokens.ui.text_muted))
+                        .child(
+                            self.i18n
+                                .t("settings_view.connections.shell_integration.restart_hint"),
+                        ),
+                );
+        } else {
+            content = content.child(
+                div()
+                    .rounded(px(self.tokens.radii.md))
+                    .border_1()
+                    .border_color(rgb(self.tokens.ui.border))
+                    .px(px(12.0))
+                    .py(px(10.0))
+                    .text_size(px(self.tokens.metrics.ui_text_xs))
+                    .text_color(rgb(self.tokens.ui.text_muted))
+                    .child(
+                        self.i18n
+                            .t("settings_view.connections.shell_integration.no_active_host"),
+                    ),
+            );
+        }
+
+        self.connection_section(
+            "settings_view.connections.shell_integration.title",
+            "settings_view.connections.shell_integration.description",
+            vec![content.into_any_element()],
+        )
+    }
+
+    fn remote_shell_integration_disclosure(&self) -> AnyElement {
+        div()
+            .rounded(px(self.tokens.radii.md))
+            .border_1()
+            .border_color(rgb(self.tokens.ui.border))
+            .bg(rgb(self.tokens.ui.bg_panel))
+            .px(px(12.0))
+            .py(px(10.0))
+            .flex()
+            .flex_col()
+            .gap(px(6.0))
+            .text_size(px(self.tokens.metrics.ui_text_xs))
+            .text_color(rgb(self.tokens.ui.text_muted))
+            .child(
+                self.i18n
+                    .t("settings_view.connections.shell_integration.disclosure"),
+            )
+            .child(
+                div()
+                    .font_family("monospace")
+                    .text_color(rgb(self.tokens.ui.text))
+                    .child("~/.oxideterm/shell-integration/"),
+            )
+            .into_any_element()
+    }
+
+    fn remote_shell_integration_detail_row(&self, label_key: &str, value: String) -> AnyElement {
+        div()
+            .w_full()
+            .min_w_0()
+            .flex()
+            .flex_wrap()
+            .gap(px(8.0))
+            .text_size(px(self.tokens.metrics.ui_text_xs))
+            .child(
+                div()
+                    .w(px(160.0))
+                    .text_color(rgb(self.tokens.ui.text_muted))
+                    .child(self.i18n.t(label_key)),
+            )
+            .child(
+                div()
+                    .min_w_0()
+                    .flex_1()
+                    .font_family("monospace")
+                    .text_color(rgb(self.tokens.ui.text))
+                    .child(value),
+            )
+            .into_any_element()
+    }
+
+    fn remote_shell_integration_state_label(
+        &self,
+        state: oxideterm_terminal::RemoteShellIntegrationState,
+    ) -> String {
+        let key = match state {
+            oxideterm_terminal::RemoteShellIntegrationState::NotInstalled => {
+                "settings_view.connections.shell_integration.state_not_installed"
+            }
+            oxideterm_terminal::RemoteShellIntegrationState::FilesOnly => {
+                "settings_view.connections.shell_integration.state_files_only"
+            }
+            oxideterm_terminal::RemoteShellIntegrationState::Installed => {
+                "settings_view.connections.shell_integration.state_installed"
+            }
+            oxideterm_terminal::RemoteShellIntegrationState::NeedsUpdate => {
+                "settings_view.connections.shell_integration.state_needs_update"
+            }
+        };
+        self.i18n.t(key)
+    }
+
+    fn remote_shell_integration_action_button(
+        &self,
+        label_key: &str,
+        icon: LucideIcon,
+        variant: ButtonVariant,
+        pending: bool,
+        action: RemoteShellIntegrationAction,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        self.workspace_toolbar_action_button(
+            self.i18n.t(label_key),
+            Some(Self::render_lucide_icon(
+                icon,
+                14.0,
+                rgb(self.tokens.ui.text),
+            )),
+            ToolbarButtonOptions {
+                button: ButtonOptions {
+                    variant,
+                    size: ButtonSize::Sm,
+                    radius: ButtonRadius::Md,
+                    disabled: pending,
+                },
+                icon_position: ToolbarButtonIconPosition::Leading,
+                loading: pending,
+                ..ToolbarButtonOptions::default()
+            },
+            cx.listener(move |this, _event, _window, cx| {
+                this.run_remote_shell_integration_action(action, cx);
+                cx.stop_propagation();
+            }),
+        )
+        .into_any_element()
+    }
+
+    fn run_remote_shell_integration_action(
+        &mut self,
+        action: RemoteShellIntegrationAction,
+        cx: &mut Context<Self>,
+    ) {
+        if self.remote_shell_integration.pending {
+            return;
+        }
+        let Some(node_id) = self.active_ssh_node_id.clone() else {
+            return;
+        };
+        self.run_remote_shell_integration_action_for_node(action, node_id, cx);
+    }
+
+    fn run_remote_shell_integration_action_for_node(
+        &mut self,
+        action: RemoteShellIntegrationAction,
+        node_id: NodeId,
+        cx: &mut Context<Self>,
+    ) {
+        if self.remote_shell_integration.pending {
+            return;
+        }
+        let status = (self.remote_shell_integration.node_id.as_ref() == Some(&node_id))
+            .then(|| self.remote_shell_integration.status.clone())
+            .flatten();
+        self.active_ssh_node_id = Some(node_id.clone());
+        self.remote_shell_integration = RemoteShellIntegrationUiState {
+            node_id: Some(node_id.clone()),
+            status,
+            pending: true,
+            error: None,
+            confirm_node_id: None,
+        };
+        let router = self.node_router.clone();
+        let runtime = self.forwarding_runtime.clone();
+        let success_message = self.i18n.t(match action {
+            RemoteShellIntegrationAction::Inspect => {
+                "settings_view.connections.shell_integration.inspect_complete"
+            }
+            RemoteShellIntegrationAction::Install => {
+                "settings_view.connections.shell_integration.install_complete"
+            }
+            RemoteShellIntegrationAction::RemoveReference => {
+                "settings_view.connections.shell_integration.reference_removed"
+            }
+            RemoteShellIntegrationAction::RemoveAll => {
+                "settings_view.connections.shell_integration.all_removed"
+            }
+        });
+        cx.spawn(async move |weak, cx| {
+            let result = runtime
+                .spawn(async move {
+                    let resolved = router
+                        .resolve_connection(&node_id)
+                        .await
+                        .map_err(|error| error.to_string())?;
+                    let remote_env = resolved.handle.remote_env();
+                    let sftp = router
+                        .acquire_sftp(&node_id)
+                        .await
+                        .map_err(|error| error.to_string())?;
+                    let sftp = sftp.lock().await;
+                    match action {
+                        RemoteShellIntegrationAction::Inspect => {
+                            oxideterm_terminal::inspect_remote_shell_integration(
+                                &sftp,
+                                remote_env.as_ref(),
+                            )
+                            .await
+                        }
+                        RemoteShellIntegrationAction::Install => {
+                            oxideterm_terminal::install_remote_shell_integration(
+                                &sftp,
+                                remote_env.as_ref(),
+                            )
+                            .await
+                        }
+                        RemoteShellIntegrationAction::RemoveReference => {
+                            oxideterm_terminal::remove_remote_shell_integration(
+                                &sftp,
+                                remote_env.as_ref(),
+                                false,
+                            )
+                            .await
+                        }
+                        RemoteShellIntegrationAction::RemoveAll => {
+                            oxideterm_terminal::remove_remote_shell_integration(
+                                &sftp,
+                                remote_env.as_ref(),
+                                true,
+                            )
+                            .await
+                        }
+                    }
+                })
+                .await
+                .map_err(|error| error.to_string())
+                .and_then(|result| result);
+            let _ = weak.update(cx, |this, cx| {
+                this.remote_shell_integration.pending = false;
+                match result {
+                    Ok(status) => {
+                        this.remote_shell_integration.status = Some(status);
+                        this.remote_shell_integration.error = None;
+                        this.push_ai_settings_toast(
+                            success_message,
+                            TerminalNoticeVariant::Success,
+                        );
+                    }
+                    Err(error) => {
+                        this.remote_shell_integration.error = Some(error.clone());
+                        this.push_ai_settings_toast(error, TerminalNoticeVariant::Error);
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+}

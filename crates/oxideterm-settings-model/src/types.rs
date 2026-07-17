@@ -34,7 +34,7 @@ pub enum TerminalSettingsPage {
     Input,
     Local,
     CommandBar,
-    History,
+    Awareness,
     Transfer,
     Highlight,
 }
@@ -229,7 +229,7 @@ impl TerminalSettingsPage {
             Self::Input,
             Self::Local,
             Self::CommandBar,
-            Self::History,
+            Self::Awareness,
             Self::Transfer,
             Self::Highlight,
         ]
@@ -241,7 +241,7 @@ impl TerminalSettingsPage {
             Self::Input => "settings_view.terminal.page_input",
             Self::Local => "settings_view.terminal.page_local",
             Self::CommandBar => "settings_view.terminal.page_commandBar",
-            Self::History => "settings_view.terminal.page_history",
+            Self::Awareness => "settings_view.terminal.page_awareness",
             Self::Transfer => "settings_view.terminal.page_transfer",
             Self::Highlight => "settings_view.terminal.page_highlight",
         }

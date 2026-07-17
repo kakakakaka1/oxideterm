@@ -161,17 +161,9 @@ pub(crate) struct TerminalShellIntegration {
     marks: Vec<TerminalCommandMark>,
     pending_osc: Option<OscCapture>,
     next_command_sequence: u64,
-    oxideterm_remote_metadata_token: Option<String>,
 }
 
 impl TerminalShellIntegration {
-    pub(crate) fn with_oxideterm_remote_metadata_token(token: Option<String>) -> Self {
-        Self {
-            oxideterm_remote_metadata_token: token.filter(|value| !value.trim().is_empty()),
-            ..Self::default()
-        }
-    }
-
     pub(crate) fn advance<T: EventListener>(
         &mut self,
         parser: &mut Processor,
@@ -465,32 +457,27 @@ impl TerminalShellIntegration {
     }
 
     fn parse_oxideterm_remote_metadata(&self, data: &str) -> Option<(String, Option<String>)> {
-        let expected_token = self.oxideterm_remote_metadata_token.as_deref()?;
         let fields = parse_key_value_fields(data);
         let version = fields
             .iter()
             .find_map(|(key, value)| (*key == "v").then_some(*value))?;
-        if version != "1" {
-            return None;
-        }
-        let token = fields
-            .iter()
-            .find_map(|(key, value)| (*key == "id").then_some(*value))?;
-        if token != expected_token {
+        if version != "2" {
             return None;
         }
         let cwd = fields
             .iter()
             .find_map(|(key, value)| (*key == "cwd").then_some(*value))
             .and_then(percent_decode)?;
-        if !cwd.starts_with('/') {
+        if !is_absolute_remote_cwd(&cwd) || cwd.chars().any(char::is_control) {
             return None;
         }
         let host = fields
             .iter()
             .find_map(|(key, value)| (*key == "host").then_some(*value))
             .and_then(percent_decode)
-            .filter(|value| !value.is_empty());
+            .filter(|value| {
+                !value.is_empty() && value.len() <= 255 && !value.chars().any(char::is_control)
+            });
         Some((cwd, host))
     }
 
@@ -564,6 +551,14 @@ impl TerminalShellIntegration {
         self.state.active_start_line = None;
         Some(mark.clone())
     }
+}
+
+fn is_absolute_remote_cwd(path: &str) -> bool {
+    path.starts_with('/')
+        || (path.len() >= 3
+            && path.as_bytes()[0].is_ascii_alphabetic()
+            && path.as_bytes()[1] == b':'
+            && matches!(path.as_bytes()[2], b'/' | b'\\'))
 }
 
 fn parse_shell_integration_event(

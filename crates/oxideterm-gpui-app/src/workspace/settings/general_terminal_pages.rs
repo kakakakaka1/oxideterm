@@ -764,6 +764,38 @@ impl WorkspaceApp {
                     ),
                 ],
             ),
+            (TerminalSettingsPage::Display, 2) => self.settings_card(
+                "settings_view.terminal.command_marks",
+                "settings_view.terminal.command_marks_hint",
+                vec![
+                    self.bool_row(
+                        "settings_view.terminal.command_marks",
+                        "settings_view.terminal.command_marks_hint",
+                        settings.terminal.command_marks.enabled,
+                        set_command_marks_enabled,
+                        cx,
+                    ),
+                    self.card_separator(),
+                    self.bool_row(
+                        "settings_view.terminal.command_marks_hover_actions",
+                        "settings_view.terminal.command_marks_hover_actions_hint",
+                        settings.terminal.command_marks.show_hover_actions,
+                        set_command_marks_hover_actions,
+                        cx,
+                    ),
+                ],
+            ),
+            (TerminalSettingsPage::Display, 3) => self.settings_card(
+                "settings_view.terminal.buffer",
+                "settings_view.terminal.scrollback_hint",
+                vec![self.number_row(
+                    "settings_view.terminal.scrollback",
+                    "settings_view.terminal.scrollback_hint",
+                    SettingsInput::TerminalScrollback,
+                    settings.terminal.scrollback,
+                    cx,
+                )],
+            ),
             (TerminalSettingsPage::Input, 0) => self.terminal_input_settings_card(settings, cx),
             (TerminalSettingsPage::Local, local_section_index) => {
                 self.settings_local_section(local_section_index, cx)
@@ -799,8 +831,8 @@ impl WorkspaceApp {
                     self.bool_row(
                         "settings_view.terminal.command_bar_current_directory_awareness",
                         "settings_view.terminal.command_bar_current_directory_awareness_hint",
-                        settings.terminal.command_bar.current_directory_awareness,
-                        set_command_bar_current_directory_awareness,
+                        settings.terminal.command_bar.show_current_directory,
+                        set_command_bar_show_current_directory,
                         cx,
                     ),
                 ],
@@ -844,38 +876,18 @@ impl WorkspaceApp {
                     self.terminal_command_specs_editor_row(cx),
                 ],
             ),
-            (TerminalSettingsPage::History, 0) => self.settings_card(
-                "settings_view.terminal.command_marks",
-                "settings_view.terminal.command_marks_hint",
-                vec![
-                    self.bool_row(
-                        "settings_view.terminal.command_marks",
-                        "settings_view.terminal.command_marks_hint",
-                        settings.terminal.command_marks.enabled,
-                        set_command_marks_enabled,
-                        cx,
-                    ),
-                    self.card_separator(),
-                    self.bool_row(
-                        "settings_view.terminal.command_marks_hover_actions",
-                        "settings_view.terminal.command_marks_hover_actions_hint",
-                        settings.terminal.command_marks.show_hover_actions,
-                        set_command_marks_hover_actions,
-                        cx,
-                    ),
-                ],
-            ),
-            (TerminalSettingsPage::History, 1) => self.settings_card(
-                "settings_view.terminal.buffer",
-                "settings_view.terminal.scrollback_hint",
-                vec![self.number_row(
-                    "settings_view.terminal.scrollback",
-                    "settings_view.terminal.scrollback_hint",
-                    SettingsInput::TerminalScrollback,
-                    settings.terminal.scrollback,
+            (TerminalSettingsPage::Awareness, 0) => self.settings_card(
+                "settings_view.terminal.awareness_title",
+                "settings_view.terminal.awareness_description",
+                vec![self.bool_row(
+                    "settings_view.terminal.awareness_enabled",
+                    "settings_view.terminal.awareness_enabled_hint",
+                    settings.terminal.command_bar.current_directory_awareness,
+                    set_command_bar_current_directory_awareness,
                     cx,
                 )],
             ),
+            (TerminalSettingsPage::Awareness, 1) => self.remote_shell_integration_card(cx),
             (TerminalSettingsPage::Transfer, 0) => self.settings_card(
                 "settings_view.terminal.in_band_transfer.title",
                 "settings_view.terminal.in_band_transfer.runtime_note",

@@ -1109,6 +1109,7 @@ impl WorkspaceApp {
         }
         if !settings.terminal.command_bar.enabled
             || !settings.terminal.command_bar.current_directory_awareness
+            || !settings.terminal.command_bar.show_current_directory
         {
             // CWD picker state is transient command-bar chrome; disabling the
             // feature should not leave an orphaned popover around.

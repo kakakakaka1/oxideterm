@@ -13,77 +13,6 @@ async fn request_x11_forwarding_for_shell(
         .await
 }
 
-const SHELL_BOOTSTRAP_STAGE_TIMEOUT: Duration = Duration::from_secs(10);
-const SHELL_BOOTSTRAP_CLEANUP_TIMEOUT: Duration = Duration::from_secs(2);
-const SHELL_BOOTSTRAP_ECHO_RECOVERY_INPUT: &str = "stty echo\r";
-
-fn pty_modes_for_shell_bootstrap(staged_bootstrap: bool) -> Vec<(Pty, u32)> {
-    if !staged_bootstrap {
-        return DEFAULT_PTY_MODES.to_vec();
-    }
-
-    DEFAULT_PTY_MODES
-        .iter()
-        .map(|(mode, value)| {
-            // Only the short launcher enters the PTY. The staged wrapper restores
-            // echo before replacing the login shell with the integrated shell.
-            (*mode, if *mode == Pty::ECHO { 0 } else { *value })
-        })
-        .collect()
-}
-
-async fn send_shell_bootstrap_launcher(
-    channel: &russh::Channel<client::Msg>,
-    launch_command: &str,
-) -> Result<(), russh::Error> {
-    // Send the bounded launcher only after staging succeeds. Output remains
-    // gated until the first private metadata OSC reaches the terminal model.
-    let mut input = Vec::with_capacity(launch_command.len() + 1);
-    input.extend_from_slice(launch_command.as_bytes());
-    input.push(b'\r');
-    channel.data(input.as_slice()).await
-}
-
-async fn run_hidden_shell_bootstrap_command(
-    pooled: &Arc<PooledSshConnection>,
-    command: &str,
-    command_timeout: Duration,
-) -> Result<(), &'static str> {
-    let mut channel = pooled
-        .target
-        .channel_open_session()
-        .await
-        .map_err(|_| "open-channel")?;
-    channel
-        .exec(true, command)
-        .await
-        .map_err(|_| "start-command")?;
-
-    let mut exit_status = None;
-    tokio::time::timeout(command_timeout, async {
-        while let Some(message) = channel.wait().await {
-            match message {
-                // Setup output is never forwarded into the user terminal.
-                ChannelMsg::ExitStatus {
-                    exit_status: status,
-                } => exit_status = Some(status),
-                ChannelMsg::Eof => {}
-                ChannelMsg::Close => break,
-                _ => {}
-            }
-        }
-    })
-    .await
-    .map_err(|_| "timeout")?;
-    let _ = channel.close().await;
-
-    match exit_status {
-        Some(0) => Ok(()),
-        Some(_) => Err("non-zero-exit"),
-        None => Err("missing-exit-status"),
-    }
-}
-
 async fn open_interactive_shell_channel(
     pooled: &Arc<PooledSshConnection>,
     cols: u32,
@@ -125,63 +54,28 @@ async fn open_interactive_shell_channel(
     Ok(channel)
 }
 
-async fn open_shell_with_bootstrap_fallback(
+async fn open_plain_shell(
     pooled: &Arc<PooledSshConnection>,
     cols: u32,
     rows: u32,
     agent_forwarding: bool,
     x11_forwarding: Option<&X11SshRequest>,
-    bootstrap: Option<&SshShellBootstrap>,
-) -> Result<(russh::Channel<client::Msg>, bool), SshTransportError> {
-    let bootstrap_modes = pty_modes_for_shell_bootstrap(bootstrap.is_some());
+) -> Result<russh::Channel<client::Msg>, SshTransportError> {
     let channel = open_interactive_shell_channel(
         pooled,
         cols,
         rows,
-        &bootstrap_modes,
+        DEFAULT_PTY_MODES,
         agent_forwarding,
         x11_forwarding,
     )
     .await
     .map_err(|(_, error)| error)?;
-    // The visible shell request stays first so PAM MOTD, last-login text, and
-    // server-specific login hooks remain attached to the terminal session.
     channel
         .request_shell(false)
         .await
         .map_err(|error| SshTransportError::Channel(error.to_string()))?;
-    let Some(bootstrap) = bootstrap else {
-        return Ok((channel, false));
-    };
-
-    match run_hidden_shell_bootstrap_command(
-        pooled,
-        bootstrap.stage_command(),
-        SHELL_BOOTSTRAP_STAGE_TIMEOUT,
-    )
-    .await
-    {
-        Ok(()) => {
-            send_shell_bootstrap_launcher(&channel, bootstrap.launch_command())
-                .await
-                .map_err(|error| SshTransportError::Channel(error.to_string()))?;
-            Ok((channel, true))
-        }
-        Err(stage) => {
-            tracing::warn!(stage, "SSH shell metadata bootstrap staging failed; using plain shell");
-            let _ = run_hidden_shell_bootstrap_command(
-                pooled,
-                bootstrap.cleanup_command(),
-                SHELL_BOOTSTRAP_CLEANUP_TIMEOUT,
-            )
-            .await;
-            channel
-                .data(SHELL_BOOTSTRAP_ECHO_RECOVERY_INPUT.as_bytes())
-                .await
-                .map_err(|error| SshTransportError::Channel(error.to_string()))?;
-            Ok((channel, false))
-        }
-    }
+    Ok(channel)
 }
 
 impl SshTransportClient {
@@ -190,7 +84,6 @@ impl SshTransportClient {
             config,
             prompt_handler: None,
             managed_key_resolver: None,
-            shell_bootstrap: None,
         }
     }
 
@@ -201,15 +94,6 @@ impl SshTransportClient {
 
     pub fn with_managed_key_resolver(mut self, resolver: ManagedKeyResolver) -> Self {
         self.managed_key_resolver = Some(resolver);
-        self
-    }
-
-    pub fn with_shell_bootstrap(mut self, bootstrap: Option<SshShellBootstrap>) -> Self {
-        self.shell_bootstrap = bootstrap.filter(|bootstrap| {
-            !bootstrap.stage_command().trim().is_empty()
-                && !bootstrap.launch_command().trim().is_empty()
-                && !bootstrap.cleanup_command().trim().is_empty()
-        });
         self
     }
 
@@ -803,7 +687,6 @@ impl SshTransportClient {
         registry_release: Option<(SshConnectionRegistry, String, ConnectionConsumer)>,
         ssh_connection: Option<SshConnectionHandle>,
     ) -> Result<SshPtyHandle, SshTransportError> {
-        let shell_bootstrap = self.shell_bootstrap.clone();
         let session_id = uuid::Uuid::new_v4().to_string();
         let (command_tx, mut command_rx) =
             mpsc::channel::<SshTransportCommand>(SSH_COMMAND_CHANNEL_CAPACITY);
@@ -835,13 +718,12 @@ impl SshTransportClient {
             None
         } else {
             Some(
-                open_shell_with_bootstrap_fallback(
+                open_plain_shell(
                     &pooled,
                     initial_cols,
                     initial_rows,
                     agent_forwarding,
                     x11_forwarding.as_ref(),
-                    shell_bootstrap.as_ref(),
                 )
                 .await?,
             )
@@ -860,7 +742,7 @@ impl SshTransportClient {
                     }
                 }
             };
-            let (mut channel, bootstrap_output_pending) = if let Some(channel) = channel {
+            let mut channel = if let Some(channel) = channel {
                 channel
             } else {
                 let (pty_cols, pty_rows) = tokio::select! {
@@ -898,13 +780,12 @@ impl SshTransportClient {
                         (120, 40)
                     }
                 };
-                match open_shell_with_bootstrap_fallback(
+                match open_plain_shell(
                     &pooled,
                     pty_cols,
                     pty_rows,
                     agent_forwarding,
                     x11_forwarding.as_ref(),
-                    shell_bootstrap.as_ref(),
                 )
                 .await
                 {
@@ -921,22 +802,16 @@ impl SshTransportClient {
                     }
                 }
             };
-            let mut bootstrap_output_gate =
-                bootstrap_output_pending.then(SshBootstrapOutputGate::new);
             if let (Some(registry), Some(connection_id)) = (
                 visible_terminal_registry.as_ref(),
                 visible_terminal_connection_id.as_deref(),
             ) {
-                // Tauri starts remote environment detection only after the
-                // first visible shell has been requested, so hidden probes do
-                // not consume Ubuntu's first-login MOTD before the terminal.
+                // Environment probes start only after the visible shell request
+                // so they cannot consume first-login output before the terminal.
                 let _ = registry.mark_visible_terminal_ready(connection_id);
             }
             loop {
                 let flush_deadline = output_batcher.flush_due();
-                let bootstrap_deadline = bootstrap_output_gate
-                    .as_ref()
-                    .map(SshBootstrapOutputGate::deadline);
                 tokio::select! {
                     _ = async move {
                         if let Some(deadline) = flush_deadline {
@@ -946,22 +821,6 @@ impl SshTransportClient {
                         }
                     } => {
                         if let Some(bytes) = output_batcher.take_flush()
-                            && output_tx.send(bytes).await.is_err()
-                        {
-                            break;
-                        }
-                    }
-                    _ = async move {
-                        if let Some(deadline) = bootstrap_deadline {
-                            sleep_until(deadline).await;
-                        } else {
-                            std::future::pending::<()>().await;
-                        }
-                    } => {
-                        if release_bootstrap_output(
-                            &mut output_batcher,
-                            &mut bootstrap_output_gate,
-                        ) && let Some(bytes) = output_batcher.take_flush()
                             && output_tx.send(bytes).await.is_err()
                         {
                             break;
@@ -984,10 +843,6 @@ impl SshTransportClient {
                                 let _ = channel.window_change(cols as u32, rows as u32, 0, 0).await;
                             }
                             SshTransportCommand::Close => {
-                                release_bootstrap_output(
-                                    &mut output_batcher,
-                                    &mut bootstrap_output_gate,
-                                );
                                 if let Some(bytes) = output_batcher.take_final_flush() {
                                     let _ = output_tx.send(bytes).await;
                                 }
@@ -999,11 +854,7 @@ impl SshTransportClient {
                     Some(message) = channel.wait() => {
                         match message {
                             ChannelMsg::Data { data } => {
-                                if push_shell_output(
-                                    &mut output_batcher,
-                                    &mut bootstrap_output_gate,
-                                    &data,
-                                )
+                                if output_batcher.push(&data)
                                     && let Some(bytes) = output_batcher.take_flush()
                                     && output_tx.send(bytes).await.is_err()
                                 {
@@ -1011,11 +862,7 @@ impl SshTransportClient {
                                 }
                             }
                             ChannelMsg::ExtendedData { data, ext } if ext == 1 => {
-                                if push_shell_output(
-                                    &mut output_batcher,
-                                    &mut bootstrap_output_gate,
-                                    &data,
-                                )
+                                if output_batcher.push(&data)
                                     && let Some(bytes) = output_batcher.take_flush()
                                     && output_tx.send(bytes).await.is_err()
                                 {
@@ -1023,10 +870,6 @@ impl SshTransportClient {
                                 }
                             }
                             ChannelMsg::Eof | ChannelMsg::Close => {
-                                release_bootstrap_output(
-                                    &mut output_batcher,
-                                    &mut bootstrap_output_gate,
-                                );
                                 if let Some(bytes) = output_batcher.take_final_flush() {
                                     let _ = output_tx.send(bytes).await;
                                 }
@@ -1039,7 +882,6 @@ impl SshTransportClient {
                     else => break,
                 }
             }
-            release_bootstrap_output(&mut output_batcher, &mut bootstrap_output_gate);
             if let Some(bytes) = output_batcher.take_final_flush() {
                 let _ = output_tx.send(bytes).await;
             }
@@ -1062,30 +904,4 @@ impl SshTransportClient {
         self.connect_authenticated_connection().await.map(|_| ())
     }
 
-}
-
-#[cfg(test)]
-mod shell_bootstrap_transport_tests {
-    use super::{Pty, pty_modes_for_shell_bootstrap};
-
-    #[test]
-    fn staged_bootstrap_disables_only_initial_pty_echo() {
-        let plain = pty_modes_for_shell_bootstrap(false);
-        let staged = pty_modes_for_shell_bootstrap(true);
-
-        assert_eq!(
-            plain.iter().find(|(mode, _)| *mode == Pty::ECHO),
-            Some(&(Pty::ECHO, 1))
-        );
-        assert_eq!(
-            staged.iter().find(|(mode, _)| *mode == Pty::ECHO),
-            Some(&(Pty::ECHO, 0))
-        );
-        assert!(plain.iter().all(|(mode, value)| {
-            *mode == Pty::ECHO
-                || staged
-                    .iter()
-                    .any(|(candidate, staged_value)| candidate == mode && staged_value == value)
-        }));
-    }
 }

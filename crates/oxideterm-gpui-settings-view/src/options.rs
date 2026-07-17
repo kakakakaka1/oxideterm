@@ -422,6 +422,10 @@ pub fn set_command_bar_current_directory_awareness(settings: &mut PersistedSetti
     settings.terminal.command_bar.current_directory_awareness = value;
 }
 
+pub fn set_command_bar_show_current_directory(settings: &mut PersistedSettings, value: bool) {
+    settings.terminal.command_bar.show_current_directory = value;
+}
+
 pub fn set_quick_commands_enabled(settings: &mut PersistedSettings, value: bool) {
     settings.terminal.command_bar.quick_commands_enabled = value;
 }

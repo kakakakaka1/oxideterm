@@ -952,6 +952,10 @@ impl Render for WorkspaceApp {
                 self.render_settings_data_directory_confirm_dialog(cx),
                 |root, dialog| root.child(dialog),
             )
+            .when_some(
+                self.render_remote_shell_integration_confirm(cx),
+                |root, dialog| root.child(dialog),
+            )
             .when(self.cloud_sync.view.confirm.is_some(), |root| {
                 root.child(self.render_cloud_sync_confirm_dialog(cx))
             })
