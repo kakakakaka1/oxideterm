@@ -976,6 +976,7 @@
       "agent_feature_hash": "Detección de conflictos basada en hash (previene sobrescritura de cambios externos)",
       "agent_feature_search": "Búsqueda grep del lado del servidor y carga profunda del árbol de directorios",
       "agent_supported": "Incluidos: x86_64, aarch64 (Linux)",
+      "agent_binary_size": "~2 MB",
       "agent_auto_hint": "Al abrir el modo IDE en hosts Linux x86_64/aarch64 compatibles, el despliegue sigue la política indicada abajo — por defecto se solicitará confirmación en el primer uso.",
       "agent_extra_hint": "Ya no se proporcionan binarios precompilados para otras arquitecturas. Debe compilar el agent desde el código fuente y luego subirlo manualmente a ~/.oxideterm/oxideterm-agent en el host remoto.",
       "agent_transparency_title": "Transparencia y privacidad",

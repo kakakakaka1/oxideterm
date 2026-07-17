@@ -976,6 +976,7 @@
       "agent_feature_hash": "基于哈希的冲突检测（防止覆盖外部更改）",
       "agent_feature_search": "服务端 grep 搜索和深层目录树加载",
       "agent_supported": "内置：x86_64、aarch64 (Linux)",
+      "agent_binary_size": "约 2 MB",
       "agent_auto_hint": "在受支持的 Linux x86_64/aarch64 主机上打开 IDE 模式时，将根据下方「代理部署策略」决定是否部署——默认首次使用时会询问您的意见。",
       "agent_extra_hint": "其他架构不再提供预编译二进制，用户需要自行从源码构建 agent，然后手动上传到远程主机的 ~/.oxideterm/oxideterm-agent。",
       "agent_transparency_title": "透明度与隐私",

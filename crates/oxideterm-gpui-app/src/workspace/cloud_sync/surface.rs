@@ -1219,8 +1219,7 @@ impl WorkspaceApp {
             self.tokens.ui.text_heading,
             cx,
         );
-        let version_block = cloud_sync_status_list(
-            &self.tokens,
+        let version_block = self.render_cloud_sync_meta_group(
             version_title,
             version_rows
                 .into_iter()
@@ -1257,9 +1256,36 @@ impl WorkspaceApp {
                 self.tokens.ui.accent,
                 cx,
             )));
-            block = block.child(cloud_sync_status_list(&self.tokens, conflict_title, rows));
+            block = block.child(self.render_cloud_sync_meta_group(conflict_title, rows));
         }
         block.into_any_element()
+    }
+
+    pub(super) fn render_cloud_sync_meta_group(
+        &self,
+        title: AnyElement,
+        rows: impl IntoIterator<Item = AnyElement>,
+    ) -> AnyElement {
+        // Metadata already lives inside the overview card, so this group must not
+        // introduce another bordered surface around its rows.
+        rows.into_iter()
+            .fold(
+                div()
+                    .w_full()
+                    .min_w(px(0.0))
+                    .flex()
+                    .flex_col()
+                    .gap(px(6.0))
+                    .child(
+                        div()
+                            .text_size(px(self.tokens.metrics.ui_text_xs))
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(rgb(self.tokens.ui.text_heading))
+                            .child(title),
+                    ),
+                |group, row| group.child(row),
+            )
+            .into_any_element()
     }
 
     pub(super) fn cloud_sync_conflict_plain_summary(

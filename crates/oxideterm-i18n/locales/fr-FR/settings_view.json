@@ -976,6 +976,7 @@
       "agent_feature_hash": "Détection de conflits basée sur le hachage (empêche l'écrasement des modifications externes)",
       "agent_feature_search": "Recherche grep côté serveur et chargement profond de l'arborescence",
       "agent_supported": "Inclus : x86_64, aarch64 (Linux)",
+      "agent_binary_size": "~2 Mo",
       "agent_auto_hint": "Lors de l'ouverture du mode IDE sur les hôtes Linux x86_64/aarch64 pris en charge, le déploiement suit la politique ci-dessous — une confirmation vous sera demandée lors de la première utilisation (ou déploiement automatique si défini sur 'Toujours activer').",
       "agent_extra_hint": "Les binaires précompilés ne sont plus fournis pour les autres architectures. Vous devez compiler l'agent vous-même depuis les sources, puis le téléverser manuellement vers ~/.oxideterm/oxideterm-agent sur l'hôte distant.",
       "agent_transparency_title": "Transparence et confidentialité",

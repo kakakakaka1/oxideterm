@@ -976,6 +976,7 @@
       "agent_feature_hash": "Phát hiện xung đột dựa trên hash (ngăn ghi đè các thay đổi bên ngoài)",
       "agent_feature_search": "Tìm kiếm grep phía máy chủ và tải sâu cây thư mục",
       "agent_supported": "Đi kèm: x86_64, aarch64 (Linux)",
+      "agent_binary_size": "~2 MB",
       "agent_auto_hint": "Khi mở chế độ IDE trên máy chủ Linux x86_64/aarch64 được hỗ trợ, việc triển khai tuân theo chính sách bên dưới — mặc định sẽ hỏi xác nhận lần đầu sử dụng.",
       "agent_extra_hint": "Không còn cung cấp tệp nhị phân dựng sẵn cho các kiến trúc khác. Bạn cần tự xây dựng agent từ mã nguồn, sau đó tải thủ công lên ~/.oxideterm/oxideterm-agent trên máy chủ từ xa.",
       "agent_transparency_title": "Minh bạch và quyền riêng tư",

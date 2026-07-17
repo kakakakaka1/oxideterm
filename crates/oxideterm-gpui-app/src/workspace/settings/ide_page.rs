@@ -198,7 +198,7 @@ impl WorkspaceApp {
                             .bg(rgb(self.tokens.ui.bg_panel))
                             .text_size(px(self.tokens.metrics.ui_text_xs))
                             .text_color(rgb(self.tokens.ui.text_muted))
-                            .child("~1 MB"),
+                            .child(self.i18n.t("settings_view.ide.agent_binary_size")),
                     ),
             )
             .child(

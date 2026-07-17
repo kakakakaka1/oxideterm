@@ -976,6 +976,7 @@
       "agent_feature_hash": "해시 기반 충돌 감지 (외부 변경 덮어쓰기 방지)",
       "agent_feature_search": "서버 측 grep 및 깊은 디렉토리 트리 로딩",
       "agent_supported": "기본 제공: x86_64, aarch64 (Linux)",
+      "agent_binary_size": "약 2 MB",
       "agent_auto_hint": "지원되는 Linux x86_64/aarch64 호스트에서 IDE 모드를 열면 아래 배포 정책에 따라 에이전트를 배포합니다. 기본값은 첫 사용 시 확인을 요청합니다.",
       "agent_extra_hint": "다른 아키텍처용 사전 빌드 바이너리는 더 이상 제공되지 않습니다. 사용자가 직접 소스에서 agent를 빌드한 뒤 원격 호스트의 ~/.oxideterm/oxideterm-agent로 수동 업로드해야 합니다.",
       "agent_transparency_title": "투명성 및 개인정보 보호",
