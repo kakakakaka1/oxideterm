@@ -245,6 +245,25 @@ Other inherited diagnostic controls are also product-scoped:
 Do not reintroduce inherited public `ZED_*` aliases. A refresh must audit the
 complete vendor closure, not only the renderer crates.
 
+### Linux display-backend startup fallback
+
+Linux desktop startup must not panic merely because `WAYLAND_DISPLAY` is set
+while the selected compositor omits a GPUI-required global. Preserve these
+rules across vendor refreshes:
+
+- `crates/gpui-ce/gpui_linux/src/linux/wayland/client.rs` returns a diagnostic
+  error when the Wayland connection, registry, event sources, `wl_seat`,
+  `wl_compositor`, `wl_shm`, or `xdg_wm_base` cannot be initialized;
+- `crates/gpui-ce/gpui_linux/src/linux.rs` logs that Wayland initialization
+  failed and falls back to X11 when that backend is compiled;
+- if both desktop backends fail, the terminal diagnostic includes both errors
+  instead of preserving an opaque Wayland `unwrap()` panic.
+
+WSLg is a known reason for `WAYLAND_DISPLAY` to be present without a
+`wl_seat`. Keep the fallback capability-based rather than hard-coding a WSL
+environment check, so remote, nested, kiosk, and future compositors receive the
+same behavior.
+
 ### Hidden system cursor
 
 Remote desktop must be able to hide the local system pointer while painting a

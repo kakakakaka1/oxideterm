@@ -1,5 +1,6 @@
 // OxideTerm modification: preserves explicit cursor hiding across Wayland pointer events.
 // OxideTerm modification: initializes the shared WGPU recovery context.
+// OxideTerm modification: reports fallible Wayland startup so Linux can fall back to X11.
 
 use std::{
     cell::{RefCell, RefMut},
@@ -10,6 +11,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use anyhow::anyhow;
 use ashpd::WindowIdentifier;
 use calloop::{
     EventLoop, LoopHandle,
@@ -144,18 +146,28 @@ impl Globals {
         executor: ForegroundExecutor,
         qh: QueueHandle<WaylandClientStatePtr>,
         seat: wl_seat::WlSeat,
-    ) -> Self {
+    ) -> anyhow::Result<Self> {
         let dialog_v = XdgWmDialogV1::interface().version;
-        Globals {
+        let compositor = globals
+            .bind(
+                &qh,
+                wl_surface::REQ_SET_BUFFER_SCALE_SINCE
+                    ..=wl_surface::EVT_PREFERRED_BUFFER_SCALE_SINCE,
+                (),
+            )
+            .map_err(|err| {
+                anyhow!("Wayland compositor is missing a compatible wl_compositor global: {err:?}")
+            })?;
+        let shm = globals.bind(&qh, 1..=1, ()).map_err(|err| {
+            anyhow!("Wayland compositor is missing the required wl_shm global: {err:?}")
+        })?;
+        let wm_base = globals.bind(&qh, 1..=5, ()).map_err(|err| {
+            anyhow!("Wayland compositor is missing a compatible xdg_wm_base global: {err:?}")
+        })?;
+
+        Ok(Globals {
             activation: globals.bind(&qh, 1..=1, ()).ok(),
-            compositor: globals
-                .bind(
-                    &qh,
-                    wl_surface::REQ_SET_BUFFER_SCALE_SINCE
-                        ..=wl_surface::EVT_PREFERRED_BUFFER_SCALE_SINCE,
-                    (),
-                )
-                .unwrap(),
+            compositor,
             cursor_shape_manager: globals.bind(&qh, 1..=1, ()).ok(),
             data_device_manager: globals
                 .bind(
@@ -165,9 +177,9 @@ impl Globals {
                 )
                 .ok(),
             primary_selection_manager: globals.bind(&qh, 1..=1, ()).ok(),
-            shm: globals.bind(&qh, 1..=1, ()).unwrap(),
+            shm,
             seat,
-            wm_base: globals.bind(&qh, 1..=5, ()).unwrap(),
+            wm_base,
             viewporter: globals.bind(&qh, 1..=1, ()).ok(),
             fractional_scale_manager: globals.bind(&qh, 1..=1, ()).ok(),
             decoration_manager: globals.bind(&qh, 1..=1, ()).ok(),
@@ -179,7 +191,7 @@ impl Globals {
             system_bell: globals.bind(&qh, 1..=1, ()).ok(),
             executor,
             qh,
-        }
+        })
     }
 }
 
@@ -541,10 +553,12 @@ fn wl_output_version(version: u32) -> u32 {
 }
 
 impl WaylandClient {
-    pub(crate) fn new() -> Self {
-        let conn = Connection::connect_to_env().unwrap();
+    pub(crate) fn new() -> anyhow::Result<Self> {
+        let conn = Connection::connect_to_env()
+            .map_err(|err| anyhow!("Failed to connect to the Wayland compositor: {err:?}"))?;
 
-        let (globals, event_queue) = registry_queue_init::<WaylandClientStatePtr>(&conn).unwrap();
+        let (globals, event_queue) = registry_queue_init::<WaylandClientStatePtr>(&conn)
+            .map_err(|err| anyhow!("Failed to read the Wayland global registry: {err:?}"))?;
         let qh = event_queue.handle();
 
         let mut seat: Option<wl_seat::WlSeat> = None;
@@ -578,7 +592,12 @@ impl WaylandClient {
             }
         });
 
-        let event_loop = EventLoop::<WaylandClientStatePtr>::try_new().unwrap();
+        let seat = seat.ok_or_else(|| {
+            anyhow!("Wayland compositor did not advertise the required wl_seat global")
+        })?;
+
+        let event_loop = EventLoop::<WaylandClientStatePtr>::try_new()
+            .map_err(|err| anyhow!("Failed to create the Wayland event loop: {err:?}"))?;
 
         let (common, main_receiver) = LinuxCommon::new(event_loop.get_signal());
 
@@ -607,18 +626,19 @@ impl WaylandClient {
                     }
                 }
             })
-            .unwrap();
+            .map_err(|err| {
+                anyhow!("Failed to register the Wayland foreground task source: {err:?}")
+            })?;
 
         let compositor_gpu = detect_compositor_gpu();
         let gpu_context = GpuContext::new();
 
-        let seat = seat.unwrap();
         let globals = Globals::new(
             globals,
             common.foreground_executor.clone(),
             qh.clone(),
             seat.clone(),
-        );
+        )?;
 
         let data_device = globals
             .data_device_manager
@@ -673,7 +693,9 @@ impl WaylandClient {
                     }
                 }
             })
-            .unwrap();
+            .map_err(|err| {
+                anyhow!("Failed to register the Wayland desktop portal event source: {err:?}")
+            })?;
 
         let state = Rc::new(RefCell::new(WaylandClientState {
             serial_tracker: SerialTracker::new(),
@@ -752,9 +774,9 @@ impl WaylandClient {
 
         WaylandSource::new(conn, event_queue)
             .insert(handle)
-            .unwrap();
+            .map_err(|err| anyhow!("Failed to register the Wayland display source: {err:?}"))?;
 
-        Self(state)
+        Ok(Self(state))
     }
 }
 
