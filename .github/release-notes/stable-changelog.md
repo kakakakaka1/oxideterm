@@ -3,6 +3,32 @@
 Stable releases are listed newest first. The release workflow uses each versioned
 section as the detailed changelog attached to the corresponding GitHub Release.
 
+## 2.0.4
+
+OxideTerm 2.0.4 refreshes the native GPUI runtime, improves Linux and virtualized
+graphics compatibility, and polishes remote desktop, transfers, scrolling, and
+desktop integration.
+
+### Highlights
+
+- Migrated the native desktop layer to a pinned, vendored GPUI-CE baseline while preserving OxideTerm's platform integration across macOS, Windows, and Linux.
+- Improved Linux and virtual-machine graphics startup with deterministic Vulkan/OpenGL adapter selection, virtual-GPU handling, recoverable WGPU device resets, and actionable failure diagnostics.
+- Updated remote desktop rendering to reuse a stable dynamic texture, apply incremental framebuffer updates, restore content after renderer resets, and hide the local pointer when displaying a remote cursor.
+
+### Fixes
+
+- Fell back from Wayland to X11 when the selected compositor is missing required capabilities, including affected WSLg environments, and reported both backend failures when neither can start.
+- Prevented one trackpad or mouse-wheel gesture from scrolling nested inner and outer surfaces at the same time.
+- Improved title-bar window controls and wrapped long graphics-startup diagnostics so they remain readable.
+- Enlarged the small Windows taskbar and Linux desktop-panel icon artwork without changing macOS application icons or larger launcher assets.
+- Recovered interrupted active SFTP transfers as paused work after restart and removed stale completed or cancelled progress records.
+- Limited native application logs to one bounded 10 MiB file while retaining the most recent complete entries.
+- Refined cloud-sync metadata layout, background-scope selection motion, and localized remote-agent size information.
+
+### Release Maintenance
+
+- Added a pinned GPUI-CE provenance ledger, vendored-source verification, refreshed third-party notices, and packaged license validation.
+
 ## 2.0.3
 
 OxideTerm 2.0.3 improves terminal input compatibility, remote directory awareness,
