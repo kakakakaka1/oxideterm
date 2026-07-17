@@ -1,17 +1,6 @@
 # OxideTerm 2.0
 
-OxideTerm 2.0 is the stable, GPU-rendered desktop workspace for SSH, terminals, files, forwarding, host operations, remote desktop, and OxideSens AI.
-
-Use this channel for daily work. It includes the desktop app, signed update metadata, and the recommended update path for most users.
-
 <!-- RELEASE_DOWNLOADS -->
-
-## What This Release Is
-
-- The stable OxideTerm 2.0 desktop build.
-- Intended for daily SSH, SFTP, terminal, port forwarding, remote desktop, serial, file, and OxideSens workflows.
-- Published with updater metadata for the stable channel.
-- Suitable for users who do not want preview-channel churn.
 
 <!-- RELEASE_CHANGELOG -->
 
