@@ -218,6 +218,16 @@ impl WorkspaceApp {
             ))
             .child(self.settings_row_with_margin(
                 self.checkbox_row(
+                    "settings_view.terminal.open_links_with_modifier",
+                    "settings_view.terminal.open_links_with_modifier_hint",
+                    settings.terminal.open_links_with_modifier,
+                    set_open_links_with_modifier,
+                    cx,
+                ),
+                16.0,
+            ))
+            .child(self.settings_row_with_margin(
+                self.checkbox_row(
                     "settings_view.terminal.selection_requires_shift",
                     "settings_view.terminal.selection_requires_shift_hint",
                     settings.terminal.selection_requires_shift,

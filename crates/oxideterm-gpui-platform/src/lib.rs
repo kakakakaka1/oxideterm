@@ -7,7 +7,7 @@ use gpui::{
 };
 use oxideterm_theme::UiMetrics;
 
-const OXIDETERM_APP_ID: &str = "com.analysecircuit.OxideTerm";
+const OXIDETERM_APP_ID: &str = "com.oxideterm.app";
 
 pub fn window_options(bounds: Bounds<Pixels>) -> WindowOptions {
     let metrics = UiMetrics::tauri_default();
@@ -34,5 +34,16 @@ pub fn window_options(bounds: Bounds<Pixels>) -> WindowOptions {
         // desktop file and package icon generated from the bundle metadata.
         app_id: Some(OXIDETERM_APP_ID.to_string()),
         ..Default::default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stable_linux_window_id_matches_desktop_entry() {
+        // Mutter associates the running window with the stable desktop file by this exact ID.
+        assert_eq!(OXIDETERM_APP_ID, "com.oxideterm.app");
     }
 }

@@ -322,6 +322,15 @@ pub enum IdeAgentMode {
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
+pub enum RemoteShellIntegrationMode {
+    #[default]
+    Ask,
+    Enabled,
+    Disabled,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum AiThinkingStyle {
     #[default]
     Detailed,

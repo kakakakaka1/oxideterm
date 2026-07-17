@@ -848,6 +848,7 @@ impl WorkspaceApp {
             osc52_clipboard_read: terminal.osc52_clipboard_read,
             copy_on_select: terminal.copy_on_select,
             middle_click_paste: terminal.middle_click_paste,
+            open_links_with_modifier: terminal.open_links_with_modifier,
             selection_requires_shift: terminal.selection_requires_shift,
             free_type_cursor_positioning: terminal.free_type_cursor_positioning,
             bidi_enabled: terminal.unicode.bidi_enabled,

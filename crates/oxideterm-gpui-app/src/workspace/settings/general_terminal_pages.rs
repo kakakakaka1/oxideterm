@@ -879,13 +879,27 @@ impl WorkspaceApp {
             (TerminalSettingsPage::Awareness, 0) => self.settings_card(
                 "settings_view.terminal.awareness_title",
                 "settings_view.terminal.awareness_description",
-                vec![self.bool_row(
-                    "settings_view.terminal.awareness_enabled",
-                    "settings_view.terminal.awareness_enabled_hint",
-                    settings.terminal.command_bar.current_directory_awareness,
-                    set_command_bar_current_directory_awareness,
-                    cx,
-                )],
+                vec![
+                    self.bool_row(
+                        "settings_view.terminal.awareness_enabled",
+                        "settings_view.terminal.awareness_enabled_hint",
+                        settings.terminal.command_bar.current_directory_awareness,
+                        set_command_bar_current_directory_awareness,
+                        cx,
+                    ),
+                    self.card_separator(),
+                    self.select_setting_row(
+                        "settings_view.connections.shell_integration.mode_label",
+                        "settings_view.connections.shell_integration.mode_hint",
+                        SettingsSelect::RemoteShellIntegrationMode,
+                        remote_shell_integration_mode_label(
+                            settings.terminal.remote_shell_integration_mode,
+                            &self.i18n,
+                        ),
+                        self.tokens.metrics.settings_select_width,
+                        cx,
+                    ),
+                ],
             ),
             (TerminalSettingsPage::Awareness, 1) => self.remote_shell_integration_card(cx),
             (TerminalSettingsPage::Transfer, 0) => self.settings_card(

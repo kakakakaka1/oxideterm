@@ -653,6 +653,9 @@ impl WorkspaceApp {
         pane.read(cx).focus(window);
         self.reveal_active_tab(window);
         self.persist_session_tree_snapshot();
+        // The policy check starts only after the visible terminal has been
+        // registered, so it cannot displace the first login Shell request.
+        self.start_remote_shell_integration_terminal_gate(node_id, false, cx);
         cx.notify();
         Ok(session_id)
     }

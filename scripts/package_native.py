@@ -1155,6 +1155,7 @@ def write_linux_desktop_file(path: Path, identity: ReleaseIdentity, exec_value: 
                 f"Name={identity.app_name}",
                 f"Exec={exec_value} %U",
                 f"Icon={identity.linux_icon_name}",
+                f"StartupWMClass={identity.linux_desktop_id}",
                 "Terminal=false",
                 "Categories=Development;TerminalEmulator;Network;",
                 "StartupNotify=true",

@@ -127,6 +127,16 @@ impl TerminalPane {
         }
 
         let mode = self.terminal.lock().mode();
+        if is_legacy_terminal_copy_shortcut(key, modifiers) {
+            // Preserve the long-standing terminal convention without consuming plain Insert.
+            self.copy_current_selection_or_snapshot(cx);
+            return true;
+        }
+        if is_legacy_terminal_paste_shortcut(key, modifiers) {
+            // Clipboard paste must be handled before Insert is encoded as a terminal sequence.
+            self.paste_from_clipboard(cx);
+            return true;
+        }
         if is_platform_copy_shortcut(event) {
             // macOS terminals reserve Cmd+C for copy; Ctrl+C remains the
             // protocol interrupt path below.
@@ -759,7 +769,10 @@ impl TerminalPane {
         }
 
         if event.button == MouseButton::Left
-            && event.modifiers.platform
+            && terminal_link_activation_allowed(
+                event.modifiers,
+                self.settings.open_links_with_modifier,
+            )
             && let Some(link) = self.link_at_position(event.position)
         {
             match link.kind {
@@ -1316,6 +1329,34 @@ fn is_smart_copy_shortcut(event: &KeyDownEvent) -> bool {
         && !modifiers.alt
         && !modifiers.shift
         && event.keystroke.key.eq_ignore_ascii_case("c")
+}
+
+fn is_legacy_terminal_copy_shortcut(key: &str, modifiers: Modifiers) -> bool {
+    key == "insert"
+        && modifiers.control
+        && !modifiers.platform
+        && !modifiers.alt
+        && !modifiers.shift
+}
+
+fn is_legacy_terminal_paste_shortcut(key: &str, modifiers: Modifiers) -> bool {
+    key == "insert"
+        && modifiers.shift
+        && !modifiers.platform
+        && !modifiers.alt
+        && !modifiers.control
+}
+
+fn terminal_link_activation_allowed(modifiers: Modifiers, open_links_with_modifier: bool) -> bool {
+    if !open_links_with_modifier {
+        return true;
+    }
+
+    if cfg!(target_os = "macos") {
+        modifiers.platform
+    } else {
+        modifiers.control
+    }
 }
 
 fn is_platform_copy_shortcut(event: &KeyDownEvent) -> bool {
@@ -2025,6 +2066,56 @@ mod tests {
         assert!(!smart_copy_selection_is_owned_by_terminal_ui(
             TermMode::MOUSE_REPORT_CLICK
         ));
+    }
+
+    #[test]
+    fn linux_insert_shortcuts_map_to_clipboard_actions() {
+        assert!(is_legacy_terminal_copy_shortcut(
+            "insert",
+            Modifiers {
+                control: true,
+                ..Modifiers::default()
+            }
+        ));
+        assert!(is_legacy_terminal_paste_shortcut(
+            "insert",
+            Modifiers {
+                shift: true,
+                ..Modifiers::default()
+            }
+        ));
+        assert!(!is_legacy_terminal_copy_shortcut(
+            "insert",
+            Modifiers {
+                control: true,
+                shift: true,
+                ..Modifiers::default()
+            }
+        ));
+    }
+
+    #[test]
+    fn terminal_link_activation_follows_modifier_preference() {
+        assert!(terminal_link_activation_allowed(
+            Modifiers::default(),
+            false
+        ));
+        assert!(!terminal_link_activation_allowed(
+            Modifiers::default(),
+            true
+        ));
+        let link_modifier = if cfg!(target_os = "macos") {
+            Modifiers {
+                platform: true,
+                ..Modifiers::default()
+            }
+        } else {
+            Modifiers {
+                control: true,
+                ..Modifiers::default()
+            }
+        };
+        assert!(terminal_link_activation_allowed(link_modifier, true));
     }
 
     #[test]

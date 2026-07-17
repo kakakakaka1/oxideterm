@@ -3,7 +3,7 @@ use oxideterm_i18n::I18n;
 use oxideterm_render_policy::RenderProfile;
 use oxideterm_settings::{
     AiReasoningEffort, AiThinkingStyle, AnimationSpeed, ConflictAction, FontFamily,
-    FrostedGlassMode, IdeAgentMode, UiDensity,
+    FrostedGlassMode, IdeAgentMode, RemoteShellIntegrationMode, UiDensity,
 };
 
 pub fn conflict_label(action: ConflictAction, i18n: &I18n) -> String {
@@ -12,6 +12,23 @@ pub fn conflict_label(action: ConflictAction, i18n: &I18n) -> String {
         ConflictAction::Overwrite => i18n.t("settings_view.sftp.conflict_overwrite"),
         ConflictAction::Skip => i18n.t("settings_view.sftp.conflict_skip"),
         ConflictAction::Rename => i18n.t("settings_view.sftp.conflict_rename"),
+    }
+}
+
+pub fn remote_shell_integration_mode_label(
+    mode: RemoteShellIntegrationMode,
+    i18n: &I18n,
+) -> String {
+    match mode {
+        RemoteShellIntegrationMode::Ask => {
+            i18n.t("settings_view.connections.shell_integration.mode_ask")
+        }
+        RemoteShellIntegrationMode::Enabled => {
+            i18n.t("settings_view.connections.shell_integration.mode_enabled")
+        }
+        RemoteShellIntegrationMode::Disabled => {
+            i18n.t("settings_view.connections.shell_integration.mode_disabled")
+        }
     }
 }
 

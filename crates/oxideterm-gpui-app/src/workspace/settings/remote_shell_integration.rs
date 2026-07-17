@@ -5,8 +5,19 @@ pub(in crate::workspace) struct RemoteShellIntegrationUiState {
     node_id: Option<NodeId>,
     status: Option<RemoteShellIntegrationStatus>,
     pending: bool,
+    maintenance_pending: bool,
     error: Option<String>,
     confirm_node_id: Option<NodeId>,
+    confirm_source: Option<RemoteShellIntegrationConfirmSource>,
+    terminal_ready_nodes: HashSet<NodeId>,
+    terminal_checking_nodes: HashSet<NodeId>,
+    terminal_prompt_nodes: VecDeque<NodeId>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RemoteShellIntegrationConfirmSource {
+    Toolbar,
+    TerminalOpen,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -18,6 +29,46 @@ enum RemoteShellIntegrationAction {
 }
 
 impl WorkspaceApp {
+    pub(in crate::workspace) fn remote_shell_integration_mode_changed(
+        &mut self,
+        mode: RemoteShellIntegrationMode,
+        cx: &mut Context<Self>,
+    ) {
+        if mode == RemoteShellIntegrationMode::Disabled {
+            self.remote_shell_integration.terminal_prompt_nodes.clear();
+            if self.remote_shell_integration.confirm_source
+                == Some(RemoteShellIntegrationConfirmSource::TerminalOpen)
+            {
+                self.remote_shell_integration.confirm_node_id = None;
+                self.remote_shell_integration.confirm_source = None;
+            }
+        }
+        cx.notify();
+    }
+
+    fn advance_remote_shell_integration_terminal_prompt(&mut self) {
+        if self.remote_shell_integration.confirm_node_id.is_some() {
+            return;
+        }
+        if let Some(node_id) = self
+            .remote_shell_integration
+            .terminal_prompt_nodes
+            .pop_front()
+        {
+            self.remote_shell_integration.confirm_node_id = Some(node_id);
+            self.remote_shell_integration.confirm_source =
+                Some(RemoteShellIntegrationConfirmSource::TerminalOpen);
+        }
+    }
+
+    fn refresh_remote_shell_integration_pending(&mut self) {
+        self.remote_shell_integration.pending = self.remote_shell_integration.maintenance_pending
+            || !self
+                .remote_shell_integration
+                .terminal_checking_nodes
+                .is_empty();
+    }
+
     pub(in crate::workspace) fn remote_shell_integration_pending(&self) -> bool {
         self.remote_shell_integration.pending
     }
@@ -37,6 +88,162 @@ impl WorkspaceApp {
         cx: &mut Context<Self>,
     ) {
         self.remote_shell_integration.confirm_node_id = self.active_ssh_terminal_node_id();
+        self.remote_shell_integration.confirm_source =
+            Some(RemoteShellIntegrationConfirmSource::Toolbar);
+        cx.notify();
+    }
+
+    pub(in crate::workspace) fn start_remote_shell_integration_terminal_gate(
+        &mut self,
+        node_id: NodeId,
+        force_install: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let terminal_settings = &self.settings_store.settings().terminal;
+        let mode = terminal_settings.remote_shell_integration_mode;
+        if !terminal_settings.command_bar.current_directory_awareness
+            || mode == RemoteShellIntegrationMode::Disabled
+            || self
+                .remote_shell_integration
+                .terminal_ready_nodes
+                .contains(&node_id)
+            || !self
+                .remote_shell_integration
+                .terminal_checking_nodes
+                .insert(node_id.clone())
+        {
+            return;
+        }
+        self.refresh_remote_shell_integration_pending();
+        let router = self.node_router.clone();
+        let runtime = self.forwarding_runtime.clone();
+        let tx = self.reconnect_worker_tx.clone();
+        runtime.spawn(async move {
+            // The node owns this capability check independently from the
+            // terminal pane, matching the IDE Agent deployment lifecycle.
+            let result = async {
+                let resolved = router
+                    .resolve_connection(&node_id)
+                    .await
+                    .map_err(|error| error.to_string())?;
+                // Detection starts only after the first visible Shell request,
+                // preserving PAM, MOTD, and Last login output ordering.
+                let mut remote_env = resolved.handle.remote_env();
+                for _ in 0..80 {
+                    if remote_env.is_some() {
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                    remote_env = resolved.handle.remote_env();
+                }
+                let remote_env = remote_env.ok_or_else(|| {
+                    "remote Shell detection did not finish after the visible terminal opened"
+                        .to_string()
+                })?;
+                let sftp = router
+                    .acquire_sftp(&node_id)
+                    .await
+                    .map_err(|error| error.to_string())?;
+                let sftp = sftp.lock().await;
+                let status =
+                    oxideterm_terminal::inspect_remote_shell_integration(&sftp, Some(&remote_env))
+                        .await?;
+                let should_install = force_install
+                    || (mode == RemoteShellIntegrationMode::Enabled
+                        && status.state
+                            != oxideterm_terminal::RemoteShellIntegrationState::Installed);
+                if should_install {
+                    oxideterm_terminal::install_remote_shell_integration(&sftp, Some(&remote_env))
+                        .await
+                        .map(|status| (status, true))
+                } else {
+                    Ok((status, false))
+                }
+            }
+            .await;
+            let _ = tx.send(ReconnectWorkerResult::RemoteShellIntegrationGateFinished {
+                node_id,
+                result,
+            });
+        });
+        cx.notify();
+    }
+
+    pub(in crate::workspace) fn finish_remote_shell_integration_terminal_gate(
+        &mut self,
+        node_id: NodeId,
+        result: std::result::Result<(RemoteShellIntegrationStatus, bool), String>,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.remote_shell_integration
+            .terminal_checking_nodes
+            .remove(&node_id);
+        self.refresh_remote_shell_integration_pending();
+        let mode = self
+            .settings_store
+            .settings()
+            .terminal
+            .remote_shell_integration_mode;
+        let awareness_enabled = self
+            .settings_store
+            .settings()
+            .terminal
+            .command_bar
+            .current_directory_awareness;
+        match result {
+            Ok((status, _))
+                if status.state == oxideterm_terminal::RemoteShellIntegrationState::Installed =>
+            {
+                self.remote_shell_integration
+                    .terminal_ready_nodes
+                    .insert(node_id.clone());
+                self.remote_shell_integration
+                    .terminal_prompt_nodes
+                    .retain(|queued| queued != &node_id);
+                self.remote_shell_integration.node_id = Some(node_id);
+                self.remote_shell_integration.status = Some(status);
+                self.remote_shell_integration.error = None;
+            }
+            Ok((status, _)) if mode == RemoteShellIntegrationMode::Ask => {
+                self.remote_shell_integration.node_id = Some(node_id.clone());
+                self.remote_shell_integration.status = Some(status);
+                self.remote_shell_integration.error = None;
+                if !self
+                    .remote_shell_integration
+                    .terminal_prompt_nodes
+                    .contains(&node_id)
+                    && self.remote_shell_integration.confirm_node_id.as_ref() != Some(&node_id)
+                {
+                    self.remote_shell_integration
+                        .terminal_prompt_nodes
+                        .push_back(node_id);
+                }
+                self.advance_remote_shell_integration_terminal_prompt();
+            }
+            Ok(_) | Err(_)
+                if mode == RemoteShellIntegrationMode::Disabled || !awareness_enabled =>
+            {
+                self.remote_shell_integration.error = None;
+            }
+            Ok((_, false)) if mode == RemoteShellIntegrationMode::Enabled => {
+                self.start_remote_shell_integration_terminal_gate(node_id, true, cx);
+            }
+            Ok((status, _)) => {
+                let error = format!(
+                    "{}: {}",
+                    self.i18n
+                        .t("settings_view.connections.shell_integration.status"),
+                    self.remote_shell_integration_state_label(status.state)
+                );
+                self.remote_shell_integration.error = Some(error.clone());
+                self.push_ai_settings_toast(error, TerminalNoticeVariant::Error);
+            }
+            Err(error) => {
+                self.remote_shell_integration.error = Some(error.clone());
+                self.push_ai_settings_toast(error, TerminalNoticeVariant::Error);
+            }
+        }
         cx.notify();
     }
 
@@ -50,10 +257,14 @@ impl WorkspaceApp {
             .get(node_id)
             .map(|node| node.title.clone())
             .unwrap_or_else(|| node_id.0.clone());
-        let description = self
-            .i18n
-            .t("settings_view.connections.shell_integration.confirm_description")
-            .replace("{{host}}", &host);
+        let description_key = if self.remote_shell_integration.confirm_source
+            == Some(RemoteShellIntegrationConfirmSource::TerminalOpen)
+        {
+            "settings_view.connections.shell_integration.confirm_description_terminal"
+        } else {
+            "settings_view.connections.shell_integration.confirm_description"
+        };
+        let description = self.i18n.t(description_key).replace("{{host}}", &host);
         Some(oxideterm_gpui_ui::confirm::confirm_dialog(
             &self.tokens,
             ConfirmDialogView {
@@ -76,19 +287,27 @@ impl WorkspaceApp {
                     .into_any_element(),
             },
             cx.listener(|this, _event, _window, cx| {
+                this.remote_shell_integration.confirm_source = None;
                 this.remote_shell_integration.confirm_node_id = None;
+                this.advance_remote_shell_integration_terminal_prompt();
                 cx.stop_propagation();
                 cx.notify();
             }),
             cx.listener(|this, _event, _window, cx| {
                 let node_id = this.remote_shell_integration.confirm_node_id.take();
+                let source = this.remote_shell_integration.confirm_source.take();
                 if let Some(node_id) = node_id {
-                    this.run_remote_shell_integration_action_for_node(
-                        RemoteShellIntegrationAction::Install,
-                        node_id,
-                        cx,
-                    );
+                    if source == Some(RemoteShellIntegrationConfirmSource::TerminalOpen) {
+                        this.start_remote_shell_integration_terminal_gate(node_id, true, cx);
+                    } else {
+                        this.run_remote_shell_integration_action_for_node(
+                            RemoteShellIntegrationAction::Install,
+                            node_id,
+                            cx,
+                        );
+                    }
                 }
+                this.advance_remote_shell_integration_terminal_prompt();
                 cx.stop_propagation();
             }),
         ))
@@ -376,13 +595,13 @@ impl WorkspaceApp {
             .then(|| self.remote_shell_integration.status.clone())
             .flatten();
         self.active_ssh_node_id = Some(node_id.clone());
-        self.remote_shell_integration = RemoteShellIntegrationUiState {
-            node_id: Some(node_id.clone()),
-            status,
-            pending: true,
-            error: None,
-            confirm_node_id: None,
-        };
+        self.remote_shell_integration.node_id = Some(node_id.clone());
+        self.remote_shell_integration.status = status;
+        self.remote_shell_integration.maintenance_pending = true;
+        self.refresh_remote_shell_integration_pending();
+        self.remote_shell_integration.error = None;
+        self.remote_shell_integration.confirm_node_id = None;
+        self.remote_shell_integration.confirm_source = None;
         let router = self.node_router.clone();
         let runtime = self.forwarding_runtime.clone();
         let success_message = self.i18n.t(match action {
@@ -400,15 +619,16 @@ impl WorkspaceApp {
             }
         });
         cx.spawn(async move |weak, cx| {
+            let action_node_id = node_id.clone();
             let result = runtime
                 .spawn(async move {
                     let resolved = router
-                        .resolve_connection(&node_id)
+                        .resolve_connection(&action_node_id)
                         .await
                         .map_err(|error| error.to_string())?;
                     let remote_env = resolved.handle.remote_env();
                     let sftp = router
-                        .acquire_sftp(&node_id)
+                        .acquire_sftp(&action_node_id)
                         .await
                         .map_err(|error| error.to_string())?;
                     let sftp = sftp.lock().await;
@@ -449,9 +669,23 @@ impl WorkspaceApp {
                 .map_err(|error| error.to_string())
                 .and_then(|result| result);
             let _ = weak.update(cx, |this, cx| {
-                this.remote_shell_integration.pending = false;
+                this.remote_shell_integration.maintenance_pending = false;
+                this.refresh_remote_shell_integration_pending();
                 match result {
                     Ok(status) => {
+                        if action == RemoteShellIntegrationAction::Install {
+                            this.remote_shell_integration
+                                .terminal_ready_nodes
+                                .insert(node_id.clone());
+                        } else if matches!(
+                            action,
+                            RemoteShellIntegrationAction::RemoveReference
+                                | RemoteShellIntegrationAction::RemoveAll
+                        ) {
+                            this.remote_shell_integration
+                                .terminal_ready_nodes
+                                .remove(&node_id);
+                        }
                         this.remote_shell_integration.status = Some(status);
                         this.remote_shell_integration.error = None;
                         this.push_ai_settings_toast(

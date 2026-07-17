@@ -797,6 +797,10 @@ impl WorkspaceApp {
                     self.ssh_active_probe_in_flight = false;
                     changed = probed_changed > 0;
                 }
+                ReconnectWorkerResult::RemoteShellIntegrationGateFinished { node_id, result } => {
+                    self.finish_remote_shell_integration_terminal_gate(node_id, result, window, cx);
+                    changed = true;
+                }
             }
         }
         if changed {
@@ -1259,6 +1263,9 @@ impl WorkspaceApp {
             }
         }
         if remounted > 0 {
+            // Reconnect creates a new visible Shell lifecycle for the node, so
+            // a previously declined or incomplete integration is checked again.
+            self.start_remote_shell_integration_terminal_gate(node_id.clone(), false, cx);
             self.focus_active_pane(window, cx);
             cx.notify();
         }

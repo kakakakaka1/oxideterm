@@ -165,6 +165,20 @@ class ReleaseVersionTests(unittest.TestCase):
         )
 
 
+class LinuxDesktopEntryTests(unittest.TestCase):
+    def test_desktop_entry_exposes_matching_startup_window_class(self) -> None:
+        identity = package_native.release_identity("v2.0.0", "2.0.0")
+        with tempfile.TemporaryDirectory() as directory:
+            desktop_file = Path(directory) / "com.oxideterm.app.desktop"
+
+            package_native.write_linux_desktop_file(
+                desktop_file, identity, "/opt/oxideterm/oxideterm-native"
+            )
+
+            desktop_entry = desktop_file.read_text(encoding="utf-8")
+            self.assertIn("StartupWMClass=com.oxideterm.app", desktop_entry)
+
+
 class PlatformSigningTests(unittest.TestCase):
     def test_macos_developer_id_enables_hardened_runtime_and_timestamp(self) -> None:
         with patch.dict(

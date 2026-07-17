@@ -229,6 +229,11 @@ fn default_terminal_smooth_scroll() -> bool {
     true
 }
 
+fn default_open_links_with_modifier() -> bool {
+    // Terminal clicks commonly focus or select text, so opening links requires deliberate input.
+    true
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TerminalSettings {
@@ -260,11 +265,15 @@ pub struct TerminalSettings {
     pub osc52_clipboard_read: bool,
     pub copy_on_select: bool,
     pub middle_click_paste: bool,
+    #[serde(default = "default_open_links_with_modifier")]
+    pub open_links_with_modifier: bool,
     pub selection_requires_shift: bool,
     #[serde(default)]
     pub free_type_cursor_positioning: bool,
     pub autosuggest: TerminalAutosuggestSettings,
     pub command_bar: TerminalCommandBarSettings,
+    #[serde(default)]
+    pub remote_shell_integration_mode: RemoteShellIntegrationMode,
     pub command_marks: TerminalCommandMarksSettings,
     pub background_enabled: bool,
     pub background_image: Option<String>,
@@ -306,10 +315,12 @@ impl Default for TerminalSettings {
             osc52_clipboard_read: false,
             copy_on_select: false,
             middle_click_paste: false,
+            open_links_with_modifier: true,
             selection_requires_shift: false,
             free_type_cursor_positioning: false,
             autosuggest: TerminalAutosuggestSettings::default(),
             command_bar: TerminalCommandBarSettings::default(),
+            remote_shell_integration_mode: RemoteShellIntegrationMode::Ask,
             command_marks: TerminalCommandMarksSettings::default(),
             background_enabled: true,
             background_image: None,
@@ -396,6 +407,36 @@ mod tests {
         let settings: TerminalSettings = serde_json::from_value(value).unwrap();
 
         assert!(!settings.osc52_clipboard_read);
+    }
+
+    #[test]
+    fn terminal_settings_require_modifier_for_links_when_setting_is_missing() {
+        let mut value = serde_json::to_value(TerminalSettings::default()).unwrap();
+        value
+            .as_object_mut()
+            .unwrap()
+            .remove("openLinksWithModifier");
+
+        let settings: TerminalSettings = serde_json::from_value(value).unwrap();
+
+        // Missing settings retain the safer native behavior that avoids accidental link opens.
+        assert!(settings.open_links_with_modifier);
+    }
+
+    #[test]
+    fn terminal_settings_ask_before_remote_shell_integration_when_missing() {
+        let mut value = serde_json::to_value(TerminalSettings::default()).unwrap();
+        value
+            .as_object_mut()
+            .unwrap()
+            .remove("remoteShellIntegrationMode");
+
+        let settings: TerminalSettings = serde_json::from_value(value).unwrap();
+
+        assert_eq!(
+            settings.remote_shell_integration_mode,
+            RemoteShellIntegrationMode::Ask
+        );
     }
 
     #[test]

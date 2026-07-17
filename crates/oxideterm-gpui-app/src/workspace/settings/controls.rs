@@ -501,6 +501,34 @@ impl WorkspaceApp {
                 }
                 Some(popup)
             }
+            (SettingsTab::Terminal, SettingsSelect::RemoteShellIntegrationMode) => {
+                let mut popup = select_overlay_popup(&self.tokens, width);
+                for mode in [
+                    RemoteShellIntegrationMode::Ask,
+                    RemoteShellIntegrationMode::Enabled,
+                    RemoteShellIntegrationMode::Disabled,
+                ] {
+                    popup = popup.child(select_option_action(
+                        select_option(
+                            &self.tokens,
+                            remote_shell_integration_mode_label(mode, &self.i18n),
+                            mode == settings.terminal.remote_shell_integration_mode,
+                        ),
+                        false,
+                        false,
+                        cx.listener(move |this, _event, _window, cx| {
+                            this.close_settings_select();
+                            this.edit_settings(
+                                |settings| settings.terminal.remote_shell_integration_mode = mode,
+                                cx,
+                            );
+                            this.remote_shell_integration_mode_changed(mode, cx);
+                            cx.stop_propagation();
+                        }),
+                    ));
+                }
+                Some(popup)
+            }
             (SettingsTab::Terminal, SettingsSelect::HighlightPreset) => {
                 let mut popup = select_overlay_popup(&self.tokens, width.max(288.0));
                 for (group_index, group) in

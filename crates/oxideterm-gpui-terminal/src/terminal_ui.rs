@@ -40,6 +40,7 @@ pub(crate) const TERMINAL_OSC52_CLIPBOARD: bool = true;
 pub(crate) const TERMINAL_OSC52_CLIPBOARD_READ: bool = false;
 pub(crate) const TERMINAL_COPY_ON_SELECT: bool = false;
 pub(crate) const TERMINAL_MIDDLE_CLICK_PASTE: bool = false;
+pub(crate) const TERMINAL_OPEN_LINKS_WITH_MODIFIER: bool = true;
 pub(crate) const TERMINAL_KEEP_SELECTION_ON_COPY: bool = true;
 pub(crate) const TERMINAL_SELECTION_REQUIRES_SHIFT: bool = false;
 pub(crate) const TERMINAL_FREE_TYPE_CURSOR_POSITIONING: bool = false;
@@ -65,6 +66,7 @@ pub struct TerminalUiPreferences {
     pub osc52_clipboard_read: bool,
     pub copy_on_select: bool,
     pub middle_click_paste: bool,
+    pub open_links_with_modifier: bool,
     pub selection_requires_shift: bool,
     pub free_type_cursor_positioning: bool,
     pub bidi_enabled: bool,
@@ -107,6 +109,7 @@ impl Default for TerminalUiPreferences {
             osc52_clipboard_read: TERMINAL_OSC52_CLIPBOARD_READ,
             copy_on_select: TERMINAL_COPY_ON_SELECT,
             middle_click_paste: TERMINAL_MIDDLE_CLICK_PASTE,
+            open_links_with_modifier: TERMINAL_OPEN_LINKS_WITH_MODIFIER,
             selection_requires_shift: TERMINAL_SELECTION_REQUIRES_SHIFT,
             free_type_cursor_positioning: TERMINAL_FREE_TYPE_CURSOR_POSITIONING,
             bidi_enabled: TERMINAL_BIDI_ENABLED,
@@ -493,6 +496,7 @@ pub(crate) struct TerminalUiSettings {
     pub(crate) osc52_clipboard_read: bool,
     pub(crate) copy_on_select: bool,
     pub(crate) middle_click_paste: bool,
+    pub(crate) open_links_with_modifier: bool,
     pub(crate) keep_selection_on_copy: bool,
     pub(crate) selection_requires_shift: bool,
     pub(crate) free_type_cursor_positioning: bool,
@@ -514,6 +518,7 @@ impl Default for TerminalUiSettings {
             osc52_clipboard_read: TERMINAL_OSC52_CLIPBOARD_READ,
             copy_on_select: TERMINAL_COPY_ON_SELECT,
             middle_click_paste: TERMINAL_MIDDLE_CLICK_PASTE,
+            open_links_with_modifier: TERMINAL_OPEN_LINKS_WITH_MODIFIER,
             keep_selection_on_copy: TERMINAL_KEEP_SELECTION_ON_COPY,
             selection_requires_shift: TERMINAL_SELECTION_REQUIRES_SHIFT,
             free_type_cursor_positioning: TERMINAL_FREE_TYPE_CURSOR_POSITIONING,
@@ -541,6 +546,7 @@ impl TerminalUiSettings {
             osc52_clipboard_read: preferences.osc52_clipboard_read,
             copy_on_select: preferences.copy_on_select,
             middle_click_paste: preferences.middle_click_paste,
+            open_links_with_modifier: preferences.open_links_with_modifier,
             keep_selection_on_copy: TERMINAL_KEEP_SELECTION_ON_COPY,
             selection_requires_shift: preferences.selection_requires_shift,
             free_type_cursor_positioning: preferences.free_type_cursor_positioning,

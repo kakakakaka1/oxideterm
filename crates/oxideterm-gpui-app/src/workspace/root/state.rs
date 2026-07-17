@@ -81,4 +81,8 @@ pub(in crate::workspace) enum ReconnectWorkerResult {
     ActiveConnectionsProbed {
         changed: usize,
     },
+    RemoteShellIntegrationGateFinished {
+        node_id: NodeId,
+        result: std::result::Result<(RemoteShellIntegrationStatus, bool), String>,
+    },
 }

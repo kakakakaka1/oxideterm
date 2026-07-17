@@ -68,6 +68,7 @@ impl SettingsSelectAnchorExt for SettingsSelect {
             Self::TerminalCjkFontFamily => SelectAnchorId::SettingsTerminalCjkFontFamily,
             Self::TerminalEncoding => SelectAnchorId::SettingsTerminalEncoding,
             Self::TerminalCursorStyle => SelectAnchorId::SettingsTerminalCursorStyle,
+            Self::RemoteShellIntegrationMode => SelectAnchorId::SettingsRemoteShellIntegrationMode,
             Self::IdeAgentMode => SelectAnchorId::SettingsIdeAgentMode,
             Self::LocalShell => SelectAnchorId::SettingsLocalShell,
             Self::LocalPrivilegeKind => SelectAnchorId::SettingsLocalPrivilegeKind,
