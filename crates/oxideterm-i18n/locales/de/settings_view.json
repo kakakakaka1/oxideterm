@@ -1,6 +1,17 @@
 {
   "settings_view": {
     "title": "Einstellungen",
+    "navigation_editor": {
+      "open": "Einstellungsnavigation anordnen",
+      "title": "Einstellungsnavigation anordnen",
+      "description": "Ordnen Sie Seiten oder Gruppen mit den linken Griffen neu. Ziehen Sie eine Seite auf „Gruppe hinzufügen“, um eine Gruppe zu erstellen.",
+      "group": "Gruppe {{number}}",
+      "add_group": "Gruppe hinzufügen",
+      "remove_group": "Leere Gruppe entfernen",
+      "empty_group": "Einstellungsseiten in diese Gruppe ziehen",
+      "restore_default": "Standardlayout wiederherstellen",
+      "save": "Layout speichern"
+    },
     "portable_badge": "Portabler Modus aktiv",
     "portable_description": "OxideTerm wird aus einem portablen Ordner ausgeführt. Die Daten bleiben neben der ausführbaren Datei und automatische Updates sind deaktiviert.",
     "local_terminal": {
@@ -478,6 +489,8 @@
       "ui_font_placeholder": "Systemstandard (Inter)",
       "ui_font_size": "UI-Schriftgröße",
       "ui_font_size_hint": "Textgröße in der gesamten Anwendungsoberfläche anpassen",
+      "show_window_titlebar": "Fenstertitelleiste anzeigen",
+      "show_window_titlebar_hint": "Nur Linux. Für Kachel-Kompositoren deaktivieren; zum Verschieben, Ändern der Größe oder Schließen die Kompositor-Kürzel verwenden.",
       "animation": "Animationsgeschwindigkeit",
       "animation_hint": "Geschwindigkeit von Übergängen und Animationen steuern",
       "animation_off": "Aus",

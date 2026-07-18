@@ -1,6 +1,17 @@
 {
   "settings_view": {
     "title": "設定",
+    "navigation_editor": {
+      "open": "整理設定導覽",
+      "title": "調整設定導覽",
+      "description": "拖曳左側把手可排列頁面或群組；將頁面拖到「新增群組」即可建立群組。",
+      "group": "群組 {{number}}",
+      "add_group": "新增群組",
+      "remove_group": "刪除空群組",
+      "empty_group": "將設定頁拖入此群組",
+      "restore_default": "還原預設配置",
+      "save": "儲存配置"
+    },
     "portable_badge": "可攜模式已啟用",
     "portable_description": "OxideTerm 目前正從可攜資料夾執行。資料會保留在可執行檔旁邊，且自動更新已停用。",
     "local_terminal": {
@@ -478,6 +489,8 @@
       "ui_font_placeholder": "系統預設（Inter）",
       "ui_font_size": "介面字號",
       "ui_font_size_hint": "調整整個應用程式介面的文字大小",
+      "show_window_titlebar": "顯示視窗標題列",
+      "show_window_titlebar_hint": "僅限 Linux。平鋪式合成器可關閉此項；移動、縮放或關閉視窗時請使用合成器快捷鍵。",
       "animation": "動畫速度",
       "animation_hint": "控制過渡與動畫速度",
       "animation_off": "關閉",

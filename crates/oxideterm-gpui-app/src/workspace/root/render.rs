@@ -25,6 +25,9 @@ impl WorkspaceApp {
         let mut modals = Vec::new();
         match tab_kind {
             TabKind::Settings => {
+                if let Some(modal) = self.render_settings_navigation_editor(cx) {
+                    modals.push(modal);
+                }
                 if let Some(modal) = self.render_ai_mcp_add_server_dialog(cx) {
                     modals.push(modal);
                 }
@@ -230,12 +233,8 @@ impl Render for WorkspaceApp {
         let has_window_background = window_background_layer.is_some();
         let toast_layer = self.render_workspace_toasts(cx);
         let zen_mode = self.settings_store.settings().sidebar_ui.zen_mode;
-        let titlebar_visible = !window.is_fullscreen();
-        let effective_titlebar_height = if titlebar_visible {
-            self.tokens.metrics.titlebar_height
-        } else {
-            0.0
-        };
+        let titlebar_visible = self.window_titlebar_visible(window);
+        let effective_titlebar_height = self.window_titlebar_height(window);
         self.update_main_window_tabbar_drop_bounds(window, titlebar_visible, zen_mode);
 
         div()

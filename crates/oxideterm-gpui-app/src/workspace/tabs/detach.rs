@@ -212,7 +212,7 @@ impl WorkspaceApp {
             drag.current_y,
             f32::from(window.viewport_size().width),
             None,
-            self.tokens.metrics.titlebar_height
+            self.window_titlebar_height(window)
                 + self.tokens.metrics.tabbar_height
                 + TAB_HANDOFF_VIEWPORT_MARGIN,
             drag.tab_widths
@@ -544,7 +544,7 @@ impl WorkspaceApp {
             top: self
                 .main_window_tabbar_drop_bounds
                 .map(|bounds| f32::from(bounds.origin.y - window_bounds.origin.y))
-                .unwrap_or(self.tokens.metrics.titlebar_height),
+                .unwrap_or_else(|| self.window_titlebar_height(window)),
             width: self.tab_visual_width(tab),
             height: self.tokens.metrics.tabbar_height,
         };
@@ -581,7 +581,7 @@ impl WorkspaceApp {
             drag.current_y,
             f32::from(window.viewport_size().width),
             None,
-            self.tokens.metrics.titlebar_height
+            self.window_titlebar_height(window)
                 + self.tokens.metrics.tabbar_height
                 + TAB_HANDOFF_VIEWPORT_MARGIN,
             drag.tab_widths
@@ -881,6 +881,7 @@ impl WorkspaceApp {
             self.render_detached_tab_content(tab_id, &tab.kind, tab.root_pane.as_ref(), window, cx);
         let content =
             self.wrap_content_background(content, Some(tab_background_key(&tab.kind)), window, cx);
+        let titlebar_visible = self.window_titlebar_visible(window);
 
         let window_content = div()
             .size_full()
@@ -888,7 +889,9 @@ impl WorkspaceApp {
             .flex()
             .flex_col()
             .bg(rgb(self.tokens.ui.bg))
-            .child(self.render_detached_tab_title_bar(tab_id, title.clone(), window, cx))
+            .when(titlebar_visible, |root| {
+                root.child(self.render_detached_tab_title_bar(tab_id, title.clone(), window, cx))
+            })
             .child(div().flex_1().min_h(px(0.0)).child(content))
             .when_some(
                 self.render_detached_tab_return_drag_preview(tab_id, window),

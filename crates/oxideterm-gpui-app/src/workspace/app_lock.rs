@@ -841,7 +841,7 @@ impl WorkspaceApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let titlebar_visible = !window.is_fullscreen();
+        let titlebar_visible = self.window_titlebar_visible(window);
         let blocked = self.app_lock.retry_blocked();
         let can_submit = !self.app_lock.pending && !blocked;
         let card = oxideterm_gpui_ui::theme_card_surface_shadow(

@@ -80,6 +80,7 @@ const APPEARANCE_KEYS: &[&str] = &[
     "uiDensity",
     "borderRadius",
     "uiFontFamily",
+    "showWindowTitlebar",
     "animationSpeed",
     "frostedGlass",
     "renderProfile",
@@ -146,6 +147,7 @@ const NATIVE_PREFERENCES_KEYS: &[&str] = &[
     "launcher",
     "experimental",
     "newConnection",
+    "settingsNavigation",
 ];
 
 pub fn export_oxide_settings_snapshot_json(
@@ -440,6 +442,10 @@ mod tests {
                 .get("renderProfile")
                 .is_some()
         );
+        assert_eq!(
+            parsed["settings"]["appearance"]["showWindowTitlebar"],
+            Value::Bool(true)
+        );
         assert!(parsed["settings"].get("network").is_some());
         assert!(parsed["settings"]["sftp"].get("speedLimitKBps").is_some());
         assert!(parsed["settings"]["sftp"].get("speedLimitKbps").is_none());
@@ -449,6 +455,7 @@ mod tests {
     fn export_selected_extended_sections() {
         let mut settings = PersistedSettings::default();
         settings.ai.enabled = true;
+        settings.settings_navigation.groups = vec![vec!["terminal".to_string()]];
         settings.local_terminal.default_cwd = Some("/tmp".to_string());
         settings
             .local_terminal
@@ -485,6 +492,10 @@ mod tests {
         assert!(parsed["settings"].get("launcher").is_some());
         assert!(parsed["settings"].get("experimental").is_some());
         assert!(parsed["settings"].get("newConnection").is_some());
+        assert_eq!(
+            parsed["settings"]["settingsNavigation"]["groups"][0][0],
+            Value::String("terminal".to_string())
+        );
         assert!(
             parsed["settings"]["localTerminal"]
                 .get("customEnvVars")

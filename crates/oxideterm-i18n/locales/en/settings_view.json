@@ -1,6 +1,17 @@
 {
   "settings_view": {
     "title": "Settings",
+    "navigation_editor": {
+      "open": "Arrange settings navigation",
+      "title": "Arrange settings navigation",
+      "description": "Use the left handles to reorder pages or groups. Drop a page on Add group to create a new group.",
+      "group": "Group {{number}}",
+      "add_group": "Add group",
+      "remove_group": "Remove empty group",
+      "empty_group": "Drag settings pages into this group",
+      "restore_default": "Restore default layout",
+      "save": "Save layout"
+    },
     "portable_badge": "Portable Mode Active",
     "portable_description": "OxideTerm is running from a portable folder. Data stays beside the executable and automatic updates are disabled.",
     "local_terminal": {
@@ -478,6 +489,8 @@
       "ui_font_placeholder": "System Default (Inter)",
       "ui_font_size": "UI Font Size",
       "ui_font_size_hint": "Adjust text size throughout the application interface",
+      "show_window_titlebar": "Show window titlebar",
+      "show_window_titlebar_hint": "Linux only. Disable for tiling compositors; use compositor shortcuts to move, resize, or close the window.",
       "animation": "Animation Speed",
       "animation_hint": "Control transition and animation speed",
       "animation_off": "Off",

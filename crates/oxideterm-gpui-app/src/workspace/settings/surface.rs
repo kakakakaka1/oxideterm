@@ -8,13 +8,13 @@ struct SettingsNavSelectionMotion {
     spatial: bool,
 }
 
-fn settings_nav_item_index(tab: SettingsTab) -> Option<usize> {
+fn settings_nav_item_index(groups: &[Vec<SettingsTab>], tab: SettingsTab) -> Option<usize> {
     let mut item_index = 0;
-    for (group_index, group) in SettingsTab::groups().iter().enumerate() {
+    for (group_index, group) in groups.iter().enumerate() {
         if group_index > 0 {
             item_index += 1;
         }
-        for candidate in *group {
+        for candidate in group {
             if *candidate == tab {
                 return Some(item_index);
             }
@@ -60,6 +60,7 @@ impl WorkspaceApp {
             .is_some_and(|tab| tab.kind == TabKind::Settings);
         self.active_surface = ActiveSurface::Terminal;
         self.close_settings_select();
+        self.settings_navigation_draft = None;
         self.focused_settings_input = None;
         self.settings_slider_drag = None;
         if close_active_settings_tab {
@@ -720,6 +721,10 @@ impl WorkspaceApp {
         let theme = self.tokens.ui;
         let settings_nav_scroll = self.selectable_text_scroll_handle("settings-nav-scroll");
         let settings_nav_width = self.tokens.metrics.settings_nav_width;
+        let navigation_layout = SettingsNavigationLayout::from_persisted_groups(
+            &self.settings_store.settings().settings_navigation.groups,
+        );
+        let navigation_groups = navigation_layout.groups();
         let mut nav = div()
             .w(px(settings_nav_width))
             .min_w(px(settings_nav_width))
@@ -744,12 +749,30 @@ impl WorkspaceApp {
                 .mb(px(12.0))
                 .flex()
                 .items_center()
+                .justify_between()
                 .border_b_1()
                 .border_color(rgb(theme.border))
                 .text_size(px(self.tokens.metrics.ui_text_sm))
                 .font_weight(gpui::FontWeight::SEMIBOLD)
                 .text_color(rgb(theme.text_heading))
-                .child(self.i18n.t("settings_view.title")),
+                .child(self.i18n.t("settings_view.title"))
+                .child(self.workspace_tooltip_icon_button(
+                    LucideIcon::ListTree,
+                    15.0,
+                    rgb(theme.text_muted),
+                    IconButtonOptions {
+                        hover_background: Some(rgb(theme.bg_hover)),
+                        ..IconButtonOptions::opaque_toolbar(28.0, ButtonRadius::Sm)
+                    },
+                    self.i18n.t("settings_view.navigation_editor.open"),
+                    "settings-navigation-editor",
+                    true,
+                    cx.listener(|this, _event, _window, cx| {
+                        this.open_settings_navigation_editor(cx);
+                        cx.stop_propagation();
+                    }),
+                    cx.entity(),
+                )),
         );
 
         let mut list = div()
@@ -761,7 +784,7 @@ impl WorkspaceApp {
             .flex()
             .flex_col();
 
-        for (group_index, group) in SettingsTab::groups().iter().enumerate() {
+        for (group_index, group) in navigation_groups.iter().enumerate() {
             if group_index > 0 {
                 list = list.child(
                     div()
@@ -770,8 +793,13 @@ impl WorkspaceApp {
                         .child(separator(&self.tokens, SeparatorOrientation::Horizontal)),
                 );
             }
-            for tab in *group {
-                list = list.child(self.render_settings_nav_item(*tab, &settings_nav_scroll, cx));
+            for tab in group {
+                list = list.child(self.render_settings_nav_item(
+                    *tab,
+                    navigation_groups,
+                    &settings_nav_scroll,
+                    cx,
+                ));
             }
         }
 
@@ -784,12 +812,14 @@ impl WorkspaceApp {
     pub(in crate::workspace) fn render_settings_nav_item(
         &self,
         tab: SettingsTab,
+        navigation_groups: &[Vec<SettingsTab>],
         settings_nav_scroll: &ScrollHandle,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = self.tokens.ui;
         let active = self.settings_page.active_tab == tab;
-        let nav_item_index = settings_nav_item_index(tab);
+        let nav_item_index = settings_nav_item_index(navigation_groups, tab);
+        let navigation_groups_for_click = navigation_groups.to_vec();
         let selection_transition = active.then_some(()).and_then(|()| {
             self.segmented_control_user_transition(
                 selection_motion::SETTINGS_NAVIGATION_ID,
@@ -894,9 +924,12 @@ impl WorkspaceApp {
                 MouseButton::Left,
                 cx.listener(move |this, _event, _window, cx| {
                     if this.settings_page.active_tab != tab
-                        && let Some(source_index) =
-                            settings_nav_item_index(this.settings_page.active_tab)
-                        && let Some(target_index) = settings_nav_item_index(tab)
+                        && let Some(source_index) = settings_nav_item_index(
+                            &navigation_groups_for_click,
+                            this.settings_page.active_tab,
+                        )
+                        && let Some(target_index) =
+                            settings_nav_item_index(&navigation_groups_for_click, tab)
                     {
                         let vertical_offset_y = settings_nav_vertical_offset(
                             &transition_scroll_handle,
@@ -1275,13 +1308,33 @@ mod tests {
 
     #[test]
     fn settings_navigation_item_indices_include_group_separators() {
-        assert_eq!(settings_nav_item_index(SettingsTab::General), Some(0));
-        assert_eq!(settings_nav_item_index(SettingsTab::Keybindings), Some(2));
-        assert_eq!(settings_nav_item_index(SettingsTab::Terminal), Some(4));
-        assert_eq!(settings_nav_item_index(SettingsTab::Portable), Some(5));
-        assert_eq!(settings_nav_item_index(SettingsTab::Connections), Some(7));
-        assert_eq!(settings_nav_item_index(SettingsTab::Privilege), Some(10));
-        assert_eq!(settings_nav_item_index(SettingsTab::Help), Some(16));
+        let layout = SettingsNavigationLayout::default();
+        let groups = layout.groups();
+        assert_eq!(
+            settings_nav_item_index(groups, SettingsTab::General),
+            Some(0)
+        );
+        assert_eq!(
+            settings_nav_item_index(groups, SettingsTab::Keybindings),
+            Some(2)
+        );
+        assert_eq!(
+            settings_nav_item_index(groups, SettingsTab::Terminal),
+            Some(4)
+        );
+        assert_eq!(
+            settings_nav_item_index(groups, SettingsTab::Portable),
+            Some(5)
+        );
+        assert_eq!(
+            settings_nav_item_index(groups, SettingsTab::Connections),
+            Some(7)
+        );
+        assert_eq!(
+            settings_nav_item_index(groups, SettingsTab::Privilege),
+            Some(10)
+        );
+        assert_eq!(settings_nav_item_index(groups, SettingsTab::Help), Some(16));
     }
 
     #[test]

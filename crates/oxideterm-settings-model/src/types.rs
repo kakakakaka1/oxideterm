@@ -11,7 +11,7 @@ const PLUGIN_MANAGER_INPUT_ANCHOR_BASE: u64 = 28_000;
 const PLUGIN_SETTING_INPUT_ANCHOR_BASE: u64 = 29_000;
 const DEFAULT_SETTINGS_TEXTAREA_LINE_HEIGHT: f32 = 20.0;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum SettingsTab {
     General,
     Portable,
@@ -294,6 +294,46 @@ impl SettingsKeybindingScopeFilter {
 }
 
 impl SettingsTab {
+    pub fn all() -> &'static [Self] {
+        &[
+            Self::General,
+            Self::Appearance,
+            Self::Keybindings,
+            Self::Terminal,
+            Self::Portable,
+            Self::Connections,
+            Self::Network,
+            Self::Sftp,
+            Self::Privilege,
+            Self::Ide,
+            Self::Ai,
+            Self::Knowledge,
+            Self::Help,
+        ]
+    }
+
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::General => "general",
+            Self::Portable => "portable",
+            Self::Terminal => "terminal",
+            Self::Appearance => "appearance",
+            Self::Connections => "connections",
+            Self::Privilege => "privilege",
+            Self::Network => "network",
+            Self::Sftp => "sftp",
+            Self::Ide => "ide",
+            Self::Ai => "ai",
+            Self::Knowledge => "knowledge",
+            Self::Keybindings => "keybindings",
+            Self::Help => "help",
+        }
+    }
+
+    pub fn from_id(id: &str) -> Option<Self> {
+        Self::all().iter().copied().find(|tab| tab.id() == id)
+    }
+
     pub fn groups() -> &'static [&'static [Self]] {
         // Keep navigation groups aligned with user tasks: application preferences,
         // runtime behavior, remote access, productivity, then support.
@@ -667,6 +707,14 @@ mod tests {
                 &[SettingsTab::Ide, SettingsTab::Ai, SettingsTab::Knowledge][..],
                 &[SettingsTab::Help][..],
             ]
+        );
+        assert_eq!(
+            SettingsTab::all(),
+            SettingsTab::groups()
+                .iter()
+                .flat_map(|group| group.iter())
+                .copied()
+                .collect::<Vec<_>>()
         );
     }
 }

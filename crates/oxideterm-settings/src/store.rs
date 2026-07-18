@@ -572,6 +572,7 @@ mod tests {
             crate::DEFAULT_UI_FONT_SIZE
         );
         assert_eq!(settings.appearance.render_profile, RenderProfile::Auto);
+        assert!(settings.appearance.show_window_titlebar);
         assert_eq!(settings.connection_defaults.username, "root");
         assert_eq!(settings.sidebar_ui.width, 300);
         assert!(settings.sidebar_ui.show_app_lock_icon);

@@ -229,6 +229,8 @@ pub struct PersistedSettings {
     pub tree_ui: TreeUiState,
     #[serde(rename = "sidebarUI")]
     pub sidebar_ui: SidebarUiState,
+    #[serde(default)]
+    pub settings_navigation: SettingsNavigationSettings,
     pub ai: AiSettings,
     pub local_terminal: LocalTerminalSettings,
     pub sftp: SftpSettings,
@@ -268,6 +270,7 @@ impl Default for PersistedSettings {
             connection_defaults: ConnectionDefaults::default(),
             tree_ui: TreeUiState::default(),
             sidebar_ui: SidebarUiState::default(),
+            settings_navigation: SettingsNavigationSettings::default(),
             ai: AiSettings::default(),
             local_terminal: LocalTerminalSettings::default(),
             sftp: SftpSettings::default(),
@@ -329,5 +332,38 @@ mod misc_tests {
         settings.record_command_palette_use("new-command");
         assert_eq!(settings.command_palette_mru[0], "new-command");
         assert_eq!(settings.command_palette_mru.len(), 20);
+    }
+
+    #[test]
+    fn settings_navigation_groups_round_trip_with_camel_case_key() {
+        let mut settings = PersistedSettings::default();
+        settings.settings_navigation.groups = vec![
+            vec!["terminal".to_string(), "general".to_string()],
+            vec!["appearance".to_string()],
+        ];
+
+        let serialized = settings.to_value();
+        let restored: PersistedSettings =
+            serde_json::from_value(serialized.clone()).expect("settings should deserialize");
+
+        assert_eq!(
+            serialized["settingsNavigation"]["groups"][0][0],
+            "terminal"
+        );
+        assert_eq!(restored.settings_navigation, settings.settings_navigation);
+    }
+
+    #[test]
+    fn legacy_appearance_settings_default_to_visible_window_titlebar() {
+        let mut serialized = PersistedSettings::default().to_value();
+        serialized["appearance"]
+            .as_object_mut()
+            .expect("appearance should be an object")
+            .remove("showWindowTitlebar");
+
+        let restored: PersistedSettings =
+            serde_json::from_value(serialized).expect("legacy settings should deserialize");
+
+        assert!(restored.appearance.show_window_titlebar);
     }
 }

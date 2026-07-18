@@ -183,6 +183,7 @@ mod general_terminal_pages;
 mod highlight;
 mod ide_page;
 mod local_terminal;
+mod navigation_editor;
 mod network_page;
 mod pages;
 mod portable_runtime;

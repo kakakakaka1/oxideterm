@@ -197,7 +197,8 @@ use oxideterm_settings::{
     list_background_images, remove_background_image,
 };
 use oxideterm_settings_model::{
-    AiMcpServerDraft, AiModelRefreshDelivery, AiProviderKeyStatusDelivery, SettingsPageModel,
+    AiMcpServerDraft, AiModelRefreshDelivery, AiProviderKeyStatusDelivery,
+    SettingsNavigationLayout, SettingsPageModel,
 };
 use oxideterm_sftp::{
     BackgroundTransferDirection, BackgroundTransferKind, BackgroundTransferSnapshot,
@@ -766,6 +767,7 @@ pub(crate) struct WorkspaceApp {
     onboarding: OnboardingState,
     shortcuts_modal: ShortcutsModalState,
     settings_page: SettingsPageModel,
+    settings_navigation_draft: Option<SettingsNavigationLayout>,
     segmented_control_user_motion: selection_motion::UserSegmentedControlMotionState,
     theme_editor_presence: oxideterm_gpui_ui::motion::ExitPresence,
     knowledge_create_presence: oxideterm_gpui_ui::motion::ExitPresence,

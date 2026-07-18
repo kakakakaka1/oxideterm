@@ -2,6 +2,14 @@ use super::*;
 
 const TITLEBAR_CONTROL_ICON_SIZE: f32 = 12.0;
 
+fn window_titlebar_visibility(
+    is_linux: bool,
+    is_fullscreen: bool,
+    show_window_titlebar: bool,
+) -> bool {
+    !is_fullscreen && (!is_linux || show_window_titlebar)
+}
+
 #[derive(Clone, Copy)]
 pub(in crate::workspace) enum ClientTitlebarIcon {
     Minimize,
@@ -47,6 +55,25 @@ impl ClientTitlebarIcon {
 }
 
 impl WorkspaceApp {
+    pub(in crate::workspace) fn window_titlebar_visible(&self, window: &Window) -> bool {
+        window_titlebar_visibility(
+            cfg!(target_os = "linux"),
+            window.is_fullscreen(),
+            self.settings_store
+                .settings()
+                .appearance
+                .show_window_titlebar,
+        )
+    }
+
+    pub(in crate::workspace) fn window_titlebar_height(&self, window: &Window) -> f32 {
+        if self.window_titlebar_visible(window) {
+            self.tokens.metrics.titlebar_height
+        } else {
+            0.0
+        }
+    }
+
     pub(in crate::workspace) fn render_window_drag_region(
         &self,
         element_id: impl Into<gpui::ElementId>,
@@ -260,5 +287,23 @@ impl WorkspaceApp {
                     .id(icon_id),
             )
             .into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::window_titlebar_visibility;
+
+    #[test]
+    fn linux_titlebar_visibility_respects_preference_and_fullscreen() {
+        assert!(window_titlebar_visibility(true, false, true));
+        assert!(!window_titlebar_visibility(true, false, false));
+        assert!(!window_titlebar_visibility(true, true, true));
+    }
+
+    #[test]
+    fn other_platforms_ignore_linux_titlebar_preference() {
+        assert!(window_titlebar_visibility(false, false, false));
+        assert!(!window_titlebar_visibility(false, true, true));
     }
 }

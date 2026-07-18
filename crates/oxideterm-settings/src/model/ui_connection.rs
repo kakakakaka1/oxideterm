@@ -49,6 +49,8 @@ pub struct AppearanceSettings {
     #[serde(default = "default_ui_font_size")]
     pub ui_font_size: i64,
     pub ui_font_family: String,
+    #[serde(default = "default_show_window_titlebar")]
+    pub show_window_titlebar: bool,
     pub animation_speed: AnimationSpeed,
     pub frosted_glass: FrostedGlassMode,
     pub render_profile: RenderProfile,
@@ -65,6 +67,7 @@ impl Default for AppearanceSettings {
             border_radius: 6,
             ui_font_size: default_ui_font_size(),
             ui_font_family: String::new(),
+            show_window_titlebar: true,
             animation_speed: AnimationSpeed::Normal,
             frosted_glass: FrostedGlassMode::Off,
             render_profile: RenderProfile::Auto,
@@ -77,6 +80,10 @@ pub const DEFAULT_UI_FONT_SIZE: i64 = 14;
 
 fn default_ui_font_size() -> i64 {
     DEFAULT_UI_FONT_SIZE
+}
+
+fn default_show_window_titlebar() -> bool {
+    true
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -145,4 +152,13 @@ impl Default for SidebarUiState {
             extra: ExtraFields::new(),
         }
     }
+}
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SettingsNavigationSettings {
+    #[serde(default)]
+    pub groups: Vec<Vec<String>>,
+    #[serde(flatten)]
+    pub extra: ExtraFields,
 }

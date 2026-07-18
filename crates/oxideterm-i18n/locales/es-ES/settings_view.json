@@ -1,6 +1,17 @@
 {
   "settings_view": {
     "title": "Configuración",
+    "navigation_editor": {
+      "open": "Organizar la navegación de ajustes",
+      "title": "Organizar la navegación de ajustes",
+      "description": "Usa los tiradores izquierdos para ordenar páginas o grupos. Suelta una página en «Añadir grupo» para crear uno.",
+      "group": "Grupo {{number}}",
+      "add_group": "Añadir grupo",
+      "remove_group": "Eliminar grupo vacío",
+      "empty_group": "Arrastra páginas de ajustes a este grupo",
+      "restore_default": "Restaurar diseño predeterminado",
+      "save": "Guardar diseño"
+    },
     "portable_badge": "Modo portátil activo",
     "portable_description": "OxideTerm se está ejecutando desde una carpeta portátil. Los datos permanecen junto al ejecutable y las actualizaciones automáticas están desactivadas.",
     "local_terminal": {
@@ -478,6 +489,8 @@
       "ui_font_placeholder": "Predeterminado del sistema (Inter)",
       "ui_font_size": "Tamaño de fuente de la interfaz",
       "ui_font_size_hint": "Ajusta el tamaño del texto en toda la interfaz de la aplicación",
+      "show_window_titlebar": "Mostrar barra de título de la ventana",
+      "show_window_titlebar_hint": "Solo Linux. Desactívala en compositores en mosaico; usa sus atajos para mover, redimensionar o cerrar la ventana.",
       "animation": "Velocidad de animación",
       "animation_hint": "Controlar la velocidad de transiciones y animaciones",
       "animation_off": "Desactivado",

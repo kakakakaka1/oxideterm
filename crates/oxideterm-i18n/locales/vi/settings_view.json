@@ -1,6 +1,17 @@
 {
   "settings_view": {
     "title": "Cài đặt",
+    "navigation_editor": {
+      "open": "Sắp xếp điều hướng cài đặt",
+      "title": "Sắp xếp điều hướng cài đặt",
+      "description": "Dùng tay nắm bên trái để sắp xếp trang hoặc nhóm. Thả một trang vào “Thêm nhóm” để tạo nhóm mới.",
+      "group": "Nhóm {{number}}",
+      "add_group": "Thêm nhóm",
+      "remove_group": "Xóa nhóm trống",
+      "empty_group": "Kéo trang cài đặt vào nhóm này",
+      "restore_default": "Khôi phục bố cục mặc định",
+      "save": "Lưu bố cục"
+    },
     "portable_badge": "Chế độ portable đang bật",
     "portable_description": "OxideTerm đang chạy từ một thư mục portable. Dữ liệu được giữ cạnh tệp thực thi và cập nhật tự động bị tắt.",
     "local_terminal": {
@@ -478,6 +489,8 @@
       "ui_font_placeholder": "Mặc định hệ thống (Inter)",
       "ui_font_size": "Cỡ chữ giao diện",
       "ui_font_size_hint": "Điều chỉnh cỡ chữ trên toàn bộ giao diện ứng dụng",
+      "show_window_titlebar": "Hiện thanh tiêu đề cửa sổ",
+      "show_window_titlebar_hint": "Chỉ dành cho Linux. Tắt khi dùng trình tổng hợp xếp ô; dùng phím tắt của trình tổng hợp để di chuyển, đổi kích thước hoặc đóng cửa sổ.",
       "animation": "Tốc độ hoạt ảnh",
       "animation_hint": "Kiểm soát tốc độ chuyển đổi và hoạt ảnh",
       "animation_off": "Tắt",

@@ -1,6 +1,17 @@
 {
   "settings_view": {
     "title": "設定",
+    "navigation_editor": {
+      "open": "設定ナビゲーションを整理",
+      "title": "設定ナビゲーションを整理",
+      "description": "左のハンドルでページやグループを並べ替えます。ページを「グループを追加」にドロップすると新しいグループを作成できます。",
+      "group": "グループ {{number}}",
+      "add_group": "グループを追加",
+      "remove_group": "空のグループを削除",
+      "empty_group": "設定ページをこのグループにドラッグ",
+      "restore_default": "既定のレイアウトに戻す",
+      "save": "レイアウトを保存"
+    },
     "portable_badge": "ポータブルモード有効",
     "portable_description": "OxideTerm はポータブルフォルダーから実行中です。データは実行ファイルの横に保存され、自動更新は無効になります。",
     "local_terminal": {
@@ -478,6 +489,8 @@
       "ui_font_placeholder": "システムデフォルト（Inter）",
       "ui_font_size": "UIフォントサイズ",
       "ui_font_size_hint": "アプリケーション全体の文字サイズを調整します",
+      "show_window_titlebar": "ウィンドウタイトルバーを表示",
+      "show_window_titlebar_hint": "Linux のみ。タイル型コンポジターでは無効にし、移動・サイズ変更・終了にはコンポジターのショートカットを使用してください。",
       "animation": "アニメーション速度",
       "animation_hint": "トランジションとアニメーションの速度を制御",
       "animation_off": "オフ",

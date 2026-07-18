@@ -181,8 +181,13 @@ impl WorkspaceApp {
                         cx,
                     ),
                 ),
-                self.appearance_vibrancy_status(settings),
-            ],
+            ]
+            .into_iter()
+            .chain(cfg!(target_os = "linux").then(|| {
+                self.appearance_window_titlebar_row(settings.appearance.show_window_titlebar, cx)
+            }))
+            .chain(std::iter::once(self.appearance_vibrancy_status(settings)))
+            .collect(),
         )
     }
 
@@ -722,6 +727,27 @@ impl WorkspaceApp {
                     MouseButton::Left,
                     cx.listener(move |this, _event, _window, cx| {
                         this.edit_settings(|settings| setter(settings, !checked), cx);
+                    }),
+                )
+                .into_any_element(),
+        )
+    }
+
+    fn appearance_window_titlebar_row(&self, checked: bool, cx: &mut Context<Self>) -> AnyElement {
+        self.appearance_row(
+            "settings_view.appearance.show_window_titlebar",
+            "settings_view.appearance.show_window_titlebar_hint",
+            checkbox(&self.tokens, String::new(), checked)
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(move |this, _event, _window, cx| {
+                        this.edit_settings(
+                            |settings| settings.appearance.show_window_titlebar = !checked,
+                            cx,
+                        );
+                        // Detached windows read the same workspace settings but
+                        // need an explicit repaint after their chrome changes.
+                        cx.refresh_windows();
                     }),
                 )
                 .into_any_element(),

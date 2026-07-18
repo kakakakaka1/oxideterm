@@ -1,6 +1,17 @@
 {
   "settings_view": {
     "title": "设置",
+    "navigation_editor": {
+      "open": "整理设置导航",
+      "title": "调整设置导航",
+      "description": "拖动左侧手柄可排列页面或分组；将页面拖到“添加分组”即可新建分组。",
+      "group": "分组 {{number}}",
+      "add_group": "添加分组",
+      "remove_group": "删除空分组",
+      "empty_group": "将设置页拖入此分组",
+      "restore_default": "恢复默认布局",
+      "save": "保存布局"
+    },
     "portable_badge": "便携模式已启用",
     "portable_description": "OxideTerm 当前正从便携文件夹运行。数据会保存在可执行文件旁边，且自动更新已被禁用。",
     "local_terminal": {
@@ -478,6 +489,8 @@
       "ui_font_placeholder": "系统默认（Inter）",
       "ui_font_size": "界面字号",
       "ui_font_size_hint": "调整整个应用界面的文字大小",
+      "show_window_titlebar": "显示窗口标题栏",
+      "show_window_titlebar_hint": "仅限 Linux。平铺式合成器可关闭此项；移动、缩放或关闭窗口时请使用合成器快捷键。",
       "animation": "动画速度",
       "animation_hint": "控制过渡和动画速度",
       "animation_off": "关闭",
