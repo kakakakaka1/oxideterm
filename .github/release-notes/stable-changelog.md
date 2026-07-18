@@ -6,15 +6,22 @@ section as the detailed changelog attached to the corresponding GitHub Release.
 ## 2.0.5
 
 OxideTerm 2.0.5 restores several native interface details and improves terminal
-selection, glyph rendering, and appearance controls.
+selection, glyph rendering, appearance controls, and packaging reliability.
 
 ### Fixes
 
 - Fixed custom-drawn Powerline separators and related terminal glyph geometry across supported shapes and cell sizes.
 - Fixed copying terminal selections that span multiple wrapped or visible pages.
+- Restored the proven grayscale text path on Windows to prevent overlapping or duplicated glyphs.
 - Restored onboarding step content that could collapse to zero height in the GPUI layout.
 - Refined select-menu hover and selected surfaces, and added localized tooltips to icon-only terminal actions.
-- Added a bundled background to the managed appearance gallery and expanded background opacity control to the full supported range.
+- Expanded the managed appearance gallery to three protected bundled backgrounds and extended background opacity control to the full supported range.
+- Corrected the introduction page to describe the current WASM plugin system instead of the legacy ESM runtime.
+
+### Release Maintenance
+
+- Made macOS DMG packaging recover from transient busy-volume detach failures.
+- Shipped provenance and CC BY 4.0 licensing for bundled background artwork, and limited remote-agent CI to relevant agent changes.
 
 ## 2.0.4
 

@@ -1010,7 +1010,7 @@
     "wsl_graphics": "WSL 圖形轉發",
     "wsl_graphics_desc": "透過內建 VNC 在 Windows 上執行 Linux 圖形應用 — 支援桌面和單一應用模式。",
     "plugin_system": "外掛系統",
-    "plugin_system_desc": "透過 ESM 外掛擴充自訂面板、終端機掛鉤、命令和設定。",
+    "plugin_system_desc": "透過 WASM 外掛擴充自訂面板、終端機掛鉤、命令和設定。",
     "custom_themes": "自訂主題",
     "custom_themes_desc": "30+ 內建終端主題，或使用 JSON 定義建立您自己的主題。",
     "view_shortcuts": "檢視快速鍵",

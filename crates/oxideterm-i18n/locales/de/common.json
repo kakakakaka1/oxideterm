@@ -1010,7 +1010,7 @@
     "wsl_graphics": "WSL-Grafik",
     "wsl_graphics_desc": "Linux-GUI-Apps unter Windows über integrierten VNC ausführen — Desktop- oder Einzelapp-Modus.",
     "plugin_system": "Plugin-System",
-    "plugin_system_desc": "Erweitern Sie mit benutzerdefinierten Tabs, Terminal-Hooks, Befehlen und Einstellungen über ESM-Plugins.",
+    "plugin_system_desc": "Erweitern Sie mit benutzerdefinierten Tabs, Terminal-Hooks, Befehlen und Einstellungen über WASM-Plugins.",
     "custom_themes": "Benutzerdefinierte Themes",
     "custom_themes_desc": "Über 30 integrierte Terminal-Themes oder erstellen Sie eigene mit JSON-Definitionen.",
     "view_shortcuts": "Tastenkürzel anzeigen",

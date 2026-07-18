@@ -1010,7 +1010,7 @@
     "wsl_graphics": "WSL 图形转发",
     "wsl_graphics_desc": "通过内置 VNC 在 Windows 上运行 Linux 图形应用 — 支持桌面和单应用模式。",
     "plugin_system": "插件系统",
-    "plugin_system_desc": "通过 ESM 插件扩展自定义面板、终端钩子、命令和设置。",
+    "plugin_system_desc": "通过 WASM 插件扩展自定义面板、终端钩子、命令和设置。",
     "custom_themes": "自定义主题",
     "custom_themes_desc": "30+ 内置终端主题，或通过 JSON 定义创建您自己的主题。",
     "view_shortcuts": "查看快捷键",

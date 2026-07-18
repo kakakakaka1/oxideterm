@@ -271,7 +271,7 @@ wait
             TerminalCwdIntegrationLaunchState::Prepared
         );
 
-        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let deadline = std::time::Instant::now() + local_shell_cwd_report_timeout(shell_id);
         let mut reported_cwd = None;
         while std::time::Instant::now() < deadline && reported_cwd.is_none() {
             session.drain_output();
@@ -291,6 +291,16 @@ wait
             Some(expected_cwd.canonicalize().unwrap()),
             "{shell_id} did not report its initial cwd"
         );
+    }
+
+    #[cfg(unix)]
+    fn local_shell_cwd_report_timeout(shell_id: &str) -> Duration {
+        // PowerShell's managed runtime can take longer to start on a contended CI runner.
+        if shell_id == "pwsh" {
+            Duration::from_secs(15)
+        } else {
+            Duration::from_secs(5)
+        }
     }
 
     #[cfg(unix)]

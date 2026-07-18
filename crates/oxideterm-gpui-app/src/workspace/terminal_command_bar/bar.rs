@@ -476,7 +476,7 @@ impl WorkspaceApp {
                                     rgba(0x00000000)
                                 }),
                                 "terminal-command-search",
-                                self.i18n.t("terminal.search.placeholder"),
+                                self.i18n.t("search.placeholder"),
                                 |this, _event, window, cx| {
                                     if this.search.visible {
                                         this.close_search(window, cx);

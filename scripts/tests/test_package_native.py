@@ -201,6 +201,7 @@ class ReleaseDocumentTests(unittest.TestCase):
             self.assertEqual(
                 {path.name for path in destination.iterdir()},
                 {
+                    "BACKGROUND-ASSETS-LICENSE.md",
                     "GPUI-CE-LICENSE-APACHE",
                     "LICENSE",
                     "MICROSOFT-TERMINAL-LICENSE-MIT",
@@ -211,6 +212,12 @@ class ReleaseDocumentTests(unittest.TestCase):
                 },
             )
             self.assertGreater((destination / "THIRD_PARTY_NOTICES.md").stat().st_size, 0)
+            background_license = (
+                destination / "BACKGROUND-ASSETS-LICENSE.md"
+            ).read_text(encoding="utf-8")
+            self.assertIn("oxide-nocturne-v1.webp", background_license)
+            self.assertIn("CC-BY-4.0", background_license)
+            self.assertIn("does not grant rights", background_license)
             self.assertGreater(
                 (destination / "AGENT_THIRD_PARTY_NOTICES.md").stat().st_size,
                 0,

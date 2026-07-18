@@ -916,7 +916,7 @@
     "wsl_graphics": "Đồ họa WSL",
     "wsl_graphics_desc": "Chạy ứng dụng Linux đồ họa trên Windows qua VNC tích hợp — chế độ máy tính để bàn hoặc ứng dụng đơn.",
     "plugin_system": "Hệ thống plugin",
-    "plugin_system_desc": "Mở rộng với tab tùy chỉnh, hook terminal, lệnh và cài đặt qua plugin ESM.",
+    "plugin_system_desc": "Mở rộng với tab tùy chỉnh, hook terminal, lệnh và cài đặt qua plugin WASM.",
     "custom_themes": "Chủ đề tùy chỉnh",
     "custom_themes_desc": "Hơn 30 chủ đề terminal tích hợp sẵn, hoặc tự tạo với định nghĩa JSON.",
     "view_shortcuts": "Xem phím tắt",

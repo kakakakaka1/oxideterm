@@ -5,7 +5,6 @@ on:
   push:
     branches: [main, experiment/rust-native-v2]
     paths:
-      - 'agent/**'
       - 'crates/**'
       - 'scripts/**'
       - 'Cargo.toml'
@@ -55,39 +54,6 @@ jobs:
 
       - name: cargo test
         run: cargo test --workspace
-
-  agent:
-    name: Remote agent (check + fmt + test)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
-        with:
-          toolchain: 1.94.1
-          components: rustfmt
-          targets: x86_64-unknown-linux-musl,aarch64-unknown-linux-musl
-
-      - name: Rust cache
-        uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
-        with:
-          workspaces: ./agent -> target
-          cache-on-failure: false
-
-      - name: cargo check
-        run: cargo check --manifest-path agent/Cargo.toml
-
-      - name: cargo fmt
-        run: cargo fmt --manifest-path agent/Cargo.toml --check
-
-      - name: cargo test
-        run: cargo test --manifest-path agent/Cargo.toml
-
-      # CI builds the same bundled Linux agent binaries that release packages ship.
-      - name: Build bundled remote agents
-        run: ./scripts/build/build-agent.sh
 
   i18n:
     name: i18n completeness

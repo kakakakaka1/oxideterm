@@ -1010,7 +1010,7 @@
     "wsl_graphics": "Grafica WSL",
     "wsl_graphics_desc": "Esegui app Linux grafiche su Windows tramite VNC integrato — modalità desktop o singola app.",
     "plugin_system": "Sistema di plugin",
-    "plugin_system_desc": "Estendi con schede personalizzate, hook terminale, comandi e impostazioni tramite plugin ESM.",
+    "plugin_system_desc": "Estendi con schede personalizzate, hook terminale, comandi e impostazioni tramite plugin WASM.",
     "custom_themes": "Temi personalizzati",
     "custom_themes_desc": "Oltre 30 temi terminale integrati, o crea i tuoi con definizioni JSON.",
     "view_shortcuts": "Visualizza scorciatoie",

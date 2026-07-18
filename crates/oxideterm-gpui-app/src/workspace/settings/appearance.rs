@@ -1723,7 +1723,7 @@ impl WorkspaceApp {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let has_removable_gallery_images = self.background_images.iter().any(|image_path| {
-            !is_default_workspace_background(self.settings_store.path(), Path::new(image_path))
+            !is_bundled_workspace_background(self.settings_store.path(), Path::new(image_path))
         });
         let actions = div()
             .flex()
@@ -1875,7 +1875,7 @@ impl WorkspaceApp {
         let image_path = image_path.to_string();
         let remove_path = image_path.clone();
         let is_built_in =
-            is_default_workspace_background(self.settings_store.path(), Path::new(&image_path));
+            is_bundled_workspace_background(self.settings_store.path(), Path::new(&image_path));
         let fallback_icon_color = self.tokens.ui.text_muted;
         let thumbnail = settings_background_thumbnail_frame(
             &self.tokens,
@@ -1924,7 +1924,7 @@ impl WorkspaceApp {
         cx: &mut Context<Self>,
     ) {
         let settings_path = self.settings_store.path().to_path_buf();
-        if is_default_workspace_background(&settings_path, Path::new(&image_path)) {
+        if is_bundled_workspace_background(&settings_path, Path::new(&image_path)) {
             return;
         }
         if !is_managed_background_image(&settings_path, Path::new(&image_path)) {
@@ -1992,7 +1992,7 @@ impl WorkspaceApp {
         cx.spawn(async move |weak, cx| {
             let task = runtime.spawn_blocking(move || -> Result<Vec<String>> {
                 for image_path in list_background_images(&settings_path)? {
-                    if !is_default_workspace_background(&settings_path, &image_path) {
+                    if !is_bundled_workspace_background(&settings_path, &image_path) {
                         remove_background_image(&settings_path, &image_path)?;
                     }
                 }

@@ -1,30 +1,74 @@
 use super::super::*;
 
-const DEFAULT_WORKSPACE_BACKGROUND_FILE_NAME: &str = "oxide-ambient-v1.png";
-const DEFAULT_WORKSPACE_BACKGROUND_BYTES: &[u8] = include_bytes!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/resources/backgrounds/oxide-ambient-v1.png"
-));
+struct BundledWorkspaceBackground {
+    file_name: &'static str,
+    bytes: &'static [u8],
+}
 
-pub(in crate::workspace) fn ensure_default_workspace_background(
+// Bundled gallery assets are installed on startup and protected from user deletion.
+const BUNDLED_WORKSPACE_BACKGROUNDS: &[BundledWorkspaceBackground] = &[
+    BundledWorkspaceBackground {
+        file_name: "oxide-ambient-v1.png",
+        bytes: include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/resources/backgrounds/oxide-ambient-v1.png"
+        )),
+    },
+    BundledWorkspaceBackground {
+        file_name: "oxide-nocturne-v1.webp",
+        bytes: include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/resources/backgrounds/oxide-nocturne-v1.webp"
+        )),
+    },
+    BundledWorkspaceBackground {
+        file_name: "oxide-verdant-v1.webp",
+        bytes: include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/resources/backgrounds/oxide-verdant-v1.webp"
+        )),
+    },
+];
+
+pub(in crate::workspace) fn ensure_bundled_workspace_backgrounds(
     settings_path: &Path,
-) -> Result<PathBuf> {
-    ensure_bundled_background_image(
-        settings_path,
-        DEFAULT_WORKSPACE_BACKGROUND_FILE_NAME,
-        DEFAULT_WORKSPACE_BACKGROUND_BYTES,
-    )
+) -> Result<()> {
+    for background in BUNDLED_WORKSPACE_BACKGROUNDS {
+        ensure_bundled_background_image(settings_path, background.file_name, background.bytes)?;
+    }
+    Ok(())
 }
 
-pub(in crate::workspace) fn default_workspace_background_path(settings_path: &Path) -> PathBuf {
-    background_images_directory(settings_path).join(DEFAULT_WORKSPACE_BACKGROUND_FILE_NAME)
-}
-
-pub(in crate::workspace) fn is_default_workspace_background(
+pub(in crate::workspace) fn is_bundled_workspace_background(
     settings_path: &Path,
     image_path: &Path,
 ) -> bool {
-    image_path == default_workspace_background_path(settings_path)
+    let background_directory = background_images_directory(settings_path);
+    BUNDLED_WORKSPACE_BACKGROUNDS
+        .iter()
+        .any(|background| image_path == background_directory.join(background.file_name))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recognizes_every_bundled_background_as_protected() {
+        let settings_path = Path::new("/profile/settings.json");
+        let background_directory = background_images_directory(settings_path);
+
+        for background in BUNDLED_WORKSPACE_BACKGROUNDS {
+            assert!(is_bundled_workspace_background(
+                settings_path,
+                &background_directory.join(background.file_name),
+            ));
+        }
+        assert!(!is_bundled_workspace_background(
+            settings_path,
+            &background_directory.join("user-background.webp"),
+        ));
+    }
 }
 
 impl WorkspaceApp {

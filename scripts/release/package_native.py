@@ -58,6 +58,10 @@ LINUX_RPM_GRAPHICS_RECOMMENDS = ("libglvnd-egl", "vulkan-loader")
 RELEASE_DOCUMENTS = (
     (ROOT_DIR / "LICENSE", "LICENSE"),
     (
+        RESOURCE_DIR / "backgrounds" / "LICENSE.md",
+        "BACKGROUND-ASSETS-LICENSE.md",
+    ),
+    (
         THIRD_PARTY_LICENSE_DIR / "GPUI-CE-LICENSE-APACHE",
         "GPUI-CE-LICENSE-APACHE",
     ),

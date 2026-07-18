@@ -1010,7 +1010,7 @@
     "wsl_graphics": "WSL 그래픽스",
     "wsl_graphics_desc": "내장 VNC로 Windows에서 Linux GUI 앱 실행 — 데스크톱 또는 단일 앱 모드.",
     "plugin_system": "플러그인 시스템",
-    "plugin_system_desc": "ESM 플러그인으로 사용자 정의 탭, 터미널 훅, 명령어, 설정 확장.",
+    "plugin_system_desc": "WASM 플러그인으로 사용자 정의 탭, 터미널 훅, 명령어, 설정 확장.",
     "custom_themes": "커스텀 테마",
     "custom_themes_desc": "30개 이상의 내장 터미널 테마를 사용하거나 JSON 정의로 나만의 테마를 만드세요.",
     "view_shortcuts": "단축키 보기",

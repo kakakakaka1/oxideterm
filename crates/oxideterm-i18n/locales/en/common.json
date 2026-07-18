@@ -1010,7 +1010,7 @@
     "wsl_graphics": "WSL Graphics",
     "wsl_graphics_desc": "Run Linux GUI apps on Windows via built-in VNC — desktop or single-app mode.",
     "plugin_system": "Plugin System",
-    "plugin_system_desc": "Extend with custom tabs, terminal hooks, commands, and settings via ESM plugins.",
+    "plugin_system_desc": "Extend with custom tabs, terminal hooks, commands, and settings via WASM plugins.",
     "custom_themes": "Custom Themes",
     "custom_themes_desc": "30+ built-in terminal themes, or create your own with JSON definitions.",
     "view_shortcuts": "View Shortcuts",
