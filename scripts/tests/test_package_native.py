@@ -7,7 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 # Import the release helpers from their responsibility-specific directory.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "release"))
@@ -122,6 +122,74 @@ class MacosBridgeArchiveTests(unittest.TestCase):
                     "OxideTerm.app/Contents/MacOS/oxideterm-native"
                 )
                 self.assertEqual(member.mode & 0o111, 0o111)
+
+
+class MacosDmgDetachTests(unittest.TestCase):
+    def test_retries_busy_dmg_before_succeeding(self) -> None:
+        mount_point = Path("/tmp/oxideterm-test.mount")
+        detach_command = ["hdiutil", "detach", str(mount_point)]
+        busy_error = subprocess.CalledProcessError(
+            package_native.MACOS_RESOURCE_BUSY_EXIT_CODE, detach_command
+        )
+
+        with (
+            patch.object(
+                package_native, "run", side_effect=[busy_error, None]
+            ) as run_mock,
+            patch.object(package_native.time, "sleep") as sleep,
+        ):
+            package_native.detach_macos_dmg(mount_point)
+
+        self.assertEqual(
+            run_mock.call_args_list, [call(detach_command), call(detach_command)]
+        )
+        sleep.assert_called_once_with(
+            package_native.MACOS_DMG_DETACH_RETRY_DELAY_SECONDS
+        )
+
+    def test_force_detaches_after_retry_limit(self) -> None:
+        mount_point = Path("/tmp/oxideterm-test.mount")
+        detach_command = ["hdiutil", "detach", str(mount_point)]
+        busy_error = subprocess.CalledProcessError(
+            package_native.MACOS_RESOURCE_BUSY_EXIT_CODE, detach_command
+        )
+        failed_attempts = [
+            busy_error for _ in range(package_native.MACOS_DMG_DETACH_MAX_ATTEMPTS)
+        ]
+
+        with (
+            patch.object(
+                package_native, "run", side_effect=[*failed_attempts, None]
+            ) as run_mock,
+            patch.object(package_native.time, "sleep") as sleep,
+        ):
+            package_native.detach_macos_dmg(mount_point)
+
+        self.assertEqual(
+            run_mock.call_args_list,
+            [call(detach_command)] * package_native.MACOS_DMG_DETACH_MAX_ATTEMPTS
+            + [call(["hdiutil", "detach", "-force", str(mount_point)])],
+        )
+        self.assertEqual(
+            sleep.call_count, package_native.MACOS_DMG_DETACH_MAX_ATTEMPTS - 1
+        )
+
+    def test_does_not_retry_non_busy_detach_error(self) -> None:
+        mount_point = Path("/tmp/oxideterm-test.mount")
+        detach_command = ["hdiutil", "detach", str(mount_point)]
+        permission_error = subprocess.CalledProcessError(1, detach_command)
+
+        with (
+            patch.object(
+                package_native, "run", side_effect=permission_error
+            ) as run_mock,
+            patch.object(package_native.time, "sleep") as sleep,
+            self.assertRaises(subprocess.CalledProcessError),
+        ):
+            package_native.detach_macos_dmg(mount_point)
+
+        run_mock.assert_called_once_with(detach_command)
+        sleep.assert_not_called()
 
 
 class ReleaseDocumentTests(unittest.TestCase):

@@ -11,6 +11,7 @@ import stat
 import subprocess
 import sys
 import tarfile
+import time
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -30,6 +31,9 @@ MACOS_UNSIGNED_DMG_BACKGROUND = (
 )
 MACOS_DMG_BACKGROUND_DIR_NAME = ".background"
 MACOS_DMG_BACKGROUND_NAME = "unsigned-dmg-background.png"
+MACOS_DMG_DETACH_MAX_ATTEMPTS = 5
+MACOS_DMG_DETACH_RETRY_DELAY_SECONDS = 2
+MACOS_RESOURCE_BUSY_EXIT_CODE = 16
 DIST_DIR = ROOT_DIR / "dist"
 BASE_APP_NAME = "OxideTerm"
 STABLE_APP_IDENTIFIER = "com.oxideterm.app"
@@ -88,6 +92,29 @@ class ReleaseIdentity:
 def run(command: list[str], *, cwd: Path = ROOT_DIR, env: dict[str, str] | None = None) -> None:
     print("+", " ".join(command), flush=True)
     subprocess.run(command, cwd=cwd, env=env, check=True)
+
+
+def detach_macos_dmg(mount_point: Path) -> None:
+    """Detach a DMG after transient macOS filesystem users release it."""
+    detach_command = ["hdiutil", "detach", str(mount_point)]
+    for attempt in range(1, MACOS_DMG_DETACH_MAX_ATTEMPTS + 1):
+        try:
+            run(detach_command)
+            return
+        except subprocess.CalledProcessError as error:
+            if error.returncode != MACOS_RESOURCE_BUSY_EXIT_CODE:
+                raise
+            if attempt == MACOS_DMG_DETACH_MAX_ATTEMPTS:
+                break
+            print(
+                "warning: DMG is still busy; retrying detach "
+                f"({attempt}/{MACOS_DMG_DETACH_MAX_ATTEMPTS})",
+                file=sys.stderr,
+            )
+            time.sleep(MACOS_DMG_DETACH_RETRY_DELAY_SECONDS)
+
+    # A completed sync makes force-detach a safe final fallback for flaky CI runners.
+    run(["hdiutil", "detach", "-force", str(mount_point)])
 
 
 def host_triple() -> str:
@@ -645,7 +672,7 @@ def create_macos_dmg(
         subprocess.run(["sync"], check=True)
     finally:
         if attached:
-            run(["hdiutil", "detach", str(mount_point)])
+            detach_macos_dmg(mount_point)
         if mount_point.exists():
             shutil.rmtree(mount_point)
 
