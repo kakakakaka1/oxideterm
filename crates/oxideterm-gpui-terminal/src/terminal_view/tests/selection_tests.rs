@@ -184,6 +184,94 @@ fn block_selection_copies_rectangular_columns() {
 }
 
 #[test]
+fn cross_page_selection_requests_only_its_complete_grid_range() {
+    let mut snapshot = multirow_snapshot(&["visible-a", "visible-b"]);
+    snapshot.scrollback_lines = 4;
+    let selection = TerminalSelection {
+        anchor: TerminalGridPoint { line: 1, col: 3 },
+        head: TerminalGridPoint { line: -3, col: 1 },
+        mode: TerminalSelectionMode::Simple,
+    };
+
+    assert_eq!(
+        snapshot_request_for_selection(&snapshot, selection),
+        Some(TerminalSelectionSnapshotRequest {
+            display_offset: 3,
+            rows: 5,
+        })
+    );
+}
+
+#[test]
+fn in_view_selection_does_not_request_an_extended_snapshot() {
+    let snapshot = multirow_snapshot(&["visible-a", "visible-b"]);
+    let selection = TerminalSelection {
+        anchor: TerminalGridPoint { line: 0, col: 0 },
+        head: TerminalGridPoint { line: 1, col: 3 },
+        mode: TerminalSelectionMode::Simple,
+    };
+
+    assert_eq!(snapshot_request_for_selection(&snapshot, selection), None);
+}
+
+#[test]
+fn reverse_cross_page_selection_reads_rows_beyond_viewport_height() {
+    let mut snapshot = multirow_snapshot(&["old-a", "old-b", "now-a", "now-b"]);
+    snapshot.rows = 2;
+    snapshot.display_offset = 2;
+    snapshot.scrollback_lines = 2;
+    let selection = TerminalSelection {
+        anchor: TerminalGridPoint { line: 1, col: 4 },
+        head: TerminalGridPoint { line: -2, col: 0 },
+        mode: TerminalSelectionMode::Simple,
+    };
+
+    assert_eq!(
+        selected_text_for_selection(&snapshot, selection).as_deref(),
+        Some("old-a\nold-b\nnow-a\nnow-b")
+    );
+}
+
+#[test]
+fn cross_page_block_selection_preserves_rectangular_columns() {
+    let mut snapshot = multirow_snapshot(&["abcdef", "ghijkl", "mnopqr", "stuvwx"]);
+    snapshot.rows = 2;
+    snapshot.display_offset = 2;
+    snapshot.scrollback_lines = 2;
+    let selection = TerminalSelection {
+        anchor: TerminalGridPoint { line: -2, col: 1 },
+        head: TerminalGridPoint { line: 1, col: 3 },
+        mode: TerminalSelectionMode::Block,
+    };
+
+    assert_eq!(
+        selected_text_for_selection(&snapshot, selection).as_deref(),
+        Some("bcd\nhij\nnop\ntuv")
+    );
+}
+
+#[test]
+fn cross_page_selection_preserves_soft_wrapped_lines() {
+    let mut snapshot = multirow_snapshot(&["hello", "world", "next"]);
+    snapshot.rows = 2;
+    snapshot.display_offset = 1;
+    snapshot.scrollback_lines = 1;
+    snapshot.cols = 5;
+    snapshot.lines[0].wrapped = true;
+    snapshot.lines[0].refresh_signature();
+    let selection = TerminalSelection {
+        anchor: TerminalGridPoint { line: -1, col: 0 },
+        head: TerminalGridPoint { line: 1, col: 3 },
+        mode: TerminalSelectionMode::Simple,
+    };
+
+    assert_eq!(
+        selected_text_for_selection(&snapshot, selection).as_deref(),
+        Some("helloworld\nnext")
+    );
+}
+
+#[test]
 fn selection_rects_track_grid_lines_when_scrollback_offset_changes() {
     let mut snapshot = multirow_snapshot(&["row0", "row1", "row2", "row3"]);
     snapshot.display_offset = 2;

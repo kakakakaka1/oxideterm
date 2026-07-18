@@ -27,6 +27,12 @@ pub(crate) enum TerminalSelectionMode {
     Lines,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct TerminalSelectionSnapshotRequest {
+    pub(crate) display_offset: usize,
+    pub(crate) rows: usize,
+}
+
 impl TerminalSelection {
     pub(crate) fn is_empty(self) -> bool {
         self.anchor == self.head && self.mode == TerminalSelectionMode::Simple
@@ -74,9 +80,50 @@ fn grid_line_for_viewport_row(row: usize, display_offset: usize) -> i32 {
     row as i32 - display_offset as i32
 }
 
-fn viewport_row_for_grid_line(snapshot: &TerminalSnapshot, line: i32) -> Option<usize> {
-    let row = line + snapshot.display_offset as i32;
-    usize::try_from(row).ok().filter(|row| *row < snapshot.rows)
+fn snapshot_row_for_grid_line(snapshot: &TerminalSnapshot, line: i32) -> Option<usize> {
+    let row = i64::from(line) + i64::try_from(snapshot.display_offset).ok()?;
+    usize::try_from(row)
+        .ok()
+        .filter(|row| *row < snapshot.lines.len())
+}
+
+pub(crate) fn snapshot_request_for_selection(
+    snapshot: &TerminalSnapshot,
+    selection: TerminalSelection,
+) -> Option<TerminalSelectionSnapshotRequest> {
+    if selection.is_empty() {
+        return None;
+    }
+
+    let (start, end) = selection.normalized();
+    if snapshot_row_for_grid_line(snapshot, start.line).is_some()
+        && snapshot_row_for_grid_line(snapshot, end.line).is_some()
+    {
+        return None;
+    }
+
+    let start_line = i64::from(start.line);
+    let end_line = i64::from(end.line);
+    let earliest_line = -i64::try_from(snapshot.scrollback_lines).ok()?;
+    let latest_line = i64::try_from(snapshot.rows.saturating_sub(1)).ok()?;
+    if start_line < earliest_line || end_line > latest_line {
+        return None;
+    }
+
+    let display_offset = if start_line < 0 {
+        usize::try_from(-start_line).ok()?
+    } else {
+        0
+    };
+    let first_line = -i64::try_from(display_offset).ok()?;
+    let rows = usize::try_from(end_line - first_line + 1).ok()?;
+
+    // Request only the rows covered by the selection instead of expanding every render snapshot
+    // to the complete scrollback buffer.
+    Some(TerminalSelectionSnapshotRequest {
+        display_offset,
+        rows,
+    })
 }
 
 pub(crate) fn word_selection_at_point(
@@ -290,7 +337,7 @@ pub(crate) fn selected_text_for_selection(
     let (start, end) = selection.normalized();
     let mut text = String::new();
     for line in start.line..=end.line {
-        let row_index = viewport_row_for_grid_line(snapshot, line)?;
+        let row_index = snapshot_row_for_grid_line(snapshot, line)?;
         let row = snapshot.lines.get(row_index)?;
         let line_start = if line == start.line { start.col } else { 0 };
         let line_end = if line == end.line {
@@ -335,7 +382,7 @@ pub(crate) fn selected_text_for_block_selection(
     let mut text = String::new();
 
     for line in row_start..=row_end {
-        let row_index = viewport_row_for_grid_line(snapshot, line)?;
+        let row_index = snapshot_row_for_grid_line(snapshot, line)?;
         let row = snapshot.lines.get(row_index)?;
         let selected = row
             .cells

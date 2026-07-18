@@ -434,7 +434,18 @@ impl TerminalPane {
     }
 
     fn selected_text(&self) -> Option<String> {
-        selected_text_for_selection(&self.snapshot, self.selection?)
+        let selection = self.selection?;
+        let Some(request) = snapshot_request_for_selection(&self.snapshot, selection) else {
+            return selected_text_for_selection(&self.snapshot, selection);
+        };
+
+        // Cross-page selections outlive any individual viewport snapshot. Materialize only their
+        // grid range at copy time so normal rendering and in-view copies keep their current cost.
+        let snapshot = self
+            .terminal
+            .lock()
+            .snapshot_with_display_offset(request.display_offset, request.rows);
+        selected_text_for_selection(&snapshot, selection)
     }
 
     pub fn selected_text_snapshot(&self) -> Option<String> {
