@@ -358,9 +358,10 @@ impl WorkspaceApp {
                     self.appearance_slider_value_control(
                         SettingsSlider::AppearanceBackgroundOpacity,
                         SelectAnchorId::SettingsAppearanceBackgroundOpacitySlider,
-                        3.0,
-                        50.0,
-                        (settings.terminal.background_opacity * 100.0).round() as f32,
+                        (MIN_TERMINAL_BACKGROUND_OPACITY * SETTINGS_PERCENT_SCALE) as f32,
+                        (MAX_TERMINAL_BACKGROUND_OPACITY * SETTINGS_PERCENT_SCALE) as f32,
+                        (settings.terminal.background_opacity * SETTINGS_PERCENT_SCALE).round()
+                            as f32,
                         "%",
                         cx,
                     ),
@@ -1721,7 +1722,9 @@ impl WorkspaceApp {
         settings: &PersistedSettings,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let has_gallery_images = !self.background_images.is_empty();
+        let has_removable_gallery_images = self.background_images.iter().any(|image_path| {
+            !is_default_workspace_background(self.settings_store.path(), Path::new(image_path))
+        });
         let actions = div()
             .flex()
             .flex_row()
@@ -1735,7 +1738,7 @@ impl WorkspaceApp {
                     cx.stop_propagation();
                 }),
             ))
-            .when(has_gallery_images, |actions| {
+            .when(has_removable_gallery_images, |actions| {
                 actions.child(
                     settings_background_clear_all_button(
                         &self.tokens,
@@ -1871,6 +1874,8 @@ impl WorkspaceApp {
     ) -> AnyElement {
         let image_path = image_path.to_string();
         let remove_path = image_path.clone();
+        let is_built_in =
+            is_default_workspace_background(self.settings_store.path(), Path::new(&image_path));
         let fallback_icon_color = self.tokens.ui.text_muted;
         let thumbnail = settings_background_thumbnail_frame(
             &self.tokens,
@@ -1882,19 +1887,21 @@ impl WorkspaceApp {
             },
         );
         thumbnail
-            .child(
-                settings_background_thumbnail_remove_button(
-                    &self.tokens,
-                    Self::render_lucide_icon(LucideIcon::X, 12.0, rgb(self.tokens.ui.text)),
+            .when(!is_built_in, |thumbnail| {
+                thumbnail.child(
+                    settings_background_thumbnail_remove_button(
+                        &self.tokens,
+                        Self::render_lucide_icon(LucideIcon::X, 12.0, rgb(self.tokens.ui.text)),
+                    )
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |this, _event, _window, cx| {
+                            this.remove_background_image_from_gallery(remove_path.clone(), cx);
+                            cx.stop_propagation();
+                        }),
+                    ),
                 )
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(move |this, _event, _window, cx| {
-                        this.remove_background_image_from_gallery(remove_path.clone(), cx);
-                        cx.stop_propagation();
-                    }),
-                ),
-            )
+            })
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |this, _event, _window, cx| {
@@ -1917,6 +1924,9 @@ impl WorkspaceApp {
         cx: &mut Context<Self>,
     ) {
         let settings_path = self.settings_store.path().to_path_buf();
+        if is_default_workspace_background(&settings_path, Path::new(&image_path)) {
+            return;
+        }
         if !is_managed_background_image(&settings_path, Path::new(&image_path)) {
             // Compatibility paths reference user-owned files, so removing one only clears it.
             self.background_images
@@ -1980,15 +1990,35 @@ impl WorkspaceApp {
         let settings_path = self.settings_store.path().to_path_buf();
         let runtime = self.forwarding_runtime.handle().clone();
         cx.spawn(async move |weak, cx| {
-            let task = runtime.spawn_blocking(move || clear_background_images(&settings_path));
+            let task = runtime.spawn_blocking(move || -> Result<Vec<String>> {
+                for image_path in list_background_images(&settings_path)? {
+                    if !is_default_workspace_background(&settings_path, &image_path) {
+                        remove_background_image(&settings_path, &image_path)?;
+                    }
+                }
+                Ok(list_background_images(&settings_path)?
+                    .into_iter()
+                    .map(|path| path.to_string_lossy().into_owned())
+                    .collect())
+            });
             let result = task
                 .await
                 .map_err(|error| error.to_string())
                 .and_then(|result| result.map_err(|error| error.to_string()));
             let _ = weak.update(cx, |this, cx| match result {
-                Ok(()) => {
-                    this.background_images.clear();
-                    this.edit_settings(|settings| settings.terminal.background_image = None, cx);
+                Ok(gallery) => {
+                    let active_path = this
+                        .settings_store
+                        .settings()
+                        .terminal
+                        .background_image
+                        .clone()
+                        .filter(|active| gallery.contains(active));
+                    this.background_images = gallery;
+                    this.edit_settings(
+                        move |settings| settings.terminal.background_image = active_path,
+                        cx,
+                    );
                 }
                 Err(error) => this.report_background_gallery_error(&error),
             });

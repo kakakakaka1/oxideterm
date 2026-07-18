@@ -918,12 +918,12 @@ impl WorkspaceApp {
                 let Some(value) = self.settings_slider_value_from_position(
                     SelectAnchorId::SettingsAppearanceBackgroundOpacitySlider,
                     x,
-                    3.0,
-                    50.0,
+                    (MIN_TERMINAL_BACKGROUND_OPACITY * SETTINGS_PERCENT_SCALE) as f32,
+                    (MAX_TERMINAL_BACKGROUND_OPACITY * SETTINGS_PERCENT_SCALE) as f32,
                 ) else {
                     return;
                 };
-                let value = value.round() as f64 / 100.0;
+                let value = value.round() as f64 / SETTINGS_PERCENT_SCALE;
                 if self.settings_store.settings().terminal.background_opacity != value {
                     self.edit_settings(|settings| settings.terminal.background_opacity = value, cx);
                 }

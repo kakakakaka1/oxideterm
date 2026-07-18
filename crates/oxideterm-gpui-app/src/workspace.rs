@@ -191,9 +191,10 @@ use oxideterm_session_adapter::{
 use oxideterm_settings::{
     AI_SIDEBAR_MAX_WIDTH, AI_SIDEBAR_MIN_WIDTH, BackgroundFit, BackgroundScope,
     CursorStyle as SettingsCursorStyle, FontFamily, FrostedGlassMode, HighlightRuleRenderMode,
-    Language, PersistedSettings, SettingsStore, clear_background_images, default_settings_path,
-    import_background_images, is_managed_background_image, list_background_images,
-    remove_background_image,
+    Language, MAX_TERMINAL_BACKGROUND_OPACITY, MIN_TERMINAL_BACKGROUND_OPACITY, PersistedSettings,
+    SettingsStore, background_images_directory, default_settings_path,
+    ensure_bundled_background_image, import_background_images, is_managed_background_image,
+    list_background_images, remove_background_image,
 };
 use oxideterm_settings_model::{
     AiMcpServerDraft, AiModelRefreshDelivery, AiProviderKeyStatusDelivery, SettingsPageModel,
@@ -306,6 +307,7 @@ use virtual_list::{
 };
 
 const SETTINGS_SECTION_LIST_INITIAL_ITEM_COUNT: usize = 4;
+const SETTINGS_PERCENT_SCALE: f64 = 100.0;
 const SETTINGS_SECTION_LIST_ESTIMATED_HEIGHT: f32 = 260.0;
 const SETTINGS_SECTION_LIST_OVERSCAN: usize = 2;
 const SETTINGS_SCROLL_CARET_PAUSE_MS: u64 = 700;

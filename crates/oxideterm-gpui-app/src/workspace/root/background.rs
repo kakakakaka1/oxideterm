@@ -1,5 +1,32 @@
 use super::super::*;
 
+const DEFAULT_WORKSPACE_BACKGROUND_FILE_NAME: &str = "oxide-ambient-v1.png";
+const DEFAULT_WORKSPACE_BACKGROUND_BYTES: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/resources/backgrounds/oxide-ambient-v1.png"
+));
+
+pub(in crate::workspace) fn ensure_default_workspace_background(
+    settings_path: &Path,
+) -> Result<PathBuf> {
+    ensure_bundled_background_image(
+        settings_path,
+        DEFAULT_WORKSPACE_BACKGROUND_FILE_NAME,
+        DEFAULT_WORKSPACE_BACKGROUND_BYTES,
+    )
+}
+
+pub(in crate::workspace) fn default_workspace_background_path(settings_path: &Path) -> PathBuf {
+    background_images_directory(settings_path).join(DEFAULT_WORKSPACE_BACKGROUND_FILE_NAME)
+}
+
+pub(in crate::workspace) fn is_default_workspace_background(
+    settings_path: &Path,
+    image_path: &Path,
+) -> bool {
+    image_path == default_workspace_background_path(settings_path)
+}
+
 impl WorkspaceApp {
     pub(in crate::workspace) fn render_workspace_window_background(
         &mut self,

@@ -291,6 +291,10 @@ pub struct TerminalSettings {
     pub extra: ExtraFields,
 }
 
+pub const DEFAULT_TERMINAL_BACKGROUND_OPACITY: f64 = 0.15;
+pub const MIN_TERMINAL_BACKGROUND_OPACITY: f64 = 0.03;
+pub const MAX_TERMINAL_BACKGROUND_OPACITY: f64 = 1.0;
+
 impl Default for TerminalSettings {
     fn default() -> Self {
         Self {
@@ -324,7 +328,7 @@ impl Default for TerminalSettings {
             command_marks: TerminalCommandMarksSettings::default(),
             background_enabled: true,
             background_image: None,
-            background_opacity: 0.15,
+            background_opacity: DEFAULT_TERMINAL_BACKGROUND_OPACITY,
             background_blur: 0,
             background_fit: BackgroundFit::Cover,
             background_scope: BackgroundScope::Content,

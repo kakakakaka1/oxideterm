@@ -35,6 +35,8 @@ impl WorkspaceApp {
             .child(
                 div()
                     .w(px(ONBOARDING_WIDTH))
+                    // Give the flex column a definite height so its scroll body cannot collapse.
+                    .h_full()
                     .max_h(px(ONBOARDING_MAX_HEIGHT))
                     .flex()
                     .flex_col()

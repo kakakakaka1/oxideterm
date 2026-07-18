@@ -15,6 +15,7 @@ use crate::{
 const TAURI_SELECT_TRIGGER_BG_ALPHA: u32 = 0x80;
 const TAURI_INLINE_SELECT_SELECTED_BG_ALPHA: u32 = 0x1f;
 const TAURI_INLINE_SELECT_HIGHLIGHT_BG_ALPHA: u32 = 0x26;
+const SELECT_OPTION_SURFACE_INSET_RATIO: f32 = 0.5;
 const SELECT_CHEVRON_DOWN_PATH: &str = "lucide/chevron-down.svg";
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -579,9 +580,7 @@ pub fn select_panel_overlay_popup_with_max_height(
 }
 
 pub fn select_option(tokens: &ThemeTokens, label: impl Into<String>, selected: bool) -> Div {
-    select_item(tokens, label, selected)
-        .cursor_pointer()
-        .hover(|item| item.bg(rgb(tokens.ui.bg_hover)))
+    select_item_with_state(tokens, label, selected, false, true).cursor_pointer()
 }
 
 pub fn select_option_highlighted(
@@ -593,11 +592,7 @@ pub fn select_option_highlighted(
     // Radix SelectItem keeps keyboard highlight separate from the selected
     // checkmark. Expose that state for portal/select popups that are not using
     // the inline select row primitive.
-    select_option(tokens, label, selected).when(highlighted && !selected, |item| {
-        item.bg(rgba(
-            (tokens.ui.bg_hover << 8) | TAURI_INLINE_SELECT_HIGHLIGHT_BG_ALPHA,
-        ))
-    })
+    select_item_with_state(tokens, label, selected, highlighted, true).cursor_pointer()
 }
 
 pub fn select_option_is_actionable(disabled: bool, loading: bool) -> bool {
@@ -629,16 +624,46 @@ pub fn select_content(tokens: &ThemeTokens) -> Div {
 }
 
 pub fn select_item(tokens: &ThemeTokens, label: impl Into<String>, selected: bool) -> Div {
+    select_item_with_state(tokens, label, selected, false, false)
+}
+
+fn select_item_with_state(
+    tokens: &ThemeTokens,
+    label: impl Into<String>,
+    selected: bool,
+    highlighted: bool,
+    interactive: bool,
+) -> Div {
+    let surface_inset = tokens.metrics.ui_menu_padding * SELECT_OPTION_SURFACE_INSET_RATIO;
+    let option_surface = div()
+        .absolute()
+        .inset_0()
+        .m(px(surface_inset))
+        .rounded(px(tokens.radii.xs))
+        .bg(if highlighted && !selected {
+            rgba((tokens.ui.bg_hover << 8) | TAURI_INLINE_SELECT_HIGHLIGHT_BG_ALPHA)
+        } else if selected {
+            rgba((tokens.ui.bg_hover << 8) | 0x80)
+        } else {
+            rgba(0x00000000)
+        })
+        .when(highlighted && !selected, |surface| surface.shadow_sm())
+        .when(interactive, |surface| {
+            // Keep the hover shadow inside a clipped row canvas so moving
+            // directly between options clears and repaints the whole effect.
+            surface.hover(|hovered| hovered.bg(rgb(tokens.ui.bg_hover)).shadow_sm())
+        });
+
     menu_item_chrome(
         tokens,
         tokens.metrics.ui_menu_item_padding_x,
         tokens.metrics.ui_menu_inset_padding_left,
     )
     .w_full()
+    .h(px(tokens.metrics.ui_control_height))
     .min_w(px(0.0))
-    .when(selected, |item| {
-        item.bg(rgba((tokens.ui.bg_hover << 8) | 0x80))
-    })
+    .overflow_hidden()
+    .child(option_surface)
     .child(
         div()
             .absolute()

@@ -466,6 +466,49 @@ mod tests {
     }
 
     #[test]
+    fn terminal_command_action_tooltips_exist_in_every_locale() {
+        let locales = [
+            Locale::De,
+            Locale::En,
+            Locale::EsEs,
+            Locale::FrFr,
+            Locale::It,
+            Locale::Ja,
+            Locale::Ko,
+            Locale::PtBr,
+            Locale::Vi,
+            Locale::ZhCn,
+            Locale::ZhTw,
+        ];
+        let keys = [
+            "terminal.recording.start",
+            "terminal.recording.stop",
+            "terminal.recording.pause",
+            "terminal.recording.resume",
+            "terminal.recording.discard",
+            "terminal.recording.show_timestamps",
+            "terminal.recording.hide_timestamps",
+        ];
+        let english = I18n::new(Locale::En);
+
+        // Icon-only terminal actions must never fall back to a raw key or English label.
+        for locale in locales {
+            let i18n = I18n::new(locale);
+            for key in keys {
+                let translated = i18n.t(key);
+                assert_ne!(translated, key, "{locale:?} missing {key}");
+                if locale != Locale::En {
+                    assert_ne!(
+                        translated,
+                        english.t(key),
+                        "{locale:?} falls back for {key}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
     fn close_background_strings_exist_in_every_locale() {
         let locales = [
             Locale::De,

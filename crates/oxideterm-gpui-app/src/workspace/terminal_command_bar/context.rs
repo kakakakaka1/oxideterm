@@ -10,9 +10,11 @@ impl WorkspaceApp {
         icon_color: Rgba,
         disabled: bool,
         background: Option<Rgba>,
+        tooltip_id: &'static str,
+        tooltip_title: String,
         listener: impl Fn(&mut Self, &MouseDownEvent, &mut Window, &mut Context<Self>) + 'static,
         cx: &mut Context<Self>,
-    ) -> gpui::Div {
+    ) -> gpui::Stateful<gpui::Div> {
         // Tauri TerminalCommandBarActions uses a shared h-6/w-6 rounded-md
         // button for split, broadcast, recording, and cast controls. Keep the
         // geometry local to the terminal bar while routing activation through
@@ -30,6 +32,23 @@ impl WorkspaceApp {
             listener,
             cx,
         )
+        .id(tooltip_id)
+        .on_mouse_move(
+            cx.listener(move |this, event: &MouseMoveEvent, _window, cx| {
+                this.queue_workspace_tooltip(
+                    tooltip_id,
+                    tooltip_title.clone(),
+                    f32::from(event.position.x) + 12.0,
+                    f32::from(event.position.y) + 16.0,
+                    cx,
+                );
+            }),
+        )
+        .on_hover(cx.listener(move |this, hovered: &bool, _window, cx| {
+            if !*hovered {
+                this.clear_workspace_tooltip(tooltip_id, cx);
+            }
+        }))
     }
 
     pub(super) fn terminal_command_context_chip_slot(

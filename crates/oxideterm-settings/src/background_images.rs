@@ -5,8 +5,8 @@
 
 use std::{
     fs::{self, OpenOptions},
-    io,
-    path::{Path, PathBuf},
+    io::{self, Write},
+    path::{Component, Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -34,6 +34,72 @@ pub fn background_images_directory(settings_path: &Path) -> PathBuf {
         .parent()
         .unwrap_or_else(|| Path::new("."))
         .join(BACKGROUND_DIRECTORY_NAME)
+}
+
+/// Installs a versioned bundled image into the managed gallery without replacing user files.
+pub fn ensure_bundled_background_image(
+    settings_path: &Path,
+    file_name: &str,
+    image_bytes: &[u8],
+) -> Result<PathBuf> {
+    let file_name_path = Path::new(file_name);
+    if file_name_path.components().count() != 1
+        || !matches!(
+            file_name_path.components().next(),
+            Some(Component::Normal(_))
+        )
+        || !is_supported_background_image(file_name_path)
+    {
+        return Err(anyhow!("invalid bundled background image filename"));
+    }
+
+    let directory = background_images_directory(settings_path);
+    fs::create_dir_all(&directory).with_context(|| {
+        format!(
+            "failed to create background gallery {}",
+            directory.display()
+        )
+    })?;
+    let destination = directory.join(file_name_path);
+    if destination.is_file() {
+        return Ok(destination);
+    }
+    if destination.exists() {
+        return Err(anyhow!(
+            "bundled background destination is not a file: {}",
+            destination.display()
+        ));
+    }
+
+    match OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&destination)
+    {
+        Ok(mut destination_file) => {
+            if let Err(error) = destination_file.write_all(image_bytes) {
+                // Never expose a partially written bundled asset in the gallery.
+                let _ = fs::remove_file(&destination);
+                return Err(error).with_context(|| {
+                    format!(
+                        "failed to install bundled background image {}",
+                        destination.display()
+                    )
+                });
+            }
+            Ok(destination)
+        }
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists && destination.is_file() => {
+            // Another process may finish the same first-run installation concurrently.
+            Ok(destination)
+        }
+        Err(error) => Err(error).with_context(|| {
+            format!(
+                "failed to create bundled background image {}",
+                destination.display()
+            )
+        }),
+    }
 }
 
 /// Returns whether an existing image is owned by the managed gallery.
@@ -269,6 +335,47 @@ mod tests {
             fs::read(&imported[1]).expect("stored second"),
             b"second image"
         );
+    }
+
+    #[test]
+    fn bundled_background_install_is_stable_and_non_destructive() {
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        let settings_path = temporary.path().join("profile/settings.json");
+
+        let installed = ensure_bundled_background_image(
+            &settings_path,
+            "oxide-ambient-v1.png",
+            b"bundled image",
+        )
+        .expect("install bundled background");
+        let repeated = ensure_bundled_background_image(
+            &settings_path,
+            "oxide-ambient-v1.png",
+            b"replacement image",
+        )
+        .expect("reuse bundled background");
+
+        assert_eq!(installed, repeated);
+        assert_eq!(
+            installed,
+            background_images_directory(&settings_path).join("oxide-ambient-v1.png")
+        );
+        assert_eq!(
+            fs::read(installed).expect("installed bytes"),
+            b"bundled image"
+        );
+    }
+
+    #[test]
+    fn bundled_background_install_rejects_unsafe_filenames() {
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        let settings_path = temporary.path().join("settings.json");
+
+        let result =
+            ensure_bundled_background_image(&settings_path, "../outside.png", b"bundled image");
+
+        assert!(result.is_err());
+        assert!(!temporary.path().join("outside.png").exists());
     }
 
     #[test]

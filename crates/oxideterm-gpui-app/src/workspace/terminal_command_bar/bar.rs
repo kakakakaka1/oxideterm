@@ -182,6 +182,16 @@ impl WorkspaceApp {
         let recording_status = self.active_terminal_recording_status(cx);
         let recording_active = recording_status.state != TerminalRecordingState::Idle;
         let timestamps_active = self.active_terminal_timestamps_enabled(cx);
+        let timestamps_tooltip_title = if timestamps_active {
+            self.i18n.t("terminal.recording.hide_timestamps")
+        } else {
+            self.i18n.t("terminal.recording.show_timestamps")
+        };
+        let recording_toggle_tooltip_title = match recording_status.state {
+            TerminalRecordingState::Idle => self.i18n.t("terminal.recording.start"),
+            TerminalRecordingState::Recording => self.i18n.t("terminal.recording.pause"),
+            TerminalRecordingState::Paused => self.i18n.t("terminal.recording.resume"),
+        };
         let input_toggle_tooltip_id = "terminal-command-input-toggle";
         let input_toggle_title = if input_collapsed {
             self.i18n.t("terminal.command_bar.expand_input")
@@ -373,6 +383,8 @@ impl WorkspaceApp {
                                         rgb(theme.text_muted),
                                         !can_split,
                                         None,
+                                        "terminal-command-split-horizontal",
+                                        self.i18n.t("command_palette.cmd_split_horizontal"),
                                         |this, _event, window, cx| {
                                             this.split_active_pane(
                                                 SplitDirection::Horizontal,
@@ -388,6 +400,8 @@ impl WorkspaceApp {
                                         rgb(theme.text_muted),
                                         !can_split,
                                         None,
+                                        "terminal-command-split-vertical",
+                                        self.i18n.t("command_palette.cmd_split_vertical"),
                                         |this, _event, window, cx| {
                                             this.split_active_pane(
                                                 SplitDirection::Vertical,
@@ -400,44 +414,19 @@ impl WorkspaceApp {
                                     ))
                             })
                             .when(can_configure_remote_integration, |actions| {
-                                actions.child(
-                                    self.terminal_command_action_button(
-                                        LucideIcon::FolderSync,
-                                        rgb(theme.text_muted),
-                                        remote_integration_pending,
-                                        None,
-                                        |this, _event, _window, cx| {
-                                            this.open_remote_shell_integration_confirm(cx);
-                                            cx.stop_propagation();
-                                        },
-                                        cx,
-                                    )
-                                    .id(remote_integration_tooltip_id)
-                                    .on_mouse_move({
-                                        let title = remote_integration_tooltip_title;
-                                        cx.listener(
-                                            move |this, event: &MouseMoveEvent, _window, cx| {
-                                                this.queue_workspace_tooltip(
-                                                    remote_integration_tooltip_id,
-                                                    title.clone(),
-                                                    f32::from(event.position.x) + 12.0,
-                                                    f32::from(event.position.y) + 16.0,
-                                                    cx,
-                                                );
-                                            },
-                                        )
-                                    })
-                                    .on_hover(cx.listener(
-                                        move |this, hovered: &bool, _window, cx| {
-                                            if !*hovered {
-                                                this.clear_workspace_tooltip(
-                                                    remote_integration_tooltip_id,
-                                                    cx,
-                                                );
-                                            }
-                                        },
-                                    )),
-                                )
+                                actions.child(self.terminal_command_action_button(
+                                    LucideIcon::FolderSync,
+                                    rgb(theme.text_muted),
+                                    remote_integration_pending,
+                                    None,
+                                    remote_integration_tooltip_id,
+                                    remote_integration_tooltip_title,
+                                    |this, _event, _window, cx| {
+                                        this.open_remote_shell_integration_confirm(cx);
+                                        cx.stop_propagation();
+                                    },
+                                    cx,
+                                ))
                             })
                             .child(select_anchor_probe(
                                 SelectAnchorId::TerminalBroadcastMenu,
@@ -454,6 +443,8 @@ impl WorkspaceApp {
                                     } else {
                                         rgba((theme.bg_hover << 8) | 0x00)
                                     }),
+                                    "terminal-command-broadcast",
+                                    self.i18n.t("terminal.broadcast.select_targets"),
                                     |this, _event, _window, cx| {
                                         this.toggle_terminal_broadcast_menu();
                                         cx.stop_propagation();
@@ -484,6 +475,8 @@ impl WorkspaceApp {
                                 } else {
                                     rgba(0x00000000)
                                 }),
+                                "terminal-command-search",
+                                self.i18n.t("terminal.search.placeholder"),
                                 |this, _event, window, cx| {
                                     if this.search.visible {
                                         this.close_search(window, cx);
@@ -507,6 +500,8 @@ impl WorkspaceApp {
                                 } else {
                                     rgba(0x00000000)
                                 }),
+                                "terminal-command-timestamps",
+                                timestamps_tooltip_title,
                                 |this, _event, _window, cx| {
                                     this.toggle_active_terminal_timestamps(cx);
                                     cx.stop_propagation();
@@ -551,6 +546,8 @@ impl WorkspaceApp {
                                 } else {
                                     rgba(0x00000000)
                                 }),
+                                "terminal-command-recording-toggle",
+                                recording_toggle_tooltip_title,
                                 move |this, _event, _window, cx| {
                                     match recording_status.state {
                                         TerminalRecordingState::Idle => {
@@ -574,6 +571,8 @@ impl WorkspaceApp {
                                         rgb(theme.error),
                                         false,
                                         None,
+                                        "terminal-command-recording-stop",
+                                        self.i18n.t("terminal.recording.stop"),
                                         |this, _event, _window, cx| {
                                             this.stop_active_terminal_recording(cx);
                                             cx.stop_propagation();
@@ -585,6 +584,8 @@ impl WorkspaceApp {
                                         rgb(theme.error),
                                         false,
                                         None,
+                                        "terminal-command-recording-discard",
+                                        self.i18n.t("terminal.recording.discard"),
                                         |this, _event, _window, cx| {
                                             this.discard_active_terminal_recording(cx);
                                             cx.stop_propagation();
@@ -597,6 +598,8 @@ impl WorkspaceApp {
                                 rgb(theme.text_muted),
                                 false,
                                 None,
+                                "terminal-command-recording-open",
+                                self.i18n.t("terminal.recording.open_cast"),
                                 |this, _event, window, cx| {
                                     this.open_terminal_cast_file(window, cx);
                                     cx.stop_propagation();

@@ -12,6 +12,10 @@ impl WorkspaceApp {
         let focus_handle = cx.focus_handle();
         let mut settings_store = SettingsStore::load_default()?;
         settings_store.settings_mut().sidebar_ui.zen_mode = false;
+        if let Err(error) = ensure_default_workspace_background(settings_store.path()) {
+            // A background-gallery failure must not prevent the workspace from opening.
+            eprintln!("failed to install built-in workspace background: {error}");
+        }
         let version_migration = VersionMigrationState::from_settings_path(settings_store.path())?;
         let connection_store = ConnectionStore::load(default_connections_path())?;
         let settings = settings_store.settings().clone();

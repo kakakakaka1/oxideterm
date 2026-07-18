@@ -3,6 +3,19 @@
 Stable releases are listed newest first. The release workflow uses each versioned
 section as the detailed changelog attached to the corresponding GitHub Release.
 
+## 2.0.5
+
+OxideTerm 2.0.5 restores several native interface details and improves terminal
+selection, glyph rendering, and appearance controls.
+
+### Fixes
+
+- Fixed custom-drawn Powerline separators and related terminal glyph geometry across supported shapes and cell sizes.
+- Fixed copying terminal selections that span multiple wrapped or visible pages.
+- Restored onboarding step content that could collapse to zero height in the GPUI layout.
+- Refined select-menu hover and selected surfaces, and added localized tooltips to icon-only terminal actions.
+- Added a bundled background to the managed appearance gallery and expanded background opacity control to the full supported range.
+
 ## 2.0.4
 
 OxideTerm 2.0.4 refreshes the native GPUI runtime, improves Linux and virtualized

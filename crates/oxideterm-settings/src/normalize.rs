@@ -589,7 +589,12 @@ pub fn sanitize_settings_value(raw: Value) -> Result<SanitizedSettings> {
 
     for (path, fallback, min, max) in [
         ("terminal.lineHeight", 1.2, 0.8, 3.0),
-        ("terminal.backgroundOpacity", 0.15, 0.03, 0.5),
+        (
+            "terminal.backgroundOpacity",
+            DEFAULT_TERMINAL_BACKGROUND_OPACITY,
+            MIN_TERMINAL_BACKGROUND_OPACITY,
+            MAX_TERMINAL_BACKGROUND_OPACITY,
+        ),
     ] {
         let segments: Vec<_> = path.split('.').collect();
         if let Some(value) = get_path_mut(&mut settings, &segments) {
@@ -789,6 +794,34 @@ mod tests {
                 assert_eq!(sanitized.settings.terminal.background_blur, 20);
             }
         }
+    }
+
+    #[test]
+    fn background_opacity_accepts_full_visibility_and_clamps_oversized_values() {
+        let full_visibility = sanitize_settings_value(json!({
+            "terminal": { "backgroundOpacity": 1.0 }
+        }))
+        .expect("sanitize full background opacity");
+        assert_eq!(
+            full_visibility.settings.terminal.background_opacity,
+            MAX_TERMINAL_BACKGROUND_OPACITY
+        );
+        assert!(full_visibility.validation_warnings.is_empty());
+
+        let oversized = sanitize_settings_value(json!({
+            "terminal": { "backgroundOpacity": 1.5 }
+        }))
+        .expect("sanitize oversized background opacity");
+        assert_eq!(
+            oversized.settings.terminal.background_opacity,
+            MAX_TERMINAL_BACKGROUND_OPACITY
+        );
+        assert!(
+            oversized
+                .validation_warnings
+                .iter()
+                .any(|warning| warning.contains("terminal.backgroundOpacity"))
+        );
     }
 
     #[test]
