@@ -16,6 +16,36 @@ use crate::terminal_view::element::{
     PowerlineDirection, PowerlineShape, PowerlineWeight, powerline_separator,
 };
 
+const POWERLINE_SEAM_OVERLAP_DEVICE_PIXELS: f32 = 0.5;
+const POWERLINE_THIN_STROKE_DEVICE_PIXELS: f32 = 1.4;
+const POWERLINE_HALF_CIRCLE_CONTROL_FACTOR: f32 = 4.0 / 3.0;
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct PowerlinePaintMetrics {
+    pub(crate) seam_overlap: Pixels,
+    pub(crate) thin_stroke_width: Pixels,
+}
+
+impl PowerlinePaintMetrics {
+    pub(crate) fn for_scale_factor(scale_factor: f32) -> Self {
+        debug_assert!(scale_factor > 0.0);
+
+        // Keep the overlap and thin stroke visually stable across display scale factors.
+        Self {
+            seam_overlap: px(POWERLINE_SEAM_OVERLAP_DEVICE_PIXELS / scale_factor),
+            thin_stroke_width: px(POWERLINE_THIN_STROKE_DEVICE_PIXELS / scale_factor),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct PowerlineHalfCircleCurve {
+    pub(crate) start: Point<Pixels>,
+    pub(crate) end: Point<Pixels>,
+    pub(crate) start_control: Point<Pixels>,
+    pub(crate) end_control: Point<Pixels>,
+}
+
 pub(crate) fn paint_terminal_rect(
     rect: &TerminalRect,
     origin: gpui::Point<Pixels>,
@@ -482,8 +512,10 @@ fn paint_powerline_separators(
         return false;
     }
 
+    let paint_metrics = PowerlinePaintMetrics::for_scale_factor(window.scale_factor());
+
     for (offset, ch) in chars.into_iter().enumerate() {
-        let bounds = Bounds::new(
+        let raw_bounds = Bounds::new(
             origin
                 + point(
                     px((run.col + offset) as f32 * metrics.cell_width_f32()),
@@ -491,12 +523,18 @@ fn paint_powerline_separators(
                 ),
             size(metrics.cell_width, metrics.line_height),
         );
+        // Background quads snap each edge independently, so custom paths must use the same cell
+        // edges or fractional metrics can leave a one-device-pixel mismatch between directions.
+        let bounds = Bounds::from_corners(
+            window.pixel_snap_point(raw_bounds.origin),
+            window.pixel_snap_point(point(raw_bounds.right(), raw_bounds.bottom())),
+        );
         let Some(separator) = powerline_separator(ch) else {
             return false;
         };
         match (separator.shape, separator.weight) {
             (PowerlineShape::Triangle, PowerlineWeight::Filled) => {
-                let Some(points) = powerline_separator_points(ch, bounds) else {
+                let Some(points) = powerline_separator_points(ch, bounds, paint_metrics) else {
                     return false;
                 };
                 let mut builder = PathBuilder::fill();
@@ -506,10 +544,10 @@ fn paint_powerline_separators(
                 }
             }
             (PowerlineShape::Triangle, PowerlineWeight::Thin) => {
-                let Some(points) = powerline_separator_points(ch, bounds) else {
+                let Some(points) = powerline_separator_points(ch, bounds, paint_metrics) else {
                     return false;
                 };
-                let mut builder = PathBuilder::stroke(px(1.4));
+                let mut builder = PathBuilder::stroke(paint_metrics.thin_stroke_width);
                 builder.move_to(points[0]);
                 builder.line_to(points[2]);
                 builder.line_to(points[1]);
@@ -518,16 +556,25 @@ fn paint_powerline_separators(
                 }
             }
             (PowerlineShape::HalfCircle, PowerlineWeight::Filled) => {
+                let Some(curve) = powerline_half_circle_curve(ch, bounds, paint_metrics) else {
+                    return false;
+                };
                 let mut builder = PathBuilder::fill();
-                add_half_circle_path(&mut builder, bounds, separator.direction);
+                builder.move_to(curve.start);
+                builder.line_to(curve.end);
+                builder.cubic_bezier_to(curve.start, curve.end_control, curve.start_control);
                 builder.close();
                 if let Ok(path) = builder.build() {
                     window.paint_path(path, run.style.color);
                 }
             }
             (PowerlineShape::HalfCircle, PowerlineWeight::Thin) => {
-                let mut builder = PathBuilder::stroke(px(1.4));
-                add_half_circle_stroke(&mut builder, bounds, separator.direction);
+                let Some(curve) = powerline_half_circle_curve(ch, bounds, paint_metrics) else {
+                    return false;
+                };
+                let mut builder = PathBuilder::stroke(paint_metrics.thin_stroke_width);
+                builder.move_to(curve.start);
+                builder.cubic_bezier_to(curve.end, curve.start_control, curve.end_control);
                 if let Ok(path) = builder.build() {
                     window.paint_path(path, run.style.color);
                 }
@@ -541,101 +588,96 @@ fn paint_powerline_separators(
 pub(crate) fn powerline_separator_points(
     ch: char,
     bounds: Bounds<Pixels>,
+    metrics: PowerlinePaintMetrics,
 ) -> Option<[Point<Pixels>; 3]> {
     let separator = powerline_separator(ch)?;
     if separator.shape != PowerlineShape::Triangle {
         return None;
     }
-    let left = f32::from(bounds.origin.x);
-    let top = f32::from(bounds.origin.y);
-    let right = left + f32::from(bounds.size.width);
-    let bottom = top + f32::from(bounds.size.height);
-    let middle_y = top + f32::from(bounds.size.height) / 2.0;
-    let overscan = 0.5;
 
-    Some(match separator.direction {
-        PowerlineDirection::Right => [
-            point(px(left - overscan), px(top - overscan)),
-            point(px(left - overscan), px(bottom + overscan)),
-            point(px(right + overscan), px(middle_y)),
-        ],
-        PowerlineDirection::Left => [
-            point(px(right + overscan), px(top - overscan)),
-            point(px(right + overscan), px(bottom + overscan)),
-            point(px(left - overscan), px(middle_y)),
-        ],
+    let extents = powerline_shape_extents(bounds, separator.direction, separator.weight, metrics);
+
+    Some([
+        point(px(extents.flat_x), px(extents.top)),
+        point(px(extents.flat_x), px(extents.bottom)),
+        point(px(extents.tip_x), px(extents.middle_y)),
+    ])
+}
+
+pub(crate) fn powerline_half_circle_curve(
+    ch: char,
+    bounds: Bounds<Pixels>,
+    metrics: PowerlinePaintMetrics,
+) -> Option<PowerlineHalfCircleCurve> {
+    let separator = powerline_separator(ch)?;
+    if separator.shape != PowerlineShape::HalfCircle {
+        return None;
+    }
+
+    let extents = powerline_shape_extents(bounds, separator.direction, separator.weight, metrics);
+    let control_x =
+        extents.flat_x + (extents.tip_x - extents.flat_x) * POWERLINE_HALF_CIRCLE_CONTROL_FACTOR;
+
+    // A single cubic reaches the cell edge at its midpoint only when the controls are 4/3 of
+    // the flat-edge-to-tip distance away. Using the tip itself as the controls makes a 3/4-width
+    // curve, which is the narrow cap reported in issue #339.
+    Some(PowerlineHalfCircleCurve {
+        start: point(px(extents.flat_x), px(extents.top)),
+        end: point(px(extents.flat_x), px(extents.bottom)),
+        start_control: point(px(control_x), px(extents.top)),
+        end_control: point(px(control_x), px(extents.bottom)),
     })
 }
 
-fn add_half_circle_path(
-    builder: &mut PathBuilder,
-    bounds: Bounds<Pixels>,
-    direction: PowerlineDirection,
-) {
-    let left = f32::from(bounds.origin.x);
-    let top = f32::from(bounds.origin.y);
-    let right = left + f32::from(bounds.size.width);
-    let bottom = top + f32::from(bounds.size.height);
-    let overscan = 0.5;
-
-    match direction {
-        PowerlineDirection::Right => {
-            let top_left = point(px(left - overscan), px(top - overscan));
-            let bottom_left = point(px(left - overscan), px(bottom + overscan));
-            builder.move_to(top_left);
-            builder.line_to(bottom_left);
-            builder.cubic_bezier_to(
-                top_left,
-                point(px(right + overscan), px(bottom + overscan)),
-                point(px(right + overscan), px(top - overscan)),
-            );
-        }
-        PowerlineDirection::Left => {
-            let top_right = point(px(right + overscan), px(top - overscan));
-            let bottom_right = point(px(right + overscan), px(bottom + overscan));
-            builder.move_to(top_right);
-            builder.line_to(bottom_right);
-            builder.cubic_bezier_to(
-                top_right,
-                point(px(left - overscan), px(bottom + overscan)),
-                point(px(left - overscan), px(top - overscan)),
-            );
-        }
-    }
+#[derive(Clone, Copy, Debug)]
+struct PowerlineShapeExtents {
+    flat_x: f32,
+    tip_x: f32,
+    top: f32,
+    bottom: f32,
+    middle_y: f32,
 }
 
-fn add_half_circle_stroke(
-    builder: &mut PathBuilder,
+fn powerline_shape_extents(
     bounds: Bounds<Pixels>,
     direction: PowerlineDirection,
-) {
+    weight: PowerlineWeight,
+    metrics: PowerlinePaintMetrics,
+) -> PowerlineShapeExtents {
     let left = f32::from(bounds.origin.x);
     let top = f32::from(bounds.origin.y);
     let right = left + f32::from(bounds.size.width);
     let bottom = top + f32::from(bounds.size.height);
-    let overscan = 0.5;
+    let seam_overlap = f32::from(metrics.seam_overlap);
+    let thin_inset = f32::from(metrics.thin_stroke_width) / 2.0;
 
-    match direction {
-        PowerlineDirection::Right => {
-            let top_left = point(px(left - overscan), px(top - overscan));
-            let bottom_left = point(px(left - overscan), px(bottom + overscan));
-            builder.move_to(top_left);
-            builder.cubic_bezier_to(
-                bottom_left,
-                point(px(right + overscan), px(top - overscan)),
-                point(px(right + overscan), px(bottom + overscan)),
-            );
+    let (flat_x, tip_x, shape_top, shape_bottom) = match (direction, weight) {
+        (PowerlineDirection::Right, PowerlineWeight::Filled) => {
+            (left - seam_overlap, right, top, bottom)
         }
-        PowerlineDirection::Left => {
-            let top_right = point(px(right + overscan), px(top - overscan));
-            let bottom_right = point(px(right + overscan), px(bottom + overscan));
-            builder.move_to(top_right);
-            builder.cubic_bezier_to(
-                bottom_right,
-                point(px(left - overscan), px(top - overscan)),
-                point(px(left - overscan), px(bottom + overscan)),
-            );
+        (PowerlineDirection::Left, PowerlineWeight::Filled) => {
+            (right + seam_overlap, left, top, bottom)
         }
+        (PowerlineDirection::Right, PowerlineWeight::Thin) => (
+            left + thin_inset,
+            right - thin_inset,
+            top + thin_inset,
+            bottom - thin_inset,
+        ),
+        (PowerlineDirection::Left, PowerlineWeight::Thin) => (
+            right - thin_inset,
+            left + thin_inset,
+            top + thin_inset,
+            bottom - thin_inset,
+        ),
+    };
+
+    PowerlineShapeExtents {
+        flat_x,
+        tip_x,
+        top: shape_top,
+        bottom: shape_bottom,
+        middle_y: (top + bottom) / 2.0,
     }
 }
 

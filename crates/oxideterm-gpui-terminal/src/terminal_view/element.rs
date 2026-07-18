@@ -30,7 +30,10 @@ mod style;
 pub(crate) use layout::*;
 use paint::*;
 #[cfg(test)]
-pub(crate) use paint::{ghost_text_grid_segments, powerline_separator_points};
+pub(crate) use paint::{
+    PowerlineHalfCircleCurve, PowerlinePaintMetrics, ghost_text_grid_segments,
+    powerline_half_circle_curve, powerline_separator_points,
+};
 pub(crate) use style::*;
 
 pub(crate) struct TerminalElement {
