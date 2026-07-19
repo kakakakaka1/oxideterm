@@ -183,6 +183,47 @@ wait
         let _ = std::fs::remove_file(marker_path);
     }
 
+    #[test]
+    fn powershell_launch_loads_profiles_before_initializing_oh_my_posh() {
+        let shell = ShellInfo::new("pwsh", "PowerShell", "pwsh");
+        let config = LocalPtyConfig {
+            load_profile: true,
+            oh_my_posh_enabled: true,
+            oh_my_posh_theme: Some("C:\\Users\\alice\\theme's.omp.json".to_string()),
+            ..LocalPtyConfig::default()
+        };
+
+        let args = powershell_init_args(&config, &shell).expect("PowerShell launch arguments");
+        let command = args.last().expect("PowerShell initialization command");
+        let profile_index = command
+            .find("$PROFILE.CurrentUserCurrentHost")
+            .expect("explicit PowerShell profile loader");
+        let posh_index = command
+            .find("oh-my-posh init pwsh")
+            .expect("Oh My Posh initialization");
+
+        assert!(args.iter().any(|argument| argument == "-NoProfile"));
+        assert!(profile_index < posh_index);
+        assert!(command.contains("theme''s.omp.json"));
+    }
+
+    #[test]
+    fn powershell_launch_skips_profiles_when_profile_loading_is_disabled() {
+        let shell = ShellInfo::new("powershell", "Windows PowerShell", "powershell.exe");
+        let config = LocalPtyConfig {
+            load_profile: false,
+            oh_my_posh_enabled: true,
+            ..LocalPtyConfig::default()
+        };
+
+        let args = powershell_init_args(&config, &shell).expect("PowerShell launch arguments");
+        let command = args.last().expect("PowerShell initialization command");
+
+        assert!(args.iter().any(|argument| argument == "-NoProfile"));
+        assert!(!command.contains("$PROFILE."));
+        assert!(command.contains("oh-my-posh init pwsh"));
+    }
+
     #[cfg(unix)]
     #[test]
     fn local_available_shell_integrations_report_initial_cwd() {

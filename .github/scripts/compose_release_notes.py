@@ -40,7 +40,7 @@ def stable_download_table(version: str, tag: str) -> str:
 
     return "\n".join(
         [
-            "## Download for your system",
+            "## 📥 Download for your system",
             "",
             "| Operating system | x64 | ARM64 |",
             "|---|---|---|",
@@ -53,8 +53,10 @@ def stable_download_table(version: str, tag: str) -> str:
     )
 
 
-def extract_version_section(changelog: str, version: str) -> str:
-    """Return the changelog section whose heading exactly matches the release version."""
+def extract_version_section(
+    changelog: str, version: str, *, include_heading: bool = True
+) -> str:
+    """Return one version entry, optionally retaining its extraction heading."""
     pattern = re.compile(
         rf"^## {re.escape(version)}\n(?P<section>.*?)(?=^## |\Z)",
         re.MULTILINE | re.DOTALL,
@@ -62,7 +64,10 @@ def extract_version_section(changelog: str, version: str) -> str:
     match = pattern.search(changelog)
     if match is None:
         raise ValueError(f"no changelog section found for {version}")
-    return f"## {version}\n{match.group('section').rstrip()}"
+    section = match.group("section").strip()
+    if include_heading:
+        return f"## {version}\n\n{section}"
+    return section
 
 
 def compose_notes(version: str, tag: str, base_path: Path, changelog_path: Path) -> str:
@@ -71,7 +76,12 @@ def compose_notes(version: str, tag: str, base_path: Path, changelog_path: Path)
         raise ValueError(f"{base_path} is missing {CHANGELOG_MARKER}")
 
     changelog = changelog_path.read_text(encoding="utf-8")
-    section = extract_version_section(changelog, version)
+    # Stable releases already show the version in GitHub's release title, so their
+    # body starts directly with the summary while other channels keep the heading.
+    is_stable_release = DOWNLOADS_MARKER in base
+    section = extract_version_section(
+        changelog, version, include_heading=not is_stable_release
+    )
     notes = base.replace(CHANGELOG_MARKER, section)
     if DOWNLOADS_MARKER in notes:
         notes = notes.replace(DOWNLOADS_MARKER, stable_download_table(version, tag))

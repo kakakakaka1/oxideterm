@@ -1,11 +1,9 @@
-# OxideTerm 2.0
+<!-- RELEASE_CHANGELOG -->
 
 <!-- RELEASE_DOWNLOADS -->
 
-<!-- RELEASE_CHANGELOG -->
-
 <details>
-<summary>Installation Tips / 安装提示</summary>
+<summary>📌 Installation Tips / 安装提示</summary>
 
 ### macOS
 
@@ -38,7 +36,7 @@ sudo dnf install ./OxideTerm_*_linux_*.rpm
 
 </details>
 
-## Links
+## 🔗 Links
 
 - Documentation: https://oxideterm.app
 - GitHub Issues: https://github.com/AnalyseDeCircuit/oxideterm/issues

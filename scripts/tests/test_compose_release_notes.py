@@ -23,20 +23,27 @@ class ComposeReleaseNotesTests(unittest.TestCase):
             base = root / "base.md"
             changelog = root / "changelog.md"
             base.write_text(
-                "# Stable\n\n<!-- RELEASE_DOWNLOADS -->\n\n<!-- RELEASE_CHANGELOG -->\n",
+                "<!-- RELEASE_CHANGELOG -->\n\n<!-- RELEASE_DOWNLOADS -->\n",
                 encoding="utf-8",
             )
-            changelog.write_text("## 2.0.0\n\nFirst stable release.\n", encoding="utf-8")
+            changelog.write_text(
+                "## 2.0.0\n\nFirst stable release.\n\n### Fixes\n\n- Fixed one issue.\n",
+                encoding="utf-8",
+            )
 
             notes = COMPOSE_RELEASE_NOTES.compose_notes(
                 "2.0.0", "v2.0.0", base, changelog
             )
 
-        self.assertIn("## Download for your system", notes)
+        self.assertIn("## 📥 Download for your system", notes)
         self.assertIn("OxideTerm_2.0.0_windows_x64-setup.exe", notes)
         self.assertIn("OxideTerm_2.0.0_macos_arm64.dmg", notes)
         self.assertIn("OxideTerm_2.0.0_linux_arm64.rpm", notes)
         self.assertNotIn("RELEASE_DOWNLOADS", notes)
+        self.assertNotIn("# Stable", notes)
+        self.assertNotIn("## 2.0.0", notes)
+        self.assertTrue(notes.startswith("First stable release."))
+        self.assertLess(notes.index("### Fixes"), notes.index("## 📥 Download for your system"))
 
     def test_preview_notes_without_download_marker_remain_supported(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -52,7 +59,8 @@ class ComposeReleaseNotesTests(unittest.TestCase):
                 "2.0.0-preview.1", "gpui-v2.0.0-preview.1", base, changelog
             )
 
-        self.assertNotIn("Download for your system", notes)
+        self.assertNotIn("📥 Download for your system", notes)
+        self.assertIn("## 2.0.0-preview.1", notes)
         self.assertIn("Preview notes.", notes)
 
 

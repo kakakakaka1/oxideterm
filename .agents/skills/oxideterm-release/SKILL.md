@@ -84,13 +84,13 @@ Do not derive release notes from commit subjects alone. Read the meaningful impl
 
 ### 3. Write the channel changelog
 
-Insert `## <version>` as the newest entry in the selected changelog. The heading must exactly match the version because `.github/scripts/compose_release_notes.py` extracts it verbatim.
+Insert `## <version>` as the newest entry in the selected changelog. The heading must exactly match the version because `.github/scripts/compose_release_notes.py` uses it to locate the entry. The heading is an extraction boundary, not necessarily part of the published release body.
 
-Write in English to match the existing release files. Use concise user-facing past tense. Combine related commits into one outcome and avoid raw commit-title dumps, implementation trivia, unsupported performance claims, and claims that were not verified.
+Write in English to match the existing release files. Use concise user-facing past tense. Combine related commits into one outcome and avoid raw commit-title dumps, implementation trivia, unsupported performance claims, and claims that were not verified. Use one restrained, semantically relevant emoji on each main stable-release heading to improve scanability; do not decorate every bullet or mix multiple emoji styles within one section.
 
 Apply channel-specific emphasis:
 
-- **Stable:** Summarize the complete delta since the previous stable tag. Start with one short release summary, then use only useful sections such as `### Highlights`, `### Fixes`, `### Security`, or `### Release Maintenance`. Emphasize user-visible behavior and compatibility.
+- **Stable:** Summarize the complete delta since the previous stable tag. Start with one short release summary, then use only useful sections such as `### ✨ Highlights`, `### 🛠️ Fixes`, `### 🔒 Security`, or `### 🧰 Release Maintenance`. Emphasize user-visible behavior and compatibility. The composed GitHub Release body must begin with this summary, omit both a product-major heading such as `# OxideTerm 2.0` and a repeated version heading such as `## 2.0.7`, then place `## 📥 Download for your system`, installation tips, and links after the changelog content.
 - **Beta:** Summarize the delta since the previous beta tag. State what is approaching stable, what changed, and which workflows need validation. Mention known limitations only when supported by the diff or issue context.
 - **GPUI preview:** Summarize the delta since the previous GPUI preview tag. Focus on newly testable native UI/runtime work, parity, rough edges, and concrete testing targets. Keep the compact summary-and-bullets style used by existing preview entries.
 
@@ -128,7 +128,7 @@ python3 .github/scripts/compose_release_notes.py \
   --output /tmp/oxideterm-release-notes-<version>.md
 ```
 
-Read the generated file and verify that the intended section appears once, the channel is correct, and stable download URLs use the target tag.
+Read the generated file and verify that the intended section appears once, the channel is correct, and stable download URLs use the target tag. For stable notes, also verify that the summary is the first visible content, the GitHub Release title is not repeated in the body, and the order is changelog, downloads, installation tips, then links.
 
 ### 6. Review, commit, push, and tag
 

@@ -3,6 +3,35 @@
 Stable releases are listed newest first. The release workflow uses each versioned
 section as the detailed changelog attached to the corresponding GitHub Release.
 
+## 2.0.7
+
+OxideTerm 2.0.7 expands SSH configuration interoperability and startup controls,
+fixes cross-platform terminal rendering defects, and improves workspace reliability.
+
+### ✨ Highlights
+
+- Added automatic SSH Config synchronization that imports new hosts and updates previously imported connections without overwriting same-name manual connections or user-managed metadata.
+- Expanded imported SSH routes with recursive `ProxyJump` resolution and opt-in direct `ProxyCommand` execution; shell operators remain rejected and command values stay out of persistence and diagnostics.
+- Added launch-at-login controls for Windows and Linux, with a direct link to the system Login Items settings for ad-hoc signed macOS builds.
+
+### 🛠️ Fixes
+
+- Prevented Vim terminal queries from being misclassified as Sixel images, eliminating the repeated black artifact blocks they could leave across supported platforms.
+- Preserved a full-screen terminal application's hidden-cursor state instead of replacing it with the configured visible cursor shape.
+- Fixed Windows DirectWrite text corruption caused by mutable shaping buffers being reused after their callback lifetime ended.
+- Loaded standard PowerShell profiles deterministically before Oh My Posh initialization so configured prompts remain available in Windows terminal sessions.
+- Restored Host Tools when OxideSens AI is disabled and corrected saved-connection search focus so hidden inputs no longer intercept terminal keys.
+- Fixed keyboard and IME input routing in portable connection-transfer dialogs.
+- Preserved ACP agent context across tool-call continuations and restored the configured default-key fallback when agent authentication is unavailable.
+- Added the complete ANSI palette to asciicast v2 recordings for compatibility with conforming players.
+- Reported stale saved-connection actions explicitly instead of silently operating on missing entries.
+
+### 🧰 Release Maintenance
+
+- Made issue-quality checks recoverable and covered their policy decisions with focused tests.
+- Published repository-owned release, SSH session-ownership, and secret-handling skills for contributors and coding agents.
+- Simplified stable release notes so the GitHub Release title is not repeated in the body and change details appear before download links.
+
 ## 2.0.6
 
 OxideTerm 2.0.6 improves terminal input and command-mark reliability, adds
