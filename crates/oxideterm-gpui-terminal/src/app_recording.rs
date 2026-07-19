@@ -13,6 +13,7 @@ impl TerminalPane {
             theme: Some(TerminalRecordingTheme {
                 fg: hex_color(self.theme.foreground),
                 bg: hex_color(self.theme.background),
+                palette: asciicast_palette(self.theme.tokens.terminal),
             }),
         };
         self.recorder = Some(TerminalRecorder::start(
@@ -97,4 +98,28 @@ impl TerminalPane {
         // TerminalRecorder, so keep them disabled outside active recording.
         self.terminal.lock().set_output_events_enabled(enabled);
     }
+}
+
+fn asciicast_palette(theme: oxideterm_theme::TerminalTheme) -> String {
+    // Asciicast v2 themes require all 16 ANSI colors when a theme object is present.
+    [
+        theme.black,
+        theme.red,
+        theme.green,
+        theme.yellow,
+        theme.blue,
+        theme.magenta,
+        theme.cyan,
+        theme.white,
+        theme.bright_black,
+        theme.bright_red,
+        theme.bright_green,
+        theme.bright_yellow,
+        theme.bright_blue,
+        theme.bright_magenta,
+        theme.bright_cyan,
+        theme.bright_white,
+    ]
+    .map(hex_color)
+    .join(":")
 }

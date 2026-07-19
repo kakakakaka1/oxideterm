@@ -39,6 +39,7 @@ pub struct TerminalRecordingOptions {
 pub struct TerminalRecordingTheme {
     pub fg: String,
     pub bg: String,
+    pub palette: String,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -395,6 +396,7 @@ impl TerminalRecorder {
             header["theme"] = json!({
                 "fg": theme.fg,
                 "bg": theme.bg,
+                "palette": theme.palette,
             });
         }
 
@@ -516,13 +518,22 @@ mod tests {
 
     #[test]
     fn serializes_asciicast_v2_output() {
+        let palette = [
+            "#000000", "#800000", "#008000", "#808000", "#000080", "#800080", "#008080", "#c0c0c0",
+            "#808080", "#ff0000", "#00ff00", "#ffff00", "#0000ff", "#ff00ff", "#00ffff", "#ffffff",
+        ]
+        .join(":");
         let mut recorder = TerminalRecorder::start(
             80,
             24,
             TerminalRecordingOptions {
                 title: Some("demo".into()),
                 capture_input: false,
-                theme: None,
+                theme: Some(TerminalRecordingTheme {
+                    fg: "#c0c0c0".into(),
+                    bg: "#000000".into(),
+                    palette: palette.clone(),
+                }),
             },
         );
 
@@ -532,7 +543,11 @@ mod tests {
         recorder.record_resize(100, 30);
         let cast = recorder.stop();
 
-        assert!(cast.lines().next().unwrap().contains("\"version\":2"));
+        let header: serde_json::Value = serde_json::from_str(cast.lines().next().unwrap()).unwrap();
+        assert_eq!(header["version"], 2);
+        assert_eq!(header["theme"]["fg"], "#c0c0c0");
+        assert_eq!(header["theme"]["bg"], "#000000");
+        assert_eq!(header["theme"]["palette"], palette);
         assert!(cast.contains("\"hello\""));
         assert!(!cast.contains("secret"));
         assert!(cast.contains("\"r\",\"100x30\""));
