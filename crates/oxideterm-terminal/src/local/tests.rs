@@ -688,6 +688,141 @@ wait
     }
 
     #[test]
+    fn full_screen_application_can_hide_and_restore_the_snapshot_cursor() {
+        let size = TerminalSize {
+            cols: 80,
+            rows: 24,
+            cell_width: 10,
+            cell_height: 20,
+        };
+        let mut term = Term::new(Config::default(), &size, VoidListener);
+        let mut parser = Processor::<StdSyncHandler>::new();
+        let graphics = TerminalGraphicsState::default();
+
+        // TUI applications commonly move the cursor into scratch space before hiding it.
+        parser.advance(&mut term, b"\x1b[6;41H\x1b[?25l");
+        let hidden = snapshot_from_term(&term, size, &graphics);
+        assert_eq!(hidden.cursor_col, 40);
+        assert_eq!(hidden.cursor_row, 5);
+        assert_eq!(hidden.cursor_shape, TerminalCursorShape::Hidden);
+
+        parser.advance(&mut term, b"\x1b[?25h");
+        let visible = snapshot_from_term(&term, size, &graphics);
+        assert_eq!(visible.cursor_shape, TerminalCursorShape::Block);
+    }
+
+    #[test]
+    fn vim_startup_clears_previous_shell_content_from_the_alternate_screen() {
+        let size = TerminalSize {
+            cols: 80,
+            rows: 24,
+            cell_width: 10,
+            cell_height: 20,
+        };
+        let mut term = Term::new(Config::default(), &size, VoidListener);
+        let mut parser = Processor::<StdSyncHandler>::new();
+        let graphics = TerminalGraphicsState::default();
+
+        // Vim enters the alternate screen and clears it after the shell has already
+        // painted a prompt. No prompt glyph may survive in the first snapshot row.
+        parser.advance(
+            &mut term,
+            b"\x1b[48;2;0;0;0m\x1b[38;2;255;255;255mshell-prompt-content\x1b[m",
+        );
+        parser.advance(
+            &mut term,
+            b"\x1b[?1049h\x1b[>4;2m\x1b[?1h\x1b=\x1b[?2004h\x1b[?1004h\x1b[1;24r\x1b[m\x1b[H\x1b[2J\x1b[?25l\x1b[24;1H\"oxideterm-vim-test.txt\" [New]\x1b[1;1H\x1b[?25h",
+        );
+
+        let snapshot = snapshot_from_term(&term, size, &graphics);
+        assert!(
+            snapshot.lines[0].cells.iter().all(|cell| cell.ch == ' '),
+            "Vim's alternate-screen clear retained shell glyphs in the first row"
+        );
+        assert!(
+            snapshot.lines[0]
+                .cells
+                .iter()
+                .all(|cell| cell.bg == OXIDETERM_DARK_THEME.ansi_background),
+            "Vim's alternate-screen clear retained shell backgrounds in the first row"
+        );
+        assert_eq!(snapshot.cursor_row, 0);
+        assert_eq!(snapshot.cursor_col, 0);
+        assert_eq!(snapshot.cursor_shape, TerminalCursorShape::Block);
+    }
+
+    #[test]
+    fn alternate_screen_resize_does_not_restore_primary_screen_backgrounds() {
+        let initial_size = TerminalSize {
+            cols: 80,
+            rows: 24,
+            cell_width: 10,
+            cell_height: 20,
+        };
+        let resized = TerminalSize {
+            cols: 96,
+            rows: 30,
+            ..initial_size
+        };
+        let mut term = Term::new(Config::default(), &initial_size, VoidListener);
+        let mut parser = Processor::<StdSyncHandler>::new();
+        let graphics = TerminalGraphicsState::default();
+
+        // A delayed workspace layout resize can arrive just after a TUI enters the alternate
+        // screen. Resizing that grid must not reintroduce cells from the primary shell screen.
+        parser.advance(
+            &mut term,
+            b"\x1b[48;2;0;0;0m\x1b[38;2;255;255;255mshell-prompt-content\x1b[m",
+        );
+        parser.advance(&mut term, b"\x1b[?1049h\x1b[m\x1b[H\x1b[2J");
+        term.resize(resized);
+
+        let snapshot = snapshot_from_term(&term, resized, &graphics);
+        assert!(
+            snapshot.lines[0]
+                .cells
+                .iter()
+                .all(|cell| cell.ch == ' ' && cell.bg == OXIDETERM_DARK_THEME.ansi_background),
+            "alternate-screen resize restored primary-screen prompt cells"
+        );
+    }
+
+    #[test]
+    fn vim_insert_redraw_preserves_text_and_final_cursor_position() {
+        let size = TerminalSize {
+            cols: 80,
+            rows: 24,
+            cell_width: 10,
+            cell_height: 20,
+        };
+        let mut term = Term::new(Config::default(), &size, VoidListener);
+        let mut parser = Processor::<StdSyncHandler>::new();
+        let graphics = TerminalGraphicsState::default();
+
+        // Vim hides the cursor while clearing its status line, writes the edited row,
+        // moves back onto the final character, and then restores the cursor.
+        parser.advance(
+            &mut term,
+            b"\x1b[?25l\x1b[m\x1b[24;1H\x1b[1m-- INSERT --\x1b[m\x1b[24;13H\x1b[K\x1b[24;1H\x1b[K\x1b[1;1H846\x08\x1b[?25h",
+        );
+
+        let snapshot = snapshot_from_term(&term, size, &graphics);
+        let first_row = &snapshot.lines[0];
+        let text = first_row
+            .cells
+            .iter()
+            .take(3)
+            .map(|cell| cell.ch)
+            .collect::<String>();
+        assert_eq!(text, "846");
+        assert_eq!(snapshot.cursor_row, 0);
+        assert_eq!(snapshot.cursor_col, 2);
+        assert_eq!(snapshot.cursor_shape, TerminalCursorShape::Block);
+        assert_eq!(first_row.cells.iter().filter(|cell| cell.cursor).count(), 1);
+        assert!(first_row.cells[2].cursor);
+    }
+
+    #[test]
     fn yazi_kgp_old_image_is_cleared_after_alt_screen_exit() {
         let size = TerminalSize {
             cols: 80,

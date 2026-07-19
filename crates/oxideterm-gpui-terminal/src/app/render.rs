@@ -18,12 +18,12 @@ use oxideterm_gpui_ui::scroll::ScrollableElement;
 use oxideterm_terminal::{
     DetectedModemProtocol, ModemTransferDirection, SerialControlLine, SerialDisplayMode,
     SerialFlowControl, SerialLineEnding, SerialParity, SerialSendMode, SerialSessionConfig,
-    TerminalCommandMark, TerminalLifecycle, TerminalSnapshot,
+    TerminalCommandMark, TerminalCursorShape, TerminalLifecycle, TerminalSnapshot,
 };
 
 use super::{
     ModemProgressState, TerminalCommandNavigationDirection, TerminalContextAction,
-    TerminalContextMenu, TerminalPane,
+    TerminalContextMenu, TerminalPane, command_mark_ui_available,
 };
 use crate::terminal_ui::*;
 use crate::terminal_view::*;
@@ -98,6 +98,19 @@ fn terminal_visual_bell_overlay_color(bell_background: u32) -> u32 {
     serial_color_alpha(bell_background, TERMINAL_VISUAL_BELL_OVERLAY_ALPHA)
 }
 
+fn terminal_cursor_shape_for_render(
+    terminal_shape: TerminalCursorShape,
+    preferred_shape: TerminalCursorShape,
+) -> TerminalCursorShape {
+    // Full-screen applications place the cursor in arbitrary scratch cells before hiding it.
+    // Preserve that protocol state while still applying the user's shape to visible cursors.
+    if terminal_shape == TerminalCursorShape::Hidden {
+        TerminalCursorShape::Hidden
+    } else {
+        preferred_shape
+    }
+}
+
 impl Focusable for TerminalPane {
     fn focus_handle(&self, _: &App) -> FocusHandle {
         self.focus_handle.clone()
@@ -120,7 +133,9 @@ impl Render for TerminalPane {
         let scrollbar_display_offset = self.smooth_scroll_display_offset();
         let (mut snapshot, smooth_scroll_y_offset, viewport_rows) =
             self.render_snapshot_for_smooth_scroll();
-        snapshot.cursor_shape = self.preferences.cursor_shape;
+        snapshot.cursor_shape =
+            terminal_cursor_shape_for_render(snapshot.cursor_shape, self.preferences.cursor_shape);
+        let terminal_mode = self.terminal.lock().mode();
         let rendered_images = self.image_cache.render_images(
             &snapshot.images,
             self.preferences
@@ -161,6 +176,18 @@ impl Render for TerminalPane {
                 )))
         });
         self.drop_retired_images(window, cx);
+        let command_mark_ui_visible =
+            command_mark_ui_available(self.settings.command_marks_enabled, terminal_mode);
+        let selected_command_mark_id = if command_mark_ui_visible {
+            self.selected_command_mark_id.clone()
+        } else {
+            None
+        };
+        let hovered_command_mark_id = if command_mark_ui_visible {
+            self.hovered_command_mark_id.clone()
+        } else {
+            None
+        };
         let terminal_element = TerminalElement::new_with_images_and_bidi(
             snapshot,
             rendered_images,
@@ -181,13 +208,13 @@ impl Render for TerminalPane {
         )
         .precomputed_search_matches()
         .command_marks(
-            if self.settings.command_marks_enabled {
+            if command_mark_ui_visible {
                 self.command_marks.clone()
             } else {
                 Vec::new()
             },
-            self.selected_command_mark_id.clone(),
-            self.hovered_command_mark_id.clone(),
+            selected_command_mark_id,
+            hovered_command_mark_id,
         )
         .highlight_rules(self.preferences.highlight_rules.clone())
         .row_timestamps(row_timestamps)
@@ -196,7 +223,11 @@ impl Render for TerminalPane {
         .viewport_rows(viewport_rows)
         .scrollbar_display_offset(scrollbar_display_offset)
         .scroll_y_offset(smooth_scroll_y_offset)
-        .command_mark_gutter_width(self.command_mark_gutter_width())
+        .command_mark_gutter_width(if command_mark_ui_visible {
+            self.command_mark_gutter_width()
+        } else {
+            0.0
+        })
         .layout_cache(self.layout_cache.clone());
         let terminal_top = if self.is_serial_transport() {
             SERIAL_CONTROL_BAR_HEIGHT
@@ -306,8 +337,7 @@ impl Render for TerminalPane {
                 pane.child(self.render_terminal_performance_overlay())
             })
             .when(
-                self.settings.command_marks_enabled
-                    && self.settings.command_marks_show_hover_actions,
+                command_mark_ui_visible && self.settings.command_marks_show_hover_actions,
                 |pane| {
                     pane.when_some(self.selected_command_mark(), |pane, mark| {
                         pane.child(self.render_command_mark_actions(mark, cx))
@@ -1685,10 +1715,12 @@ fn terminal_background_object_fit(fit: TerminalBackgroundFit) -> ObjectFit {
 
 #[cfg(test)]
 mod tests {
+    use oxideterm_terminal::TerminalCursorShape;
+
     use super::{
         TERMINAL_VISUAL_BELL_OVERLAY_ALPHA, clamp_terminal_context_menu_position,
-        clamp_terminal_context_submenu_position, terminal_pane_base_is_transparent,
-        terminal_visual_bell_overlay_color,
+        clamp_terminal_context_submenu_position, terminal_cursor_shape_for_render,
+        terminal_pane_base_is_transparent, terminal_visual_bell_overlay_color,
     };
 
     #[test]
@@ -1732,6 +1764,18 @@ mod tests {
         assert_eq!(
             terminal_visual_bell_overlay_color(0x17131a) & 0xff,
             u32::from(TERMINAL_VISUAL_BELL_OVERLAY_ALPHA)
+        );
+    }
+
+    #[test]
+    fn terminal_application_can_hide_the_configured_cursor() {
+        assert_eq!(
+            terminal_cursor_shape_for_render(TerminalCursorShape::Hidden, TerminalCursorShape::Bar),
+            TerminalCursorShape::Hidden
+        );
+        assert_eq!(
+            terminal_cursor_shape_for_render(TerminalCursorShape::Block, TerminalCursorShape::Bar),
+            TerminalCursorShape::Bar
         );
     }
 }

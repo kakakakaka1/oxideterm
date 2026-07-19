@@ -1814,6 +1814,45 @@ mod cache_tests {
         row
     }
 
+    fn row_with_text_and_cursor(absolute_line: i64, text: &str, cursor_col: usize) -> TerminalRow {
+        let mut cells = text
+            .chars()
+            .enumerate()
+            .map(|(col, ch)| TerminalCell {
+                ch,
+                zerowidth: String::new(),
+                wide: false,
+                fg: TerminalColor::rgb(0xe6, 0xe8, 0xeb),
+                bg: TerminalColor::rgb(0x0d, 0x0f, 0x12),
+                attrs: Default::default(),
+                hyperlink: None,
+                cursor: col == cursor_col,
+            })
+            .collect::<Vec<_>>();
+        cells.resize_with(cursor_col.saturating_add(1), || TerminalCell {
+            ch: ' ',
+            zerowidth: String::new(),
+            wide: false,
+            fg: TerminalColor::rgb(0xe6, 0xe8, 0xeb),
+            bg: TerminalColor::rgb(0x0d, 0x0f, 0x12),
+            attrs: Default::default(),
+            hyperlink: None,
+            cursor: false,
+        });
+        if let Some(cursor_cell) = cells.get_mut(cursor_col) {
+            cursor_cell.cursor = true;
+        }
+        let mut row = TerminalRow {
+            absolute_line,
+            cells: Arc::new(cells),
+            wrapped: false,
+            active_input: true,
+            signature: 0,
+        };
+        row.refresh_signature();
+        row
+    }
+
     fn snapshot(display_offset: usize, lines: Vec<TerminalRow>) -> TerminalSnapshot {
         TerminalSnapshot {
             generation: 1,
@@ -1928,6 +1967,40 @@ mod cache_tests {
         assert_eq!(
             before.row_layout_cache_key(1),
             after.row_layout_cache_key(1)
+        );
+    }
+
+    #[test]
+    fn row_layout_cache_key_invalidates_when_a_glyph_is_erased() {
+        let before = element(snapshot(0, vec![row(0, '0')]));
+        let after = element(snapshot(0, vec![row(0, ' ')]));
+
+        assert_ne!(
+            before.row_layout_cache_key(0),
+            after.row_layout_cache_key(0)
+        );
+        assert_eq!(before.layout().text_runs[0].text, "0");
+        assert!(after.layout().text_runs.is_empty());
+    }
+
+    #[test]
+    fn transparent_vim_row_contains_only_current_text_and_cursor() {
+        let mut snapshot = snapshot(0, vec![row_with_text_and_cursor(0, "846", 2)]);
+        snapshot.cols = 3;
+        snapshot.cursor_col = 2;
+        snapshot.cursor_shape = TerminalCursorShape::Bar;
+        let layout = element(snapshot).transparent_background(true).layout();
+
+        assert!(layout.backgrounds.is_empty());
+        assert_eq!(layout.text_runs.len(), 1);
+        assert_eq!(layout.text_runs[0].text, "846");
+        assert_eq!(layout.text_runs[0].col, 0);
+        assert_eq!(layout.text_runs[0].cells, 3);
+        assert_eq!(
+            layout
+                .cursor
+                .map(|cursor| (cursor.row, cursor.col, cursor.shape)),
+            Some((0, 2, TerminalCursorShape::Bar))
         );
     }
 

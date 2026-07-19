@@ -362,6 +362,12 @@ const COMMAND_MARK_DEDUP_LINE_DISTANCE: usize = 2;
 static NEXT_TRZSZ_OWNER_ID: AtomicU64 = AtomicU64::new(1);
 static NEXT_COMMAND_MARK_ID: AtomicU64 = AtomicU64::new(1);
 
+fn command_mark_ui_available(enabled: bool, mode: TermMode) -> bool {
+    // Command marks describe normal-screen scrollback. A full-screen application or terminal
+    // mouse protocol owns the active grid, so stale shell ranges must not remain interactive.
+    enabled && !mode.contains(TermMode::ALT_SCREEN) && !mode.intersects(TermMode::MOUSE_MODE)
+}
+
 include!("app_recording.rs");
 include!("app_command_marks.rs");
 include!("app_modem.rs");
@@ -1541,7 +1547,7 @@ impl TerminalPane {
 
     fn clear_command_mark_selection_for_tui_mode(&mut self, mode: TermMode) -> bool {
         if self.selected_command_mark_id.is_none() && self.hovered_command_mark_id.is_none()
-            || !(mode.contains(TermMode::ALT_SCREEN) || mode.intersects(TermMode::MOUSE_MODE))
+            || command_mark_ui_available(self.settings.command_marks_enabled, mode)
         {
             return false;
         }
@@ -2314,6 +2320,17 @@ mod tests {
     use std::{cell::Cell, collections::HashMap, sync::Arc};
 
     use oxideterm_terminal::{TerminalAttrs, TerminalCell, TerminalColor, TerminalCursorShape};
+
+    #[test]
+    fn command_mark_ui_is_hidden_while_a_tui_owns_the_terminal_surface() {
+        assert!(command_mark_ui_available(true, TermMode::empty()));
+        assert!(!command_mark_ui_available(false, TermMode::empty()));
+        assert!(!command_mark_ui_available(true, TermMode::ALT_SCREEN));
+        assert!(!command_mark_ui_available(
+            true,
+            TermMode::MOUSE_REPORT_CLICK
+        ));
+    }
 
     #[test]
     fn local_cwd_integration_waits_for_first_report_before_becoming_active() {

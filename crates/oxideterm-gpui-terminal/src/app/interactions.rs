@@ -11,6 +11,7 @@ use unicode_width::UnicodeWidthStr;
 
 use super::{
     FreeTypeDragState, ScrollbarDrag, ScrollbarGeometry, TerminalContextMenu, TerminalPane,
+    command_mark_ui_available,
 };
 use crate::command_facts::TerminalAutosuggestInputState;
 use crate::terminal_ui::*;
@@ -873,7 +874,12 @@ impl TerminalPane {
         };
 
         let reference_line = self.absolute_line_for_position(event.position);
-        let command_mark_id = self.command_mark_id_at_absolute_line(reference_line);
+        let terminal_mode = self.terminal.lock().mode();
+        let command_mark_ui_visible =
+            command_mark_ui_available(self.settings.command_marks_enabled, terminal_mode);
+        let command_mark_id = command_mark_ui_visible
+            .then(|| self.command_mark_id_at_absolute_line(reference_line))
+            .flatten();
         let navigation_line = command_mark_id
             .as_deref()
             .and_then(|id| self.command_mark_start_line(id))
@@ -891,12 +897,14 @@ impl TerminalPane {
             has_selection: self.selected_text_snapshot().is_some(),
             reference_line: navigation_line,
             command_mark_id,
-            has_previous_command: self
-                .previous_command_mark_id_before_line(navigation_line)
-                .is_some(),
-            has_next_command: self
-                .next_command_mark_id_after_line(navigation_line)
-                .is_some(),
+            has_previous_command: command_mark_ui_visible
+                && self
+                    .previous_command_mark_id_before_line(navigation_line)
+                    .is_some(),
+            has_next_command: command_mark_ui_visible
+                && self
+                    .next_command_mark_id_after_line(navigation_line)
+                    .is_some(),
         });
         self.selecting = false;
         cx.notify();
@@ -910,8 +918,9 @@ impl TerminalPane {
         let hovered_link = can_hover_terminal_content
             .then(|| self.link_at_position(event.position))
             .flatten();
-        let hovered_command_mark_id = (can_hover_terminal_content
-            && self.settings.command_marks_enabled)
+        let can_hover_command_marks = can_hover_terminal_content
+            && command_mark_ui_available(self.settings.command_marks_enabled, mode);
+        let hovered_command_mark_id = can_hover_command_marks
             .then(|| {
                 let absolute_line = self.absolute_line_for_position(event.position);
                 self.command_mark_id_at_absolute_line(absolute_line)
@@ -988,7 +997,7 @@ impl TerminalPane {
                 && self.selection.is_some_and(|selection| selection.is_empty())
             {
                 if !self.move_cursor_to_free_type_click(event.position, event.modifiers, mode, cx) {
-                    self.select_command_mark_at_position(event.position, cx);
+                    self.select_command_mark_at_position(event.position, mode, cx);
                 }
             }
             self.last_mouse_report_point = None;
@@ -1291,9 +1300,10 @@ impl TerminalPane {
     fn select_command_mark_at_position(
         &mut self,
         position: gpui::Point<Pixels>,
+        mode: TermMode,
         cx: &mut Context<Self>,
     ) {
-        if !self.settings.command_marks_enabled {
+        if !command_mark_ui_available(self.settings.command_marks_enabled, mode) {
             return;
         }
         let absolute_line = self.absolute_line_for_position(position);

@@ -516,6 +516,38 @@ mod tests {
     }
 
     #[test]
+    fn vim_dcs_queries_are_not_decoded_as_sixel_images() {
+        let mut ingress = GraphicsIngress::new(GraphicsOptions::default());
+        let sequence = b"\x1bP$qm\x1b\\\x1bP+q544e\x1b\\";
+        let chunks = [
+            &sequence[..3],
+            &sequence[3..7],
+            &sequence[7..13],
+            &sequence[13..],
+        ];
+        let mut terminal_bytes = Vec::new();
+        let mut events = Vec::new();
+
+        // PTY reads can split a DCS at any byte, including its prefix and terminator.
+        for chunk in chunks {
+            let result = ingress.advance(chunk, cursor());
+            terminal_bytes.extend(result.terminal_bytes);
+            events.extend(result.events);
+        }
+
+        assert_eq!(terminal_bytes, sequence);
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn sixel_numeric_raster_parameters_remain_supported() {
+        assert!(looks_like_sixel(b"q#0~"));
+        assert!(looks_like_sixel(b"0;1;0q#0~"));
+        assert!(!looks_like_sixel(b"$qm"));
+        assert!(!looks_like_sixel(b"+q544e"));
+    }
+
+    #[test]
     fn utf8_continuation_bytes_are_not_treated_as_c1_graphics_controls() {
         let mut ingress = GraphicsIngress::new(GraphicsOptions::default());
         let text = "❯ 2025-2026春季毕设安排.pdf";

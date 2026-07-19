@@ -19,13 +19,15 @@ struct DecodedImageFrame {
 }
 
 fn looks_like_sixel(data: &[u8]) -> bool {
-    data.iter()
-        .position(|byte| *byte == b'q')
-        .is_some_and(|index| {
-            data[..=index]
-                .iter()
-                .all(|byte| byte.is_ascii() && !byte.is_ascii_alphabetic() || *byte == b'q')
-        })
+    let Some(final_byte) = data.iter().position(|byte| *byte == b'q') else {
+        return false;
+    };
+
+    // Sixel accepts only numeric Ps parameters before its `q` final byte. DCS queries such as
+    // DECRQSS (`$q`) and XTGETTCAP (`+q`) must continue to the terminal parser unchanged.
+    data[..final_byte]
+        .iter()
+        .all(|byte| byte.is_ascii_digit() || *byte == b';')
 }
 
 fn decode_image_bytes(bytes: &[u8], pixel_limit: u32) -> Result<DecodedPixels, GraphicsError> {
