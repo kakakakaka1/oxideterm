@@ -76,26 +76,15 @@ fn oxideterm_terminal_env(config: &LocalPtyConfig, _shell: &ShellInfo) -> HashMa
     terminal_env
 }
 
-#[cfg(any(target_os = "windows", test))]
-fn powershell_profile_loader() -> &'static str {
-    // PowerShell's host-dependent startup path is unreliable when a PTY also
-    // supplies -Command. Load each standard profile explicitly and only once.
-    "$__oxideterm_profiles = @($PROFILE.AllUsersAllHosts, $PROFILE.AllUsersCurrentHost, $PROFILE.CurrentUserAllHosts, $PROFILE.CurrentUserCurrentHost) | Where-Object { $_ } | Select-Object -Unique; foreach ($__oxideterm_profile in $__oxideterm_profiles) { if (Test-Path -LiteralPath $__oxideterm_profile) { . $__oxideterm_profile } }; Remove-Variable -Name __oxideterm_profile, __oxideterm_profiles -ErrorAction SilentlyContinue"
-}
-
-#[cfg(any(target_os = "windows", test))]
+#[cfg(target_os = "windows")]
 fn powershell_init_args(config: &LocalPtyConfig, shell: &ShellInfo) -> Option<Vec<String>> {
     if !matches!(shell.id.as_str(), "powershell" | "pwsh") {
         return None;
     }
 
-    let mut init_parts = Vec::new();
-    if config.load_profile {
-        init_parts.push(powershell_profile_loader().to_string());
-    }
-    init_parts.push(
+    let mut init_parts = vec![
         "try { [Console]::InputEncoding = [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}".to_string(),
-    );
+    ];
 
     if config.oh_my_posh_enabled {
         let omp = if let Some(theme) = config
@@ -128,9 +117,7 @@ fn powershell_init_args(config: &LocalPtyConfig, shell: &ShellInfo) -> Option<Ve
         .replace('\'', "''");
     init_parts.push(format!("Set-Location -LiteralPath '{cwd}'"));
 
-    // Prevent PowerShell from loading a host-dependent subset before the
-    // deterministic loader above sources the configured profiles exactly once.
-    let mut args = shell_args_for_profile(shell, false);
+    let mut args = shell_args_for_profile(shell, config.load_profile);
     args.push("-Command".to_string());
     args.push(init_parts.join("; "));
     Some(args)
