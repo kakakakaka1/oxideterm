@@ -137,8 +137,11 @@ impl WorkspaceApp {
         let sidebar_context = self.resolve_ai_sidebar_context_block(cx);
         let selected_context = self.resolve_ai_selected_terminal_context(cx);
         let reference_context = self.resolve_ai_reference_context(&parsed_input.references, cx);
-        let context =
-            ai_chat_message_context([selected_context.or(sidebar_context), reference_context]);
+        let context = ai_chat_message_context([
+            selected_context,
+            sidebar_context,
+            reference_context,
+        ]);
         let slash_command = parsed_input
             .slash_command
             .as_deref()

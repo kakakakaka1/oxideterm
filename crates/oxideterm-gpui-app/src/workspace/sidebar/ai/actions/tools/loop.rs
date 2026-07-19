@@ -1,4 +1,47 @@
 const AI_TOOL_CALLS_PER_ROUND_SAFETY_LIMIT: usize = 16;
+const ACP_BASE_SYSTEM_MESSAGE_ID: &str = "base-system";
+const ACP_CURRENT_CONTEXT_MESSAGE_ID: &str = "current-terminal-context";
+
+pub(in crate::workspace) fn acp_current_turn_prompt(
+    history: &[AiChatMessage],
+) -> Option<String> {
+    let request = history
+        .iter()
+        .rev()
+        .find(|message| message.role == AiChatRole::User)
+        .map(|message| message.content.trim())
+        .filter(|content| !content.is_empty())?;
+    let base_system = history
+        .iter()
+        .find(|message| {
+            message.role == AiChatRole::System && message.id == ACP_BASE_SYSTEM_MESSAGE_ID
+        })
+        .map(|message| message.content.trim())
+        .filter(|content| !content.is_empty());
+    let current_context = history
+        .iter()
+        .find(|message| {
+            message.role == AiChatRole::System && message.id == ACP_CURRENT_CONTEXT_MESSAGE_ID
+        })
+        .map(|message| message.content.trim())
+        .filter(|content| !content.is_empty());
+
+    // ACP owns its conversation history after a session starts. Send only the
+    // freshly built runtime context for this turn so resumed sessions do not
+    // receive duplicate copies of prior user and assistant messages.
+    let mut sections = Vec::with_capacity(3);
+    if let Some(base_system) = base_system {
+        sections.push(format!("## OxideTerm Instructions\n{base_system}"));
+    }
+    if let Some(current_context) = current_context {
+        sections.push(format!("## OxideTerm Current Context\n{current_context}"));
+    }
+    if sections.is_empty() {
+        return Some(oxideterm_ai::sanitize_for_ai(request));
+    }
+    sections.push(format!("## User Request\n{request}"));
+    Some(oxideterm_ai::sanitize_for_ai(&sections.join("\n\n")))
+}
 
 pub(in crate::workspace) async fn run_ai_chat_tool_loop(
     config: AiChatStreamConfig,
@@ -1057,13 +1100,7 @@ pub(in crate::workspace) async fn run_acp_chat_loop(
         );
         return;
     };
-    let Some(prompt) = history
-        .iter()
-        .rev()
-        .find(|message| message.role == AiChatRole::User)
-        .map(|message| message.content.trim().to_string())
-        .filter(|content| !content.is_empty())
-    else {
+    let Some(prompt) = acp_current_turn_prompt(&history) else {
         let _ = send_ai_stream_delivery(
             &ui_tx,
             generation,

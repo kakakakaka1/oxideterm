@@ -159,6 +159,74 @@ mod ai_turn_order_tests {
     }
 
     #[test]
+    fn acp_prompt_includes_current_context_without_replaying_history() {
+        let history = vec![
+            test_message(
+                "base-system",
+                AiChatRole::System,
+                "SSH session host: example.test\nIDE file: src/main.rs".to_string(),
+            ),
+            test_message(
+                "current-terminal-context",
+                AiChatRole::System,
+                "Current terminal context:\nAPI_KEY=supersecret123456\ncargo check failed"
+                    .to_string(),
+            ),
+            test_message(
+                "old-user",
+                AiChatRole::User,
+                "old request must not be replayed".to_string(),
+            ),
+            test_message(
+                "old-assistant",
+                AiChatRole::Assistant,
+                "old response must not be replayed".to_string(),
+            ),
+            test_message(
+                "latest-user",
+                AiChatRole::User,
+                "explain the failure".to_string(),
+            ),
+        ];
+
+        let prompt = acp_current_turn_prompt(&history).expect("ACP prompt");
+
+        assert!(prompt.contains("SSH session host: example.test"));
+        assert!(prompt.contains("IDE file: src/main.rs"));
+        assert!(prompt.contains("cargo check failed"));
+        assert!(prompt.contains("explain the failure"));
+        assert!(!prompt.contains("old request must not be replayed"));
+        assert!(!prompt.contains("old response must not be replayed"));
+        assert!(!prompt.contains("supersecret123456"));
+        assert!(prompt.contains("API_KEY=[REDACTED]"));
+    }
+
+    #[test]
+    fn acp_prompt_without_context_preserves_latest_request() {
+        let history = vec![test_message(
+            "latest-user",
+            AiChatRole::User,
+            "list the current directory".to_string(),
+        )];
+
+        assert_eq!(
+            acp_current_turn_prompt(&history).as_deref(),
+            Some("list the current directory")
+        );
+    }
+
+    #[test]
+    fn acp_prompt_requires_a_non_empty_user_request() {
+        let history = vec![test_message(
+            "base-system",
+            AiChatRole::System,
+            "runtime context".to_string(),
+        )];
+
+        assert!(acp_current_turn_prompt(&history).is_none());
+    }
+
+    #[test]
     fn context_indicator_tool_definition_tokens_use_real_orchestrator_schema() {
         let tools = oxideterm_ai::orchestrator_tool_definitions();
 

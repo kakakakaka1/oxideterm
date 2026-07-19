@@ -36,13 +36,9 @@ impl WorkspaceApp {
         cx: &mut Context<Self>,
     ) -> Option<String> {
         let mut blocks = Vec::new();
-        if self.ai_active_tab_has_split_panes() {
-            if let Some(context) = self.ai_all_panes_terminal_context(cx) {
-                blocks.push(context);
-            }
-        } else if let Some(context) = self.ai_single_pane_terminal_context(cx) {
-            blocks.push(context);
-        }
+        // Terminal output is controlled by the per-message Context chip and
+        // assembled separately. Keep auxiliary sources independent so enabling
+        // terminal context cannot replace the IDE code snapshot.
         if let Some(ide) = self.ai_active_ide_context(cx)
             && let (Some(active_file), Some(snippet)) = (ide.active_file, ide.code_snippet)
         {
