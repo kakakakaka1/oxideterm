@@ -50,6 +50,28 @@ impl WorkspaceApp {
         self.open_settings_tab(window, cx);
     }
 
+    pub(in crate::workspace) fn open_connection_importers_settings(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.settings_page.set_active_tab(SettingsTab::Connections);
+        self.close_settings_select();
+        self.focused_settings_input = None;
+        self.settings_slider_drag = None;
+        self.clear_ime_selection();
+        self.sync_settings_section_list_state();
+        // Target the importer row directly so callers do not merely land at
+        // the top of a long Connections settings page.
+        self.settings_section_list_state
+            .scroll_to(gpui::ListOffset {
+                item_ix: SETTINGS_SECTION_HEADER_ITEM_COUNT
+                    + SETTINGS_CONNECTION_IMPORTERS_SECTION_INDEX,
+                offset_in_item: px(0.0),
+            });
+        self.open_settings(window, cx);
+    }
+
     pub(in crate::workspace) fn close_settings(
         &mut self,
         window: &mut Window,
@@ -384,6 +406,9 @@ impl WorkspaceApp {
 
         match self.settings_page.active_tab {
             SettingsTab::General => {
+                self.launch_at_login_enabled.hash(&mut hasher);
+                self.launch_at_login_loading.hash(&mut hasher);
+                self.launch_at_login_error.hash(&mut hasher);
                 settings.general.minimize_to_tray_on_close.hash(&mut hasher);
                 self.settings_page.cli_companion_loading.hash(&mut hasher);
                 self.settings_page
@@ -393,9 +418,9 @@ impl WorkspaceApp {
                 self.settings_page.cli_companion_status.hash(&mut hasher);
                 let app_lock_section_index =
                     if cfg!(any(target_os = "windows", target_os = "macos")) {
-                        4
+                        5
                     } else {
-                        3
+                        4
                     };
                 if index
                     == oxideterm_settings_model::SETTINGS_SECTION_HEADER_ITEM_COUNT
@@ -950,6 +975,8 @@ impl WorkspaceApp {
                     this.clear_ime_selection();
                     if tab == SettingsTab::General {
                         this.refresh_cli_companion_status(cx);
+                        #[cfg(not(target_os = "macos"))]
+                        this.refresh_launch_at_login_status(cx);
                     }
                     if tab == SettingsTab::Portable {
                         this.refresh_portable_settings_snapshot(true, cx);

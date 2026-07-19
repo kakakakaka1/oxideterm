@@ -1152,6 +1152,8 @@ impl WorkspaceApp {
         self.reveal_active_tab(window);
         if self.settings_page.active_tab == SettingsTab::General {
             self.refresh_cli_companion_status(cx);
+            #[cfg(not(target_os = "macos"))]
+            self.refresh_launch_at_login_status(cx);
         }
         cx.notify();
     }

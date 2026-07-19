@@ -354,7 +354,8 @@ impl WorkspaceApp {
                     },
                 ])
             }
-            3 if cfg!(any(target_os = "windows", target_os = "macos")) => {
+            3 => self.launch_at_login_settings_card(cx),
+            4 if cfg!(any(target_os = "windows", target_os = "macos")) => {
                 let (label_key, hint_key) = close_to_background_label_keys();
                 self.settings_card(
                     "settings_view.general.window_behavior",
@@ -368,12 +369,255 @@ impl WorkspaceApp {
                     )],
                 )
             }
-            4 if cfg!(any(target_os = "windows", target_os = "macos")) => {
+            5 if cfg!(any(target_os = "windows", target_os = "macos")) => {
                 self.render_app_lock_settings_card(cx)
             }
-            3 => self.render_app_lock_settings_card(cx),
+            4 => self.render_app_lock_settings_card(cx),
             _ => div().into_any_element(),
         }
+    }
+
+    #[cfg(target_os = "macos")]
+    pub(in crate::workspace) fn launch_at_login_settings_card(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        // TODO(signing): Once every macOS artifact is Developer ID signed and
+        // notarized, replace this system-settings handoff with an in-app
+        // SMAppService register/unregister toggle and remove the manual copy.
+        let mut description = div()
+            .min_w(px(0.0))
+            .flex_1()
+            .flex()
+            .flex_col()
+            .gap(px(4.0))
+            .child(
+                div()
+                    .text_size(px(self.tokens.metrics.ui_text_sm))
+                    .font_weight(gpui::FontWeight::MEDIUM)
+                    .text_color(rgb(self.tokens.ui.text))
+                    .child(self.i18n.t("settings_view.general.launch_at_login")),
+            )
+            .child(
+                div()
+                    .text_size(px(self.tokens.metrics.ui_text_xs))
+                    .text_color(rgb(self.tokens.ui.text_muted))
+                    .child(
+                        self.i18n
+                            .t("settings_view.general.launch_at_login_macos_hint"),
+                    ),
+            );
+        if let Some(error) = self.launch_at_login_error.clone() {
+            description = description.child(
+                div()
+                    .text_size(px(self.tokens.metrics.ui_text_xs))
+                    .text_color(rgb(self.tokens.ui.error))
+                    .child(
+                        self.i18n
+                            .t("settings_view.general.launch_at_login_failed")
+                            .replace("{{error}}", &error),
+                    ),
+            );
+        }
+        let manage_button = self.workspace_toolbar_action_button(
+            self.i18n.t("settings_view.general.manage_login_items"),
+            None,
+            ToolbarButtonOptions {
+                button: ButtonOptions {
+                    variant: ButtonVariant::Outline,
+                    size: ButtonSize::Sm,
+                    radius: ButtonRadius::Md,
+                    disabled: false,
+                },
+                ..ToolbarButtonOptions::default()
+            },
+            cx.listener(|this, _event, _window, cx| {
+                this.launch_at_login_error =
+                    oxideterm_gpui_platform::autostart::open_login_items_settings()
+                        .err()
+                        .map(|error| error.to_string());
+                cx.stop_propagation();
+                cx.notify();
+            }),
+        );
+
+        self.settings_card(
+            "settings_view.general.startup",
+            "settings_view.general.startup_hint",
+            vec![
+                div()
+                    .w_full()
+                    .min_w(px(0.0))
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .gap(px(16.0))
+                    .child(description)
+                    .child(manage_button)
+                    .into_any_element(),
+            ],
+        )
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    pub(in crate::workspace) fn launch_at_login_settings_card(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let loading = self.launch_at_login_loading;
+        let enabled = self.launch_at_login_enabled;
+        let error = self.launch_at_login_error.clone();
+        let control = div()
+            .flex_none()
+            .opacity(if loading { 0.55 } else { 1.0 })
+            .child(
+                checkbox(&self.tokens, String::new(), enabled).on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(move |this, _event, _window, cx| {
+                        if !this.launch_at_login_loading {
+                            this.set_launch_at_login_enabled(!enabled, cx);
+                        }
+                        cx.stop_propagation();
+                    }),
+                ),
+            );
+        let mut label = div()
+            .min_w(px(0.0))
+            .flex_1()
+            .flex()
+            .flex_col()
+            .gap(px(4.0))
+            .child(
+                div()
+                    .text_size(px(self.tokens.metrics.ui_text_sm))
+                    .font_weight(gpui::FontWeight::MEDIUM)
+                    .text_color(rgb(self.tokens.ui.text))
+                    .child(self.i18n.t("settings_view.general.launch_at_login")),
+            )
+            .child(
+                div()
+                    .text_size(px(self.tokens.metrics.ui_text_xs))
+                    .text_color(rgb(self.tokens.ui.text_muted))
+                    .child(self.i18n.t("settings_view.general.launch_at_login_hint")),
+            );
+        if loading {
+            label = label.child(
+                div()
+                    .text_size(px(self.tokens.metrics.ui_text_xs))
+                    .text_color(rgb(self.tokens.ui.text_muted))
+                    .child(
+                        self.i18n
+                            .t("settings_view.general.launch_at_login_updating"),
+                    ),
+            );
+        }
+        if let Some(error) = error {
+            label = label.child(
+                div()
+                    .text_size(px(self.tokens.metrics.ui_text_xs))
+                    .text_color(rgb(self.tokens.ui.error))
+                    .child(
+                        self.i18n
+                            .t("settings_view.general.launch_at_login_failed")
+                            .replace("{{error}}", &error),
+                    ),
+            );
+        }
+
+        self.settings_card(
+            "settings_view.general.startup",
+            "settings_view.general.startup_hint",
+            vec![
+                div()
+                    .w_full()
+                    .min_w(px(0.0))
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .gap(px(16.0))
+                    .child(label)
+                    .child(control)
+                    .into_any_element(),
+            ],
+        )
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    pub(in crate::workspace) fn refresh_launch_at_login_status(&mut self, cx: &mut Context<Self>) {
+        if self.launch_at_login_loading {
+            return;
+        }
+        self.launch_at_login_loading = true;
+        self.launch_at_login_error = None;
+        let runtime = self.forwarding_runtime.clone();
+        cx.spawn(async move |weak, cx| {
+            let result = runtime
+                .spawn_blocking(oxideterm_gpui_platform::autostart::is_enabled)
+                .await
+                .map_err(|error| error.to_string())
+                .and_then(|result| result.map_err(|error| error.to_string()));
+            let _ = weak.update(cx, |this, cx| {
+                this.launch_at_login_loading = false;
+                match result {
+                    Ok(enabled) => {
+                        this.launch_at_login_enabled = enabled;
+                        this.launch_at_login_error = None;
+                    }
+                    Err(error) => this.launch_at_login_error = Some(error),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    pub(in crate::workspace) fn set_launch_at_login_enabled(
+        &mut self,
+        enabled: bool,
+        cx: &mut Context<Self>,
+    ) {
+        if self.launch_at_login_loading {
+            return;
+        }
+        self.launch_at_login_loading = true;
+        self.launch_at_login_error = None;
+        let runtime = self.forwarding_runtime.clone();
+        cx.spawn(async move |weak, cx| {
+            let result = runtime
+                .spawn_blocking(move || {
+                    oxideterm_gpui_platform::autostart::set_enabled(enabled)?;
+                    let actual = oxideterm_gpui_platform::autostart::is_enabled()?;
+                    if actual != enabled {
+                        return Err(std::io::Error::other(
+                            "the operating system did not retain the startup setting",
+                        ));
+                    }
+                    Ok(actual)
+                })
+                .await;
+            let _ = weak.update(cx, |this, cx| {
+                this.launch_at_login_loading = false;
+                match result {
+                    Ok(Ok(enabled)) => {
+                        this.launch_at_login_enabled = enabled;
+                        this.launch_at_login_error = None;
+                    }
+                    Ok(Err(error)) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+                        this.launch_at_login_error = Some(
+                            this.i18n
+                                .t("settings_view.general.launch_at_login_approval_required"),
+                        );
+                    }
+                    Ok(Err(error)) => this.launch_at_login_error = Some(error.to_string()),
+                    Err(error) => this.launch_at_login_error = Some(error.to_string()),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
     }
 
     pub(in crate::workspace) fn general_checkbox_row(

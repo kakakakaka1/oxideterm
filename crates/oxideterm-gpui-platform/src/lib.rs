@@ -1,3 +1,4 @@
+pub mod autostart;
 pub mod rendering;
 pub mod vibrancy;
 

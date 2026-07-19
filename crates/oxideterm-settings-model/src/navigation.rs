@@ -197,9 +197,9 @@ pub fn settings_tab_section_count(
     match tab {
         SettingsTab::General => {
             if cfg!(any(target_os = "windows", target_os = "macos")) {
-                5
+                6
             } else {
-                4
+                5
             }
         }
         SettingsTab::Portable => 1,
@@ -363,9 +363,9 @@ mod tests {
             knowledge_has_selected_collection: false,
         };
         let expected = if cfg!(any(target_os = "windows", target_os = "macos")) {
-            5
+            6
         } else {
-            4
+            5
         };
 
         assert_eq!(
