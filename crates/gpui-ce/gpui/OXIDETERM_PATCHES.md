@@ -138,6 +138,22 @@ results or entering later dispatch work:
 These are semantic lock-scope safeguards migrated from the previous GPUI vendor tree. Do not
 collapse the bindings back into `if let` scrutinee temporaries during cleanup.
 
+### Windows DirectWrite callback and glyph readback safety
+
+`crates/gpui-ce/gpui_windows/src/direct_write.rs` carries the Windows text-rendering hardening
+landed in `zed-industries/zed@89e8a4b9ec7e` after the pinned GPUI-CE baseline:
+
+- the renderer context passed to `IDWriteTextLayout::Draw` is a mutable binding and the callback
+  pointer is derived from `&raw mut`, because `DrawGlyphRun` appends shaped runs and advances the
+  measured width through that pointer;
+- DirectWrite glyph arrays are converted with a null-aware helper, so a zero-length null array is
+  accepted without constructing an invalid Rust slice and a nonzero null array is rejected;
+- color-glyph staging textures are unmapped immediately after their rows are copied.
+
+The mutable-pointer provenance fix prevents optimized Windows builds from treating callback writes
+as undefined behavior, which can otherwise surface as missing, stale, or misplaced terminal glyphs.
+Preserve this patch until the next audited GPUI-CE baseline contains the equivalent upstream fix.
+
 ### DynamicTexture and renderer resource generations
 
 OxideTerm remote desktop requires one stable mutable BGRA framebuffer instead

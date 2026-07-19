@@ -1,3 +1,6 @@
+// Modified by OxideTerm contributors to preserve mutable DirectWrite callback provenance and
+// release mapped glyph readback resources deterministically.
+
 use std::{
     borrow::Cow,
     ffi::{c_uint, c_void},
@@ -608,7 +611,7 @@ impl DirectWriteState {
             }
 
             let mut runs = Vec::new();
-            let renderer_context = RendererContext {
+            let mut renderer_context = RendererContext {
                 text_system: self,
                 components,
                 index_converter: StringIndexConverter::new(text),
@@ -616,7 +619,7 @@ impl DirectWriteState {
                 width: 0.0,
             };
             text_layout.Draw(
-                Some((&raw const renderer_context).cast::<c_void>()),
+                Some((&raw mut renderer_context).cast::<c_void>().cast_const()),
                 &components.text_renderer.0,
                 0.0,
                 0.0,
@@ -881,6 +884,8 @@ impl DirectWriteState {
         params: &RenderGlyphParams,
         glyph_bounds: Bounds<DevicePixels>,
     ) -> Result<Vec<u8>> {
+        // This method drives the shared D3D11 immediate context, so glyph rasterization must
+        // remain on the main UI thread alongside the renderer and atlas operations.
         let bitmap_size = glyph_bounds.size;
         let subpixel_shift = params
             .subpixel_variant
@@ -1173,6 +1178,9 @@ impl DirectWriteState {
                 )
             };
         }
+
+        // Release the mapping before the staging texture is reused by later glyph uploads.
+        unsafe { device_context.Unmap(&staging_texture, 0) };
 
         // Convert from premultiplied to straight alpha
         for chunk in rasterized.chunks_exact_mut(4) {
@@ -1519,13 +1527,34 @@ impl IDWriteTextRenderer_Impl for TextRenderer_Impl {
 
         let color_font = unsafe { font_face.IsColorFont().as_bool() };
 
-        let glyph_ids = unsafe { std::slice::from_raw_parts(glyphrun.glyphIndices, glyph_count) };
-        let glyph_advances =
-            unsafe { std::slice::from_raw_parts(glyphrun.glyphAdvances, glyph_count) };
-        let glyph_offsets =
-            unsafe { std::slice::from_raw_parts(glyphrun.glyphOffsets, glyph_count) };
-        let cluster_map =
-            unsafe { std::slice::from_raw_parts(desc.clusterMap, desc.stringLength as usize) };
+        let glyph_ids = unsafe {
+            slice_from_nullable(
+                glyphrun.glyphIndices,
+                glyph_count,
+                "DirectWrite returned a null glyph indices array",
+            )?
+        };
+        let glyph_advances = unsafe {
+            slice_from_nullable(
+                glyphrun.glyphAdvances,
+                glyph_count,
+                "DirectWrite returned a null glyph advances array",
+            )?
+        };
+        let glyph_offsets = unsafe {
+            slice_from_nullable(
+                glyphrun.glyphOffsets,
+                glyph_count,
+                "DirectWrite returned a null glyph offsets array",
+            )?
+        };
+        let cluster_map = unsafe {
+            slice_from_nullable(
+                desc.clusterMap,
+                desc.stringLength as usize,
+                "DirectWrite returned a null cluster map",
+            )?
+        };
 
         let cluster_analyzer = ClusterAnalyzer::new(cluster_map, glyph_count);
         let mut utf16_idx = desc.textPosition as usize;
@@ -1602,6 +1631,28 @@ impl IDWriteTextRenderer_Impl for TextRenderer_Impl {
             E_NOTIMPL,
             "DrawInlineObject unimplemented",
         ))
+    }
+}
+
+/// Converts an optional DirectWrite array pointer into a slice without constructing a Rust slice
+/// from a null pointer. A nonzero length still requires a valid backing array.
+///
+/// # Safety
+///
+/// When `ptr` is non-null, it must reference at least `len` initialized elements that outlive the
+/// returned slice.
+unsafe fn slice_from_nullable<'a, T>(
+    ptr: *const T,
+    len: usize,
+    null_error_message: &str,
+) -> windows::core::Result<&'a [T]> {
+    if ptr.is_null() {
+        if len != 0 {
+            return Err(Error::new(E_INVALIDARG, null_error_message));
+        }
+        Ok(&[])
+    } else {
+        Ok(unsafe { std::slice::from_raw_parts(ptr, len) })
     }
 }
 
