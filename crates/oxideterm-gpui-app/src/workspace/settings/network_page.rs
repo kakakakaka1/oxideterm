@@ -43,6 +43,23 @@ pub(in crate::workspace) fn network_proxy_auth_label(
     }
 }
 
+fn schedule_settings_network_proxy_test(
+    runtime: &tokio::runtime::Runtime,
+    host: String,
+    port: u16,
+    upstream_proxy: UpstreamProxyConfig,
+) -> tokio::sync::oneshot::Receiver<HostKeyStatus> {
+    let (status_tx, status_rx) = tokio::sync::oneshot::channel();
+    // The workspace runtime owns network I/O; the GPUI task receives only the
+    // resulting status and never polls Tokio sockets on the UI executor.
+    runtime.spawn(async move {
+        let status =
+            check_host_key_with_upstream_proxy(&host, port, 10, Some(&upstream_proxy)).await;
+        let _ = status_tx.send(status);
+    });
+    status_rx
+}
+
 impl WorkspaceApp {
     pub(in crate::workspace) fn settings_network_section(
         &self,
@@ -883,10 +900,17 @@ impl WorkspaceApp {
         self.settings_network_proxy_test_pending = true;
         self.settings_network_proxy_test_status = None;
         let started_at = std::time::Instant::now();
+        let status_rx = schedule_settings_network_proxy_test(
+            self.forwarding_runtime.as_ref(),
+            host,
+            port,
+            upstream_proxy,
+        );
 
         cx.spawn(async move |weak, cx| {
-            let status =
-                check_host_key_with_upstream_proxy(&host, port, 10, Some(&upstream_proxy)).await;
+            let status = status_rx.await.unwrap_or_else(|_| HostKeyStatus::Error {
+                message: "proxy route test task stopped unexpectedly".to_string(),
+            });
             let elapsed = started_at.elapsed().as_millis();
             let _ = weak.update(cx, move |this, cx| {
                 this.settings_network_proxy_test_pending = false;
@@ -937,5 +961,46 @@ impl WorkspaceApp {
             remote_dns: proxy.remote_dns,
             no_proxy: proxy.no_proxy,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn proxy_route_test_enters_workspace_tokio_runtime() {
+        let proxy_listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+            .expect("bind a proxy test listener");
+        let proxy_port = proxy_listener
+            .local_addr()
+            .expect("read proxy address")
+            .port();
+        let proxy_server = std::thread::spawn(move || {
+            // Closing the accepted socket forces a deterministic SOCKS handshake error.
+            let (stream, _) = proxy_listener.accept().expect("accept proxy test client");
+            drop(stream);
+        });
+
+        let runtime = tokio::runtime::Runtime::new().expect("create workspace runtime");
+        let status_rx = schedule_settings_network_proxy_test(
+            &runtime,
+            "proxy-test-target.invalid".to_string(),
+            22,
+            UpstreamProxyConfig {
+                protocol: UpstreamProxyProtocol::Socks5,
+                host: std::net::Ipv4Addr::LOCALHOST.to_string(),
+                port: proxy_port,
+                auth: UpstreamProxyAuth::None,
+                remote_dns: true,
+                no_proxy: String::new(),
+            },
+        );
+
+        let status = status_rx
+            .blocking_recv()
+            .expect("receive the proxy test result outside Tokio");
+        proxy_server.join().expect("join proxy test server");
+        assert!(matches!(status, HostKeyStatus::Error { .. }));
     }
 }
