@@ -1,7 +1,14 @@
 // Copyright (C) 2026 AnalyseDeCircuit
 // SPDX-License-Identifier: GPL-3.0-only
 
-use std::{collections::HashMap, net::SocketAddr, sync::Arc};
+use std::{
+    collections::HashMap,
+    net::SocketAddr,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+};
 
 use oxideterm_forwarding::{ForwardRule, ForwardingManager};
 use oxideterm_ssh::{
@@ -48,6 +55,29 @@ async fn local_forward_moves_bytes_through_real_ssh_server() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn local_forward_stop_releases_listener_before_returning() {
+    let echo_addr = start_echo_service().await;
+    let ssh = start_forwarding_ssh_server().await;
+    let handle = connect_test_client(&ssh).await;
+    let manager = ForwardingManager::new("session-local-stop", handle);
+    let rule = manager
+        .create_forward(ForwardRule::local(
+            "127.0.0.1",
+            0,
+            echo_addr.ip().to_string(),
+            echo_addr.port(),
+        ))
+        .await
+        .unwrap();
+
+    manager.stop_forward(&rule.id).await.unwrap();
+    let rebound_listener = TcpListener::bind(("127.0.0.1", rule.bind_port))
+        .await
+        .unwrap();
+    drop(rebound_listener);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn dynamic_forward_moves_socks5_bytes_through_real_ssh_server() {
     let echo_addr = start_echo_service().await;
     let ssh = start_forwarding_ssh_server().await;
@@ -80,6 +110,28 @@ async fn dynamic_forward_moves_socks5_bytes_through_real_ssh_server() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn dynamic_forward_stop_closes_incomplete_handshake_and_releases_listener() {
+    let ssh = start_forwarding_ssh_server().await;
+    let handle = connect_test_client(&ssh).await;
+    let manager = ForwardingManager::new("session-dynamic-stop", handle);
+    let rule = manager
+        .create_forward(ForwardRule::dynamic("127.0.0.1", 0))
+        .await
+        .unwrap();
+    let mut incomplete_client = TcpStream::connect(("127.0.0.1", rule.bind_port))
+        .await
+        .unwrap();
+
+    manager.stop_forward(&rule.id).await.unwrap();
+
+    assert_stream_closed(&mut incomplete_client).await;
+    let rebound_listener = TcpListener::bind(("127.0.0.1", rule.bind_port))
+        .await
+        .unwrap();
+    drop(rebound_listener);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn remote_forward_moves_bytes_through_real_ssh_server() {
     let echo_addr = start_echo_service().await;
     let ssh = start_forwarding_ssh_server().await;
@@ -99,6 +151,24 @@ async fn remote_forward_moves_bytes_through_real_ssh_server() {
         roundtrip(("127.0.0.1", rule.bind_port), b"remote").await,
         b"remote".to_vec()
     );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn remote_forward_health_check_uses_local_target() {
+    let echo_addr = start_echo_service().await;
+    let ssh = start_forwarding_ssh_server().await;
+    let handle = connect_test_client(&ssh).await;
+    let manager = ForwardingManager::new("session-remote-health", handle);
+    let rule = manager
+        .create_forward_with_health_check(
+            ForwardRule::remote("127.0.0.1", 0, echo_addr.ip().to_string(), echo_addr.port()),
+            true,
+        )
+        .await
+        .unwrap();
+
+    assert!(ssh.direct_tcpip_opens.lock().await.is_empty());
+    manager.stop_forward(&rule.id).await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -132,6 +202,67 @@ async fn explicit_remote_forward_stops_and_releases_requested_port() {
     drop(rebound_listener);
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn remote_forward_stop_closes_existing_bridge() {
+    let echo_addr = start_echo_service().await;
+    let ssh = start_forwarding_ssh_server().await;
+    let handle = connect_test_client(&ssh).await;
+    let manager = ForwardingManager::new("session-remote-active-stop", handle);
+    let rule = manager
+        .create_forward(ForwardRule::remote(
+            "127.0.0.1",
+            0,
+            echo_addr.ip().to_string(),
+            echo_addr.port(),
+        ))
+        .await
+        .unwrap();
+    let mut active_client = TcpStream::connect(("127.0.0.1", rule.bind_port))
+        .await
+        .unwrap();
+    active_client.write_all(b"active").await.unwrap();
+    let mut echoed = [0_u8; 6];
+    active_client.read_exact(&mut echoed).await.unwrap();
+    assert_eq!(&echoed, b"active");
+
+    manager.stop_forward(&rule.id).await.unwrap();
+
+    assert_stream_closed(&mut active_client).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn rejected_remote_cancel_keeps_rule_active() {
+    let echo_addr = start_echo_service().await;
+    let ssh = start_forwarding_ssh_server().await;
+    let handle = connect_test_client(&ssh).await;
+    let manager = ForwardingManager::new("session-remote-cancel-rejected", handle);
+    let rule = manager
+        .create_forward(ForwardRule::remote(
+            "127.0.0.1",
+            0,
+            echo_addr.ip().to_string(),
+            echo_addr.port(),
+        ))
+        .await
+        .unwrap();
+    ssh.reject_remote_cancel.store(true, Ordering::SeqCst);
+
+    assert!(manager.stop_forward(&rule.id).await.is_err());
+    let retained = manager
+        .list_forwards()
+        .into_iter()
+        .find(|candidate| candidate.id == rule.id)
+        .unwrap();
+    assert_eq!(retained.status, oxideterm_forwarding::ForwardStatus::Active);
+    assert_eq!(
+        roundtrip(("127.0.0.1", rule.bind_port), b"retained").await,
+        b"retained".to_vec()
+    );
+
+    ssh.reject_remote_cancel.store(false, Ordering::SeqCst);
+    manager.stop_forward(&rule.id).await.unwrap();
+}
+
 async fn connect_test_client(ssh: &TestSshServer) -> SshConnectionHandle {
     let mut config = SshConfig::password("127.0.0.1", ssh.port, "tester", "password");
     config.timeout_secs = 5;
@@ -154,6 +285,22 @@ async fn roundtrip(addr: (&str, u16), payload: &[u8]) -> Vec<u8> {
     let mut buf = vec![0_u8; payload.len()];
     stream.read_exact(&mut buf).await.unwrap();
     buf
+}
+
+async fn assert_stream_closed(stream: &mut TcpStream) {
+    let mut buffer = [0_u8; 1];
+    let result = tokio::time::timeout(std::time::Duration::from_secs(1), stream.read(&mut buffer))
+        .await
+        .expect("forwarded connection remained open after stop");
+    match result {
+        Ok(0) => {}
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::ConnectionAborted
+            ) => {}
+        other => panic!("expected a closed forwarded connection, got {other:?}"),
+    }
 }
 
 async fn start_echo_service() -> SocketAddr {
@@ -182,6 +329,7 @@ struct TestSshServer {
     port: u16,
     host_key_fingerprint: String,
     direct_tcpip_opens: Arc<Mutex<Vec<DirectTcpipOpen>>>,
+    reject_remote_cancel: Arc<AtomicBool>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -207,6 +355,8 @@ async fn start_forwarding_ssh_server() -> TestSshServer {
     let forwards = Arc::new(Mutex::new(HashMap::new()));
     let direct_tcpip_opens = Arc::new(Mutex::new(Vec::new()));
     let server_direct_tcpip_opens = direct_tcpip_opens.clone();
+    let reject_remote_cancel = Arc::new(AtomicBool::new(false));
+    let server_reject_remote_cancel = reject_remote_cancel.clone();
 
     tokio::spawn(async move {
         loop {
@@ -216,6 +366,7 @@ async fn start_forwarding_ssh_server() -> TestSshServer {
             let handler = ForwardingServer {
                 forwards: forwards.clone(),
                 direct_tcpip_opens: server_direct_tcpip_opens.clone(),
+                reject_remote_cancel: server_reject_remote_cancel.clone(),
             };
             let config = config.clone();
             tokio::spawn(async move {
@@ -228,6 +379,7 @@ async fn start_forwarding_ssh_server() -> TestSshServer {
         port,
         host_key_fingerprint,
         direct_tcpip_opens,
+        reject_remote_cancel,
     }
 }
 
@@ -235,6 +387,7 @@ async fn start_forwarding_ssh_server() -> TestSshServer {
 struct ForwardingServer {
     forwards: Arc<Mutex<HashMap<(String, u32), tokio::task::JoinHandle<()>>>>,
     direct_tcpip_opens: Arc<Mutex<Vec<DirectTcpipOpen>>>,
+    reject_remote_cancel: Arc<AtomicBool>,
 }
 
 impl server::Handler for ForwardingServer {
@@ -348,6 +501,9 @@ impl server::Handler for ForwardingServer {
         port: u32,
         _session: &mut Session,
     ) -> Result<bool, Self::Error> {
+        if self.reject_remote_cancel.load(Ordering::SeqCst) {
+            return Ok(false);
+        }
         if let Some(task) = self
             .forwards
             .lock()

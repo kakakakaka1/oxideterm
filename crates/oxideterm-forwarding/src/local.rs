@@ -7,12 +7,14 @@ use oxideterm_ssh::SshConnectionHandle;
 use tokio::{
     net::{TcpListener, TcpStream},
     sync::watch,
-    task::JoinHandle,
+    task::{JoinHandle, JoinSet},
 };
 
 use crate::{
     BridgeStatsRecorder, DEFAULT_FORWARD_IDLE_TIMEOUT, ForwardRule, ForwardStats, ForwardStatus,
-    ForwardingError, bridge::bridge_tcp_to_ssh_stream, tauri_local_bind_error,
+    ForwardingError,
+    bridge::{bridge_tcp_to_ssh_stream, wait_for_shutdown},
+    tauri_local_bind_error,
 };
 
 const FORWARD_STOP_GRACE_PERIOD: Duration = Duration::from_secs(5);
@@ -65,12 +67,14 @@ impl LocalForward {
 
     pub(crate) async fn stop(self) -> ForwardRule {
         let _ = self.shutdown_tx.send(true);
-        let _ = self
-            .stats
-            .active_connections()
-            .wait_zero(FORWARD_STOP_GRACE_PERIOD)
-            .await;
-        self.task.abort();
+        let mut task = self.task;
+        if tokio::time::timeout(FORWARD_STOP_GRACE_PERIOD, &mut task)
+            .await
+            .is_err()
+        {
+            task.abort();
+            let _ = task.await;
+        }
         let mut stopped = self.rule;
         stopped.status = ForwardStatus::Stopped;
         stopped
@@ -82,13 +86,20 @@ async fn accept_local_connections(
     ssh_connection: SshConnectionHandle,
     rule: ForwardRule,
     stats: BridgeStatsRecorder,
-    mut shutdown_rx: watch::Receiver<bool>,
+    shutdown_rx: watch::Receiver<bool>,
 ) {
+    // The listener task owns every accepted bridge so stopping the rule cannot
+    // leave detached connection work behind.
+    let mut connections = JoinSet::new();
     loop {
         tokio::select! {
-            changed = shutdown_rx.changed() => {
-                if changed.is_ok() && *shutdown_rx.borrow() {
-                    break;
+            biased;
+            _ = wait_for_shutdown(shutdown_rx.clone()) => {
+                break;
+            }
+            completed = connections.join_next(), if !connections.is_empty() => {
+                if let Some(Err(error)) = completed {
+                    tracing::debug!("local forward connection task ended unexpectedly: {error}");
                 }
             }
             accepted = listener.accept() => {
@@ -106,7 +117,7 @@ async fn accept_local_connections(
                 let connection_rule = rule.clone();
                 let connection_stats = stats.clone();
                 let connection_shutdown = shutdown_rx.clone();
-                tokio::spawn(async move {
+                connections.spawn(async move {
                     if let Err(error) = bridge_local_connection(
                         stream,
                         connection,
@@ -124,6 +135,9 @@ async fn accept_local_connections(
             }
         }
     }
+
+    connections.abort_all();
+    while connections.join_next().await.is_some() {}
 }
 
 async fn bridge_local_connection(
@@ -135,9 +149,16 @@ async fn bridge_local_connection(
     _origin_host: String,
     _origin_port: u16,
 ) -> Result<(), ForwardingError> {
-    let ssh_stream = ssh_connection
-        .open_direct_tcpip(&rule.target_host, rule.target_port, "127.0.0.1", 0)
-        .await?;
+    let ssh_stream = tokio::select! {
+        biased;
+        _ = wait_for_shutdown(shutdown_rx.clone()) => return Ok(()),
+        result = ssh_connection.open_direct_tcpip(
+            &rule.target_host,
+            rule.target_port,
+            "127.0.0.1",
+            0,
+        ) => result?,
+    };
 
     bridge_tcp_to_ssh_stream(
         stream,

@@ -115,21 +115,37 @@ impl ForwardingManager {
     ) -> Result<ForwardRule, ForwardingError> {
         rule.normalize_hosts_for_runtime();
         if check_health && rule.forward_type != ForwardType::Dynamic {
-            match self
-                .check_port_available(&rule.target_host, rule.target_port, 3000)
-                .await
-            {
+            let unreachable_message = match rule.forward_type {
+                ForwardType::Local => {
+                    build_unreachable_port_error(&rule.target_host, rule.target_port)
+                }
+                ForwardType::Remote => {
+                    build_unreachable_local_port_error(&rule.target_host, rule.target_port)
+                }
+                ForwardType::Dynamic => unreachable!(),
+            };
+            let health = match rule.forward_type {
+                ForwardType::Local => {
+                    self.check_port_available(&rule.target_host, rule.target_port, 3000)
+                        .await
+                }
+                ForwardType::Remote => {
+                    check_local_port_available(&rule.target_host, rule.target_port, 3000).await
+                }
+                ForwardType::Dynamic => unreachable!(),
+            };
+            match health {
                 Ok(true) => {}
                 Ok(false) => {
-                    return Err(ForwardingError::InvalidRule(build_unreachable_port_error(
-                        &rule.target_host,
-                        rule.target_port,
-                    )));
+                    return Err(ForwardingError::InvalidRule(unreachable_message));
                 }
                 Err(error) => {
-                    return Err(ForwardingError::Ssh(build_health_check_error_message(
-                        &error.to_string(),
-                    )));
+                    let message = build_health_check_error_message(&error.to_string());
+                    return Err(match rule.forward_type {
+                        ForwardType::Local => ForwardingError::Ssh(message),
+                        ForwardType::Remote => ForwardingError::ConnectionFailed(message),
+                        ForwardType::Dynamic => unreachable!(),
+                    });
                 }
             }
         }
@@ -153,7 +169,11 @@ impl ForwardingManager {
             return Ok(stopped);
         }
         if let Some((_, forward)) = self.remote_forwards.remove(rule_id) {
-            let stopped = forward.stop().await;
+            if let Err(error) = forward.cancel_on_server().await {
+                self.remote_forwards.insert(rule_id.to_string(), forward);
+                return Err(error);
+            }
+            let stopped = forward.finish_stop().await;
             self.stopped_forwards
                 .insert(stopped.id.clone(), stopped.clone());
             self.emit_status_changed(&stopped.id, stopped.status.clone(), None);
@@ -191,7 +211,11 @@ impl ForwardingManager {
             return Ok(());
         }
         if let Some((_, forward)) = self.remote_forwards.remove(rule_id) {
-            let stopped = forward.stop().await;
+            if let Err(error) = forward.cancel_on_server().await {
+                self.remote_forwards.insert(rule_id.to_string(), forward);
+                return Err(error);
+            }
+            let stopped = forward.finish_stop().await;
             self.emit_status_changed(&stopped.id, stopped.status, None);
             return Ok(());
         }
@@ -477,7 +501,7 @@ impl ForwardingManager {
             let _ = forward.stop().await;
         }
         for forward in remote_forwards {
-            let _ = forward.stop().await;
+            let _ = forward.stop_best_effort().await;
         }
     }
 
@@ -537,7 +561,7 @@ impl ForwardingManager {
             suspended.push(rule);
         }
         for forward in remote_forwards {
-            let mut rule = forward.stop().await;
+            let mut rule = forward.stop_best_effort().await;
             rule.status = ForwardStatus::Suspended;
             self.stopped_forwards.insert(rule.id.clone(), rule.clone());
             self.emit_status_changed(
@@ -668,6 +692,28 @@ fn build_health_check_error_message(error: &str) -> String {
     )
 }
 
+fn build_unreachable_local_port_error(target_host: &str, target_port: u16) -> String {
+    format!(
+        "Local target port {target_host}:{target_port} is not reachable. Please ensure the service is running on this computer."
+    )
+}
+
+async fn check_local_port_available(
+    host: &str,
+    port: u16,
+    timeout_ms: u64,
+) -> Result<bool, ForwardingError> {
+    let connect = tokio::net::TcpStream::connect((host, port));
+    match tokio::time::timeout(Duration::from_millis(timeout_ms), connect).await {
+        Ok(Ok(_stream)) => Ok(true),
+        Ok(Err(error)) if error.kind() == std::io::ErrorKind::ConnectionRefused => Ok(false),
+        Ok(Err(error)) => Err(ForwardingError::Io(error)),
+        Err(_) => Err(ForwardingError::ConnectionFailed(format!(
+            "Timeout checking local port {host}:{port} ({timeout_ms}ms)"
+        ))),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -684,6 +730,34 @@ mod tests {
         assert_eq!(
             failed,
             "Failed to check port availability: timeout\n\nYou can skip this check with the 'Skip port availability check' option."
+        );
+    }
+
+    #[tokio::test]
+    async fn local_health_check_observes_the_client_side_listener() {
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        assert!(
+            check_local_port_available("127.0.0.1", port, 1_000)
+                .await
+                .unwrap()
+        );
+        drop(listener);
+        assert!(
+            !check_local_port_available("127.0.0.1", port, 1_000)
+                .await
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn remote_health_check_error_identifies_the_local_target() {
+        assert_eq!(
+            build_unreachable_local_port_error("127.0.0.1", 8080),
+            "Local target port 127.0.0.1:8080 is not reachable. Please ensure the service is running on this computer."
         );
     }
 }

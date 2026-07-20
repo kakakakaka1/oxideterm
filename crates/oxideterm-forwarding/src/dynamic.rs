@@ -8,12 +8,14 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
     sync::watch,
-    task::JoinHandle,
+    task::{JoinHandle, JoinSet},
 };
 
 use crate::{
     BridgeStatsRecorder, DEFAULT_FORWARD_IDLE_TIMEOUT, ForwardRule, ForwardStats, ForwardStatus,
-    ForwardingError, bridge::bridge_tcp_to_ssh_stream, tauri_dynamic_bind_error,
+    ForwardingError,
+    bridge::{bridge_tcp_to_ssh_stream, wait_for_shutdown},
+    tauri_dynamic_bind_error,
 };
 
 const SOCKS_VERSION_5: u8 = 0x05;
@@ -27,6 +29,7 @@ const SOCKS_REPLY_HOST_UNREACHABLE: u8 = 0x04;
 const SOCKS_REPLY_COMMAND_NOT_SUPPORTED: u8 = 0x07;
 const SOCKS_REPLY_ADDRESS_NOT_SUPPORTED: u8 = 0x08;
 const FORWARD_STOP_GRACE_PERIOD: Duration = Duration::from_secs(5);
+const SOCKS_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(15);
 
 pub(crate) struct DynamicForward {
     rule: ForwardRule,
@@ -84,12 +87,14 @@ impl DynamicForward {
 
     pub(crate) async fn stop(self) -> ForwardRule {
         let _ = self.shutdown_tx.send(true);
-        let _ = self
-            .stats
-            .active_connections()
-            .wait_zero(FORWARD_STOP_GRACE_PERIOD)
-            .await;
-        self.task.abort();
+        let mut task = self.task;
+        if tokio::time::timeout(FORWARD_STOP_GRACE_PERIOD, &mut task)
+            .await
+            .is_err()
+        {
+            task.abort();
+            let _ = task.await;
+        }
         let mut stopped = self.rule;
         stopped.status = ForwardStatus::Stopped;
         stopped
@@ -101,13 +106,20 @@ async fn accept_dynamic_connections(
     ssh_connection: SshConnectionHandle,
     rule: ForwardRule,
     stats: BridgeStatsRecorder,
-    mut shutdown_rx: watch::Receiver<bool>,
+    shutdown_rx: watch::Receiver<bool>,
 ) {
+    // The listener task owns handshake and bridge tasks until they finish or
+    // the forwarding rule shuts down.
+    let mut connections = JoinSet::new();
     loop {
         tokio::select! {
-            changed = shutdown_rx.changed() => {
-                if changed.is_ok() && *shutdown_rx.borrow() {
-                    break;
+            biased;
+            _ = wait_for_shutdown(shutdown_rx.clone()) => {
+                break;
+            }
+            completed = connections.join_next(), if !connections.is_empty() => {
+                if let Some(Err(error)) = completed {
+                    tracing::debug!("dynamic forward connection task ended unexpectedly: {error}");
                 }
             }
             accepted = listener.accept() => {
@@ -125,7 +137,7 @@ async fn accept_dynamic_connections(
                 let connection_rule = rule.clone();
                 let connection_stats = stats.clone();
                 let connection_shutdown = shutdown_rx.clone();
-                tokio::spawn(async move {
+                connections.spawn(async move {
                     if let Err(error) = bridge_dynamic_connection(
                         stream,
                         connection,
@@ -143,6 +155,9 @@ async fn accept_dynamic_connections(
             }
         }
     }
+
+    connections.abort_all();
+    while connections.join_next().await.is_some() {}
 }
 
 async fn bridge_dynamic_connection(
@@ -154,16 +169,27 @@ async fn bridge_dynamic_connection(
     origin_host: String,
     origin_port: u16,
 ) -> Result<(), ForwardingError> {
-    let destination = read_socks5_connect_destination(&mut stream).await?;
-    let ssh_stream = match ssh_connection
-        .open_direct_tcpip(
+    let destination = tokio::select! {
+        biased;
+        _ = wait_for_shutdown(shutdown_rx.clone()) => return Ok(()),
+        result = tokio::time::timeout(
+            SOCKS_HANDSHAKE_TIMEOUT,
+            read_socks5_connect_destination(&mut stream),
+        ) => result.map_err(|_| {
+            ForwardingError::ConnectionFailed("SOCKS5 handshake timed out".to_string())
+        })??,
+    };
+    let open_result = tokio::select! {
+        biased;
+        _ = wait_for_shutdown(shutdown_rx.clone()) => return Ok(()),
+        result = ssh_connection.open_direct_tcpip(
             &destination.host,
             destination.port,
             &origin_host,
             origin_port,
-        )
-        .await
-    {
+        ) => result,
+    };
+    let ssh_stream = match open_result {
         Ok(stream) => stream,
         Err(error) => {
             // Tauri reports direct-tcpip open failures to the SOCKS5 client before

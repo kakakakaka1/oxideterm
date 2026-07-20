@@ -9,16 +9,19 @@ use tokio::{net::TcpStream, sync::watch};
 
 use crate::{
     BridgeStatsRecorder, DEFAULT_FORWARD_IDLE_TIMEOUT, ForwardRule, ForwardStats, ForwardStatus,
-    ForwardingError, bridge::bridge_tcp_to_ssh_stream_with_existing_connection,
+    ForwardingError,
+    bridge::{bridge_tcp_to_ssh_stream_with_existing_connection, wait_for_shutdown},
 };
 
 const FORWARD_STOP_GRACE_PERIOD: Duration = Duration::from_secs(5);
+const REMOTE_TARGET_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub(crate) struct RemoteForward {
     rule: ForwardRule,
     stats: BridgeStatsRecorder,
     router: Arc<RemoteForwardRouter>,
     ssh_connection: SshConnectionHandle,
+    shutdown_tx: watch::Sender<bool>,
 }
 
 impl RemoteForward {
@@ -35,15 +38,21 @@ impl RemoteForward {
             .await?;
 
         let stats = BridgeStatsRecorder::default();
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
         rule.bind_port = actual_port;
         rule.status = ForwardStatus::Active;
         router.register(
-            ssh_connection.connection_id().to_string(),
-            rule.bind_address.clone(),
-            rule.bind_port,
-            rule.target_host.clone(),
-            rule.target_port,
-            stats.clone(),
+            RemoteForwardKey {
+                address: rule.bind_address.clone(),
+                port: rule.bind_port,
+            },
+            RemoteForwardTarget {
+                connection_id: ssh_connection.connection_id().to_string(),
+                local_host: rule.target_host.clone(),
+                local_port: rule.target_port,
+                stats: stats.clone(),
+                shutdown_rx,
+            },
         );
 
         Ok(Self {
@@ -51,6 +60,7 @@ impl RemoteForward {
             stats,
             router,
             ssh_connection,
+            shutdown_tx,
         })
     }
 
@@ -62,18 +72,15 @@ impl RemoteForward {
         self.stats.snapshot()
     }
 
-    pub(crate) async fn stop(self) -> ForwardRule {
-        if let Err(error) = self
-            .ssh_connection
+    pub(crate) async fn cancel_on_server(&self) -> Result<(), ForwardingError> {
+        self.ssh_connection
             .cancel_remote_tcpip_forward(&self.rule.bind_address, self.rule.bind_port)
             .await
-        {
-            tracing::warn!(
-                "failed to cancel remote forward {}:{}: {error}",
-                self.rule.bind_address,
-                self.rule.bind_port
-            );
-        }
+            .map_err(ForwardingError::from)
+    }
+
+    pub(crate) async fn finish_stop(self) -> ForwardRule {
+        let _ = self.shutdown_tx.send(true);
         self.router
             .unregister(&self.rule.bind_address, self.rule.bind_port);
         let _ = self
@@ -86,6 +93,17 @@ impl RemoteForward {
         stopped.status = ForwardStatus::Stopped;
         stopped
     }
+
+    pub(crate) async fn stop_best_effort(self) -> ForwardRule {
+        if let Err(error) = self.cancel_on_server().await {
+            tracing::warn!(
+                "failed to cancel remote forward {}:{}: {error}",
+                self.rule.bind_address,
+                self.rule.bind_port
+            );
+        }
+        self.finish_stop().await
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -94,6 +112,7 @@ struct RemoteForwardTarget {
     local_host: String,
     local_port: u16,
     stats: BridgeStatsRecorder,
+    shutdown_rx: watch::Receiver<bool>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -102,27 +121,8 @@ pub(crate) struct RemoteForwardRouter {
 }
 
 impl RemoteForwardRouter {
-    fn register(
-        &self,
-        connection_id: String,
-        remote_address: String,
-        remote_port: u16,
-        local_host: String,
-        local_port: u16,
-        stats: BridgeStatsRecorder,
-    ) {
-        self.targets.insert(
-            RemoteForwardKey {
-                address: remote_address,
-                port: remote_port,
-            },
-            RemoteForwardTarget {
-                connection_id,
-                local_host,
-                local_port,
-                stats,
-            },
-        );
+    fn register(&self, key: RemoteForwardKey, target: RemoteForwardTarget) {
+        self.targets.insert(key, target);
     }
 
     fn unregister(&self, remote_address: &str, remote_port: u16) {
@@ -165,21 +165,35 @@ impl RemoteForwardRouter {
 
         let _connection_guard = target.stats.start_connection();
         let local_addr = format!("{}:{}", target.local_host, target.local_port);
-        let Ok(local_stream) = TcpStream::connect(&local_addr).await else {
-            tracing::warn!("failed to connect remote forward target {local_addr}");
-            return;
+        let connect_result = tokio::select! {
+            biased;
+            _ = wait_for_shutdown(target.shutdown_rx.clone()) => return,
+            result = tokio::time::timeout(
+                REMOTE_TARGET_CONNECT_TIMEOUT,
+                TcpStream::connect(&local_addr),
+            ) => result,
+        };
+        let local_stream = match connect_result {
+            Ok(Ok(stream)) => stream,
+            Ok(Err(error)) => {
+                tracing::warn!("failed to connect remote forward target {local_addr}: {error}");
+                return;
+            }
+            Err(_) => {
+                tracing::warn!("timed out connecting remote forward target {local_addr}");
+                return;
+            }
         };
         if let Err(error) = local_stream.set_nodelay(true) {
             tracing::debug!("failed to set TCP_NODELAY for remote forward target: {error}");
         }
 
-        let (_shutdown_tx, shutdown_rx) = watch::channel(false);
         if let Err(error) = bridge_tcp_to_ssh_stream_with_existing_connection(
             local_stream,
             event.stream,
             target.stats,
             DEFAULT_FORWARD_IDLE_TIMEOUT,
-            shutdown_rx,
+            target.shutdown_rx,
             format!(
                 "remote forward {}:{} from {}:{} -> {}",
                 event.connected_address,
@@ -240,21 +254,32 @@ mod tests {
     #[test]
     fn remote_router_keeps_other_ports_for_same_address() {
         let router = RemoteForwardRouter::default();
+        let (_shutdown_tx, shutdown_rx) = watch::channel(false);
         router.register(
-            "connection-a".to_string(),
-            "0.0.0.0".to_string(),
-            9000,
-            "localhost".to_string(),
-            3000,
-            BridgeStatsRecorder::default(),
+            RemoteForwardKey {
+                address: "0.0.0.0".to_string(),
+                port: 9000,
+            },
+            RemoteForwardTarget {
+                connection_id: "connection-a".to_string(),
+                local_host: "localhost".to_string(),
+                local_port: 3000,
+                stats: BridgeStatsRecorder::default(),
+                shutdown_rx: shutdown_rx.clone(),
+            },
         );
         router.register(
-            "connection-a".to_string(),
-            "0.0.0.0".to_string(),
-            9001,
-            "localhost".to_string(),
-            3001,
-            BridgeStatsRecorder::default(),
+            RemoteForwardKey {
+                address: "0.0.0.0".to_string(),
+                port: 9001,
+            },
+            RemoteForwardTarget {
+                connection_id: "connection-a".to_string(),
+                local_host: "localhost".to_string(),
+                local_port: 3001,
+                stats: BridgeStatsRecorder::default(),
+                shutdown_rx,
+            },
         );
 
         router.unregister("0.0.0.0", 9000);
@@ -272,13 +297,19 @@ mod tests {
     #[test]
     fn remote_router_ignores_forwarded_tcpip_from_stale_connection() {
         let router = RemoteForwardRouter::default();
+        let (_shutdown_tx, shutdown_rx) = watch::channel(false);
         router.register(
-            "new-connection".to_string(),
-            "0.0.0.0".to_string(),
-            9000,
-            "localhost".to_string(),
-            3000,
-            BridgeStatsRecorder::default(),
+            RemoteForwardKey {
+                address: "0.0.0.0".to_string(),
+                port: 9000,
+            },
+            RemoteForwardTarget {
+                connection_id: "new-connection".to_string(),
+                local_host: "localhost".to_string(),
+                local_port: 3000,
+                stats: BridgeStatsRecorder::default(),
+                shutdown_rx,
+            },
         );
 
         assert!(
