@@ -30,7 +30,7 @@ use oxideterm_sftp::TransferConflict as SftpConflictInfo;
 use oxideterm_sftp::{
     AssetFileKind, BackgroundTransferDirection, BackgroundTransferKind, BackgroundTransferSnapshot,
     BackgroundTransferState, FileInfo as RemoteFileInfo, FileType as RemoteFileType,
-    ListFilter as RemoteListFilter, PreviewContent, SftpError, SftpSession,
+    ListFilter as RemoteListFilter, PreviewContent, SftpError, SftpSession, SftpTransferGuard,
     SortOrder as RemoteSortOrder, StoredTransferProgress, TarCapabilities,
     TransferDirection as SftpTransferDirection, TransferProgress,
     TransferState as RemoteTransferState, TransferStrategy as RemoteTransferStrategy,

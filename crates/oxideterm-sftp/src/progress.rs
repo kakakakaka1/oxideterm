@@ -487,6 +487,34 @@ impl RedbProgressStore {
                         "Failed to open session incomplete index table: {error}"
                     ))
                 })?;
+            let previous_session_index_key = table
+                .get(transfer_id)
+                .map_err(|error| {
+                    SftpError::StorageError(format!("Failed to read previous progress: {error}"))
+                })?
+                .map(|value| {
+                    rmp_serde::from_slice::<StoredTransferProgress>(value.value()).map_err(
+                        |error| {
+                            SftpError::StorageError(format!(
+                                "Failed to deserialize previous progress: {error}"
+                            ))
+                        },
+                    )
+                })
+                .transpose()?
+                .filter(|previous| previous.session_id != progress.session_id)
+                .map(|previous| session_incomplete_index_key(&previous.session_id, transfer_id));
+            if let Some(previous_session_index_key) = previous_session_index_key {
+                // A reconnect moves one logical transfer to a new connection
+                // generation; keep exactly one session lookup index for it.
+                session_index_table
+                    .remove(previous_session_index_key.as_str())
+                    .map_err(|error| {
+                        SftpError::StorageError(format!(
+                            "Failed to remove previous session index: {error}"
+                        ))
+                    })?;
+            }
             table
                 .insert(transfer_id, serialized.as_slice())
                 .map_err(|error| {
@@ -909,6 +937,44 @@ mod tests {
         assert!(
             responsiveness_elapsed < Duration::from_millis(500),
             "Redb save blocked the async runtime for {responsiveness_elapsed:?}"
+        );
+
+        drop(store);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn saving_progress_moves_the_incomplete_session_index() {
+        let path = temp_progress_path("move-session-index");
+        let store = RedbProgressStore::new(&path).expect("open progress store");
+        let mut progress = StoredTransferProgress::new(
+            "transfer-1".to_string(),
+            TransferType::Download,
+            PathBuf::from("/remote/file.txt"),
+            PathBuf::from("/local/file.txt"),
+            128,
+            "connection-generation-a".to_string(),
+        );
+        progress.mark_failed("Connection lost".to_string());
+        store.save(&progress).await.expect("save old generation");
+
+        progress.session_id = "connection-generation-b".to_string();
+        store.save(&progress).await.expect("save new generation");
+
+        assert!(
+            store
+                .list_incomplete("connection-generation-a")
+                .await
+                .expect("list old generation")
+                .is_empty()
+        );
+        assert_eq!(
+            store
+                .list_incomplete("connection-generation-b")
+                .await
+                .expect("list new generation")
+                .len(),
+            1
         );
 
         drop(store);

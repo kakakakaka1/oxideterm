@@ -14,7 +14,10 @@ use russh::ChannelMsg;
 use tokio::sync::mpsc;
 use tracing::{debug, warn};
 
-use crate::{SftpError, SftpTransferManager, TransferDirection, TransferProgress, TransferState};
+use crate::{
+    SftpError, SftpTransferGuard, SftpTransferManager, TransferDirection, TransferProgress,
+    TransferState,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -104,6 +107,13 @@ pub async fn tar_upload_directory<O>(
 where
     O: SftpExecChannelOpener,
 {
+    let _control = transfer_manager
+        .as_ref()
+        .map(|manager| manager.register(transfer_id));
+    let _control_guard = SftpTransferGuard::new(transfer_manager.as_ref(), transfer_id);
+    if let Some(manager) = &transfer_manager {
+        manager.check_control(transfer_id).await?;
+    }
     let local = Path::new(local_path);
     if !local.is_dir() {
         return Err(SftpError::DirectoryNotFound(local_path.to_string()));
@@ -201,6 +211,13 @@ pub async fn tar_download_directory<O>(
 where
     O: SftpExecChannelOpener,
 {
+    let _control = transfer_manager
+        .as_ref()
+        .map(|manager| manager.register(transfer_id));
+    let _control_guard = SftpTransferGuard::new(transfer_manager.as_ref(), transfer_id);
+    if let Some(manager) = &transfer_manager {
+        manager.check_control(transfer_id).await?;
+    }
     tokio::fs::create_dir_all(local_path)
         .await
         .map_err(SftpError::IoError)?;
@@ -611,4 +628,54 @@ fn validate_exit(exit: ExecExit) -> Result<(), SftpError> {
 
 fn shell_escape(path: &str) -> String {
     format!("'{}'", path.replace('\'', "'\\''"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[derive(Clone, Default)]
+    struct CountingRejectedOpener {
+        open_count: Arc<AtomicUsize>,
+    }
+
+    impl SftpExecChannelOpener for CountingRejectedOpener {
+        fn open_exec_channel(
+            &self,
+        ) -> impl Future<Output = Result<russh::Channel<russh::client::Msg>, SftpError>> + Send
+        {
+            let open_count = self.open_count.clone();
+            async move {
+                open_count.fetch_add(1, Ordering::SeqCst);
+                Err(SftpError::ChannelError(
+                    "unexpected channel open".to_string(),
+                ))
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn tar_upload_preserves_task_level_cancellation_before_opening_a_channel() {
+        let manager = Arc::new(SftpTransferManager::new());
+        manager.register_for_node("tx-1", "node-a");
+        assert!(manager.cancel("tx-1"));
+        let opener = CountingRejectedOpener::default();
+
+        let result = tar_upload_directory(
+            &opener,
+            "/path/does/not/need/to/exist",
+            "/remote/path",
+            "tx-1",
+            None,
+            Some(manager.clone()),
+            None,
+        )
+        .await;
+
+        assert!(matches!(result, Err(SftpError::TransferCancelled)));
+        assert_eq!(opener.open_count.load(Ordering::SeqCst), 0);
+        manager.unregister("tx-1");
+        assert!(manager.get_control("tx-1").is_none());
+    }
 }

@@ -255,7 +255,7 @@ impl Drop for SftpTransferGuard {
 #[derive(Debug)]
 pub struct SftpTransferManager {
     semaphore: Arc<Semaphore>,
-    controls: RwLock<HashMap<String, Arc<SftpTransferControl>>>,
+    controls: RwLock<HashMap<String, RegisteredTransferControl>>,
     active_count: Arc<AtomicUsize>,
     max_concurrent_transfers: AtomicUsize,
     directory_parallelism: AtomicUsize,
@@ -264,6 +264,13 @@ pub struct SftpTransferManager {
     background_transfers: RwLock<HashMap<String, BackgroundTransferSnapshot>>,
     background_notify: Arc<Notify>,
     tar_capability_probes: RwLock<HashMap<String, Arc<OnceCell<TarCapabilities>>>>,
+}
+
+#[derive(Debug)]
+struct RegisteredTransferControl {
+    control: Arc<SftpTransferControl>,
+    owner_count: usize,
+    node_id: Option<String>,
 }
 
 impl SftpTransferManager {
@@ -388,19 +395,80 @@ impl SftpTransferManager {
     }
 
     pub fn register(&self, transfer_id: &str) -> Arc<SftpTransferControl> {
+        self.register_owned(transfer_id, None)
+    }
+
+    /// Registers the runtime node that owns a transfer before it enters the queue.
+    pub fn register_for_node(
+        &self,
+        transfer_id: &str,
+        node_id: impl Into<String>,
+    ) -> Arc<SftpTransferControl> {
+        self.register_owned(transfer_id, Some(node_id.into()))
+    }
+
+    fn register_owned(
+        &self,
+        transfer_id: &str,
+        node_id: Option<String>,
+    ) -> Arc<SftpTransferControl> {
+        let mut controls = self.controls.write();
+        if let Some(registered) = controls.get_mut(transfer_id) {
+            // Nested transfer helpers share the task-level control so a queued
+            // cancellation cannot be replaced when the data path starts.
+            registered.owner_count += 1;
+            if registered.node_id.is_none() {
+                registered.node_id = node_id;
+            }
+            return registered.control.clone();
+        }
+
         let control = Arc::new(SftpTransferControl::new());
-        self.controls
-            .write()
-            .insert(transfer_id.to_string(), control.clone());
+        controls.insert(
+            transfer_id.to_string(),
+            RegisteredTransferControl {
+                control: control.clone(),
+                owner_count: 1,
+                node_id,
+            },
+        );
         control
     }
 
     pub fn get_control(&self, transfer_id: &str) -> Option<Arc<SftpTransferControl>> {
-        self.controls.read().get(transfer_id).cloned()
+        self.controls
+            .read()
+            .get(transfer_id)
+            .map(|registered| registered.control.clone())
     }
 
     pub fn unregister(&self, transfer_id: &str) {
-        self.controls.write().remove(transfer_id);
+        let mut controls = self.controls.write();
+        let should_remove = controls.get_mut(transfer_id).is_some_and(|registered| {
+            registered.owner_count = registered.owner_count.saturating_sub(1);
+            registered.owner_count == 0
+        });
+        if should_remove {
+            controls.remove(transfer_id);
+        }
+    }
+
+    /// Interrupts every queued or active transfer owned by one SSH node.
+    pub fn interrupt_node(&self, node_id: &str, reason: impl Into<String>) -> Vec<String> {
+        let transfer_ids = self
+            .controls
+            .read()
+            .iter()
+            .filter(|(_, registered)| registered.node_id.as_deref() == Some(node_id))
+            .map(|(transfer_id, _)| transfer_id.clone())
+            .collect::<Vec<_>>();
+        let mut transfer_ids = transfer_ids;
+        transfer_ids.sort();
+        let reason = reason.into();
+        for transfer_id in &transfer_ids {
+            self.interrupt(transfer_id, reason.clone());
+        }
+        transfer_ids
     }
 
     pub fn register_background_transfer(&self, mut snapshot: BackgroundTransferSnapshot) {
@@ -573,8 +641,8 @@ impl SftpTransferManager {
     }
 
     pub fn cancel_all(&self) {
-        for control in self.controls.read().values() {
-            control.cancel();
+        for registered in self.controls.read().values() {
+            registered.control.cancel();
         }
     }
 
@@ -662,6 +730,46 @@ mod tests {
                 completed: 0,
             }
         );
+    }
+
+    #[tokio::test]
+    async fn nested_registration_preserves_queued_cancellation() {
+        let manager = SftpTransferManager::new();
+        let queued = manager.register_for_node("tx-1", "node-a");
+        queued.cancel();
+        let nested = manager.register("tx-1");
+
+        assert!(Arc::ptr_eq(&queued, &nested));
+        assert!(matches!(
+            manager.check_control("tx-1").await,
+            Err(SftpError::TransferCancelled)
+        ));
+
+        manager.unregister("tx-1");
+        assert!(manager.get_control("tx-1").is_some());
+        manager.unregister("tx-1");
+        assert!(manager.get_control("tx-1").is_none());
+    }
+
+    #[tokio::test]
+    async fn node_interrupt_reaches_background_only_transfers() {
+        let manager = SftpTransferManager::new();
+        manager.register_for_node("tx-a-1", "node-a");
+        manager.register_for_node("tx-a-2", "node-a");
+        manager.register_for_node("tx-b-1", "node-b");
+
+        assert_eq!(
+            manager.interrupt_node("node-a", "Jump host disconnected"),
+            vec!["tx-a-1".to_string(), "tx-a-2".to_string()]
+        );
+        for transfer_id in ["tx-a-1", "tx-a-2"] {
+            assert!(matches!(
+                manager.check_control(transfer_id).await,
+                Err(SftpError::TransferInterrupted(ref message))
+                    if message == "Jump host disconnected"
+            ));
+        }
+        assert!(manager.check_control("tx-b-1").await.is_ok());
     }
 
     #[tokio::test]

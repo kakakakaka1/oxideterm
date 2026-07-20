@@ -254,7 +254,27 @@ impl WorkspaceApp {
         let progress_store = self.sftp_progress_store.clone();
         let tx = self.sftp_worker_tx.clone();
         let runtime = self.forwarding_runtime.clone();
+        // The runtime owns cancellation from enqueue through completion, even
+        // while no SFTP tab is visible or a jump-chain reconnect is in flight.
+        let _control = manager.register_for_node(&transfer_id, node_id.0.clone());
         runtime.spawn(async move {
+            let _control_guard =
+                SftpTransferGuard::new(Some(&manager), transfer_id.clone());
+            let _permit = manager.acquire_permit().await;
+            if let Err(error) = manager.check_control(&transfer_id).await {
+                if matches!(error, SftpError::TransferCancelled) {
+                    let _ = progress_store.delete(&transfer_id).await;
+                }
+                let _ = tx.send(SftpWorkerResult::TransferComplete {
+                    node_id,
+                    transfer_id,
+                    id,
+                    result: Err(error.to_string()),
+                    refresh_remote: false,
+                    refresh_local: false,
+                });
+                return;
+            }
             let resolved_connection_id = match router.resolve_connection(&node_id).await {
                 Ok(resolved) => resolved.connection_id,
                 Err(error) => {
@@ -277,6 +297,9 @@ impl WorkspaceApp {
             let mut directory_progress = is_directory.then(|| {
                 if let Some(mut progress) = resume_progress.clone() {
                     progress.mark_active();
+                    // Reconnect creates a new connection generation. Move the
+                    // resumable record to the transport that will execute it.
+                    progress.session_id = resolved_connection_id.clone();
                     return progress;
                 }
                 let transfer_type = match direction {
@@ -415,7 +438,6 @@ impl WorkspaceApp {
             });
 
             let result = async {
-                let _permit = manager.acquire_permit().await;
                 if is_directory {
                     manager.mark_background_transfer_active(&transfer_id);
                 }
@@ -882,27 +904,27 @@ impl WorkspaceApp {
         node_id: &NodeId,
         error: String,
     ) -> bool {
-        let mut changed = false;
-        let mut transfer_ids_to_interrupt = Vec::new();
+        // Runtime ownership is authoritative because reconnect can resume a
+        // transfer without materializing a row in the currently visible view.
+        let transfer_ids_to_interrupt = self
+            .sftp_transfer_manager
+            .interrupt_node(&node_id.0, error.clone());
+        let mut changed = !transfer_ids_to_interrupt.is_empty();
         for transfer in &mut self.sftp_view.transfers {
             if &transfer.node_id == node_id
                 && matches!(
                     transfer.state,
-                    SftpTransferState::Active | SftpTransferState::Pending
+                    SftpTransferState::Active
+                        | SftpTransferState::Pending
+                        | SftpTransferState::Paused
                 )
             {
                 transfer.state = SftpTransferState::Error;
                 transfer.error = Some(error.clone());
-                transfer_ids_to_interrupt.push(transfer.transfer_id.clone());
                 changed = true;
             }
         }
         for transfer_id in transfer_ids_to_interrupt {
-            // Link-down/manual disconnect mirrors Tauri's interrupted transfer
-            // state: the UI row becomes an error, the old worker exits, and
-            // persisted progress stays resumable for the reconnect snapshot.
-            self.sftp_transfer_manager
-                .interrupt(&transfer_id, error.clone());
             let progress_store = self.sftp_progress_store.clone();
             let transfer_id = transfer_id.clone();
             let error = error.clone();
