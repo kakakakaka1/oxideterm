@@ -249,6 +249,26 @@ impl SftpSession {
                 progress_store.delete(&transfer_id).await?;
                 Ok(transferred)
             }
+            Err(error) if should_retry_upload_without_temporary_file(&error, &temp_remote, offset) => {
+                let _ = self.delete(&temp_remote).await;
+                progress_store.delete(&transfer_id).await?;
+
+                // Some virtual SFTP gateways allow the requested destination
+                // but reject resumable sibling files. Limit the compatibility
+                // fallback to transfers that have not written any bytes.
+                self.upload_file_inner(
+                    &UploadFileJob {
+                        local_path: local_path.to_string(),
+                        remote_path: canonical_remote,
+                        total_bytes,
+                    },
+                    &transfer_id,
+                    &progress_tx,
+                    &transfer_manager,
+                )
+                .await?;
+                Ok(total_bytes)
+            }
             Err(SftpError::TransferCancelled) => {
                 let _ = self.delete(&temp_remote).await;
                 progress_store.delete(&transfer_id).await?;
@@ -1143,5 +1163,57 @@ impl SftpSession {
             .rename(source_path, target_path)
             .await
             .map_err(|error| self.map_sftp_error(error, target_path))
+    }
+}
+
+fn should_retry_upload_without_temporary_file(
+    error: &SftpError,
+    temporary_remote_path: &str,
+    transferred_bytes: u64,
+) -> bool {
+    transferred_bytes == 0
+        && matches!(
+            error,
+            SftpError::PermissionDenied(path) if path == temporary_remote_path
+        )
+}
+
+#[cfg(test)]
+mod upload_compatibility_tests {
+    use super::*;
+
+    #[test]
+    fn retries_direct_upload_when_empty_temporary_file_is_denied() {
+        let temporary_path = "/virtual/host/file.txt.oxide-part";
+        let error = SftpError::PermissionDenied(temporary_path.to_string());
+
+        assert!(should_retry_upload_without_temporary_file(
+            &error,
+            temporary_path,
+            0
+        ));
+    }
+
+    #[test]
+    fn does_not_retry_direct_upload_after_partial_transfer() {
+        let temporary_path = "/virtual/host/file.txt.oxide-part";
+        let error = SftpError::PermissionDenied(temporary_path.to_string());
+
+        assert!(!should_retry_upload_without_temporary_file(
+            &error,
+            temporary_path,
+            1
+        ));
+    }
+
+    #[test]
+    fn does_not_retry_direct_upload_for_another_denied_path() {
+        let error = SftpError::PermissionDenied("/virtual/host/file.txt".to_string());
+
+        assert!(!should_retry_upload_without_temporary_file(
+            &error,
+            "/virtual/host/file.txt.oxide-part",
+            0
+        ));
     }
 }

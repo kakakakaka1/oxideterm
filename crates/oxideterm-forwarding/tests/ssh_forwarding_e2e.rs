@@ -101,6 +101,37 @@ async fn remote_forward_moves_bytes_through_real_ssh_server() {
     );
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn explicit_remote_forward_stops_and_releases_requested_port() {
+    let echo_addr = start_echo_service().await;
+    let ssh = start_forwarding_ssh_server().await;
+    let handle = connect_test_client(&ssh).await;
+    let manager = ForwardingManager::new("session-explicit-remote", handle);
+    let requested_port = reserve_tcp_port().await;
+    let rule = manager
+        .create_forward(ForwardRule::remote(
+            "127.0.0.1",
+            requested_port,
+            echo_addr.ip().to_string(),
+            echo_addr.port(),
+        ))
+        .await
+        .unwrap();
+
+    assert_eq!(rule.bind_port, requested_port);
+    assert_eq!(
+        roundtrip(("127.0.0.1", requested_port), b"explicit").await,
+        b"explicit".to_vec()
+    );
+
+    let stopped_rule = manager.stop_forward(&rule.id).await.unwrap();
+    assert_eq!(stopped_rule.bind_port, requested_port);
+    let rebound_listener = TcpListener::bind(("127.0.0.1", requested_port))
+        .await
+        .unwrap();
+    drop(rebound_listener);
+}
+
 async fn connect_test_client(ssh: &TestSshServer) -> SshConnectionHandle {
     let mut config = SshConfig::password("127.0.0.1", ssh.port, "tester", "password");
     config.timeout_secs = 5;
@@ -140,6 +171,11 @@ async fn start_echo_service() -> SocketAddr {
         }
     });
     addr
+}
+
+async fn reserve_tcp_port() -> u16 {
+    let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    listener.local_addr().unwrap().port()
 }
 
 struct TestSshServer {
@@ -319,6 +355,9 @@ impl server::Handler for ForwardingServer {
             .remove(&(address.to_string(), port))
         {
             task.abort();
+            // Release the test listener before acknowledging cancellation so
+            // the client can prove that stopping the forward frees the port.
+            let _ = task.await;
         }
         Ok(true)
     }

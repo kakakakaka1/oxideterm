@@ -247,11 +247,11 @@ impl SshConnectionHandle {
         }
 
         let handle = &pooled.target;
-        handle
+        let server_port = handle
             .tcpip_forward(bind_address, bind_port as u32)
             .await
-            .map(|port| port as u16)
-            .map_err(|error| SshTransportError::ConnectionFailed(error.to_string()))
+            .map_err(|error| SshTransportError::ConnectionFailed(error.to_string()))?;
+        resolve_remote_forward_port(bind_port, server_port)
     }
 
     pub async fn cancel_remote_tcpip_forward(
@@ -513,5 +513,54 @@ impl SshConnectionHandle {
         if let Some(pooled) = self.physical::<PooledSshConnection>() {
             *pooled.x11_forward_handler.write() = None;
         }
+    }
+}
+
+fn resolve_remote_forward_port(
+    requested_port: u16,
+    server_port: u32,
+) -> Result<u16, SshTransportError> {
+    if server_port == 0 {
+        if requested_port == 0 {
+            return Err(SshTransportError::ConnectionFailed(
+                "remote forwarding server accepted a port allocation request without returning the allocated port"
+                    .to_string(),
+            ));
+        }
+
+        // RFC 4254 includes a port in the success response only for allocation
+        // requests. Russh represents an empty explicit-port response as zero.
+        return Ok(requested_port);
+    }
+
+    u16::try_from(server_port).map_err(|_| {
+        SshTransportError::ConnectionFailed(format!(
+            "remote forwarding server returned invalid port {server_port}"
+        ))
+    })
+}
+
+#[cfg(test)]
+mod remote_forward_port_tests {
+    use super::*;
+
+    #[test]
+    fn explicit_remote_forward_keeps_requested_port_for_empty_success_response() {
+        assert_eq!(resolve_remote_forward_port(58_627, 0).unwrap(), 58_627);
+    }
+
+    #[test]
+    fn allocated_remote_forward_uses_server_port() {
+        assert_eq!(resolve_remote_forward_port(0, 42_000).unwrap(), 42_000);
+    }
+
+    #[test]
+    fn allocated_remote_forward_rejects_missing_server_port() {
+        assert!(resolve_remote_forward_port(0, 0).is_err());
+    }
+
+    #[test]
+    fn remote_forward_rejects_out_of_range_server_port() {
+        assert!(resolve_remote_forward_port(0, u16::MAX as u32 + 1).is_err());
     }
 }
