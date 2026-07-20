@@ -80,6 +80,21 @@ class WindowsInstallerScriptTests(unittest.TestCase):
         self.assertIn('StrCmp $IsOxideUpdate "1" desktop_shortcut_done', script)
         self.assertNotIn('$LOCALAPPDATA\\OxideTerm\\oxideterm.exe', script)
 
+    def test_all_install_modes_register_the_application_icon(self) -> None:
+        script = package_native.windows_installer_script(
+            binary=Path("oxideterm-native.exe"),
+            version="1.2.0-gpui-preview.2",
+            identity=self.identity(),
+            installer_root=Path(r"C:\dist\nsis-windows_x64"),
+            installer_path=Path(r"C:\dist\OxideTerm_setup.exe"),
+            icon_path=Path(r"C:\icons\icon.ico"),
+        )
+        display_icon_entry = (
+            r'"DisplayIcon" "$\"$INSTDIR\oxideterm-native.exe$\",0"'
+        )
+
+        self.assertEqual(script.count(display_icon_entry), 2)
+
     def test_stable_installer_detects_tauri_current_user_install(self) -> None:
         identity = package_native.release_identity("v2.0.0", "2.0.0")
         script = package_native.windows_installer_script(

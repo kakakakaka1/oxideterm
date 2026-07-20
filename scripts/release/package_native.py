@@ -933,6 +933,12 @@ def windows_installer_script(
     SetSilent silent
   ${{EndIf}}"""
 
+    # Windows installed-app surfaces read DisplayIcon from the uninstall entry.
+    display_icon_registry_entry = (
+        rf'WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\{identity.windows_uninstall_key}" '
+        rf'"DisplayIcon" "$\"$INSTDIR\{binary.name}$\",0"'
+    )
+
     return f"""
 Unicode true
 RequestExecutionLevel user
@@ -988,6 +994,7 @@ normal_install:
   WriteRegStr HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{identity.windows_uninstall_key}" "DisplayName" "{identity.app_name}"
   WriteRegStr HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{identity.windows_uninstall_key}" "DisplayVersion" "{nsis_string(version)}"
   WriteRegStr HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{identity.windows_uninstall_key}" "Publisher" "AnalyseDeCircuit"
+  {display_icon_registry_entry}
   WriteRegStr HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{identity.windows_uninstall_key}" "UninstallString" "$\\"$INSTDIR\\Uninstall.exe$\\""
   Goto install_done
 
@@ -1003,6 +1010,7 @@ update_install:
   WriteRegStr HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{identity.windows_uninstall_key}" "DisplayName" "{identity.app_name}"
   WriteRegStr HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{identity.windows_uninstall_key}" "DisplayVersion" "{nsis_string(version)}"
   WriteRegStr HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{identity.windows_uninstall_key}" "Publisher" "AnalyseDeCircuit"
+  {display_icon_registry_entry}
   WriteRegStr HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{identity.windows_uninstall_key}" "UninstallString" "$\\"$INSTDIR\\Uninstall.exe$\\""
   StrCmp $IsLegacyUpgrade "1" 0 legacy_shortcuts_done
   CreateDirectory "$SMPROGRAMS\\{identity.app_name}"
