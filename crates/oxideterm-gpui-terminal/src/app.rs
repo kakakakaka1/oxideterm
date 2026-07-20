@@ -200,6 +200,16 @@ fn terminal_poll_interval(
     IDLE_TERMINAL_POLL_INTERVAL
 }
 
+fn viewport_needs_live_output_restore(
+    display_offset: usize,
+    scroll_remainder_px: Pixels,
+    smooth_scroll_animation_active: bool,
+) -> bool {
+    display_offset > 0
+        || f32::from(scroll_remainder_px).abs() > f32::EPSILON
+        || smooth_scroll_animation_active
+}
+
 pub struct TerminalPane {
     terminal: Arc<Mutex<TerminalSession>>,
     serial_reconnect_config: Option<SerialSessionConfig>,
@@ -1271,6 +1281,7 @@ impl TerminalPane {
             Err(_) => self.terminal.lock().write_protocol_bytes(&bytes),
         };
         if result.is_ok() {
+            self.restore_live_output_after_user_input();
             self.input_tracker.reset();
             self.last_terminal_input = Instant::now();
             self.reset_cursor_blink();
@@ -1861,9 +1872,9 @@ impl TerminalPane {
         cx.notify();
     }
 
-    fn send_protocol_bytes(&mut self, bytes: &[u8], cx: &mut Context<Self>) {
+    fn send_protocol_bytes(&mut self, bytes: &[u8], cx: &mut Context<Self>) -> bool {
         if !self.terminal_accepts_input() {
-            return;
+            return false;
         }
 
         if self.terminal.lock().write_protocol_bytes(bytes).is_ok() {
@@ -1873,7 +1884,9 @@ impl TerminalPane {
             self.last_terminal_input = Instant::now();
             self.reset_cursor_blink();
             cx.notify();
+            return true;
         }
+        false
     }
 
     pub(crate) fn send_user_protocol_bytes(&mut self, bytes: &[u8], cx: &mut Context<Self>) {
@@ -1884,7 +1897,9 @@ impl TerminalPane {
             return;
         };
         self.observe_user_input("protocol", &bytes, cx);
-        self.send_protocol_bytes(&bytes, cx);
+        if self.send_protocol_bytes(&bytes, cx) {
+            self.restore_live_output_after_user_input();
+        }
     }
 
     fn send_text(&mut self, text: &str, cx: &mut Context<Self>) {
@@ -1893,6 +1908,7 @@ impl TerminalPane {
         }
 
         if self.terminal.lock().write_text(text).is_ok() {
+            self.restore_live_output_after_user_input();
             if let Some(recorder) = self.recorder.as_mut() {
                 recorder.record_input(text);
             }
@@ -1900,6 +1916,26 @@ impl TerminalPane {
             self.reset_cursor_blink();
             cx.notify();
         }
+    }
+
+    fn restore_live_output_after_user_input(&mut self) {
+        if !viewport_needs_live_output_restore(
+            self.snapshot.display_offset,
+            self.scroll_remainder_px,
+            self.smooth_scroll_animation_active,
+        ) {
+            return;
+        }
+
+        // User-originated input should reveal the live prompt without changing
+        // the viewport for mouse reports or terminal-owned protocol responses.
+        let snapshot = {
+            let mut terminal = self.terminal.lock();
+            terminal.scroll_to_bottom();
+            terminal.snapshot()
+        };
+        self.clear_smooth_scroll_remainder();
+        self.snapshot = self.stamp_snapshot(snapshot);
     }
 
     fn apply_plugin_input_interceptor(&self, bytes: &[u8]) -> Option<Vec<u8>> {
@@ -2021,7 +2057,9 @@ impl TerminalPane {
         let mode = self.terminal.lock().mode();
         self.delete_free_type_selection_if_active(mode, cx);
         self.observe_user_input("text", &bytes, cx);
-        self.send_protocol_bytes(&bytes, cx);
+        if self.send_protocol_bytes(&bytes, cx) {
+            self.restore_live_output_after_user_input();
+        }
     }
 
     fn set_marked_text(&mut self, text: &str, cx: &mut Context<Self>) {
@@ -2406,6 +2444,21 @@ mod tests {
             ),
             DRAIN_BOOST_POLL_INTERVAL
         );
+    }
+
+    #[test]
+    fn user_input_restores_a_scrollback_viewport() {
+        assert!(viewport_needs_live_output_restore(3, px(0.0), false));
+    }
+
+    #[test]
+    fn user_input_clears_fractional_smooth_scroll_state() {
+        assert!(viewport_needs_live_output_restore(0, px(2.0), true));
+    }
+
+    #[test]
+    fn user_input_keeps_an_already_live_viewport_stable() {
+        assert!(!viewport_needs_live_output_restore(0, px(0.0), false));
     }
 
     #[test]
