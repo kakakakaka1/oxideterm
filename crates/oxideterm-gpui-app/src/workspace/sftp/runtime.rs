@@ -706,7 +706,10 @@ impl WorkspaceApp {
                                 ..
                             }) = self.sftp_view.preview_content.as_mut()
                             {
-                                *data = content;
+                                *data = restore_text_line_endings(
+                                    &content,
+                                    self.sftp_view.preview_editor_line_ending,
+                                );
                                 *current_encoding = saved.encoding_used.clone();
                             }
                             if let Some(file) = self

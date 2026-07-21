@@ -25,8 +25,9 @@ pub use session::{
     PreviewSource,
 };
 pub use text::{
-    detect_and_decode, detect_and_decode_with_hint, encode_to_encoding, extension_to_language,
-    generate_hex_dump, is_likely_text_content,
+    TextLineEnding, detect_and_decode, detect_and_decode_with_hint, encode_to_encoding,
+    extension_to_language, generate_hex_dump, is_likely_text_content, normalize_text_line_endings,
+    restore_text_line_endings,
 };
 pub use types::{
     PreviewAssetKind, PreviewContent, PreviewKind, classify_preview_path, classify_preview_type,

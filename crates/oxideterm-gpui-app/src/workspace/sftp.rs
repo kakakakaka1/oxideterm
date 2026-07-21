@@ -24,7 +24,8 @@ use oxideterm_gpui_ui::{
 };
 use oxideterm_preview::{
     AudioPreviewBackend, AudioPreviewCommand, AudioPreviewState, PreviewAssetOwner, PreviewSession,
-    RodioAudioPreviewBackend, font_family_name_from_bytes,
+    RodioAudioPreviewBackend, TextLineEnding, font_family_name_from_bytes,
+    normalize_text_line_endings, restore_text_line_endings,
 };
 use oxideterm_sftp::TransferConflict as SftpConflictInfo;
 use oxideterm_sftp::{
@@ -653,6 +654,7 @@ pub(super) struct SftpViewState {
     preview_editor_observed_content: String,
     preview_editor_language: Option<String>,
     preview_editor_encoding: String,
+    preview_editor_line_ending: TextLineEnding,
     preview_editor_dirty: bool,
     preview_editor_saving: bool,
     preview_editor_save_error: Option<String>,
@@ -744,6 +746,7 @@ impl Default for SftpViewState {
             preview_editor_observed_content: String::new(),
             preview_editor_language: None,
             preview_editor_encoding: "UTF-8".to_string(),
+            preview_editor_line_ending: TextLineEnding::Lf,
             preview_editor_dirty: false,
             preview_editor_saving: false,
             preview_editor_save_error: None,

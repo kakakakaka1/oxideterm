@@ -593,13 +593,15 @@ pub(in crate::workspace::sftp) async fn save_remote_sftp_preview(
     path: &str,
     content: &str,
     encoding: &str,
+    line_ending: TextLineEnding,
 ) -> Result<SftpPreviewSaveResult, String> {
     let target_encoding = if encoding.trim().is_empty() {
         "UTF-8"
     } else {
         encoding
     };
-    let encoded = encode_to_encoding(content, target_encoding);
+    let remote_content = restore_text_line_endings(content, line_ending);
+    let encoded = encode_to_encoding(&remote_content, target_encoding);
     let sftp = router
         .acquire_transfer_sftp(node_id)
         .await

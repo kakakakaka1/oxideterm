@@ -110,7 +110,8 @@ impl WorkspaceApp {
             select_all: self.i18n.t("fileManager.selectAll"),
         };
         let workspace = cx.entity();
-        let editor_text = data.clone();
+        let (editor_text, line_ending) = normalize_text_line_endings(&data);
+        let initial_editor_text = editor_text.clone();
         let editor = cx.new(|cx| {
             let mut editor = TextEditorView::new(editor_text, &tokens, cx);
             editor.set_context_menu_labels(context_menu_labels);
@@ -141,10 +142,11 @@ impl WorkspaceApp {
 
         self.sftp_view.preview_editor = Some(editor);
         self.sftp_view.preview_editor_observer = Some(observer);
-        self.sftp_view.preview_editor_initial_content = data.clone();
-        self.sftp_view.preview_editor_observed_content = data;
+        self.sftp_view.preview_editor_initial_content = initial_editor_text.clone();
+        self.sftp_view.preview_editor_observed_content = initial_editor_text;
         self.sftp_view.preview_editor_language = Some(editor_language);
         self.sftp_view.preview_editor_encoding = encoding;
+        self.sftp_view.preview_editor_line_ending = line_ending;
         self.sftp_view.preview_editor_dirty = false;
         self.sftp_view.preview_editor_saving = false;
         self.sftp_view.preview_editor_save_error = None;
@@ -193,12 +195,13 @@ impl WorkspaceApp {
             return;
         }
         let encoding = self.sftp_view.preview_editor_encoding.clone();
+        let line_ending = self.sftp_view.preview_editor_line_ending;
         self.sftp_view.preview_editor_saving = true;
         self.sftp_view.preview_editor_save_error = None;
         self.sftp_view.preview_editor_network_error = false;
         self.sftp_view.preview_generation = self.sftp_view.preview_generation.wrapping_add(1);
         let generation = self.sftp_view.preview_generation;
-        self.spawn_remote_sftp_preview_save(path, content, encoding, generation);
+        self.spawn_remote_sftp_preview_save(path, content, encoding, line_ending, generation);
     }
 
     fn sync_sftp_preview_editor_state(
@@ -434,6 +437,7 @@ impl WorkspaceApp {
         path: String,
         content: String,
         encoding: String,
+        line_ending: TextLineEnding,
         generation: u64,
     ) {
         let Some(tab_id) = self.main_window_tabs.active_tab_id else {
@@ -447,7 +451,8 @@ impl WorkspaceApp {
         let runtime = self.forwarding_runtime.clone();
         runtime.spawn(async move {
             let result =
-                save_remote_sftp_preview(router, &node_id, &path, &content, &encoding).await;
+                save_remote_sftp_preview(router, &node_id, &path, &content, &encoding, line_ending)
+                    .await;
             let _ = tx.send(SftpWorkerResult::PreviewSaved {
                 generation,
                 path,

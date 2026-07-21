@@ -104,6 +104,7 @@ impl WorkspaceApp {
         self.sftp_view.preview_editor_observed_content.clear();
         self.sftp_view.preview_editor_language = None;
         self.sftp_view.preview_editor_encoding = "UTF-8".to_string();
+        self.sftp_view.preview_editor_line_ending = TextLineEnding::Lf;
         self.sftp_view.preview_editor_dirty = false;
         self.sftp_view.preview_editor_saving = false;
         self.sftp_view.preview_editor_save_error = None;

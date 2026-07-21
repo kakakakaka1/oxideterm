@@ -106,6 +106,45 @@ pub fn detect_and_decode(bytes: &[u8]) -> (String, String, f32, bool) {
     detect_and_decode_with_hint(bytes, None)
 }
 
+/// Line-ending style retained while a decoded text file is edited with LF internally.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum TextLineEnding {
+    #[default]
+    Lf,
+    CrLf,
+    Cr,
+}
+
+/// Converts decoded text to the editor's LF representation and reports its source style.
+pub fn normalize_text_line_endings(text: &str) -> (String, TextLineEnding) {
+    let line_ending = detect_text_line_ending(text);
+    // GPUI text buffers use LF internally; retaining CR would render it as a replacement glyph.
+    let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
+    (normalized, line_ending)
+}
+
+/// Restores normalized editor text to the line-ending style detected when the file was opened.
+pub fn restore_text_line_endings(text: &str, line_ending: TextLineEnding) -> String {
+    match line_ending {
+        TextLineEnding::Lf => text.to_string(),
+        TextLineEnding::CrLf => text.replace('\n', "\r\n"),
+        TextLineEnding::Cr => text.replace('\n', "\r"),
+    }
+}
+
+fn detect_text_line_ending(text: &str) -> TextLineEnding {
+    let bytes = text.as_bytes();
+    for (index, byte) in bytes.iter().enumerate() {
+        match byte {
+            b'\r' if bytes.get(index + 1) == Some(&b'\n') => return TextLineEnding::CrLf,
+            b'\r' => return TextLineEnding::Cr,
+            b'\n' => return TextLineEnding::Lf,
+            _ => {}
+        }
+    }
+    TextLineEnding::Lf
+}
+
 #[cfg(test)]
 mod language_tests {
     use super::extension_to_language;
@@ -213,5 +252,27 @@ mod tests {
         assert_eq!(encoding, "GBK");
         assert!(confidence > 0.9);
         assert!(!has_bom);
+    }
+
+    #[test]
+    fn crlf_text_is_normalized_for_editing_and_restored_for_saving() {
+        let source = "model = \"gpt-5.4\"\r\nreasoning = \"high\"\r\n";
+
+        let (normalized, line_ending) = normalize_text_line_endings(source);
+
+        assert_eq!(normalized, "model = \"gpt-5.4\"\nreasoning = \"high\"\n");
+        assert_eq!(line_ending, TextLineEnding::CrLf);
+        assert_eq!(restore_text_line_endings(&normalized, line_ending), source);
+    }
+
+    #[test]
+    fn legacy_cr_text_is_normalized_and_restored() {
+        let source = "first\rsecond\r";
+
+        let (normalized, line_ending) = normalize_text_line_endings(source);
+
+        assert_eq!(normalized, "first\nsecond\n");
+        assert_eq!(line_ending, TextLineEnding::Cr);
+        assert_eq!(restore_text_line_endings(&normalized, line_ending), source);
     }
 }
