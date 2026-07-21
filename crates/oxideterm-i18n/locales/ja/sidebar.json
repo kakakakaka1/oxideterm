@@ -32,6 +32,7 @@
       "system_health": "システムヘルス",
       "host_tools": "ホストツール",
       "host_monitor": "監視",
+      "gpu": "GPU",
       "processes": "プロセス",
       "services": "サービス",
       "logs": "ログ",
@@ -65,6 +66,20 @@
     "active_sessions": "アクティブなセッション",
     "no_sessions": "セッションなし",
     "add_new_connection": "+ をクリックして新しい接続を追加",
+    "host_gpu": {
+      "count_suffix": "GPU",
+      "refresh_interval": "2 秒ごとに更新",
+      "sampling": "NVIDIA GPU の状態を取得中...",
+      "unavailable": "このホストでは nvidia-smi を利用できません。",
+      "unsupported": "このオペレーティングシステムでは NVIDIA GPU の監視をサポートしていません。",
+      "no_devices": "NVIDIA GPU が見つかりません。",
+      "error": "NVIDIA GPU の照会に失敗しました：{{error}}",
+      "actions": { "refresh": "GPU データを更新" },
+      "summary": { "utilization": "平均使用率", "memory": "GPU メモリ", "temperature": "最高温度", "power": "合計消費電力" },
+      "columns": { "device": "デバイス", "utilization": "使用率", "memory": "メモリ" },
+      "details": { "uuid": "UUID", "driver": "ドライバー", "performance_state": "性能状態", "temperature": "温度", "power": "消費電力", "fan": "ファン" },
+      "processes": { "title": "計算プロセス", "empty": "この GPU を使用している計算プロセスはありません。" }
+    },
     "host_processes": {
       "search_placeholder": "プロセスを検索...",
       "count_suffix": "件のプロセス",

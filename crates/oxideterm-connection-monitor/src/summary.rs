@@ -101,10 +101,30 @@ pub fn compact_monitor_rows(
     rows
 }
 
-/// Produces a stable row signature for GPUI virtual-list cache invalidation.
+/// Produces a stable row identity without treating live metric values as row geometry.
 pub fn compact_monitor_row_signature(row: &CompactMonitorRow) -> u64 {
     let mut hasher = DefaultHasher::new();
-    row.hash(&mut hasher);
+    match row {
+        CompactMonitorRow::Metric { kind, .. } => {
+            0_u8.hash(&mut hasher);
+            kind.hash(&mut hasher);
+        }
+        CompactMonitorRow::Network { .. } => {
+            1_u8.hash(&mut hasher);
+        }
+        CompactMonitorRow::Section { kind } => {
+            2_u8.hash(&mut hasher);
+            kind.hash(&mut hasher);
+        }
+        CompactMonitorRow::Detail { name, .. } => {
+            3_u8.hash(&mut hasher);
+            name.hash(&mut hasher);
+        }
+        CompactMonitorRow::Retry { connection_id } => {
+            4_u8.hash(&mut hasher);
+            connection_id.hash(&mut hasher);
+        }
+    }
     hasher.finish()
 }
 
@@ -471,13 +491,29 @@ mod tests {
     }
 
     #[test]
-    fn compact_rows_are_stably_signed_by_content() {
-        let metrics = metrics_with_gpu();
-        let rows = compact_monitor_rows(&metrics, None);
-
+    fn compact_row_signatures_ignore_live_values() {
+        let original = CompactMonitorRow::Metric {
+            kind: MonitorMetricKind::Cpu,
+            value: "10%".to_string(),
+            level: MonitorValueLevel::Normal,
+        };
+        let updated = CompactMonitorRow::Metric {
+            kind: MonitorMetricKind::Cpu,
+            value: "95%".to_string(),
+            level: MonitorValueLevel::Critical,
+        };
         assert_eq!(
-            compact_monitor_row_signature(&rows[0]),
-            compact_monitor_row_signature(&rows[0])
+            compact_monitor_row_signature(&original),
+            compact_monitor_row_signature(&updated)
+        );
+        let memory = CompactMonitorRow::Metric {
+            kind: MonitorMetricKind::Memory,
+            value: "95%".to_string(),
+            level: MonitorValueLevel::Critical,
+        };
+        assert_ne!(
+            compact_monitor_row_signature(&original),
+            compact_monitor_row_signature(&memory)
         );
     }
 }

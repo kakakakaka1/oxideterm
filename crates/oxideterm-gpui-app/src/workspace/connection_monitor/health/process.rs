@@ -934,11 +934,15 @@ impl WorkspaceApp {
     ) {
         let signatures = rows.iter().map(process_row_signature).collect::<Vec<_>>();
         let identity = format!(
-            "host-processes:{selected_id}:{}:{}:{}:{}",
+            "host-processes:{selected_id}:{}:{}:{}:{}:{}",
             self.connection_monitor.host_process_search_query,
             self.connection_monitor.host_process_filter as u8,
             self.connection_monitor.host_process_sort as u8,
-            self.connection_monitor.host_process_sort_descending
+            self.connection_monitor.host_process_sort_descending,
+            self.connection_monitor
+                .host_process_expanded_pid
+                .as_deref()
+                .unwrap_or_default()
         );
         sync_tauri_variable_list_state_by_signatures(
             &self.connection_monitor.host_process_list_state,

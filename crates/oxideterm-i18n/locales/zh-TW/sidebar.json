@@ -32,6 +32,7 @@
       "system_health": "系統健康",
       "host_tools": "主機工具",
       "host_monitor": "監控",
+      "gpu": "GPU",
       "processes": "程序",
       "services": "服務",
       "logs": "日誌",
@@ -65,6 +66,20 @@
     "active_sessions": "使用中的工作階段",
     "no_sessions": "無工作階段",
     "add_new_connection": "按 + 新增連線",
+    "host_gpu": {
+      "count_suffix": "張顯示卡",
+      "refresh_interval": "每 2 秒更新",
+      "sampling": "正在讀取 NVIDIA GPU 狀態...",
+      "unavailable": "此主機未提供 nvidia-smi。",
+      "unsupported": "此作業系統暫不支援 NVIDIA GPU 監控。",
+      "no_devices": "未發現 NVIDIA GPU。",
+      "error": "NVIDIA GPU 查詢失敗：{{error}}",
+      "actions": { "refresh": "重新整理 GPU 資料" },
+      "summary": { "utilization": "平均使用率", "memory": "顯示記憶體", "temperature": "最高溫度", "power": "總功耗" },
+      "columns": { "device": "裝置", "utilization": "使用率", "memory": "顯示記憶體" },
+      "details": { "uuid": "UUID", "driver": "驅動程式", "performance_state": "效能狀態", "temperature": "溫度", "power": "功耗", "fan": "風扇" },
+      "processes": { "title": "運算程序", "empty": "目前沒有運算程序使用此顯示卡。" }
+    },
     "host_processes": {
       "search_placeholder": "搜尋程序...",
       "count_suffix": "個程序",

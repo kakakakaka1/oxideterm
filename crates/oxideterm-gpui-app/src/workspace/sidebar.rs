@@ -73,6 +73,7 @@ pub(super) enum ContextSidebarPanel {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum ContextSidebarTool {
     Monitor,
+    Gpu,
     Processes,
     Services,
     Logs,

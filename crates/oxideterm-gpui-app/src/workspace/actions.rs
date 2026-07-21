@@ -683,6 +683,7 @@ impl WorkspaceApp {
                 && matches!(
                     self.active_context_sidebar_tool,
                     ContextSidebarTool::Monitor
+                        | ContextSidebarTool::Gpu
                         | ContextSidebarTool::Processes
                         | ContextSidebarTool::Services
                         | ContextSidebarTool::Logs

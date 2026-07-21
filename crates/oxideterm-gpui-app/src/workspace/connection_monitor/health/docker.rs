@@ -736,8 +736,12 @@ impl WorkspaceApp {
     ) {
         let signatures = rows.iter().map(docker_row_signature).collect::<Vec<_>>();
         let identity = format!(
-            "host-docker:{selected_id}:{}",
-            self.connection_monitor.host_docker_search_query
+            "host-docker:{selected_id}:{}:{}",
+            self.connection_monitor.host_docker_search_query,
+            self.connection_monitor
+                .host_docker_expanded_id
+                .as_deref()
+                .unwrap_or_default()
         );
         sync_tauri_variable_list_state_by_signatures(
             &self.connection_monitor.host_docker_list_state,

@@ -463,22 +463,54 @@ pub fn visible_scheduled_task_rows(
         .collect()
 }
 
+/// Produces a stable identity signature without treating sampled task state as row geometry.
 pub fn scheduled_task_row_signature(entry: &ResourceScheduledTask) -> u64 {
     let mut hasher = DefaultHasher::new();
     entry.id.hash(&mut hasher);
-    entry.name.hash(&mut hasher);
-    entry.source.hash(&mut hasher);
-    entry.schedule.hash(&mut hasher);
-    entry.command.hash(&mut hasher);
-    entry.user.hash(&mut hasher);
-    entry.enabled.hash(&mut hasher);
-    entry.active.hash(&mut hasher);
-    entry.last_run.hash(&mut hasher);
-    entry.next_run.hash(&mut hasher);
-    entry.last_result.hash(&mut hasher);
-    entry.description.hash(&mut hasher);
-    entry.unit.hash(&mut hasher);
     hasher.finish()
+}
+
+#[cfg(test)]
+mod row_signature_tests {
+    use super::*;
+
+    fn task() -> ResourceScheduledTask {
+        ResourceScheduledTask {
+            id: "backup.timer".into(),
+            name: "Backup".into(),
+            source: "systemd".into(),
+            schedule: "daily".into(),
+            command: "/usr/bin/backup".into(),
+            user: "root".into(),
+            enabled: "enabled".into(),
+            active: "active".into(),
+            last_run: "today".into(),
+            next_run: "tomorrow".into(),
+            last_result: "success".into(),
+            description: "Daily backup".into(),
+            unit: "backup.service".into(),
+        }
+    }
+
+    #[test]
+    fn scheduled_task_signature_ignores_live_run_state() {
+        let original = task();
+        let mut updated = original.clone();
+        updated.active = "inactive".into();
+        updated.last_run = "later today".into();
+        updated.next_run = "next week".into();
+        updated.last_result = "failed".into();
+
+        assert_eq!(
+            scheduled_task_row_signature(&original),
+            scheduled_task_row_signature(&updated)
+        );
+        updated.id = "cleanup.timer".into();
+        assert_ne!(
+            scheduled_task_row_signature(&original),
+            scheduled_task_row_signature(&updated)
+        );
+    }
 }
 
 pub fn scheduled_task_filter_label_key(filter: ScheduledTaskFilter) -> &'static str {

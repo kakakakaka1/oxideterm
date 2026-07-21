@@ -676,6 +676,7 @@
         "confirm_title": "ディレクトリ追跡を設定しますか？",
         "confirm_description": "OxideTerm は {{host}} に読み取り可能な統合ファイルをインストールし、検出した Shell の起動ファイルにマーカー付き参照を追加します。続行しますか？",
         "confirm_description_terminal": "{{host}} ではディレクトリ追跡が設定されていません。読み取り可能な Shell 統合を今インストールしますか？新しく開く SSH ターミナルで有効になり、このターミナルは変更されません。",
+        "dont_ask_again": "今後は確認しない",
         "disclosure": "OxideTerm は Bash、Zsh、Fish、Nushell、PowerShell 用の読み取り可能なフックを下記のディレクトリへ書き込み、検出した Shell の起動ファイルへ明確なマーカー付き参照を追加します。フックがプライベート OSC 7719 で送信するのは現在の作業ディレクトリとホスト名だけです。ターミナル出力を隠したり消去したりすることはありません。",
         "active_host": "アクティブなホスト",
         "status": "状態",

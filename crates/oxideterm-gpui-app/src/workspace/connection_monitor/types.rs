@@ -8,6 +8,10 @@ use oxideterm_topology::{ConnectionTopologySnapshot, TopologyViewStatus};
 use super::*;
 
 pub(super) const HOST_PROCESS_LIST_ESTIMATED_ROW_HEIGHT: f32 = 64.0;
+pub(super) const HOST_GPU_LIST_ESTIMATED_ROW_HEIGHT: f32 = 72.0;
+pub(super) const HOST_GPU_TABLE_HEADER_HEIGHT: f32 = 28.0;
+pub(super) const HOST_GPU_UTILIZATION_COLUMN_WIDTH: f32 = 58.0;
+pub(super) const HOST_GPU_MEMORY_COLUMN_WIDTH: f32 = 92.0;
 pub(super) const HOST_PROCESS_TABLE_HEADER_HEIGHT: f32 = 28.0;
 pub(super) const HOST_PROCESS_TABLE_MAIN_ROW_HEIGHT: f32 = 36.0;
 pub(super) const HOST_PROCESS_USER_COLUMN_WIDTH: f32 = 64.0;
@@ -494,6 +498,37 @@ pub(super) struct HostToolConfirmState<T> {
     pub(super) presence: ExitPresence,
 }
 
+pub(super) struct HostGpuViewState {
+    pub(super) update_tx: tokio::sync::mpsc::UnboundedSender<GpuUpdate>,
+    pub(super) update_rx: tokio::sync::mpsc::UnboundedReceiver<GpuUpdate>,
+    pub(super) sampling_task: Option<GpuSamplingTask>,
+    pub(super) snapshot_connection_id: Option<String>,
+    pub(super) snapshot: Option<GpuSnapshot>,
+    pub(super) expanded_uuid: Option<String>,
+    pub(super) list_state: ListState,
+    pub(super) list_cache: RefCell<VirtualListSignatureCache>,
+}
+
+impl HostGpuViewState {
+    fn new() -> Self {
+        let (update_tx, update_rx) = tokio::sync::mpsc::unbounded_channel();
+        Self {
+            update_tx,
+            update_rx,
+            sampling_task: None,
+            snapshot_connection_id: None,
+            snapshot: None,
+            expanded_uuid: None,
+            list_state: tauri_virtual_list_state(
+                0,
+                ListAlignment::Top,
+                TauriVirtualListSpec::new(px(HOST_GPU_LIST_ESTIMATED_ROW_HEIGHT), 8),
+            ),
+            list_cache: RefCell::new(VirtualListSignatureCache::default()),
+        }
+    }
+}
+
 impl<T> HostToolConfirmState<T> {
     pub(super) fn new(request: T) -> Self {
         Self {
@@ -528,6 +563,7 @@ pub(in crate::workspace) struct ConnectionMonitorState {
     pub(in crate::workspace) profiler_update_tx: tokio::sync::mpsc::UnboundedSender<ProfilerUpdate>,
     pub(in crate::workspace) profiler_update_rx:
         tokio::sync::mpsc::UnboundedReceiver<ProfilerUpdate>,
+    pub(super) host_gpu: HostGpuViewState,
     pub(super) compact_monitor_list_state: ListState,
     pub(super) compact_monitor_list_cache: RefCell<VirtualListSignatureCache>,
     pub(in crate::workspace) host_process_search_query: String,
@@ -683,6 +719,7 @@ impl ConnectionMonitorState {
             profiler_registry: ProfilerRegistry::new(),
             profiler_update_tx,
             profiler_update_rx,
+            host_gpu: HostGpuViewState::new(),
             compact_monitor_list_state: tauri_virtual_list_state(
                 0,
                 ListAlignment::Top,

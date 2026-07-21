@@ -262,16 +262,43 @@ pub fn visible_service_rows(services: &[ResourceService], query: &str) -> Vec<Re
         .collect()
 }
 
+/// Produces a stable identity signature without treating sampled service state as row geometry.
 pub fn service_row_signature(service: &ResourceService) -> u64 {
     let mut hasher = DefaultHasher::new();
     service.id.hash(&mut hasher);
-    service.load_state.hash(&mut hasher);
-    service.active_state.hash(&mut hasher);
-    service.sub_state.hash(&mut hasher);
-    service.enabled_state.hash(&mut hasher);
-    service.main_pid.hash(&mut hasher);
-    service.description.hash(&mut hasher);
     hasher.finish()
+}
+
+#[cfg(test)]
+mod row_signature_tests {
+    use super::*;
+
+    #[test]
+    fn service_signature_ignores_live_service_state() {
+        let original = ResourceService {
+            id: "sshd.service".into(),
+            load_state: "loaded".into(),
+            active_state: "active".into(),
+            sub_state: "running".into(),
+            enabled_state: "enabled".into(),
+            main_pid: Some("42".into()),
+            description: "SSH server".into(),
+        };
+        let mut updated = original.clone();
+        updated.active_state = "inactive".into();
+        updated.sub_state = "dead".into();
+        updated.main_pid = None;
+
+        assert_eq!(
+            service_row_signature(&original),
+            service_row_signature(&updated)
+        );
+        updated.id = "cron.service".into();
+        assert_ne!(
+            service_row_signature(&original),
+            service_row_signature(&updated)
+        );
+    }
 }
 
 pub fn service_state_label_key(state: &str) -> &'static str {

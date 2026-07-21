@@ -12,6 +12,7 @@ pub(in crate::workspace) struct RemoteShellIntegrationUiState {
     terminal_ready_nodes: HashSet<NodeId>,
     terminal_checking_nodes: HashSet<NodeId>,
     terminal_prompt_nodes: VecDeque<NodeId>,
+    suppress_future_terminal_prompts: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -26,6 +27,13 @@ enum RemoteShellIntegrationAction {
     Install,
     RemoveReference,
     RemoveAll,
+}
+
+fn should_disable_remote_shell_integration_after_cancel(
+    source: Option<RemoteShellIntegrationConfirmSource>,
+    suppress_future_prompts: bool,
+) -> bool {
+    source == Some(RemoteShellIntegrationConfirmSource::TerminalOpen) && suppress_future_prompts
 }
 
 impl WorkspaceApp {
@@ -58,6 +66,8 @@ impl WorkspaceApp {
             self.remote_shell_integration.confirm_node_id = Some(node_id);
             self.remote_shell_integration.confirm_source =
                 Some(RemoteShellIntegrationConfirmSource::TerminalOpen);
+            self.remote_shell_integration
+                .suppress_future_terminal_prompts = false;
         }
     }
 
@@ -90,6 +100,8 @@ impl WorkspaceApp {
         self.remote_shell_integration.confirm_node_id = self.active_ssh_terminal_node_id();
         self.remote_shell_integration.confirm_source =
             Some(RemoteShellIntegrationConfirmSource::Toolbar);
+        self.remote_shell_integration
+            .suppress_future_terminal_prompts = false;
         cx.notify();
     }
 
@@ -265,6 +277,11 @@ impl WorkspaceApp {
             "settings_view.connections.shell_integration.confirm_description"
         };
         let description = self.i18n.t(description_key).replace("{{host}}", &host);
+        let show_suppression = self.remote_shell_integration.confirm_source
+            == Some(RemoteShellIntegrationConfirmSource::TerminalOpen);
+        let suppress_future_prompts = self
+            .remote_shell_integration
+            .suppress_future_terminal_prompts;
         Some(oxideterm_gpui_ui::confirm::confirm_dialog(
             &self.tokens,
             ConfirmDialogView {
@@ -275,7 +292,37 @@ impl WorkspaceApp {
                             .t("settings_view.connections.shell_integration.confirm_title"),
                     )
                     .into_any_element(),
-                description: Some(div().child(description).into_any_element()),
+                description: Some(
+                    div()
+                        .w_full()
+                        .flex()
+                        .flex_col()
+                        .gap(px(12.0))
+                        .child(div().child(description))
+                        .when(show_suppression, |description| {
+                            description.child(
+                                checkbox(
+                                    &self.tokens,
+                                    self.i18n.t(
+                                        "settings_view.connections.shell_integration.dont_ask_again",
+                                    ),
+                                    suppress_future_prompts,
+                                )
+                                .on_mouse_down(
+                                    MouseButton::Left,
+                                    cx.listener(|this, _event, _window, cx| {
+                                        this.remote_shell_integration
+                                            .suppress_future_terminal_prompts = !this
+                                            .remote_shell_integration
+                                            .suppress_future_terminal_prompts;
+                                        cx.stop_propagation();
+                                        cx.notify();
+                                    }),
+                                ),
+                            )
+                        })
+                        .into_any_element(),
+                ),
                 cancel_label: div()
                     .child(self.i18n.t("common.actions.cancel"))
                     .into_any_element(),
@@ -287,15 +334,40 @@ impl WorkspaceApp {
                     .into_any_element(),
             },
             cx.listener(|this, _event, _window, cx| {
+                let source = this.remote_shell_integration.confirm_source;
+                let suppress_future_prompts = this
+                    .remote_shell_integration
+                    .suppress_future_terminal_prompts;
                 this.remote_shell_integration.confirm_source = None;
                 this.remote_shell_integration.confirm_node_id = None;
-                this.advance_remote_shell_integration_terminal_prompt();
+                this.remote_shell_integration.suppress_future_terminal_prompts = false;
+                if should_disable_remote_shell_integration_after_cancel(
+                    source,
+                    suppress_future_prompts,
+                ) {
+                    // Reuse the persisted deployment policy so future SSH
+                    // terminals skip both inspection prompts and installation.
+                    this.edit_settings(
+                        |settings| {
+                            settings.terminal.remote_shell_integration_mode =
+                                RemoteShellIntegrationMode::Disabled;
+                        },
+                        cx,
+                    );
+                    this.remote_shell_integration_mode_changed(
+                        RemoteShellIntegrationMode::Disabled,
+                        cx,
+                    );
+                } else {
+                    this.advance_remote_shell_integration_terminal_prompt();
+                }
                 cx.stop_propagation();
                 cx.notify();
             }),
             cx.listener(|this, _event, _window, cx| {
                 let node_id = this.remote_shell_integration.confirm_node_id.take();
                 let source = this.remote_shell_integration.confirm_source.take();
+                this.remote_shell_integration.suppress_future_terminal_prompts = false;
                 if let Some(node_id) = node_id {
                     if source == Some(RemoteShellIntegrationConfirmSource::TerminalOpen) {
                         this.start_remote_shell_integration_terminal_gate(node_id, true, cx);
@@ -703,5 +775,26 @@ impl WorkspaceApp {
         })
         .detach();
         cx.notify();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_suppressed_terminal_prompt_disables_future_questions() {
+        assert!(should_disable_remote_shell_integration_after_cancel(
+            Some(RemoteShellIntegrationConfirmSource::TerminalOpen),
+            true,
+        ));
+        assert!(!should_disable_remote_shell_integration_after_cancel(
+            Some(RemoteShellIntegrationConfirmSource::TerminalOpen),
+            false,
+        ));
+        assert!(!should_disable_remote_shell_integration_after_cancel(
+            Some(RemoteShellIntegrationConfirmSource::Toolbar),
+            true,
+        ));
     }
 }

@@ -743,8 +743,12 @@ impl WorkspaceApp {
     pub(super) fn sync_host_service_list_state(&self, rows: &[ResourceService], selected_id: &str) {
         let signatures = rows.iter().map(service_row_signature).collect::<Vec<_>>();
         let identity = format!(
-            "host-services:{selected_id}:{}",
-            self.connection_monitor.host_service_search_query
+            "host-services:{selected_id}:{}:{}",
+            self.connection_monitor.host_service_search_query,
+            self.connection_monitor
+                .host_service_expanded_id
+                .as_deref()
+                .unwrap_or_default()
         );
         sync_tauri_variable_list_state_by_signatures(
             &self.connection_monitor.host_service_list_state,

@@ -32,6 +32,7 @@
       "system_health": "Saúde do sistema",
       "host_tools": "Ferramentas do host",
       "host_monitor": "Monitoramento",
+      "gpu": "GPU",
       "processes": "Processos",
       "services": "Serviços",
       "logs": "Logs",
@@ -65,6 +66,20 @@
     "active_sessions": "Sessões ativas",
     "no_sessions": "Nenhuma sessão",
     "add_new_connection": "Clique em + para adicionar uma conexão",
+    "host_gpu": {
+      "count_suffix": "GPUs",
+      "refresh_interval": "Atualiza a cada 2 segundos",
+      "sampling": "Consultando GPUs NVIDIA...",
+      "unavailable": "nvidia-smi não está disponível neste host.",
+      "unsupported": "O monitoramento de GPU NVIDIA não é compatível com este sistema operacional.",
+      "no_devices": "Nenhuma GPU NVIDIA foi encontrada.",
+      "error": "Falha na consulta da GPU NVIDIA: {{error}}",
+      "actions": { "refresh": "Atualizar dados da GPU" },
+      "summary": { "utilization": "Uso médio", "memory": "Memória da GPU", "temperature": "Temperatura máxima", "power": "Potência total" },
+      "columns": { "device": "Dispositivo", "utilization": "Uso", "memory": "Memória" },
+      "details": { "uuid": "UUID", "driver": "Driver", "performance_state": "Desempenho", "temperature": "Temperatura", "power": "Potência", "fan": "Ventoinha" },
+      "processes": { "title": "Processos de computação", "empty": "Nenhum processo de computação está usando esta GPU." }
+    },
     "host_processes": {
       "search_placeholder": "Buscar processos...",
       "count_suffix": "processos",

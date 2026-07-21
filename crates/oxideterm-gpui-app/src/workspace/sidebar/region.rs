@@ -27,40 +27,29 @@ pub(in crate::workspace) fn context_sidebar_region_chrome() -> gpui::Div {
     div().relative().flex_1().min_w(px(0.0)).h_full().min_h_0()
 }
 
-pub(in crate::workspace) fn context_sidebar_resize_hotzone_right_inset(sidebar_width: f32) -> f32 {
-    // Keep the root-owned hotzone inside the sidebar while aligning it with the seam.
-    (sidebar_width - CONTEXT_SIDEBAR_RESIZE_HOTZONE_WIDTH).max(0.0)
-}
-
 pub(in crate::workspace) fn context_sidebar_resize_hotzone_chrome(
-    sidebar_width: f32,
-    top_inset: f32,
+    color: gpui::Rgba,
 ) -> gpui::Stateful<gpui::Div> {
     div()
         .id("context-right-sidebar-resize-hotzone")
         .absolute()
-        .right(px(context_sidebar_resize_hotzone_right_inset(
-            sidebar_width,
-        )))
-        .top(px(top_inset))
-        .bottom_0()
-        .w(px(CONTEXT_SIDEBAR_RESIZE_HOTZONE_WIDTH))
-        .cursor(CursorStyle::ResizeColumn)
-        // This hit target is mounted at the workspace root, above virtual lists
-        // and selectable text that can otherwise consume the initial press.
-        .occlude()
-        .bg(rgba(0x00000000))
-}
-
-pub(in crate::workspace) fn context_sidebar_resize_divider_chrome(color: gpui::Rgba) -> gpui::Div {
-    // The visual seam remains inside the animated sidebar; only input moves to the root.
-    div()
-        .absolute()
         .left_0()
         .top_0()
         .bottom_0()
-        .w(px(CONTEXT_SIDEBAR_RESIZE_DIVIDER_WIDTH))
-        .bg(color)
+        .w(px(CONTEXT_SIDEBAR_RESIZE_HOTZONE_WIDTH))
+        .cursor(CursorStyle::ResizeColumn)
+        // Frame-local hit testing follows the actual seam without reserving layout space.
+        .occlude()
+        .bg(rgba(0x00000000))
+        .child(
+            div()
+                .absolute()
+                .left_0()
+                .top_0()
+                .bottom_0()
+                .w(px(CONTEXT_SIDEBAR_RESIZE_DIVIDER_WIDTH))
+                .bg(color),
+        )
 }
 
 impl WorkspaceApp {
@@ -149,11 +138,10 @@ impl WorkspaceApp {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         context_sidebar_frame_chrome(self.ai.chat.sidebar_width)
-            // The frame owns the full right-sidebar width. The content starts
-            // at the real seam with the terminal, while the resize affordance
-            // is an overlay so it does not create a visible layout gap.
+            // Content fills the complete frame; the later hotzone overlays
+            // its left edge and therefore cannot create a visible gap.
             .child(self.render_context_right_sidebar_region(cx))
-            .child(self.render_context_right_sidebar_resize_divider())
+            .child(self.render_context_right_sidebar_resize_hotzone(cx))
             .into_any_element()
     }
 
@@ -280,31 +268,25 @@ impl WorkspaceApp {
             .into_any_element()
     }
 
-    pub(in crate::workspace) fn render_context_right_sidebar_resize_divider(&self) -> AnyElement {
+    pub(in crate::workspace) fn render_context_right_sidebar_resize_hotzone(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let theme = self.tokens.ui;
-        context_sidebar_resize_divider_chrome(if self.ai.chat.sidebar_resizing {
+        context_sidebar_resize_hotzone_chrome(if self.ai.chat.sidebar_resizing {
             rgb(theme.accent)
         } else {
             rgba((theme.border << 8) | 0x80)
         })
+        .on_mouse_down(
+            MouseButton::Left,
+            cx.listener(|this, event: &gpui::MouseDownEvent, window, cx| {
+                this.start_ai_sidebar_resize(event, window, cx);
+                window.prevent_default();
+                cx.stop_propagation();
+            }),
+        )
         .into_any_element()
-    }
-
-    pub(in crate::workspace) fn render_context_right_sidebar_resize_hotzone_overlay(
-        &mut self,
-        top_inset: f32,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        context_sidebar_resize_hotzone_chrome(self.ai.chat.sidebar_width, top_inset)
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, event: &gpui::MouseDownEvent, window, cx| {
-                    this.start_ai_sidebar_resize(event, window, cx);
-                    window.prevent_default();
-                    cx.stop_propagation();
-                }),
-            )
-            .into_any_element()
     }
 
     pub(in crate::workspace) fn render_context_sidebar_panel_title(
@@ -1477,11 +1459,14 @@ mod sidebar_resize_region_tests {
     struct TestContextSidebarChrome {
         total_width: f32,
         resize_started: Rc<Cell<bool>>,
+        resize_moved: Rc<Cell<bool>>,
+        resizing: bool,
     }
 
     impl Render for TestContextSidebarChrome {
-        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
             let resize_started = self.resize_started.clone();
+            let resize_moved = self.resize_moved.clone();
             div()
                 .relative()
                 .size_full()
@@ -1535,18 +1520,35 @@ mod sidebar_resize_region_tests {
                                 ),
                         )
                         .child(
-                            context_sidebar_resize_divider_chrome(rgba(0x000000ff))
-                                .debug_selector(|| "context-divider".to_string()),
+                            context_sidebar_resize_hotzone_chrome(rgba(0x000000ff))
+                                .debug_selector(|| "context-hotzone".to_string())
+                                .on_mouse_down(
+                                    MouseButton::Left,
+                                    cx.listener(move |this, _event, _window, cx| {
+                                        this.resizing = true;
+                                        resize_started.set(true);
+                                        cx.notify();
+                                    }),
+                                ),
                         ),
                 )
-                .child(
-                    context_sidebar_resize_hotzone_chrome(self.total_width, 0.0)
-                        .debug_selector(|| "context-hotzone".to_string())
-                        .on_mouse_down(MouseButton::Left, move |_event, _window, cx| {
-                            resize_started.set(true);
-                            cx.stop_propagation();
-                        }),
-                )
+                .when(self.resizing, |root| {
+                    root.child(
+                        div()
+                            .absolute()
+                            .size_full()
+                            .occlude()
+                            .on_mouse_move(cx.listener(
+                                move |this, event: &MouseMoveEvent, _window, cx| {
+                                    // Root capture owns movement after the pointer leaves the hotzone.
+                                    this.total_width =
+                                        (700.0 - f32::from(event.position.x)).max(0.0);
+                                    resize_moved.set(true);
+                                    cx.notify();
+                                },
+                            )),
+                    )
+                })
         }
     }
 
@@ -1562,25 +1564,26 @@ mod sidebar_resize_region_tests {
     }
 
     #[test]
-    pub(in crate::workspace) fn context_sidebar_resize_hotzone_is_workspace_overlay_owned() {
-        // The resize affordance must remain wide enough for reliable dragging,
-        // but it must not reserve layout width between the terminal and the
-        // sidebar content. A frame-owned absolute overlay preserves both.
+    pub(in crate::workspace) fn context_sidebar_resize_hotzone_has_no_layout_width() {
+        // The overlay remains wide enough to acquire the drag while its
+        // one-pixel child is the only visible seam.
         assert!(CONTEXT_SIDEBAR_RESIZE_HOTZONE_WIDTH >= 8.0);
         assert_eq!(CONTEXT_SIDEBAR_RESIZE_DIVIDER_WIDTH, 1.0);
-        assert_eq!(context_sidebar_resize_hotzone_right_inset(280.0), 268.0);
     }
 
     #[gpui::test]
-    pub(in crate::workspace) fn context_sidebar_region_fills_frame_without_layout_gutter(
+    pub(in crate::workspace) fn context_sidebar_resize_hotzone_has_no_gap_after_content_load(
         cx: &mut TestAppContext,
     ) {
         let total_width = 620.0;
         let resize_started = Rc::new(Cell::new(false));
+        let resize_moved = Rc::new(Cell::new(false));
 
         let (_, cx) = cx.add_window_view(|_, _| TestContextSidebarChrome {
             total_width,
             resize_started: resize_started.clone(),
+            resize_moved: resize_moved.clone(),
+            resizing: false,
         });
         cx.simulate_resize(size(px(700.0), px(180.0)));
         cx.update(|window, cx| {
@@ -1588,7 +1591,6 @@ mod sidebar_resize_region_tests {
         });
 
         let frame = cx.debug_bounds("context-frame").expect("frame bounds");
-        let divider = cx.debug_bounds("context-divider").expect("divider bounds");
         let region = cx.debug_bounds("context-region").expect("region bounds");
         let titlebar = cx
             .debug_bounds("context-titlebar")
@@ -1603,11 +1605,6 @@ mod sidebar_resize_region_tests {
             "region origin",
             f32::from(region.origin.x) - f32::from(frame.origin.x),
             0.0,
-        );
-        assert_close(
-            "divider origin",
-            f32::from(divider.origin.x),
-            f32::from(region.origin.x),
         );
         assert_close("region width", f32::from(region.size.width), total_width);
         assert_close(
@@ -1640,7 +1637,16 @@ mod sidebar_resize_region_tests {
         );
         assert!(
             resize_started.get(),
-            "root resize hotzone should receive mouse down above loaded content"
+            "frame-local resize hotzone should receive mouse down above loaded content"
+        );
+        cx.simulate_mouse_move(
+            Point::new(frame.origin.x - px(40.0), frame.origin.y + px(20.0)),
+            Some(MouseButton::Left),
+            Modifiers::default(),
+        );
+        assert!(
+            resize_moved.get(),
+            "root capture should continue the frame-local hotzone drag"
         );
     }
 }

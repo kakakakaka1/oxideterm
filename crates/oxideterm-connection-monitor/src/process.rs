@@ -86,24 +86,49 @@ pub fn visible_process_rows(
     rows
 }
 
-/// Produces a stable row signature so virtual lists refresh only when process data changes.
+/// Produces a stable identity signature without treating sampled metrics as row geometry.
 pub fn process_row_signature(process: &ResourceTopProcess) -> u64 {
     let mut hasher = DefaultHasher::new();
     process.pid.hash(&mut hasher);
-    process.ppid.hash(&mut hasher);
-    process.user.hash(&mut hasher);
-    process.state.hash(&mut hasher);
-    process
-        .cpu_percent
-        .map(|value| value.to_bits())
-        .hash(&mut hasher);
-    process.memory_percent.to_bits().hash(&mut hasher);
-    process.rss_bytes.hash(&mut hasher);
-    process.vsz_bytes.hash(&mut hasher);
-    process.elapsed.hash(&mut hasher);
-    process.command.hash(&mut hasher);
-    process.full_command.hash(&mut hasher);
     hasher.finish()
+}
+
+#[cfg(test)]
+mod row_signature_tests {
+    use super::*;
+
+    #[test]
+    fn process_signature_ignores_live_sample_fields() {
+        let original = ResourceTopProcess {
+            pid: "42".into(),
+            ppid: Some("1".into()),
+            user: Some("root".into()),
+            state: Some("R".into()),
+            cpu_percent: Some(10.0),
+            memory_percent: 20.0,
+            rss_bytes: Some(1024),
+            vsz_bytes: Some(2048),
+            elapsed: Some("00:01".into()),
+            command: "worker".into(),
+            full_command: Some("/usr/bin/worker".into()),
+        };
+        let mut updated = original.clone();
+        updated.state = Some("S".into());
+        updated.cpu_percent = Some(90.0);
+        updated.memory_percent = 80.0;
+        updated.rss_bytes = Some(4096);
+        updated.elapsed = Some("00:02".into());
+
+        assert_eq!(
+            process_row_signature(&original),
+            process_row_signature(&updated)
+        );
+        updated.pid = "43".into();
+        assert_ne!(
+            process_row_signature(&original),
+            process_row_signature(&updated)
+        );
+    }
 }
 
 /// Prefers the full command line when the sampler captured it, falling back to the short command.

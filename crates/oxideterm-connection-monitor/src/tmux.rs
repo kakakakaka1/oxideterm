@@ -435,15 +435,54 @@ pub fn visible_tmux_session_rows(
         .collect()
 }
 
-pub fn tmux_session_row_signature(session: &ResourceTmuxSession) -> u64 {
+/// Produces a stable identity signature and includes child count only for expanded rows.
+pub fn tmux_session_row_signature(
+    session: &ResourceTmuxSession,
+    expanded: bool,
+    child_count: usize,
+) -> u64 {
     let mut hasher = DefaultHasher::new();
     session.id.hash(&mut hasher);
-    session.name.hash(&mut hasher);
-    session.windows.hash(&mut hasher);
-    session.attached.hash(&mut hasher);
-    session.created.hash(&mut hasher);
-    session.activity.hash(&mut hasher);
+    expanded.hash(&mut hasher);
+    if expanded {
+        child_count.hash(&mut hasher);
+    }
     hasher.finish()
+}
+
+#[cfg(test)]
+mod row_signature_tests {
+    use super::*;
+
+    #[test]
+    fn tmux_signature_ignores_live_session_state() {
+        let original = ResourceTmuxSession {
+            id: "$1".into(),
+            name: "work".into(),
+            windows: 2,
+            attached: false,
+            created: "100".into(),
+            activity: "110".into(),
+        };
+        let mut updated = original.clone();
+        updated.windows = 3;
+        updated.attached = true;
+        updated.activity = "120".into();
+
+        assert_eq!(
+            tmux_session_row_signature(&original, false, 0),
+            tmux_session_row_signature(&updated, false, 0)
+        );
+        updated.id = "$2".into();
+        assert_ne!(
+            tmux_session_row_signature(&original, false, 0),
+            tmux_session_row_signature(&updated, false, 0)
+        );
+        assert_ne!(
+            tmux_session_row_signature(&original, true, 2),
+            tmux_session_row_signature(&original, true, 3)
+        );
+    }
 }
 
 pub fn tmux_action_succeeded(exit_code: Option<i32>) -> bool {

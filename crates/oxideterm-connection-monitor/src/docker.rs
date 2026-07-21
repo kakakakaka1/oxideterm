@@ -213,15 +213,41 @@ pub fn visible_docker_rows(
         .collect()
 }
 
+/// Produces a stable identity signature without treating sampled status as row geometry.
 pub fn docker_row_signature(container: &ResourceDockerContainer) -> u64 {
     let mut hasher = DefaultHasher::new();
     container.id.hash(&mut hasher);
-    container.name.hash(&mut hasher);
-    container.image.hash(&mut hasher);
-    container.state.hash(&mut hasher);
-    container.status.hash(&mut hasher);
-    container.ports.hash(&mut hasher);
     hasher.finish()
+}
+
+#[cfg(test)]
+mod row_signature_tests {
+    use super::*;
+
+    #[test]
+    fn docker_signature_ignores_live_container_state() {
+        let original = ResourceDockerContainer {
+            id: "abc123".into(),
+            name: "web".into(),
+            image: "nginx:latest".into(),
+            state: "running".into(),
+            status: "Up 1 minute".into(),
+            ports: Some("80/tcp".into()),
+        };
+        let mut updated = original.clone();
+        updated.state = "exited".into();
+        updated.status = "Exited (0)".into();
+
+        assert_eq!(
+            docker_row_signature(&original),
+            docker_row_signature(&updated)
+        );
+        updated.id = "def456".into();
+        assert_ne!(
+            docker_row_signature(&original),
+            docker_row_signature(&updated)
+        );
+    }
 }
 
 pub fn docker_state_label_key(state: &str) -> &'static str {

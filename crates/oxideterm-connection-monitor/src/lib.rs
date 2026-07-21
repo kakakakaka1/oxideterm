@@ -10,6 +10,7 @@ mod action;
 mod capture;
 mod docker;
 mod filesystem;
+mod gpu;
 mod log;
 mod metrics;
 mod package;
@@ -44,6 +45,12 @@ pub use filesystem::{
     filesystem_capture_snapshot, filesystem_entry_severity, filesystem_filter_label_key,
     filesystem_kind_label_key, filesystem_percent_severity, filesystem_read_only_label_key,
     filesystem_row_signature, parse_filesystem_snapshot, visible_filesystem_rows,
+};
+pub use gpu::{
+    GPU_CHANNEL_OPEN_TIMEOUT, GPU_END_MARKER, GPU_MAX_OUTPUT_SIZE, GPU_SAMPLE_INTERVAL,
+    GPU_SAMPLE_TIMEOUT, GpuDevice, GpuProcess, GpuSamplingTask, GpuSnapshot, GpuSnapshotStatus,
+    GpuSummary, GpuUpdate, build_gpu_sample_command, gpu_device_row_signature, parse_gpu_snapshot,
+    start_gpu_sampling_on,
 };
 pub use log::{
     LogCaptureCommand, LogCommandCapability, LogPreset, ResourceLogEntry, ResourceLogSnapshot,

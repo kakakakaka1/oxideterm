@@ -300,6 +300,7 @@ impl WorkspaceApp {
             self.sync_connection_monitor_selection(cx);
         }
         self.clear_ai_sidebar_keyboard_focus();
+        self.sync_host_gpu_sampling(cx);
         self.persist_sidebar_settings_store();
         cx.notify();
         true
@@ -312,6 +313,7 @@ impl WorkspaceApp {
             .ai_sidebar_collapsed = true;
         self.set_context_sidebar_rendered_with_motion(false, cx);
         self.ai.chat.sidebar_resizing = false;
+        self.sync_host_gpu_sampling(cx);
         self.clear_ai_sidebar_keyboard_focus();
         self.close_ai_sidebar_popovers();
         self.persist_sidebar_settings_store();

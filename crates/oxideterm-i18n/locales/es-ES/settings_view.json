@@ -676,6 +676,7 @@
         "confirm_title": "¿Configurar el seguimiento de directorios?",
         "confirm_description": "OxideTerm instalará archivos de integración legibles en {{host}} y añadirá una referencia marcada al archivo de inicio de la shell detectada. ¿Continuar?",
         "confirm_description_terminal": "El seguimiento de directorios no está configurado en {{host}}. ¿Instalar ahora la integración de shell legible? Se activará en los nuevos terminales SSH; este terminal no se modificará.",
+        "dont_ask_again": "No volver a preguntar",
         "disclosure": "OxideTerm escribe enlaces legibles para Bash, Zsh, Fish, Nushell y PowerShell en el directorio inferior. El archivo de inicio de la shell detectada recibe una referencia claramente marcada. Los enlaces solo emiten el directorio de trabajo actual y el nombre del host mediante el OSC 7719 privado; la salida del terminal nunca se oculta ni se borra.",
         "active_host": "Host activo",
         "status": "Estado",

@@ -106,6 +106,7 @@ impl Render for WorkspaceApp {
         self.poll_graphics_worker_results(window, cx);
         self.poll_remote_desktop_worker_results(window, cx);
         self.poll_connection_monitor_updates(false, cx);
+        self.poll_host_gpu_updates(false, cx);
         self.poll_host_process_action_results(cx);
         self.poll_host_docker_action_results(cx);
         self.poll_host_docker_logs_results(cx);
@@ -882,14 +883,6 @@ impl Render for WorkspaceApp {
                         layout.child(self.render_animated_context_sidebar_frame(cx))
                     }),
             )
-            .when(!zen_mode && self.context_sidebar_visible(), |root| {
-                // Start right-sidebar resizing above Host Tools virtual lists;
-                // the full capture overlay takes over after the initial press.
-                root.child(self.render_context_right_sidebar_resize_hotzone_overlay(
-                    effective_titlebar_height,
-                    cx,
-                ))
-            })
             .when(
                 self.browser_pointer_capture_owner()
                     .is_some_and(browser_behavior::pointer_capture_needs_workspace_overlay),

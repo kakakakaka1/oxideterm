@@ -730,6 +730,7 @@ impl WorkspaceApp {
                             workspace.poll_launcher_worker_results(cx);
                             workspace.poll_graphics_worker_results(window, cx);
                             workspace.poll_connection_monitor_updates(true, cx);
+                            workspace.poll_host_gpu_updates(true, cx);
                             workspace.poll_host_process_action_results(cx);
                             workspace.poll_host_docker_action_results(cx);
                             workspace.poll_host_docker_logs_results(cx);

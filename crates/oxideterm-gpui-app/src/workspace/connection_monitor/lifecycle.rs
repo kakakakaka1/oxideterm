@@ -88,6 +88,7 @@ impl WorkspaceApp {
         &mut self,
         cx: &mut Context<Self>,
     ) {
+        self.sync_host_gpu_sampling(cx);
         let monitor_surface_visible = self.active_tab().is_some_and(|tab| {
             matches!(
                 tab.kind,
@@ -101,6 +102,7 @@ impl WorkspaceApp {
             && matches!(
                 self.active_context_sidebar_tool,
                 ContextSidebarTool::Monitor
+                    | ContextSidebarTool::Gpu
                     | ContextSidebarTool::Processes
                     | ContextSidebarTool::Services
                     | ContextSidebarTool::Logs

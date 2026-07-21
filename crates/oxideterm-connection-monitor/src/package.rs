@@ -240,21 +240,52 @@ pub fn visible_package_rows(
         .collect()
 }
 
+/// Produces a stable identity signature without treating sampled package metadata as row geometry.
 pub fn package_row_signature(entry: &ResourcePackageEntry) -> u64 {
     let mut hasher = DefaultHasher::new();
     entry.id.hash(&mut hasher);
-    entry.name.hash(&mut hasher);
-    entry.manager.hash(&mut hasher);
-    entry.installed_version.hash(&mut hasher);
-    entry.candidate_version.hash(&mut hasher);
-    entry.arch.hash(&mut hasher);
-    entry.repository.hash(&mut hasher);
-    entry.status.hash(&mut hasher);
-    entry.summary.hash(&mut hasher);
-    entry.service_units.hash(&mut hasher);
-    entry.owner_paths.hash(&mut hasher);
-    entry.source.hash(&mut hasher);
     hasher.finish()
+}
+
+#[cfg(test)]
+mod row_signature_tests {
+    use super::*;
+
+    fn package() -> ResourcePackageEntry {
+        ResourcePackageEntry {
+            id: "apt:openssh-server:amd64".into(),
+            name: "openssh-server".into(),
+            manager: "apt".into(),
+            installed_version: "1.0".into(),
+            candidate_version: "1.1".into(),
+            arch: "amd64".into(),
+            repository: "stable".into(),
+            status: "upgradable".into(),
+            summary: "SSH server".into(),
+            service_units: vec!["ssh.service".into()],
+            owner_paths: vec!["/usr/sbin/sshd".into()],
+            source: "dpkg".into(),
+        }
+    }
+
+    #[test]
+    fn package_signature_ignores_sampled_metadata() {
+        let original = package();
+        let mut updated = original.clone();
+        updated.installed_version = "1.1".into();
+        updated.candidate_version = "1.1".into();
+        updated.status = "installed".into();
+
+        assert_eq!(
+            package_row_signature(&original),
+            package_row_signature(&updated)
+        );
+        updated.id = "apt:curl:amd64".into();
+        assert_ne!(
+            package_row_signature(&original),
+            package_row_signature(&updated)
+        );
+    }
 }
 
 pub fn package_filter_label_key(filter: PackageFilter) -> &'static str {

@@ -42,7 +42,7 @@ impl WorkspaceApp {
         let status = snapshot
             .map(|snapshot| snapshot.status.clone())
             .unwrap_or_default();
-        self.sync_host_tmux_list_state(&rows, selected_id);
+        self.sync_host_tmux_list_state(&rows, snapshot, selected_id);
 
         div()
             .id("host-tmux-panel")
@@ -1073,11 +1073,35 @@ impl WorkspaceApp {
     pub(super) fn sync_host_tmux_list_state(
         &self,
         rows: &[ResourceTmuxSession],
+        snapshot: Option<&ResourceTmuxSnapshot>,
         selected_id: &str,
     ) {
         let signatures = rows
             .iter()
-            .map(tmux_session_row_signature)
+            .map(|session| {
+                let expanded = self
+                    .connection_monitor
+                    .host_tmux_expanded_session_id
+                    .as_deref()
+                    == Some(session.id.as_str());
+                let child_count = if expanded {
+                    let window_count = snapshot
+                        .map(|snapshot| snapshot.windows_for_session(&session.id).len())
+                        .unwrap_or_default();
+                    let pane_count = self
+                        .connection_monitor
+                        .host_tmux_expanded_window_id
+                        .as_deref()
+                        .and_then(|window_id| {
+                            snapshot.map(|snapshot| snapshot.panes_for_window(window_id).len())
+                        })
+                        .unwrap_or_default();
+                    window_count + pane_count
+                } else {
+                    0
+                };
+                tmux_session_row_signature(session, expanded, child_count)
+            })
             .collect::<Vec<_>>();
         let identity = format!(
             "host-tmux:{selected_id}:{}:{}:{}",

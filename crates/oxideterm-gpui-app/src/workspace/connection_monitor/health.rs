@@ -41,15 +41,16 @@ fn host_tools_tab_index(tool: ContextSidebarTool) -> usize {
     // Keep indices aligned with the stable render order in the scroll strip.
     match tool {
         ContextSidebarTool::Monitor => 0,
-        ContextSidebarTool::Processes => 1,
-        ContextSidebarTool::Services => 2,
-        ContextSidebarTool::Logs => 3,
-        ContextSidebarTool::Tmux => 4,
-        ContextSidebarTool::Docker => 5,
-        ContextSidebarTool::Ports => 6,
-        ContextSidebarTool::Schedules => 7,
-        ContextSidebarTool::Filesystems => 8,
-        ContextSidebarTool::Packages => 9,
+        ContextSidebarTool::Gpu => 1,
+        ContextSidebarTool::Processes => 2,
+        ContextSidebarTool::Services => 3,
+        ContextSidebarTool::Logs => 4,
+        ContextSidebarTool::Tmux => 5,
+        ContextSidebarTool::Docker => 6,
+        ContextSidebarTool::Ports => 7,
+        ContextSidebarTool::Schedules => 8,
+        ContextSidebarTool::Filesystems => 9,
+        ContextSidebarTool::Packages => 10,
     }
 }
 
@@ -100,6 +101,8 @@ fn interpolate_host_tools_tab_selection_geometry(
 mod docker;
 #[path = "health/filesystems.rs"]
 mod filesystems;
+#[path = "health/gpu.rs"]
+mod gpu;
 #[path = "health/logs.rs"]
 mod logs;
 #[path = "health/monitor.rs"]
@@ -151,6 +154,7 @@ impl WorkspaceApp {
         let active_tool = self.active_context_sidebar_tool;
         let content = match active_tool {
             ContextSidebarTool::Monitor => self.render_host_tools_monitor_panel(cx),
+            ContextSidebarTool::Gpu => self.render_host_gpu_panel(cx),
             ContextSidebarTool::Processes => self.render_host_processes_panel(cx),
             ContextSidebarTool::Services => self.render_host_services_panel(cx),
             ContextSidebarTool::Logs => self.render_host_logs_panel(cx),
@@ -259,6 +263,14 @@ impl WorkspaceApp {
                 ContextSidebarTool::Monitor,
                 LucideIcon::Activity,
                 "sidebar.panels.host_monitor",
+                true,
+                selection_indicator_visible,
+                cx,
+            ))
+            .child(self.render_host_tools_context_tab(
+                ContextSidebarTool::Gpu,
+                LucideIcon::Cpu,
+                "sidebar.panels.gpu",
                 true,
                 selection_indicator_visible,
                 cx,
@@ -749,6 +761,7 @@ impl WorkspaceApp {
                         // layout event, such as entering fullscreen.
                         this.refresh_connection_monitor_pool_stats();
                         this.sync_connection_monitor_selection(cx);
+                        this.sync_host_gpu_sampling(cx);
                         if tool == ContextSidebarTool::Logs {
                             this.request_host_logs_snapshot_for_selected_connection(cx);
                         }
@@ -955,6 +968,7 @@ impl WorkspaceApp {
                         this.connection_monitor.host_tmux_input_dialog = None;
                         this.connection_monitor.host_schedule_pending_confirm = None;
                         this.sync_connection_monitor_selection(cx);
+                        this.sync_host_gpu_sampling(cx);
                         if this.active_context_sidebar_tool == ContextSidebarTool::Logs {
                             this.request_host_logs_snapshot(
                                 connection_id.clone(),
@@ -1145,6 +1159,7 @@ impl WorkspaceApp {
                     self.connection_monitor.host_tmux_input_dialog = None;
                     self.connection_monitor.host_schedule_pending_confirm = None;
                     self.sync_connection_monitor_selection(cx);
+                    self.sync_host_gpu_sampling(cx);
                     if self.active_context_sidebar_tool == ContextSidebarTool::Logs {
                         self.request_host_logs_snapshot(
                             connection.connection_id.clone(),
@@ -1204,6 +1219,7 @@ mod tests {
     fn host_tools_tab_indices_match_render_order() {
         let tools = [
             ContextSidebarTool::Monitor,
+            ContextSidebarTool::Gpu,
             ContextSidebarTool::Processes,
             ContextSidebarTool::Services,
             ContextSidebarTool::Logs,

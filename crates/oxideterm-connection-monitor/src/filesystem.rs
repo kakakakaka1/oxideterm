@@ -274,27 +274,59 @@ pub fn visible_filesystem_rows(
         .collect()
 }
 
+/// Produces a stable identity signature without treating sampled capacity as row geometry.
 pub fn filesystem_row_signature(entry: &ResourceFilesystemEntry) -> u64 {
     let mut hasher = DefaultHasher::new();
     entry.id.hash(&mut hasher);
-    entry.kind.hash(&mut hasher);
-    entry.path.hash(&mut hasher);
-    entry.device.hash(&mut hasher);
-    entry.fs_type.hash(&mut hasher);
-    entry.size_bytes.hash(&mut hasher);
-    entry.used_bytes.hash(&mut hasher);
-    entry.available_bytes.hash(&mut hasher);
-    entry.used_percent.hash(&mut hasher);
-    entry.inode_total.hash(&mut hasher);
-    entry.inode_used.hash(&mut hasher);
-    entry.inode_available.hash(&mut hasher);
-    entry.inode_percent.hash(&mut hasher);
-    entry.read_only.hash(&mut hasher);
-    entry.options.hash(&mut hasher);
-    entry.item_type.hash(&mut hasher);
-    entry.source.hash(&mut hasher);
-    entry.detail.hash(&mut hasher);
     hasher.finish()
+}
+
+#[cfg(test)]
+mod row_signature_tests {
+    use super::*;
+
+    fn filesystem() -> ResourceFilesystemEntry {
+        ResourceFilesystemEntry {
+            id: "mount:/".into(),
+            kind: "mount".into(),
+            path: "/".into(),
+            device: "/dev/sda1".into(),
+            fs_type: "ext4".into(),
+            size_bytes: "1000".into(),
+            used_bytes: "500".into(),
+            available_bytes: "500".into(),
+            used_percent: "50".into(),
+            inode_total: "100".into(),
+            inode_used: "50".into(),
+            inode_available: "50".into(),
+            inode_percent: "50".into(),
+            read_only: false,
+            options: "rw".into(),
+            item_type: "filesystem".into(),
+            source: "df".into(),
+            detail: String::new(),
+        }
+    }
+
+    #[test]
+    fn filesystem_signature_ignores_live_capacity() {
+        let original = filesystem();
+        let mut updated = original.clone();
+        updated.used_bytes = "900".into();
+        updated.available_bytes = "100".into();
+        updated.used_percent = "90".into();
+        updated.inode_percent = "75".into();
+
+        assert_eq!(
+            filesystem_row_signature(&original),
+            filesystem_row_signature(&updated)
+        );
+        updated.id = "mount:/data".into();
+        assert_ne!(
+            filesystem_row_signature(&original),
+            filesystem_row_signature(&updated)
+        );
+    }
 }
 
 pub fn filesystem_filter_label_key(filter: FilesystemFilter) -> &'static str {
