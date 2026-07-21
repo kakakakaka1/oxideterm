@@ -151,6 +151,9 @@ class MacosDmgDetachTests(unittest.TestCase):
             patch.object(
                 package_native, "run", side_effect=[busy_error, None]
             ) as run_mock,
+            patch.object(
+                package_native, "macos_dmg_mount_is_active", return_value=True
+            ),
             patch.object(package_native.time, "sleep") as sleep,
         ):
             package_native.detach_macos_dmg(mount_point)
@@ -176,6 +179,9 @@ class MacosDmgDetachTests(unittest.TestCase):
             patch.object(
                 package_native, "run", side_effect=[*failed_attempts, None]
             ) as run_mock,
+            patch.object(
+                package_native, "macos_dmg_mount_is_active", return_value=True
+            ),
             patch.object(package_native.time, "sleep") as sleep,
         ):
             package_native.detach_macos_dmg(mount_point)
@@ -205,6 +211,28 @@ class MacosDmgDetachTests(unittest.TestCase):
 
         run_mock.assert_called_once_with(detach_command)
         sleep.assert_not_called()
+
+    def test_accepts_async_detach_after_busy_result(self) -> None:
+        mount_point = Path("/tmp/oxideterm-test.mount")
+        detach_command = ["hdiutil", "detach", str(mount_point)]
+        busy_error = subprocess.CalledProcessError(
+            package_native.MACOS_RESOURCE_BUSY_EXIT_CODE, detach_command
+        )
+
+        with (
+            patch.object(package_native, "run", side_effect=busy_error) as run_mock,
+            patch.object(
+                package_native, "macos_dmg_mount_is_active", return_value=False
+            ) as mount_is_active,
+            patch.object(package_native.time, "sleep") as sleep,
+        ):
+            package_native.detach_macos_dmg(mount_point)
+
+        run_mock.assert_called_once_with(detach_command)
+        mount_is_active.assert_called_once_with(mount_point)
+        sleep.assert_called_once_with(
+            package_native.MACOS_DMG_DETACH_RETRY_DELAY_SECONDS
+        )
 
 
 class ReleaseDocumentTests(unittest.TestCase):

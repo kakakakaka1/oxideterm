@@ -98,6 +98,11 @@ def run(command: list[str], *, cwd: Path = ROOT_DIR, env: dict[str, str] | None 
     subprocess.run(command, cwd=cwd, env=env, check=True)
 
 
+def macos_dmg_mount_is_active(mount_point: Path) -> bool:
+    """Return whether the DMG still owns the requested mount point."""
+    return mount_point.exists() and mount_point.is_mount()
+
+
 def detach_macos_dmg(mount_point: Path) -> None:
     """Detach a DMG after transient macOS filesystem users release it."""
     detach_command = ["hdiutil", "detach", str(mount_point)]
@@ -108,14 +113,20 @@ def detach_macos_dmg(mount_point: Path) -> None:
         except subprocess.CalledProcessError as error:
             if error.returncode != MACOS_RESOURCE_BUSY_EXIT_CODE:
                 raise
+            if attempt < MACOS_DMG_DETACH_MAX_ATTEMPTS:
+                print(
+                    "warning: DMG is still busy; retrying detach "
+                    f"({attempt}/{MACOS_DMG_DETACH_MAX_ATTEMPTS})",
+                    file=sys.stderr,
+                )
+                time.sleep(MACOS_DMG_DETACH_RETRY_DELAY_SECONDS)
+
+            # hdiutil can report resource-busy while diskimages-helper finishes
+            # the detach asynchronously. An inactive mount is already success.
+            if not macos_dmg_mount_is_active(mount_point):
+                return
             if attempt == MACOS_DMG_DETACH_MAX_ATTEMPTS:
                 break
-            print(
-                "warning: DMG is still busy; retrying detach "
-                f"({attempt}/{MACOS_DMG_DETACH_MAX_ATTEMPTS})",
-                file=sys.stderr,
-            )
-            time.sleep(MACOS_DMG_DETACH_RETRY_DELAY_SECONDS)
 
     # A completed sync makes force-detach a safe final fallback for flaky CI runners.
     run(["hdiutil", "detach", "-force", str(mount_point)])
