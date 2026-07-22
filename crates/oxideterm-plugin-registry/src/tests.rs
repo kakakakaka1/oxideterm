@@ -28,6 +28,7 @@ fn minimal_manifest() -> NativePluginManifest {
         contributes: None,
         locales: None,
         runtime: None,
+        permissions: NativePluginPermissions::default(),
     }
 }
 
@@ -97,6 +98,132 @@ fn plugin_paths_cannot_escape_install_directory() {
     assert!(validate_plugin_relative_path("/tmp/plugin.wasm").is_err());
     assert!(validate_native_plugin_package_url("https://example.invalid/plugin.zip").is_ok());
     assert!(validate_native_plugin_package_url("file:///tmp/plugin.zip").is_err());
+}
+
+#[test]
+fn manifest_permissions_default_to_an_empty_sensitive_capability_request() {
+    let manifest: NativePluginManifest = serde_json::from_value(serde_json::json!({
+        "id": "com.example.demo",
+        "name": "Demo",
+        "version": "1.0.0"
+    }))
+    .unwrap();
+
+    // Empty permission declarations do not remove the host's safe default data plane.
+    assert!(manifest.permissions.capabilities.is_empty());
+}
+
+#[test]
+fn manifest_permissions_use_camel_case_and_round_trip() {
+    let manifest: NativePluginManifest = serde_json::from_value(serde_json::json!({
+        "id": "com.example.demo",
+        "name": "Demo",
+        "version": "1.0.0",
+        "permissions": {
+            "capabilities": ["terminal.content.read", "terminal.input.send"]
+        }
+    }))
+    .unwrap();
+
+    let value = serde_json::to_value(manifest).unwrap();
+    assert_eq!(
+        value.pointer("/permissions/capabilities"),
+        Some(&serde_json::json!([
+            "terminal.content.read",
+            "terminal.input.send"
+        ]))
+    );
+}
+
+#[test]
+fn permission_capabilities_normalize_order_and_whitespace() {
+    let capabilities = vec![
+        " terminal.input.send ".to_string(),
+        "terminal.content.read".to_string(),
+    ];
+
+    assert_eq!(
+        normalize_native_plugin_capabilities(&capabilities).unwrap(),
+        vec![
+            "terminal.content.read".to_string(),
+            "terminal.input.send".to_string()
+        ]
+    );
+}
+
+#[test]
+fn permission_capabilities_reject_empty_wildcard_and_duplicate_values() {
+    assert!(normalize_native_plugin_capabilities(&[" ".to_string()]).is_err());
+    assert!(normalize_native_plugin_capabilities(&["terminal.*".to_string()]).is_err());
+    assert!(
+        normalize_native_plugin_capabilities(&[
+            "terminal.input.send".to_string(),
+            " terminal.input.send ".to_string()
+        ])
+        .is_err()
+    );
+}
+
+#[test]
+fn capability_fingerprint_is_independent_of_declaration_order() {
+    let left = vec!["terminal.input.send".to_string(), "file.read".to_string()];
+    let right = vec!["file.read".to_string(), "terminal.input.send".to_string()];
+
+    assert_eq!(
+        native_plugin_capabilities_fingerprint(&left).unwrap(),
+        native_plugin_capabilities_fingerprint(&right).unwrap()
+    );
+}
+
+#[test]
+fn capability_approval_allows_version_updates_and_narrower_requests() {
+    let mut manifest = minimal_manifest();
+    manifest.permissions.capabilities = vec![
+        "terminal.input.send".to_string(),
+        "terminal.content.read".to_string(),
+    ];
+    let config = NativePluginConfigEntry {
+        approved_capabilities: vec![
+            "terminal.content.read".to_string(),
+            "terminal.input.send".to_string(),
+        ],
+        approved_for_version: Some("1.0.0".to_string()),
+        approved_runtime_kind: Some("wasm".to_string()),
+        ..NativePluginConfigEntry::default()
+    };
+
+    assert!(native_plugin_capability_approval_matches(
+        &manifest, "wasm", &config
+    ));
+    assert!(!native_plugin_capability_approval_matches(
+        &manifest, "process", &config
+    ));
+
+    manifest.version = "1.1.0".to_string();
+    assert!(native_plugin_capability_approval_matches(
+        &manifest, "wasm", &config
+    ));
+
+    manifest.permissions.capabilities = vec!["terminal.content.read".to_string()];
+    assert!(native_plugin_capability_approval_matches(
+        &manifest, "wasm", &config
+    ));
+
+    manifest
+        .permissions
+        .capabilities
+        .push("file.content.read".to_string());
+    assert!(!native_plugin_capability_approval_matches(
+        &manifest, "wasm", &config
+    ));
+}
+
+#[test]
+fn manifest_validation_rejects_unsafe_permission_declarations() {
+    let mut manifest = minimal_manifest();
+    manifest.permissions.capabilities = vec!["terminal.*".to_string()];
+
+    assert!(validate_native_plugin_manifest(&manifest).is_err());
 }
 
 #[test]
@@ -318,6 +445,9 @@ fn plugin_config_round_trips_disabled_and_error_state() {
             enabled: false,
             last_error: Some("disabled by test".to_string()),
             runtime_kind: Some("wasm".to_string()),
+            approved_capabilities: vec!["terminal.content.read".to_string()],
+            approved_for_version: Some("1.0.0".to_string()),
+            approved_runtime_kind: Some("wasm".to_string()),
             ..NativePluginConfigEntry::default()
         },
     );
@@ -328,7 +458,33 @@ fn plugin_config_round_trips_disabled_and_error_state() {
     assert!(!entry.enabled);
     assert_eq!(entry.last_error.as_deref(), Some("disabled by test"));
     assert_eq!(entry.runtime_kind.as_deref(), Some("wasm"));
+    assert_eq!(
+        entry.approved_capabilities,
+        vec!["terminal.content.read".to_string()]
+    );
+    assert_eq!(entry.approved_for_version.as_deref(), Some("1.0.0"));
+    assert_eq!(entry.approved_runtime_kind.as_deref(), Some("wasm"));
     let _ = fs::remove_dir_all(temp_dir);
+}
+
+#[test]
+fn legacy_plugin_config_defaults_permission_approval_metadata() {
+    let config: NativePluginGlobalConfig = serde_json::from_value(serde_json::json!({
+        "version": 1,
+        "plugins": {
+            "com.example.demo": {
+                "enabled": true,
+                "runtimeKind": "wasm"
+            }
+        }
+    }))
+    .unwrap();
+    let entry = &config.plugins["com.example.demo"];
+
+    // Existing installations remain readable and simply have no sensitive approval snapshot.
+    assert!(entry.approved_capabilities.is_empty());
+    assert!(entry.approved_for_version.is_none());
+    assert!(entry.approved_runtime_kind.is_none());
 }
 
 #[test]
@@ -475,7 +631,8 @@ fn discovery_classifies_native_wasm_and_process_runtime_states() {
         discover_native_plugins_in_dir(&plugins_dir, &NativePluginGlobalConfig::default());
     assert!(diagnostics.is_empty());
     assert_eq!(plugins.len(), 2);
-    assert_eq!(plugins[0].state, NativePluginState::ReadyProcess);
+    // Process runtimes remain disabled until the user trusts the unsandboxed boundary.
+    assert_eq!(plugins[0].state, NativePluginState::Disabled);
     assert_eq!(plugins[1].state, NativePluginState::ReadyWasm);
     let _ = fs::remove_dir_all(temp_dir);
 }
@@ -499,6 +656,10 @@ fn process_activation_plans_and_runtime_state_transitions_are_host_owned() {
     write_manifest(&plugin_dir, &manifest);
 
     let mut registry = NativePluginRegistry::discover(&settings_path);
+    assert!(registry.process_activation_plans().is_empty());
+    registry
+        .set_plugin_enabled("com.example.process", true)
+        .unwrap();
     let plans = registry.process_activation_plans();
     assert_eq!(plans.len(), 1);
     assert_eq!(plans[0].plugin_id, "com.example.process");
@@ -1365,6 +1526,132 @@ fn legacy_js_plugin_cannot_be_enabled_by_native_toggle() {
             .set_plugin_enabled("com.example.demo", true)
             .is_err()
     );
+    let _ = fs::remove_dir_all(temp_dir);
+}
+
+#[test]
+fn sensitive_wasm_waits_for_enable_approval_before_activation() {
+    let temp_dir = unique_temp_dir("plugin-wasm-permission-review");
+    let settings_path = temp_dir.join("settings.json");
+    let plugin_dir = native_plugins_dir(&settings_path).join("wasm");
+    fs::create_dir_all(&plugin_dir).unwrap();
+    fs::write(plugin_dir.join("plugin.wasm"), b"\0asm\x01\0\0\0").unwrap();
+    let mut manifest = minimal_manifest();
+    manifest.runtime = Some(NativePluginRuntime {
+        kind: NativePluginRuntimeKind::Wasm,
+        entry: "plugin.wasm".to_string(),
+    });
+    manifest.permissions.capabilities = vec!["terminal.content.read".to_string()];
+    write_manifest(&plugin_dir, &manifest);
+
+    let mut registry = NativePluginRegistry::discover(&settings_path);
+    let plugin = &registry.plugins()[0];
+    assert_eq!(plugin.state, NativePluginState::Disabled);
+    assert!(native_plugin_requires_permission_review(
+        &plugin.manifest,
+        &plugin.runtime_plan,
+        &plugin.config
+    ));
+    assert!(registry.wasm_activation_plans().is_empty());
+
+    registry
+        .set_plugin_enabled("com.example.demo", true)
+        .unwrap();
+    assert_eq!(registry.plugins()[0].state, NativePluginState::ReadyWasm);
+    assert_eq!(registry.wasm_activation_plans().len(), 1);
+    let config = load_native_plugin_config(registry.config_path());
+    let approval = &config.plugins["com.example.demo"];
+    assert_eq!(
+        approval.approved_capabilities,
+        vec!["terminal.content.read".to_string()]
+    );
+    assert_eq!(approval.approved_for_version.as_deref(), Some("1.0.0"));
+    assert_eq!(approval.approved_runtime_kind.as_deref(), Some("wasm"));
+    let _ = fs::remove_dir_all(temp_dir);
+}
+
+#[test]
+fn process_runtime_requires_implicit_trust_approval() {
+    let temp_dir = unique_temp_dir("plugin-process-permission-review");
+    let settings_path = temp_dir.join("settings.json");
+    let plugin_dir = native_plugins_dir(&settings_path).join("process");
+    fs::create_dir_all(&plugin_dir).unwrap();
+    fs::write(plugin_dir.join("plugin-process"), b"executable placeholder").unwrap();
+    let mut manifest = minimal_manifest();
+    manifest.runtime = Some(NativePluginRuntime {
+        kind: NativePluginRuntimeKind::Process,
+        entry: "plugin-process".to_string(),
+    });
+    write_manifest(&plugin_dir, &manifest);
+
+    let mut registry = NativePluginRegistry::discover(&settings_path);
+    assert_eq!(registry.plugins()[0].state, NativePluginState::Disabled);
+    assert!(registry.process_activation_plans().is_empty());
+
+    registry
+        .set_plugin_enabled("com.example.demo", true)
+        .unwrap();
+    assert_eq!(registry.plugins()[0].state, NativePluginState::ReadyProcess);
+    assert_eq!(registry.process_activation_plans().len(), 1);
+    let config = load_native_plugin_config(registry.config_path());
+    assert_eq!(
+        config.plugins["com.example.demo"].approved_capabilities,
+        vec![NATIVE_PLUGIN_TRUSTED_PROCESS_CAPABILITY.to_string()]
+    );
+    let _ = fs::remove_dir_all(temp_dir);
+}
+
+#[test]
+fn updates_only_require_review_for_expanded_permissions_or_runtime_changes() {
+    let temp_dir = unique_temp_dir("plugin-permission-update");
+    let settings_path = temp_dir.join("settings.json");
+    let plugin_dir = native_plugins_dir(&settings_path).join("wasm");
+    fs::create_dir_all(&plugin_dir).unwrap();
+    fs::write(plugin_dir.join("plugin.wasm"), b"\0asm\x01\0\0\0").unwrap();
+    fs::write(plugin_dir.join("plugin-process"), b"executable placeholder").unwrap();
+    let mut manifest = minimal_manifest();
+    manifest.runtime = Some(NativePluginRuntime {
+        kind: NativePluginRuntimeKind::Wasm,
+        entry: "plugin.wasm".to_string(),
+    });
+    manifest.permissions.capabilities = vec![
+        "terminal.input.send".to_string(),
+        "terminal.content.read".to_string(),
+    ];
+    write_manifest(&plugin_dir, &manifest);
+    let mut registry = NativePluginRegistry::discover(&settings_path);
+    registry
+        .set_plugin_enabled("com.example.demo", true)
+        .unwrap();
+
+    // A version update and narrower request preserve the existing approval.
+    manifest.version = "1.1.0".to_string();
+    manifest.permissions.capabilities = vec!["terminal.content.read".to_string()];
+    write_manifest(&plugin_dir, &manifest);
+    let registry = NativePluginRegistry::discover(&settings_path);
+    assert_eq!(registry.plugins()[0].state, NativePluginState::ReadyWasm);
+    assert_eq!(registry.wasm_activation_plans().len(), 1);
+
+    // A newly requested capability requires another explicit enable action.
+    manifest
+        .permissions
+        .capabilities
+        .push("file.content.read".to_string());
+    write_manifest(&plugin_dir, &manifest);
+    let registry = NativePluginRegistry::discover(&settings_path);
+    assert_eq!(registry.plugins()[0].state, NativePluginState::Disabled);
+    assert!(registry.wasm_activation_plans().is_empty());
+
+    // Moving to an unsandboxed process also invalidates a WASM approval.
+    manifest.permissions.capabilities = vec!["terminal.content.read".to_string()];
+    manifest.runtime = Some(NativePluginRuntime {
+        kind: NativePluginRuntimeKind::Process,
+        entry: "plugin-process".to_string(),
+    });
+    write_manifest(&plugin_dir, &manifest);
+    let registry = NativePluginRegistry::discover(&settings_path);
+    assert_eq!(registry.plugins()[0].state, NativePluginState::Disabled);
+    assert!(registry.process_activation_plans().is_empty());
     let _ = fs::remove_dir_all(temp_dir);
 }
 

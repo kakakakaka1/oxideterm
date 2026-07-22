@@ -44,6 +44,7 @@ fn sample_manifest() -> NativePluginManifest {
         contributes: None,
         locales: None,
         runtime: None,
+        permissions: oxideterm_plugin_registry::NativePluginPermissions::default(),
     }
 }
 

@@ -70,7 +70,7 @@ pub(crate) fn load_native_plugin_manifest(
         .get(&manifest.id)
         .cloned()
         .unwrap_or_else(NativePluginConfigEntry::default);
-    let state = native_plugin_state_for(&runtime_plan, &config_entry);
+    let state = native_plugin_state_for_manifest(&manifest, &runtime_plan, &config_entry);
     Ok(NativePluginInfo {
         manifest,
         install_dir: plugin_dir.to_path_buf(),

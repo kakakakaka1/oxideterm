@@ -6,6 +6,8 @@ use std::collections::HashMap;
 use oxideterm_plugin_protocol as plugin_runtime;
 use serde_json::{Map, Value, json};
 
+use crate::app::native_plugin_ai_catalog_summary;
+
 // AI host APIs expose sanitized conversation snapshots only; provider secrets,
 // tool messages, and backend-only state stay outside the plugin contract.
 pub fn native_plugin_ai_response(
@@ -52,6 +54,10 @@ pub fn native_plugin_ai_response(
                 .get("availableModels")
                 .cloned()
                 .unwrap_or_else(|| json!([])),
+        ),
+        "getCatalog" => plugin_runtime::PluginResponse::ok(
+            request_id,
+            native_plugin_ai_catalog_summary(snapshot),
         ),
         "onMessage" => plugin_runtime::PluginResponse::error(
             request_id,
@@ -208,4 +214,45 @@ pub fn native_plugin_ai_new_message_events(
             }))
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn catalog_response_exposes_models_without_conversation_or_provider_identity() {
+        let snapshot = json!({
+            "activeProvider": {
+                "type": "openai-compatible",
+                "displayName": "Private provider account",
+                "token": "secret-token",
+            },
+            "availableModels": ["model-a", "model-b"],
+            "conversations": [{ "title": "Private conversation" }],
+            "messagesByConversation": {
+                "conversation-1": [{ "content": "private prompt" }],
+            },
+        });
+        let response = native_plugin_ai_response(
+            plugin_runtime::PluginHostCall {
+                request_id: "ai.getCatalog".to_string(),
+                namespace: "ai".to_string(),
+                method: "getCatalog".to_string(),
+                args: Value::Null,
+            },
+            &snapshot,
+        );
+        let plugin_runtime::PluginResponseResult::Ok { value } = response.result else {
+            panic!("AI catalog should return safe metadata");
+        };
+
+        assert_eq!(value["activeProviderType"], json!("openai-compatible"));
+        assert_eq!(value["availableModels"], json!(["model-a", "model-b"]));
+        let serialized = value.to_string();
+        assert!(!serialized.contains("Private provider account"));
+        assert!(!serialized.contains("secret-token"));
+        assert!(!serialized.contains("Private conversation"));
+        assert!(!serialized.contains("private prompt"));
+    }
 }

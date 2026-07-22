@@ -13,9 +13,12 @@ use serde_json::{Value, json};
 
 use crate::{
     app::{
-        native_plugin_custom_event_from_args, native_plugin_i18n_translate,
-        native_plugin_platform_label, native_plugin_settings_section, native_plugin_theme_snapshot,
+        native_plugin_connection_summaries, native_plugin_custom_event_from_args,
+        native_plugin_i18n_translate, native_plugin_platform_label, native_plugin_session_summary,
+        native_plugin_settings_section, native_plugin_settings_summary,
+        native_plugin_theme_snapshot,
     },
+    catalog::host_api_catalog_json,
     settings::{
         native_normalize_syncable_settings_payload, native_syncable_settings_payload,
         native_syncable_settings_payload_arg, native_syncable_settings_revision,
@@ -43,6 +46,14 @@ pub struct NativePluginHostApiSnapshot {
     pub event_log_entries: Vec<Value>,
     pub active_terminal_target: Value,
     pub terminal_nodes: HashMap<String, NativePluginTerminalNodeSnapshot>,
+    /// Aggregate notification metadata; notification content never crosses this boundary.
+    pub notification_summary: Value,
+    /// Quick-command discovery metadata without executable command text or host patterns.
+    pub quick_command_metadata: Value,
+    /// The complete, currently effective theme token set.
+    pub theme_tokens: Value,
+    /// Allowlisted Cloud Sync status; destinations, credentials, errors, and payloads stay host-side.
+    pub cloud_sync_summary: Value,
 }
 
 fn native_plugin_ui_registration_preflight_response(
@@ -203,6 +214,14 @@ pub fn native_plugin_returnable_host_api_response(
                 native_plugin_settings_section(&snapshot.settings, category),
             ))
         }
+        ("app", "getSettingsSummary") => Some(plugin_runtime::PluginResponse::ok(
+            call.request_id,
+            native_plugin_settings_summary(
+                &snapshot.settings,
+                &snapshot.locale,
+                &snapshot.theme_name,
+            ),
+        )),
         ("app", "getVersion") => Some(plugin_runtime::PluginResponse::ok(
             call.request_id,
             json!(env!("CARGO_PKG_VERSION")),
@@ -215,6 +234,10 @@ pub fn native_plugin_returnable_host_api_response(
             call.request_id,
             json!(snapshot.locale),
         )),
+        ("app", "getApiCatalog") => Some(plugin_runtime::PluginResponse::ok(
+            call.request_id,
+            host_api_catalog_json(),
+        )),
         ("app", "getPoolStats") => Some(plugin_runtime::PluginResponse::ok(
             call.request_id,
             snapshot.pool_stats.clone(),
@@ -222,6 +245,10 @@ pub fn native_plugin_returnable_host_api_response(
         ("connections", "getAll") => Some(plugin_runtime::PluginResponse::ok(
             call.request_id,
             json!(snapshot.connections),
+        )),
+        ("connections", "getSummaries") => Some(plugin_runtime::PluginResponse::ok(
+            call.request_id,
+            native_plugin_connection_summaries(&snapshot.connections, &snapshot.connection_states),
         )),
         ("connections", "get") => {
             let Some(connection_id) = call.args.get("connectionId").and_then(Value::as_str) else {
@@ -292,6 +319,10 @@ pub fn native_plugin_returnable_host_api_response(
             call.request_id,
             json!(snapshot.session_tree),
         )),
+        ("sessions", "getSummary") => Some(plugin_runtime::PluginResponse::ok(
+            call.request_id,
+            native_plugin_session_summary(&snapshot.session_tree),
+        )),
         ("sessions", "getActiveNodes") => Some(plugin_runtime::PluginResponse::ok(
             call.request_id,
             native_plugin_active_session_nodes(&snapshot.session_tree),
@@ -317,9 +348,33 @@ pub fn native_plugin_returnable_host_api_response(
             call.request_id,
             native_plugin_filtered_event_log_entries(&snapshot.event_log_entries, &call.args),
         )),
+        ("eventLog", "getSummary") => Some(plugin_runtime::PluginResponse::ok(
+            call.request_id,
+            native_plugin_event_log_summary(&snapshot.event_log_entries),
+        )),
+        ("notifications", "getSummary") => Some(plugin_runtime::PluginResponse::ok(
+            call.request_id,
+            snapshot.notification_summary.clone(),
+        )),
+        ("quickCommands", "getMetadata") => Some(plugin_runtime::PluginResponse::ok(
+            call.request_id,
+            snapshot.quick_command_metadata.clone(),
+        )),
+        ("theme", "getTokens") => Some(plugin_runtime::PluginResponse::ok(
+            call.request_id,
+            snapshot.theme_tokens.clone(),
+        )),
+        ("cloudSync", "getSummary") => Some(plugin_runtime::PluginResponse::ok(
+            call.request_id,
+            snapshot.cloud_sync_summary.clone(),
+        )),
         ("terminal", "getActiveTarget") => Some(plugin_runtime::PluginResponse::ok(
             call.request_id,
             snapshot.active_terminal_target.clone(),
+        )),
+        ("terminal", "getMetadata") => Some(plugin_runtime::PluginResponse::ok(
+            call.request_id,
+            native_plugin_terminal_metadata(snapshot),
         )),
         ("terminal", "getNodeBuffer") => {
             let Some(node_id) = call.args.get("nodeId").and_then(Value::as_str) else {
@@ -478,6 +533,46 @@ pub fn native_plugin_returnable_host_api_response(
     }
 }
 
+/// Projects terminal availability and sizing without terminal text or selection content.
+pub fn native_plugin_terminal_metadata(snapshot: &NativePluginHostApiSnapshot) -> Value {
+    let active_target = if snapshot.active_terminal_target.is_null() {
+        Value::Null
+    } else {
+        json!({
+            "sessionId": snapshot.active_terminal_target.get("sessionId").and_then(Value::as_str),
+            "terminalType": snapshot.active_terminal_target.get("terminalType").and_then(Value::as_str),
+            "nodeId": snapshot.active_terminal_target.get("nodeId").and_then(Value::as_str),
+            "connectionId": snapshot.active_terminal_target.get("connectionId").and_then(Value::as_str),
+            "connectionState": snapshot
+                .active_terminal_target
+                .get("connectionState")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown"),
+        })
+    };
+    let mut nodes = snapshot
+        .terminal_nodes
+        .iter()
+        .map(|(node_id, terminal)| {
+            json!({
+                "nodeId": node_id,
+                "currentLines": terminal.current_lines,
+                "hasSelection": terminal.selection.is_some(),
+            })
+        })
+        .collect::<Vec<_>>();
+    nodes.sort_by(|left, right| {
+        left.get("nodeId")
+            .and_then(Value::as_str)
+            .cmp(&right.get("nodeId").and_then(Value::as_str))
+    });
+    json!({
+        "activeTarget": active_target,
+        "terminalCount": nodes.len(),
+        "nodes": nodes,
+    })
+}
+
 pub fn native_plugin_active_session_nodes(session_tree: &[Value]) -> Value {
     let active_nodes = session_tree
         .iter()
@@ -541,6 +636,29 @@ pub fn native_plugin_filtered_event_log_entries(entries: &[Value], args: &Value)
     json!(filtered)
 }
 
+/// Counts event metadata while excluding titles, details, sources, and timestamps.
+pub fn native_plugin_event_log_summary(entries: &[Value]) -> Value {
+    let mut by_severity = std::collections::BTreeMap::<String, usize>::new();
+    let mut by_category = std::collections::BTreeMap::<String, usize>::new();
+    for entry in entries {
+        let severity = entry
+            .get("severity")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown");
+        let category = entry
+            .get("category")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown");
+        *by_severity.entry(severity.to_string()).or_default() += 1;
+        *by_category.entry(category.to_string()).or_default() += 1;
+    }
+    json!({
+        "total": entries.len(),
+        "bySeverity": by_severity,
+        "byCategory": by_category,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -554,10 +672,28 @@ mod tests {
                 "terminal": {
                     "theme": "default-dark",
                     "fontSize": 14,
+                    "backgroundEnabled": true,
+                    "commandBar": { "enabled": true },
+                    "commandMarks": { "enabled": false },
+                    "inBandTransfer": { "enabled": true },
                 },
                 "general": {
                     "language": "zh-CN",
-                }
+                    "updateProxy": { "host": "private-proxy.example.test" },
+                },
+                "appearance": { "uiDensity": "compact" },
+                "sftp": { "speedLimitEnabled": true },
+                "reconnect": { "enabled": true },
+                "launcher": { "enabled": false },
+                "ai": {
+                    "enabled": true,
+                    "apiToken": "secret-provider-token",
+                    "provider": "private-provider",
+                },
+                "localTerminal": {
+                    "defaultCwd": "/private/home",
+                    "customEnvVars": { "ACCESS_TOKEN": "secret-env-token" },
+                },
             }),
             locale: "zh-CN".to_string(),
             theme_name: "default-dark".to_string(),
@@ -583,6 +719,9 @@ mod tests {
                 "id": 1,
                 "severity": "info",
                 "category": "connection",
+                "title": "Private host connected",
+                "detail": "credential leaked in event detail",
+                "source": "private.example.test",
             })],
             active_terminal_target: Value::Null,
             terminal_nodes: HashMap::from([(
@@ -593,6 +732,47 @@ mod tests {
                     current_lines: 2,
                 },
             )]),
+            notification_summary: json!({
+                "total": 2,
+                "unread": 1,
+                "unreadCritical": 1,
+                "dndEnabled": false,
+                "byKind": { "security": 2 },
+                "bySeverity": { "critical": 1, "info": 1 },
+                "byStatus": { "read": 1, "unread": 1 },
+            }),
+            quick_command_metadata: json!({
+                "categories": [{ "id": "ops", "name": "Operations", "icon": "server" }],
+                "commands": [{
+                    "id": "restart-service",
+                    "name": "Restart service",
+                    "category": "ops",
+                    "hasDescription": true,
+                    "hostRestricted": true,
+                }],
+            }),
+            theme_tokens: json!({
+                "name": "default-dark",
+                "terminal": { "background": 0x101010 },
+                "ui": { "bg": 0x101010 },
+                "metrics": { "titlebarHeight": 36.0 },
+                "radii": { "md": 6.0 },
+                "spacing": { "one": 4.0 },
+                "density": "comfortable",
+                "motion": { "enabled": true },
+            }),
+            cloud_sync_summary: json!({
+                "enabled": true,
+                "backend": "webdav",
+                "configured": true,
+                "status": "uploading",
+                "activeAction": "upload",
+                "progress": { "stage": "uploading-blob", "percent": 50.0 },
+                "dirty": true,
+                "conflict": false,
+                "historyCount": 3,
+                "lastSuccessAt": "2026-07-22T08:00:00Z",
+            }),
         }
     }
 
@@ -695,5 +875,173 @@ mod tests {
             plugin_runtime::PluginResponseResult::Ok { value }
                 if value.get("event").and_then(Value::as_str) == Some("plugin.com.example.demo:ready")
         ));
+    }
+
+    #[test]
+    fn readonly_summary_methods_keep_sensitive_snapshot_fields_out_of_responses() {
+        let mut snapshot = sample_snapshot();
+        snapshot.connections = vec![json!({
+            "id": "connection-1",
+            "host": "private.example.test",
+            "username": "secret-user",
+            "state": { "error": "credential leaked in failure" },
+            "refCount": 2,
+            "keepAlive": true,
+            "terminalIds": ["term-1"],
+            "parentConnectionId": null,
+        })];
+        snapshot.active_terminal_target = json!({
+            "sessionId": "term-1",
+            "terminalType": "terminal",
+            "nodeId": "node-1",
+            "connectionId": "connection-1",
+            "connectionState": "active",
+            "label": "secret-user@private.example.test",
+        });
+        snapshot.session_tree[0]["host"] = json!("private.example.test");
+        snapshot.session_tree[0]["username"] = json!("secret-user");
+        snapshot.session_tree[0]["errorMessage"] = json!("credential leaked in failure");
+
+        let calls = [
+            host_call("app", "getSettingsSummary", Value::Null),
+            host_call("connections", "getSummaries", Value::Null),
+            host_call("sessions", "getSummary", Value::Null),
+            host_call("eventLog", "getSummary", Value::Null),
+            host_call("terminal", "getMetadata", Value::Null),
+        ];
+        for call in calls {
+            let response =
+                native_plugin_returnable_host_api_response(&snapshot, "com.example.demo", call)
+                    .unwrap();
+            let plugin_runtime::PluginResponseResult::Ok { value } = response.result else {
+                panic!("summary host API should return metadata");
+            };
+            let serialized = value.to_string();
+            assert!(!serialized.contains("private.example.test"));
+            assert!(!serialized.contains("secret-user"));
+            assert!(!serialized.contains("credential leaked in failure"));
+            assert!(!serialized.contains("alpha"));
+            assert!(!serialized.contains("beta"));
+            assert!(!serialized.contains("secret-provider-token"));
+            assert!(!serialized.contains("private-provider"));
+            assert!(!serialized.contains("private-proxy.example.test"));
+            assert!(!serialized.contains("/private/home"));
+            assert!(!serialized.contains("secret-env-token"));
+            assert!(!serialized.contains("Private host connected"));
+            assert!(!serialized.contains("credential leaked in event detail"));
+        }
+    }
+
+    #[test]
+    fn readonly_dispatcher_returns_useful_settings_and_event_counts() {
+        let snapshot = sample_snapshot();
+        let settings = native_plugin_returnable_host_api_response(
+            &snapshot,
+            "com.example.demo",
+            host_call("app", "getSettingsSummary", Value::Null),
+        )
+        .unwrap();
+        assert!(matches!(
+            settings.result,
+            plugin_runtime::PluginResponseResult::Ok { value }
+                if value["locale"] == "zh-CN"
+                    && value["theme"] == "default-dark"
+                    && value["density"] == "compact"
+                    && value["features"]["terminalCommandBar"] == true
+        ));
+
+        let events = native_plugin_returnable_host_api_response(
+            &snapshot,
+            "com.example.demo",
+            host_call("eventLog", "getSummary", Value::Null),
+        )
+        .unwrap();
+        assert!(matches!(
+            events.result,
+            plugin_runtime::PluginResponseResult::Ok { value }
+                if value["total"] == 1
+                    && value["bySeverity"]["info"] == 1
+                    && value["byCategory"]["connection"] == 1
+        ));
+    }
+
+    #[test]
+    fn readonly_dispatcher_returns_safe_product_metadata_and_complete_theme_tokens() {
+        let snapshot = sample_snapshot();
+        let notifications = native_plugin_returnable_host_api_response(
+            &snapshot,
+            "com.example.demo",
+            host_call("notifications", "getSummary", Value::Null),
+        )
+        .unwrap();
+        let plugin_runtime::PluginResponseResult::Ok {
+            value: notification_value,
+        } = notifications.result
+        else {
+            panic!("notification summary should be available without content access");
+        };
+        assert_eq!(notification_value["total"], 2);
+        assert_eq!(notification_value["unreadCritical"], 1);
+        assert_eq!(notification_value["byKind"]["security"], 2);
+        for forbidden_key in ["title", "body", "scope", "dedupe", "dedupeKey"] {
+            assert!(notification_value.get(forbidden_key).is_none());
+        }
+
+        let quick_commands = native_plugin_returnable_host_api_response(
+            &snapshot,
+            "com.example.demo",
+            host_call("quickCommands", "getMetadata", Value::Null),
+        )
+        .unwrap();
+        let plugin_runtime::PluginResponseResult::Ok {
+            value: quick_command_value,
+        } = quick_commands.result
+        else {
+            panic!("quick-command metadata should be available without command content access");
+        };
+        let command = &quick_command_value["commands"][0];
+        assert_eq!(command["hasDescription"], true);
+        assert_eq!(command["hostRestricted"], true);
+        assert!(command.get("command").is_none());
+        assert!(command.get("hostPattern").is_none());
+        assert!(command.get("description").is_none());
+
+        let theme = native_plugin_returnable_host_api_response(
+            &snapshot,
+            "com.example.demo",
+            host_call("theme", "getTokens", Value::Null),
+        )
+        .unwrap();
+        assert!(matches!(
+            theme.result,
+            plugin_runtime::PluginResponseResult::Ok { value }
+                if value["name"] == "default-dark"
+                    && value.get("terminal").is_some()
+                    && value.get("ui").is_some()
+                    && value.get("metrics").is_some()
+                    && value.get("radii").is_some()
+                    && value.get("spacing").is_some()
+                    && value.get("density").is_some()
+                    && value.get("motion").is_some()
+        ));
+    }
+
+    #[test]
+    fn readonly_dispatcher_returns_allowlisted_cloud_sync_summary() {
+        let snapshot = sample_snapshot();
+        let response = native_plugin_returnable_host_api_response(
+            &snapshot,
+            "com.example.demo",
+            host_call("cloudSync", "getSummary", Value::Null),
+        )
+        .unwrap();
+        let plugin_runtime::PluginResponseResult::Ok { value } = response.result else {
+            panic!("Cloud Sync summary host API should return metadata");
+        };
+
+        assert_eq!(value["backend"], "webdav");
+        assert_eq!(value["progress"]["percent"], 50.0);
+        assert!(value.get("endpoint").is_none());
+        assert!(value.get("lastError").is_none());
     }
 }

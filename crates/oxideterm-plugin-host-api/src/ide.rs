@@ -9,6 +9,8 @@ use oxideterm_ide_core::{IdePluginFileSnapshot, IdePluginSnapshot};
 use oxideterm_plugin_protocol as plugin_runtime;
 use serde_json::{Value, json};
 
+use crate::app::native_plugin_ide_state_summary;
+
 pub fn native_plugin_ide_response(
     call: plugin_runtime::PluginHostCall,
     snapshot: &Value,
@@ -38,6 +40,10 @@ pub fn native_plugin_ide_response(
         "getActiveFile" => plugin_runtime::PluginResponse::ok(
             request_id,
             snapshot.get("activeFile").cloned().unwrap_or(Value::Null),
+        ),
+        "getSummary" => plugin_runtime::PluginResponse::ok(
+            request_id,
+            native_plugin_ide_state_summary(snapshot),
         ),
         "onFileOpen" | "onFileClose" | "onActiveFileChange" => {
             plugin_runtime::PluginResponse::error(
@@ -119,7 +125,7 @@ mod tests {
     use oxideterm_ide_core::{IdePluginFileSnapshot, IdePluginProjectSnapshot, IdePluginSnapshot};
     use serde_json::json;
 
-    use super::native_plugin_ide_snapshot_value;
+    use super::{native_plugin_ide_response, native_plugin_ide_snapshot_value};
 
     #[test]
     fn snapshot_value_projects_core_dto_without_ui_state() {
@@ -165,5 +171,53 @@ mod tests {
                 "activeFile": null,
             })
         );
+    }
+
+    #[test]
+    fn summary_response_exposes_editor_state_without_names_or_paths() {
+        let snapshot = json!({
+            "isOpen": true,
+            "project": {
+                "nodeId": "node-1",
+                "rootPath": "/private/project",
+                "name": "private-project",
+                "isGitRepo": true,
+                "gitBranch": "secret-feature",
+            },
+            "openFiles": [{
+                "path": "/private/project/src/main.rs",
+                "name": "main.rs",
+                "language": "Rust",
+                "isDirty": true,
+                "isPinned": true,
+                "content": "private source",
+            }],
+            "activeFile": {
+                "path": "/private/project/src/main.rs",
+                "name": "main.rs",
+                "language": "Rust",
+            },
+        });
+        let response = native_plugin_ide_response(
+            oxideterm_plugin_protocol::PluginHostCall {
+                request_id: "ide.getSummary".to_string(),
+                namespace: "ide".to_string(),
+                method: "getSummary".to_string(),
+                args: serde_json::Value::Null,
+            },
+            &snapshot,
+        );
+        let oxideterm_plugin_protocol::PluginResponseResult::Ok { value } = response.result else {
+            panic!("IDE summary should return safe metadata");
+        };
+
+        assert_eq!(value["openFileCount"], json!(1));
+        assert_eq!(value["dirtyFileCount"], json!(1));
+        assert_eq!(value["activeFileLanguage"], json!("Rust"));
+        let serialized = value.to_string();
+        assert!(!serialized.contains("/private/project"));
+        assert!(!serialized.contains("private-project"));
+        assert!(!serialized.contains("secret-feature"));
+        assert!(!serialized.contains("private source"));
     }
 }

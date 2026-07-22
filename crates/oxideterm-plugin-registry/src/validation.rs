@@ -28,6 +28,9 @@ pub(crate) fn validate_native_plugin_manifest(
     if let Some(locales) = &manifest.locales {
         validate_plugin_relative_path(locales)?;
     }
+    // Permission declarations cover only sensitive data and side effects; safe
+    // redacted host projections remain available without declarations.
+    normalize_native_plugin_capabilities(&manifest.permissions.capabilities)?;
     if let Some(contributes) = &manifest.contributes {
         validate_native_plugin_contributions(contributes)?;
     }
@@ -495,6 +498,14 @@ pub(crate) fn runtime_subscription_event(
     Ok(event)
 }
 
+/// Resolves runtime subscription metadata to the stable event name used by the host.
+pub fn native_plugin_runtime_subscription_event(
+    metadata: &Value,
+    subscriber_plugin_id: &str,
+) -> Result<String, String> {
+    runtime_subscription_event(metadata, subscriber_plugin_id)
+}
+
 pub(crate) fn runtime_subscription_event_from_method(metadata: &Value) -> Option<String> {
     let namespace = runtime_metadata_string(metadata, "namespace")?;
     let method = runtime_metadata_string(metadata, "method")?;
@@ -660,6 +671,26 @@ pub fn native_plugin_state_for(
             NativePluginState::UnsupportedLegacyJs
         }
     }
+}
+
+/// Resolves plugin state while withholding activation until the current
+/// sensitive capability request has been approved.
+pub fn native_plugin_state_for_manifest(
+    manifest: &NativePluginManifest,
+    runtime_plan: &NativePluginRuntimePlan,
+    config: &NativePluginConfigEntry,
+) -> NativePluginState {
+    let state = native_plugin_state_for(runtime_plan, config);
+    if matches!(
+        state,
+        NativePluginState::ReadyManifestOnly
+            | NativePluginState::ReadyWasm
+            | NativePluginState::ReadyProcess
+    ) && native_plugin_requires_permission_review(manifest, runtime_plan, config)
+    {
+        return NativePluginState::Disabled;
+    }
+    state
 }
 
 pub fn native_runtime_kind_label(runtime_plan: &NativePluginRuntimePlan) -> &'static str {

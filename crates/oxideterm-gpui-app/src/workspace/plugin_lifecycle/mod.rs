@@ -18,7 +18,7 @@ use zeroize::Zeroizing;
 
 use super::{
     TabKind, TelnetSessionConfig, TerminalInputInterceptor, TerminalOutputProcessor,
-    TerminalSessionId, WorkspaceApp, WorkspaceToast, plugin_runtime,
+    TerminalSessionId, WorkspaceApp, WorkspaceToast, plugin_host, plugin_runtime,
     plugin_runtime::PluginResponseResult,
 };
 
@@ -57,7 +57,11 @@ use ui_host_calls::*;
 
 #[cfg(test)]
 use oxideterm_plugin_host_api::terminal::NativePluginTerminalNodeSnapshot;
-use oxideterm_plugin_host_api::{ai::*, transfers::*};
+use oxideterm_plugin_host_api::{
+    ai::*,
+    catalog::{allowed_host_apis_for_capabilities, is_supported_host_api_capability},
+    transfers::*,
+};
 
 impl WorkspaceApp {
     pub(super) fn start_native_plugin_runtime_services_if_needed(
@@ -1517,15 +1521,19 @@ impl WorkspaceApp {
             // modules or WebViews.
             for plan in process_plans {
                 let plugin_id = plan.plugin_id.clone();
-                let result = host
-                    .activate_process_plugin(
-                        plan.manifest,
-                        plan.install_dir,
-                        plan.entry,
-                        native_process_plugin_permissions(),
-                        NATIVE_PLUGIN_LIFECYCLE_TIMEOUT,
-                    )
-                    .await;
+                let result = match native_plugin_permissions(&plan.manifest, true) {
+                    Ok(permissions) => {
+                        host.activate_process_plugin(
+                            plan.manifest,
+                            plan.install_dir,
+                            plan.entry,
+                            permissions,
+                            NATIVE_PLUGIN_LIFECYCLE_TIMEOUT,
+                        )
+                        .await
+                    }
+                    Err(error) => Err(error),
+                };
                 if tx
                     .send(NativePluginRuntimeDelivery::Activation { plugin_id, result })
                     .is_err()
@@ -1535,15 +1543,19 @@ impl WorkspaceApp {
             }
             for plan in wasm_plans {
                 let plugin_id = plan.plugin_id.clone();
-                let result = host
-                    .activate_wasm_plugin(
-                        plan.manifest,
-                        plan.install_dir,
-                        plan.entry,
-                        native_process_plugin_permissions(),
-                        NATIVE_PLUGIN_LIFECYCLE_TIMEOUT,
-                    )
-                    .await;
+                let result = match native_plugin_permissions(&plan.manifest, false) {
+                    Ok(permissions) => {
+                        host.activate_wasm_plugin(
+                            plan.manifest,
+                            plan.install_dir,
+                            plan.entry,
+                            permissions,
+                            NATIVE_PLUGIN_LIFECYCLE_TIMEOUT,
+                        )
+                        .await
+                    }
+                    Err(error) => Err(error),
+                };
                 if tx
                     .send(NativePluginRuntimeDelivery::Activation { plugin_id, result })
                     .is_err()
@@ -2478,116 +2490,34 @@ fn native_plugin_toast_variant(variant: &str) -> TerminalNoticeVariant {
     }
 }
 
-fn native_process_plugin_permissions() -> plugin_runtime::PluginPermissionSet {
-    // Process plugins receive only host APIs that have native capability gates
-    // or read-only snapshot boundaries. SFTP keeps an explicit read/write
-    // split so future per-plugin permissions can deny mutating calls without
-    // changing the transport schema.
-    plugin_runtime::PluginPermissionSet {
-        capabilities: vec![
-            NATIVE_PLUGIN_CAPABILITY_FILESYSTEM_READ.to_string(),
-            NATIVE_PLUGIN_CAPABILITY_FILESYSTEM_WRITE.to_string(),
-            NATIVE_PLUGIN_CAPABILITY_NETWORK_FORWARD.to_string(),
-        ],
-        allowed_host_apis: vec![
-            "app.getTheme".to_string(),
-            "app.getSettings".to_string(),
-            "app.getVersion".to_string(),
-            "app.getPlatform".to_string(),
-            "app.getLocale".to_string(),
-            "app.getPoolStats".to_string(),
-            "app.refreshAfterExternalSync".to_string(),
-            "connections.getAll".to_string(),
-            "connections.get".to_string(),
-            "connections.getState".to_string(),
-            "connections.getByNode".to_string(),
-            "sessions.getTree".to_string(),
-            "sessions.getActiveNodes".to_string(),
-            "sessions.getNodeState".to_string(),
-            "eventLog.getEntries".to_string(),
-            "terminal.getActiveTarget".to_string(),
-            "terminal.getNodeBuffer".to_string(),
-            "terminal.getNodeSelection".to_string(),
-            "terminal.search".to_string(),
-            "terminal.getScrollBuffer".to_string(),
-            "terminal.getBufferSize".to_string(),
-            "terminal.writeToActive".to_string(),
-            "terminal.writeToNode".to_string(),
-            "terminal.clearBuffer".to_string(),
-            "terminal.openTelnet".to_string(),
-            "sftp.listDir".to_string(),
-            "sftp.stat".to_string(),
-            "sftp.readFile".to_string(),
-            "sftp.writeFile".to_string(),
-            "sftp.mkdir".to_string(),
-            "sftp.delete".to_string(),
-            "sftp.rename".to_string(),
-            "forward.list".to_string(),
-            "forward.listSavedForwards".to_string(),
-            "forward.onSavedForwardsChange".to_string(),
-            "forward.exportSavedForwardsSnapshot".to_string(),
-            "forward.applySavedForwardsSnapshot".to_string(),
-            "forward.create".to_string(),
-            "forward.stop".to_string(),
-            "forward.stopAll".to_string(),
-            "forward.getStats".to_string(),
-            "secrets.get".to_string(),
-            "secrets.getMany".to_string(),
-            "secrets.set".to_string(),
-            "secrets.has".to_string(),
-            "secrets.delete".to_string(),
-            "sync.listSavedConnections".to_string(),
-            "sync.refreshSavedConnections".to_string(),
-            "sync.exportSavedConnectionsSnapshot".to_string(),
-            "sync.applySavedConnectionsSnapshot".to_string(),
-            "sync.getLocalSyncMetadata".to_string(),
-            "sync.preflightExport".to_string(),
-            "sync.exportOxide".to_string(),
-            "sync.validateOxide".to_string(),
-            "sync.previewImport".to_string(),
-            "sync.importOxide".to_string(),
-            "transfers.getAll".to_string(),
-            "transfers.getByNode".to_string(),
-            "transfers.onProgress".to_string(),
-            "transfers.onComplete".to_string(),
-            "transfers.onError".to_string(),
-            "profiler.getMetrics".to_string(),
-            "profiler.getHistory".to_string(),
-            "profiler.isRunning".to_string(),
-            "profiler.onMetrics".to_string(),
-            "ide.isOpen".to_string(),
-            "ide.getProject".to_string(),
-            "ide.getOpenFiles".to_string(),
-            "ide.getActiveFile".to_string(),
-            "ide.onFileOpen".to_string(),
-            "ide.onFileClose".to_string(),
-            "ide.onActiveFileChange".to_string(),
-            "ai.getConversations".to_string(),
-            "ai.getMessages".to_string(),
-            "ai.getActiveProvider".to_string(),
-            "ai.getAvailableModels".to_string(),
-            "ai.onMessage".to_string(),
-            "api.invoke".to_string(),
-            "events.emit".to_string(),
-            "i18n.t".to_string(),
-            "i18n.getLanguage".to_string(),
-            "settings.get".to_string(),
-            "settings.set".to_string(),
-            "settings.exportSyncableSettings".to_string(),
-            "settings.applySyncableSettings".to_string(),
-            "ui.getLayout".to_string(),
-            "ui.registerTabView".to_string(),
-            "ui.registerSidebarPanel".to_string(),
-            "ui.openTab".to_string(),
-            "ui.showToast".to_string(),
-            "ui.showConfirm".to_string(),
-            "ui.showProgress".to_string(),
-            "ui.showNotification".to_string(),
-            "storage.set".to_string(),
-            "storage.remove".to_string(),
-            "storage.get".to_string(),
-        ],
+fn native_plugin_permissions(
+    manifest: &plugin_host::NativePluginManifest,
+    trusted_process: bool,
+) -> Result<plugin_runtime::PluginPermissionSet, plugin_runtime::PluginError> {
+    let mut capabilities =
+        plugin_host::normalize_native_plugin_capabilities(&manifest.permissions.capabilities)
+            .map_err(|error| {
+                plugin_runtime::PluginError::protocol("invalid_plugin_capability", error)
+            })?;
+    for capability in &capabilities {
+        if !is_supported_host_api_capability(capability) {
+            return Err(plugin_runtime::PluginError::protocol(
+                "unsupported_plugin_capability",
+                format!("Native plugin capability \"{capability}\" is not supported"),
+            ));
+        }
     }
+    if trusted_process {
+        // This capability records the user's trust decision; it does not grant
+        // another host API because an unsandboxed process can access the OS directly.
+        capabilities.push(plugin_host::NATIVE_PLUGIN_TRUSTED_PROCESS_CAPABILITY.to_string());
+        capabilities.sort_unstable();
+    }
+    let allowed_host_apis = allowed_host_apis_for_capabilities(&capabilities);
+    Ok(plugin_runtime::PluginPermissionSet {
+        capabilities,
+        allowed_host_apis,
+    })
 }
 
 #[cfg(test)]

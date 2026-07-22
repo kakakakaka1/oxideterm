@@ -1,4 +1,7 @@
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+use serde::Serialize;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TerminalTheme {
     pub background: u32,
     pub foreground: u32,
@@ -22,7 +25,8 @@ pub struct TerminalTheme {
     pub bright_white: u32,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AppUiColors {
     pub bg: u32,
     pub bg_panel: u32,
@@ -55,7 +59,8 @@ pub struct BuiltInTheme {
     pub terminal: TerminalTheme,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct UiMetrics {
     pub font_family: &'static str,
     pub traffic_light_x: f32,
@@ -428,7 +433,8 @@ impl UiMetrics {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct UiRadii {
     pub xs: f32,
     pub sm: f32,
@@ -449,7 +455,8 @@ impl UiRadii {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct UiSpacing {
     pub one: f32,
     pub two: f32,
@@ -457,14 +464,16 @@ pub struct UiSpacing {
     pub icon_gap: f32,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub enum UiDensityProfile {
     Compact,
     Comfortable,
     Spacious,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub enum UiMotionProfile {
     Off,
     Reduced,
@@ -472,7 +481,8 @@ pub enum UiMotionProfile {
     Fast,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct UiMotion {
     pub enabled: bool,
     pub spatial_enabled: bool,
@@ -541,7 +551,8 @@ impl UiSpacing {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ThemeTokens {
     pub terminal: TerminalTheme,
     pub ui: AppUiColors,

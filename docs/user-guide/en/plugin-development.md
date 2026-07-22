@@ -61,6 +61,12 @@ Use this manifest:
     "kind": "process",
     "entry": "bin/hello.js"
   },
+  "permissions": {
+    "capabilities": [
+      "legacy.invoke",
+      "ui.write"
+    ]
+  },
   "contributes": {
     "sidebarPanels": [
       {
@@ -273,7 +279,7 @@ sequenceDiagram
     Plugin-->>Host: response with the same requestId on stdout
 ```
 
-Activation request from host to plugin. The `manifest` object is shortened here; the real request carries the parsed `plugin.json`:
+Activation request from host to plugin. The `manifest` and `allowedHostApis` values are shortened here; the real request carries the parsed `plugin.json` and the complete effective allowlist:
 
 ```json
 {
@@ -289,11 +295,17 @@ Activation request from host to plugin. The `manifest` object is shortened here;
         "version": "0.1.0"
       },
       "permissions": {
-        "capabilities": [],
+        "capabilities": [
+          "legacy.invoke",
+          "runtime.process.trusted",
+          "ui.write"
+        ],
         "allowedHostApis": [
           "api.invoke",
           "app.getVersion",
-          "settings.get"
+          "connections.getSummaries",
+          "settings.get",
+          "ui.registerSidebarPanel"
         ]
       }
     },
@@ -376,10 +388,9 @@ The process bridge rejects malformed frames before they reach the workspace. Com
 
 ## Host Calls In Plugin Code
 
-Host calls are not global JavaScript functions. They are protocol messages. A call is accepted only when both checks pass:
+Host calls are not global JavaScript functions. They are protocol messages. A call is accepted only when its name appears in the effective `allowedHostApis`. Baseline, redacted reads are included automatically; sensitive reads and side effects are included after the matching manifest capabilities are approved.
 
-- The host API name is allowed by the plugin permission set, either exactly such as `terminal.getActiveTarget` or by namespace wildcard such as `terminal.*`.
-- For `api.invoke`, `args.command` is also listed in `contributes.apiCommands`.
+`api.invoke` has one additional check: `args.command` must also be listed in `contributes.apiCommands`.
 
 Read a plugin setting:
 
@@ -395,14 +406,14 @@ Read a plugin setting:
 }
 ```
 
-Read the active terminal target:
+Read redacted terminal metadata without requesting a capability:
 
 ```json
 {
   "type": "callHostApi",
   "requestId": "host-3",
   "namespace": "terminal",
-  "method": "getActiveTarget",
+  "method": "getMetadata",
   "args": {}
 }
 ```
@@ -420,6 +431,8 @@ Write text to the active terminal:
   }
 }
 ```
+
+That write requires `terminal.write`. Reading terminal text or the active target requires `terminal.content.read`.
 
 Read a remote file through SFTP:
 
@@ -644,10 +657,6 @@ Manifest-only plugins are useful for static metadata, declared settings, AI tool
   "version": "0.1.0",
   "description": "Adds audit-related settings and tool metadata.",
   "author": "Example",
-  "runtime": {
-    "kind": "manifest-only",
-    "entry": ""
-  },
   "contributes": {
     "settings": [
       {
@@ -686,6 +695,13 @@ A process plugin is an executable inside the plugin directory. The host starts i
     "kind": "process",
     "entry": "./bin/native-dashboard"
   },
+  "permissions": {
+    "capabilities": [
+      "connections.read",
+      "legacy.invoke",
+      "ui.write"
+    ]
+  },
   "contributes": {
     "tabs": [
       { "id": "dashboard", "title": "Dashboard", "icon": "LayoutDashboard" }
@@ -699,9 +715,7 @@ A process plugin is an executable inside the plugin directory. The host starts i
       ]
     },
     "apiCommands": [
-      "app.getVersion",
-      "connections.getAll",
-      "ui.showToast"
+      "get_app_version"
     ]
   }
 }
@@ -711,13 +725,14 @@ Rules:
 
 - `runtime.entry` must be a relative path inside the plugin directory.
 - The entry must exist for `process` and `wasm` runtimes.
+- A process plugin implicitly requests `runtime.process.trusted`. The Plugin Manager includes that trust decision in the enable-time approval because the process runs without an OS sandbox.
 - The process must not write arbitrary human logs to stdout. Stdout is the protocol channel.
 - Use stderr for diagnostic text.
 - Every protocol frame is a single JSON object followed by `\n`.
 
 ## Protocol Frames
 
-The host wraps every request and response in an envelope:
+The host wraps every request and response in an envelope. This example shortens the baseline allowlist:
 
 ```json
 {
@@ -734,7 +749,12 @@ The host wraps every request and response in an envelope:
       },
       "permissions": {
         "capabilities": [],
-        "allowedHostApis": []
+        "allowedHostApis": [
+          "app.getVersion",
+          "connections.getSummaries",
+          "sessions.getSummary",
+          "terminal.getMetadata"
+        ]
       }
     },
     "timeoutMs": 3000
@@ -876,7 +896,7 @@ Runtime plugins call host APIs by namespace, method, and JSON args:
 }
 ```
 
-The host rejects calls that are not allowed by the plugin permission set. `contributes.apiCommands` is also used as the manifest-level declaration for many host calls. Prefer exact entries such as `connections.getAll`; use namespace wildcards only when the plugin genuinely needs the full namespace.
+The host rejects calls that are not in the effective plugin permission set. Direct host APIs are derived from approved capabilities and do not need to be repeated in `contributes.apiCommands`. That list is only the second allowlist for commands sent through the legacy `api.invoke` adapter.
 
 Common namespaces include:
 
@@ -899,17 +919,56 @@ Common namespaces include:
 | `secrets` | Plugin-scoped secret storage |
 | `ui` | Toasts, confirm dialogs, layout, progress |
 
+This table describes namespaces that are implemented today, not a promise that every OxideTerm product domain is already exposed. Call baseline `app.getApiCatalog` to discover the direct APIs supported by the running host, including each API's access tier, required capability, and introduction version. Product domains absent from that catalog remain planned work.
+
 ## Permissions And Capabilities
 
-Native uses explicit capability gates. Current shared capability names include:
+Declare sensitive reads and side effects in the top-level manifest field:
+
+```json
+{
+  "permissions": {
+    "capabilities": ["terminal.content.read", "terminal.write"]
+  }
+}
+```
+
+An empty or omitted `permissions.capabilities` does not produce an empty plugin. Every runtime plugin receives useful baseline, redacted calls, including `connections.getSummaries`, `sessions.getSummary`, `terminal.getMetadata`, `ai.getCatalog`, `ide.getSummary`, and `app.getApiCatalog`. Baseline metadata excludes raw terminal text, file contents, AI conversation text, credentials, and mutating operations.
+
+Current capability names are:
 
 | Capability | Meaning |
 |---|---|
 | `filesystem.read` | Read file metadata/content through approved host APIs |
 | `filesystem.write` | Mutate files through approved host APIs |
+| `filesystem.delete` | Delete files or directory trees through approved host APIs |
+| `network.forward.read` | Read saved and active forwarding rules |
 | `network.forward` | Create or manage forwarding/network bridge behavior |
+| `app.settings.read` | Read host settings categories |
+| `app.sync.refresh` | Refresh host state after external synchronization |
+| `connections.read` | Read full saved-connection and endpoint projections |
+| `sessions.read` | Read full session trees, active-node projections, and event logs |
+| `terminal.content.read` | Read terminal targets, selection, scrollback, or search results |
+| `terminal.write` | Write terminal input, clear a buffer, or open a Telnet transport |
+| `credentials.raw.read` | Return raw plugin-scoped secret values |
+| `credentials.manage` | Store, test, or delete plugin-scoped secrets through the host broker |
+| `network.http` | Permit HTTP/HTTPS through the legacy request adapter |
+| `sync.read` | Read/export synchronization data |
+| `sync.write` | Refresh, apply, or import synchronization data |
+| `transfers.read` | Read and subscribe to transfer state |
+| `ide.read` | Read full IDE project and open-file projections |
+| `ai.content.read` | Read AI conversations and message content |
+| `legacy.invoke` | Call the compatibility `api.invoke` adapter |
+| `events.emit` | Emit a plugin-scoped custom event |
+| `plugin.settings.write` | Change plugin settings or plugin-scoped storage |
+| `ui.write` | Register/open plugin UI and show host UI effects |
+| `runtime.process.trusted` | Trust an unsandboxed process runtime; added implicitly for process plugins |
 
-The runtime receives the effective permission set in the `activate` request. Treat that request as the source of truth: a manifest can declare plugin intent, but a Host API call still has to be present in `permissions.allowedHostApis`, and capability-gated calls still need the matching capability.
+The Plugin Manager presents all requested sensitive capabilities together when a plugin is enabled. Activation waits for approval, then the runtime receives the effective permission set in the `activate` request. Treat that request as the source of truth. A version-only update does not prompt again and does not expand access. Adding a capability or changing the runtime boundary requires a new review; removing capabilities narrows access without another prompt.
+
+Process plugins deserve special care: `runtime.process.trusted` is implicit and cannot be removed from their approval. The process is not confined by an OxideTerm OS sandbox, so its executable can exercise the operating-system access of the current user independently of Host API gates. Install and approve process plugins only from trusted publishers. WASM and process plugins must not be described as having the same security boundary.
+
+HTTP requests currently use the compatibility adapter. A plugin must request both `legacy.invoke` and `network.http`, and must list `plugin_http_request` in `contributes.apiCommands` before calling `api.invoke` with that command.
 
 AI tool metadata can also declare semantic capabilities such as `terminal.observe`, `terminal.send`, `state.list`, `settings.read`, `settings.write`, and `plugin.invoke`. Those declarations describe tool behavior for the host and model-facing surfaces; they do not bypass runtime permission checks.
 
@@ -921,7 +980,7 @@ Use the smallest storage boundary that fits the data:
 |---|---|---|
 | User-visible plugin option | `contributes.settings` and `settings.*` | Typed values; safe for export/import when not secret |
 | Plugin internal cache | `storage.*` | Plugin-scoped JSON KV with size limits |
-| Token/password/key | `secrets.*` | OS keychain-backed plugin-scoped storage |
+| Token/password/key | `secrets.*` | OS keychain-backed plugin-scoped storage; raw reads require `credentials.raw.read`, while set/has/delete require `credentials.manage` |
 | Cross-machine plugin preferences | plugin settings import/export or `.oxide` | Do not include raw secrets unless the encrypted portable flow explicitly supports them |
 
 Never put credentials in plugin ids, names, labels, logs, AI prompts, event payloads, or support bundles.
@@ -998,6 +1057,11 @@ interface NativePluginManifest {
   contributes?: NativePluginContributes;
   locales?: string;
   runtime?: NativePluginRuntime;
+  permissions?: NativePluginPermissions;
+}
+
+interface NativePluginPermissions {
+  capabilities?: string[];
 }
 
 interface NativePluginRuntime {
@@ -1060,7 +1124,8 @@ Validation rules:
 - `id`, `name`, `version`, contribution ids, titles, and icons must be non-empty text.
 - Relative paths must stay inside the plugin directory.
 - `terminalTransports` currently accepts `telnet`.
-- `apiCommands` entries are host API names such as `connections.getAll` or `sftp.listDir`.
+- `apiCommands` entries are compatibility-adapter commands such as `get_app_version` or `plugin_http_request`; direct host APIs are not listed there.
+- Omit `runtime` for a manifest-only plugin; an empty runtime entry is invalid.
 - Legacy `main` without `runtime` produces `legacy-js` state and is not executed.
 
 ### Protocol Interfaces
@@ -1231,7 +1296,7 @@ interface HostCall {
 
 Calls must be allowed by `allowedHostApis`. Exact names and namespace wildcards are supported, for example `connections.getAll` and `connections.*`.
 
-`api.invoke` has an additional allowlist: `args.command` must also appear in `contributes.apiCommands`.
+`api.invoke` requires `legacy.invoke` and has an additional allowlist: `args.command` must also appear in `contributes.apiCommands`. The `plugin_http_request` command additionally requires `network.http`.
 
 | `api.invoke` command | Native adapter |
 |---|---|
@@ -1279,6 +1344,7 @@ Calls must be allowed by `allowedHostApis`. Exact names and namespace wildcards 
 | `app.getVersion` | `{}` | Version string |
 | `app.getPlatform` | `{}` | Platform string |
 | `app.getLocale` | `{}` | Locale string |
+| `app.getApiCatalog` | `{}` | Implemented direct APIs with access tier, capability, and introduction version |
 | `app.getPoolStats` | `{}` | `{ activeConnections, totalSessions }`-style stats |
 | `app.refreshAfterExternalSync` | `{}` | One-way workspace refresh effect |
 | `ui.getLayout` | `{}` | Layout snapshot |
@@ -1301,11 +1367,13 @@ Calls must be allowed by `allowedHostApis`. Exact names and namespace wildcards 
 
 | Host API | Args | Result |
 |---|---|---|
+| `connections.getSummaries` | `{}` | Redacted connection summaries; baseline |
 | `connections.getAll` | `{}` | Connection snapshots |
 | `connections.get` | `{ connectionId: string }` | Connection snapshot or `null` |
 | `connections.getState` | `{ connectionId: string }` | Connection state or `null` |
 | `connections.getByNode` | `{ nodeId: string }` | Connection snapshot or `null` |
 | `sessions.getTree` | `{}` | Node tree snapshot |
+| `sessions.getSummary` | `{}` | Redacted session summary; baseline |
 | `sessions.getActiveNodes` | `{}` | Active/connected node snapshots |
 | `sessions.getNodeState` | `{ nodeId: string }` | Node state or `null` |
 | `eventLog.getEntries` | `{ severity?: string, category?: string, limit?: number }` | Event-log entries |
@@ -1314,6 +1382,7 @@ Calls must be allowed by `allowedHostApis`. Exact names and namespace wildcards 
 
 | Host API | Args | Result |
 |---|---|---|
+| `terminal.getMetadata` | `{}` | Redacted terminal metadata; baseline |
 | `terminal.getActiveTarget` | `{}` | Active terminal target snapshot |
 | `terminal.getNodeBuffer` | `{ nodeId: string }` | Terminal buffer text or `null` |
 | `terminal.getNodeSelection` | `{ nodeId: string }` | Selected text or `null` |
@@ -1373,11 +1442,11 @@ Calls must be allowed by `allowedHostApis`. Exact names and namespace wildcards 
 | `storage.get` | `{ key: string }` | JSON value or `null` |
 | `storage.set` | `{ key: string, value: unknown }` | One-way write |
 | `storage.remove` | `{ key: string }` | One-way delete |
-| `secrets.get` | `{ key: string }` | Secret string or `null` |
-| `secrets.getMany` | `{ keys: string[] }` | Map of key to secret/null |
-| `secrets.set` | `{ key: string, value: string }` | Empty value deletes |
-| `secrets.has` | `{ key: string }` | `boolean` |
-| `secrets.delete` | `{ key: string }` | Delete result |
+| `secrets.get` | `{ key: string }` | Secret string or `null`; requires `credentials.raw.read` |
+| `secrets.getMany` | `{ keys: string[] }` | Map of key to secret/null; requires `credentials.raw.read` |
+| `secrets.set` | `{ key: string, value: string }` | Empty value deletes; requires `credentials.manage` |
+| `secrets.has` | `{ key: string }` | `boolean`; requires `credentials.manage` |
+| `secrets.delete` | `{ key: string }` | Delete result; requires `credentials.manage` |
 | `sync.listSavedConnections` | `{}` | Saved connection snapshots |
 | `sync.refreshSavedConnections` | `{}` | Saved connection snapshots after refresh |
 | `sync.exportSavedConnectionsSnapshot` | `{}` | Saved connection sync snapshot |
@@ -1394,10 +1463,12 @@ Calls must be allowed by `allowedHostApis`. Exact names and namespace wildcards 
 | Host API | Args | Result |
 |---|---|---|
 | `ide.isOpen` | `{}` | `boolean` |
+| `ide.getSummary` | `{}` | Redacted IDE state summary; baseline |
 | `ide.getProject` | `{}` | Project snapshot or `null` |
 | `ide.getOpenFiles` | `{}` | Open-file snapshots |
 | `ide.getActiveFile` | `{}` | Active file snapshot or `null` |
 | `ai.getConversations` | `{}` | Sanitized conversation summaries |
+| `ai.getCatalog` | `{}` | Redacted provider and model catalog; baseline |
 | `ai.getMessages` | `{ conversationId: string }` | Sanitized messages |
 | `ai.getActiveProvider` | `{}` | Active provider summary or `null` |
 | `ai.getAvailableModels` | `{}` | Model names |
@@ -1409,29 +1480,31 @@ Calls must be allowed by `allowedHostApis`. Exact names and namespace wildcards 
 
 Subscribe by registering `event-subscription` with `event`, or with `namespace` + `method` for Tauri-style names.
 
-| Namespace + method | Event key |
-|---|---|
-| `app.onThemeChange` | `app.themeChanged` |
-| `app.onSettingsChange` | `app.settingsChanged` |
-| `i18n.onLanguageChange` | `i18n.languageChanged` |
-| `settings.onChange` | `settings.changed` |
-| `ui.onLayoutChange` | `ui.layoutChanged` |
-| `sessions.onTreeChange` | `sessions.treeChanged` |
-| `sessions.onNodeStateChange` | `sessions.nodeStateChanged` |
-| `eventLog.onEntry` | `eventLog.entry` |
-| `forward.onSavedForwardsChange` | `forward.savedForwardsChanged` |
-| `transfers.onProgress` | `transfers.progress` |
-| `transfers.onComplete` | `transfers.complete` |
-| `transfers.onError` | `transfers.error` |
-| `profiler.onMetrics` | `profiler.metrics` |
-| `ide.onFileOpen` | `ide.fileOpen` |
-| `ide.onFileClose` | `ide.fileClose` |
-| `ide.onActiveFileChange` | `ide.activeFileChanged` |
-| `ai.onMessage` | `ai.message` |
-| `events.onConnect` | `lifecycle.onConnect` |
-| `events.onDisconnect` | `lifecycle.onDisconnect` |
-| `events.onLinkDown` | `lifecycle.onLinkDown` |
-| `events.onReconnect` | `lifecycle.onReconnect` |
+| Namespace + method | Event key | Required capability |
+|---|---|---|
+| `app.onThemeChange` | `app.themeChanged` | — |
+| `app.onSettingsChange` | `app.settingsChanged` | `app.settings.read` |
+| `i18n.onLanguageChange` | `i18n.languageChanged` | — |
+| `settings.onChange` | `settings.changed` | — |
+| `ui.onLayoutChange` | `ui.layoutChanged` | — |
+| `sessions.onTreeChange` | `sessions.treeChanged` | `sessions.read` |
+| `sessions.onNodeStateChange` | `sessions.nodeStateChanged` | — |
+| `eventLog.onEntry` | `eventLog.entry` | `sessions.read` |
+| `forward.onSavedForwardsChange` | `forward.savedForwardsChanged` | `network.forward.read` |
+| `transfers.onProgress` | `transfers.progress` | `transfers.read` |
+| `transfers.onComplete` | `transfers.complete` | `transfers.read` |
+| `transfers.onError` | `transfers.error` | `transfers.read` |
+| `profiler.onMetrics` | `profiler.metrics` | — |
+| `ide.onFileOpen` | `ide.fileOpen` | `ide.read` |
+| `ide.onFileClose` | `ide.fileClose` | `ide.read` |
+| `ide.onActiveFileChange` | `ide.activeFileChanged` | `ide.read` |
+| `ai.onMessage` | `ai.message` | — (metadata only; no message content) |
+| `events.onConnect` | `lifecycle.onConnect` | — |
+| `events.onDisconnect` | `lifecycle.onDisconnect` | — |
+| `events.onLinkDown` | `lifecycle.onLinkDown` | — |
+| `events.onReconnect` | `lifecycle.onReconnect` | — |
+
+Terminal input interceptors require both `terminal.content.read` and `terminal.write`. Terminal output processors require `terminal.content.read`.
 
 Custom plugin events use the `events.on` / `events.emit` path and are scoped by plugin id so one plugin cannot claim arbitrary global event names.
 

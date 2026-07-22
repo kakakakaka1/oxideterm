@@ -167,6 +167,7 @@ impl NativePluginRuntimeHost {
         // can mutate the host registry on the UI thread.
         let messages = runtime.drain_outbound_messages();
         let effects = runtime.drain_outbound_effects();
+        validate_outbound_message_permissions(&messages, &permissions)?;
         validate_outbound_effect_permissions(&effects, &permissions)?;
 
         if matches!(response.result, PluginResponseResult::Ok { .. }) {
@@ -226,6 +227,7 @@ impl NativePluginRuntimeHost {
                 .await?;
             let messages = runtime.drain_outbound_messages();
             let effects = runtime.drain_outbound_effects();
+            validate_outbound_message_permissions(&messages, &permissions)?;
             validate_outbound_effect_permissions(&effects, &permissions)?;
 
             if matches!(response.result, PluginResponseResult::Ok { .. }) {
@@ -266,6 +268,7 @@ impl NativePluginRuntimeHost {
                 .await?;
             let messages = runtime.drain_outbound_messages();
             let effects = runtime.drain_outbound_effects();
+            validate_outbound_message_permissions(&messages, &permissions)?;
             validate_outbound_effect_permissions(&effects, &permissions)?;
 
             if matches!(response.result, PluginResponseResult::Ok { .. }) {
@@ -308,6 +311,7 @@ impl NativePluginRuntimeHost {
                 .await?;
             let messages = runtime.drain_outbound_messages();
             let effects = runtime.drain_outbound_effects();
+            validate_outbound_message_permissions(&messages, &permissions)?;
             validate_outbound_effect_permissions(&effects, &permissions)?;
             return Ok(NativePluginRuntimeCommandDispatch {
                 plugin_id: plugin_id.to_string(),
@@ -336,6 +340,7 @@ impl NativePluginRuntimeHost {
                 .await?;
             let messages = runtime.drain_outbound_messages();
             let effects = runtime.drain_outbound_effects();
+            validate_outbound_message_permissions(&messages, &permissions)?;
             validate_outbound_effect_permissions(&effects, &permissions)?;
             return Ok(NativePluginRuntimeCommandDispatch {
                 plugin_id: plugin_id.to_string(),
@@ -377,6 +382,7 @@ impl NativePluginRuntimeHost {
             .await?;
         let messages = runtime.drain_outbound_messages();
         let effects = runtime.drain_outbound_effects();
+        validate_outbound_message_permissions(&messages, &permissions)?;
         validate_outbound_effect_permissions(&effects, &permissions)?;
         Ok(NativePluginRuntimeCommandDispatch {
             plugin_id: plugin_id.to_string(),
@@ -403,6 +409,7 @@ impl NativePluginRuntimeHost {
             let response = runtime.send_event(event.clone()).await?;
             let messages = runtime.drain_outbound_messages();
             let effects = runtime.drain_outbound_effects();
+            validate_outbound_message_permissions(&messages, &permissions)?;
             validate_outbound_effect_permissions(&effects, &permissions)?;
             let _ = timeout;
             return Ok(NativePluginRuntimeEventDispatch {
@@ -423,6 +430,7 @@ impl NativePluginRuntimeHost {
             let response = runtime.send_event(event.clone()).await?;
             let messages = runtime.drain_outbound_messages();
             let effects = runtime.drain_outbound_effects();
+            validate_outbound_message_permissions(&messages, &permissions)?;
             validate_outbound_effect_permissions(&effects, &permissions)?;
             let _ = timeout;
             return Ok(NativePluginRuntimeEventDispatch {
@@ -461,6 +469,7 @@ impl NativePluginRuntimeHost {
             .await?;
         let messages = runtime.drain_outbound_messages();
         let effects = runtime.drain_outbound_effects();
+        validate_outbound_message_permissions(&messages, &permissions)?;
         validate_outbound_effect_permissions(&effects, &permissions)?;
         // Keep the caller-supplied timeout in the API even though the current
         // PluginRuntimeBridge::send_event path uses the lifecycle timeout; the
@@ -530,7 +539,10 @@ mod sidecar_wasm;
 #[cfg(feature = "wasm-runtime")]
 pub use oxideterm_plugin_wasm_runtime::{NativeWasmPluginRuntime, resolve_wasm_runtime_entry};
 pub use paths::resolve_process_runtime_entry;
-use permissions::{install_process_host_call_handler, validate_outbound_effect_permissions};
+use permissions::{
+    install_process_host_call_handler, validate_outbound_effect_permissions,
+    validate_outbound_message_permissions,
+};
 pub use process::NativeProcessPluginRuntime;
 pub use sidecar_wasm::{
     NativeSidecarWasmPluginRuntime, installed_wasm_sidecar_binary_path, wasm_sidecar_install_dir,

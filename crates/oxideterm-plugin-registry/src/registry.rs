@@ -431,11 +431,19 @@ impl NativePluginRegistry {
             .or_default();
         entry.enabled = enabled;
         entry.install_path = Some(plugin_snapshot.install_dir.display().to_string());
-        entry.runtime_kind =
-            Some(native_runtime_kind_label(&plugin_snapshot.runtime_plan).to_string());
-        entry.last_loaded_version = Some(plugin_snapshot.manifest.version);
+        let runtime_kind = native_runtime_kind_label(&plugin_snapshot.runtime_plan).to_string();
+        entry.runtime_kind = Some(runtime_kind.clone());
+        entry.last_loaded_version = Some(plugin_snapshot.manifest.version.clone());
 
         if enabled {
+            // Enabling is the single consent point for the complete current
+            // request, including implicit trust in an unsandboxed process.
+            entry.approved_capabilities = native_plugin_requested_capabilities(
+                &plugin_snapshot.manifest,
+                &plugin_snapshot.runtime_plan,
+            )?;
+            entry.approved_for_version = Some(plugin_snapshot.manifest.version.clone());
+            entry.approved_runtime_kind = Some(runtime_kind);
             // Tauri reload clears the disabled/error path before trying to load
             // again. Native Phase 1 has no runtime yet, but the config state must
             // still be ready for Phase 3 activation.
@@ -569,7 +577,11 @@ impl NativePluginRegistry {
                     .get(plugin_id)
                     .cloned()
                     .unwrap_or_else(NativePluginConfigEntry::default);
-                plugin.state = native_plugin_state_for(&plugin.runtime_plan, &config_entry);
+                plugin.state = native_plugin_state_for_manifest(
+                    &plugin.manifest,
+                    &plugin.runtime_plan,
+                    &config_entry,
+                );
                 plugin.config = config_entry;
                 break;
             }

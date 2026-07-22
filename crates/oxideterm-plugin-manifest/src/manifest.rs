@@ -42,6 +42,18 @@ pub struct NativePluginManifest {
     pub locales: Option<String>,
     #[serde(default)]
     pub runtime: Option<NativePluginRuntime>,
+    /// Declares sensitive reads and side effects that require user approval.
+    #[serde(default)]
+    pub permissions: NativePluginPermissions,
+}
+
+/// Permission requests exclude the safe, redacted data plane available to all plugins.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativePluginPermissions {
+    /// Capability names requested by the plugin.
+    #[serde(default)]
+    pub capabilities: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]

@@ -10,9 +10,4 @@ pub(super) const NATIVE_PLUGIN_TRANSFER_PROGRESS_INTERVAL: Duration = Duration::
 pub(super) const NATIVE_PLUGIN_PROFILER_METRICS_INTERVAL: Duration = Duration::from_secs(1);
 pub(super) const NATIVE_PLUGIN_TOAST_TTL: Duration = Duration::from_secs(4);
 
-pub(super) use oxideterm_plugin_host_api::capabilities::{
-    NATIVE_PLUGIN_CAPABILITY_FILESYSTEM_READ, NATIVE_PLUGIN_CAPABILITY_FILESYSTEM_WRITE,
-    NATIVE_PLUGIN_CAPABILITY_NETWORK_FORWARD,
-};
-
 pub(super) use oxideterm_plugin_host_api::backend::*;

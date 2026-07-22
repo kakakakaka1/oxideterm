@@ -24,7 +24,7 @@ pub use oxideterm_plugin_manifest::{
     NativePluginConfigEntry, NativePluginConnectionHookContribution, NativePluginContributes,
     NativePluginDeclarativeUiControl, NativePluginDeclarativeUiSchema,
     NativePluginDeclarativeUiSection, NativePluginDiagnostic, NativePluginGlobalConfig,
-    NativePluginInfo, NativePluginInstalledInfo, NativePluginManifest,
+    NativePluginInfo, NativePluginInstalledInfo, NativePluginManifest, NativePluginPermissions,
     NativePluginProcessActivationPlan, NativePluginRegistryEntry, NativePluginRegistryIndex,
     NativePluginRuntime, NativePluginRuntimeCommandContribution,
     NativePluginRuntimeContextMenuContribution, NativePluginRuntimeContextMenuItem,
@@ -47,6 +47,7 @@ mod contributions;
 mod discovery;
 mod install;
 mod paths;
+mod permissions;
 mod registry;
 mod state_semantics;
 mod validation;
@@ -72,6 +73,11 @@ pub use contributions::{
 };
 pub use discovery::{load_native_plugin_config, save_native_plugin_config};
 pub use paths::{native_plugin_config_path, native_plugins_dir};
+pub use permissions::{
+    NATIVE_PLUGIN_TRUSTED_PROCESS_CAPABILITY, native_plugin_capabilities_fingerprint,
+    native_plugin_capability_approval_matches, native_plugin_requested_capabilities,
+    native_plugin_requires_permission_review, normalize_native_plugin_capabilities,
+};
 pub use registry::NativePluginRegistry;
 pub use state_semantics::{
     PLUGIN_ID_CONFLICT_ERROR_PREFIX, native_plugin_conflict_id, native_plugin_error_has_code,
@@ -79,7 +85,8 @@ pub use state_semantics::{
 };
 pub use validation::{
     native_plugin_custom_event_key, native_plugin_declarative_control_is_actionable,
-    native_plugin_state_for, native_runtime_kind_label, native_runtime_plan_for_manifest,
+    native_plugin_runtime_subscription_event, native_plugin_state_for,
+    native_plugin_state_for_manifest, native_runtime_kind_label, native_runtime_plan_for_manifest,
     validate_native_plugin_id, validate_plugin_relative_path,
 };
 

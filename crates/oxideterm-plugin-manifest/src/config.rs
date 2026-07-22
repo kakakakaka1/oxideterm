@@ -50,6 +50,15 @@ pub struct NativePluginConfigEntry {
     pub error_count: u32,
     #[serde(default)]
     pub error_window_started_at_ms: Option<u64>,
+    /// Normalized sensitive capabilities approved by the user.
+    #[serde(default)]
+    pub approved_capabilities: Vec<String>,
+    /// Plugin version for which the capability approval was granted.
+    #[serde(default)]
+    pub approved_for_version: Option<String>,
+    /// Runtime boundary for which the capability approval was granted.
+    #[serde(default)]
+    pub approved_runtime_kind: Option<String>,
 }
 
 impl Default for NativePluginConfigEntry {
@@ -63,6 +72,9 @@ impl Default for NativePluginConfigEntry {
             last_loaded_version: None,
             error_count: 0,
             error_window_started_at_ms: None,
+            approved_capabilities: Vec::new(),
+            approved_for_version: None,
+            approved_runtime_kind: None,
         }
     }
 }

@@ -11,7 +11,9 @@ use serde_json::{Value, json};
 
 use oxideterm_plugin_protocol as plugin_runtime;
 
-use crate::capabilities::NATIVE_PLUGIN_CAPABILITY_NETWORK_FORWARD;
+use crate::capabilities::{
+    NATIVE_PLUGIN_CAPABILITY_NETWORK_FORWARD, NATIVE_PLUGIN_CAPABILITY_NETWORK_FORWARD_READ,
+};
 
 // Keeps the forward namespace together: permission checks, saved-forward sync,
 // live manager calls, and plugin-facing JSON snapshots share one contract.
@@ -31,6 +33,12 @@ pub fn native_plugin_forward_response(
     }
 
     match call.method.as_str() {
+        "getSummary" => {
+            return plugin_runtime::PluginResponse::ok(
+                request_id,
+                native_plugin_forward_summary(registry),
+            );
+        }
         "listSavedForwards" => {
             let value = match native_plugin_forward_saved_forwards(registry) {
                 Ok(value) => value,
@@ -117,6 +125,35 @@ pub fn native_plugin_forward_response(
             ),
         ),
     }
+}
+
+/// Counts live forwarding rules without exposing bind or target endpoints.
+pub fn native_plugin_forward_summary(registry: &ForwardingRegistry) -> Value {
+    let rules = registry
+        .session_ids()
+        .into_iter()
+        .filter_map(|session_id| registry.get(&session_id))
+        .flat_map(|manager| manager.list_forwards())
+        .collect::<Vec<_>>();
+    native_plugin_forward_rule_summary(&rules)
+}
+
+fn native_plugin_forward_rule_summary(rules: &[ForwardRule]) -> Value {
+    let mut by_type = std::collections::BTreeMap::<&str, usize>::new();
+    let mut by_status = std::collections::BTreeMap::<&str, usize>::new();
+    for rule in rules {
+        *by_type
+            .entry(native_plugin_forward_type_label(rule.forward_type))
+            .or_default() += 1;
+        *by_status
+            .entry(native_plugin_forward_status_label(&rule.status))
+            .or_default() += 1;
+    }
+    json!({
+        "total": rules.len(),
+        "byType": by_type,
+        "byStatus": by_status,
+    })
 }
 
 async fn native_plugin_forward_async_result(
@@ -244,7 +281,16 @@ pub fn native_plugin_forward_check_capability(
     method: &str,
     permissions: &plugin_runtime::PluginPermissionSet,
 ) -> Result<(), String> {
-    let requires_forward = matches!(
+    let required = if matches!(
+        method,
+        "list"
+            | "getStats"
+            | "listSavedForwards"
+            | "onSavedForwardsChange"
+            | "exportSavedForwardsSnapshot"
+    ) {
+        NATIVE_PLUGIN_CAPABILITY_NETWORK_FORWARD_READ
+    } else if matches!(
         method,
         "create"
             | "stop"
@@ -252,25 +298,21 @@ pub fn native_plugin_forward_check_capability(
             | "restart"
             | "update"
             | "stopAll"
-            | "list"
-            | "getStats"
-            | "listSavedForwards"
-            | "onSavedForwardsChange"
-            | "exportSavedForwardsSnapshot"
             | "applySavedForwardsSnapshot"
-    );
-    if !requires_forward {
+    ) {
+        NATIVE_PLUGIN_CAPABILITY_NETWORK_FORWARD
+    } else {
         return Ok(());
-    }
-    if permissions
-        .capabilities
-        .iter()
-        .any(|capability| capability == NATIVE_PLUGIN_CAPABILITY_NETWORK_FORWARD)
-    {
+    };
+    if permissions.capabilities.iter().any(|capability| {
+        capability == required
+            || (required == NATIVE_PLUGIN_CAPABILITY_NETWORK_FORWARD_READ
+                && capability == NATIVE_PLUGIN_CAPABILITY_NETWORK_FORWARD)
+    }) {
         return Ok(());
     }
     Err(format!(
-        "Native plugin forward host call \"{method}\" requires capability \"{NATIVE_PLUGIN_CAPABILITY_NETWORK_FORWARD}\""
+        "Native plugin forward host call \"{method}\" requires capability \"{required}\""
     ))
 }
 
@@ -499,5 +541,56 @@ fn native_plugin_forward_status_label(status: &ForwardStatus) -> &'static str {
         ForwardStatus::Stopped => "stopped",
         ForwardStatus::Error => "error",
         ForwardStatus::Suspended => "suspended",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn forward_summary_counts_types_and_states_without_endpoints() {
+        let mut local = ForwardRule::local("127.0.0.1", 2200, "private-target.example.test", 22);
+        local.status = ForwardStatus::Active;
+        local.description = "private production tunnel".to_string();
+        let mut dynamic = ForwardRule::dynamic("private-bind.example.test", 1080);
+        dynamic.status = ForwardStatus::Suspended;
+
+        let summary = native_plugin_forward_rule_summary(&[local, dynamic]);
+
+        assert_eq!(summary["total"], 2);
+        assert_eq!(summary["byType"]["local"], 1);
+        assert_eq!(summary["byType"]["dynamic"], 1);
+        assert_eq!(summary["byStatus"]["active"], 1);
+        assert_eq!(summary["byStatus"]["suspended"], 1);
+        let serialized = summary.to_string();
+        assert!(!serialized.contains("127.0.0.1"));
+        assert!(!serialized.contains("private-target.example.test"));
+        assert!(!serialized.contains("private-bind.example.test"));
+        assert!(!serialized.contains("production tunnel"));
+    }
+
+    #[test]
+    fn forward_dispatcher_allows_empty_baseline_summary() {
+        let response = native_plugin_forward_response(
+            plugin_runtime::PluginHostCall {
+                request_id: "forward-summary".to_string(),
+                namespace: "forward".to_string(),
+                method: "getSummary".to_string(),
+                args: Value::Null,
+            },
+            &plugin_runtime::PluginPermissionSet::default(),
+            &ForwardingRegistry::new(),
+            &Arc::new(tokio::runtime::Runtime::new().expect("test runtime")),
+            &std::collections::HashSet::new(),
+        );
+
+        assert!(matches!(
+            response.result,
+            plugin_runtime::PluginResponseResult::Ok { value }
+                if value["total"] == 0
+                    && value["byType"].as_object().is_some_and(serde_json::Map::is_empty)
+                    && value["byStatus"].as_object().is_some_and(serde_json::Map::is_empty)
+        ));
     }
 }

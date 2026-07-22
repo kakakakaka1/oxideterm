@@ -18,6 +18,10 @@ use oxideterm_connections::{
 };
 use oxideterm_forwarding::{ForwardRule, ForwardStatus, ForwardType, ForwardingRegistry};
 use oxideterm_gpui_ide::{IdePluginFileSnapshot, IdePluginSnapshot};
+use oxideterm_plugin_host_api::capabilities::{
+    NATIVE_PLUGIN_CAPABILITY_FILESYSTEM_READ, NATIVE_PLUGIN_CAPABILITY_FILESYSTEM_WRITE,
+    NATIVE_PLUGIN_CAPABILITY_NETWORK_FORWARD, NATIVE_PLUGIN_CAPABILITY_NETWORK_HTTP,
+};
 use oxideterm_sftp::{
     BackgroundTransferDirection, BackgroundTransferSnapshot, BackgroundTransferState,
     SftpTransferManager,
@@ -30,246 +34,76 @@ use super::*;
 use crate::workspace::TerminalInputInterceptorResult;
 
 #[test]
-fn native_plugin_permissions_cover_implemented_host_api_namespaces() {
-    let permissions = native_process_plugin_permissions();
+fn native_plugin_permissions_keep_rich_baseline_and_gate_sensitive_calls() {
+    let baseline_manifest =
+        serde_json::from_value::<plugin_host::NativePluginManifest>(serde_json::json!({
+            "id": "com.example.baseline",
+            "name": "Baseline",
+            "version": "1.0.0"
+        }))
+        .unwrap();
+    let baseline = native_plugin_permissions(&baseline_manifest, false).unwrap();
+    for api in [
+        "app.getApiCatalog",
+        "connections.getSummaries",
+        "sessions.getSummary",
+        "terminal.getMetadata",
+        "ai.getCatalog",
+        "ide.getSummary",
+    ] {
+        assert!(baseline.allowed_host_apis.contains(&api.to_string()));
+    }
     assert!(
-        permissions
-            .capabilities
-            .contains(&NATIVE_PLUGIN_CAPABILITY_FILESYSTEM_READ.to_string())
-    );
-    assert!(
-        permissions
-            .capabilities
-            .contains(&NATIVE_PLUGIN_CAPABILITY_FILESYSTEM_WRITE.to_string())
-    );
-    assert!(
-        permissions
-            .capabilities
-            .contains(&NATIVE_PLUGIN_CAPABILITY_NETWORK_FORWARD.to_string())
-    );
-    assert!(
-        permissions
+        !baseline
             .allowed_host_apis
-            .contains(&"ui.showToast".to_string())
+            .contains(&"terminal.getNodeBuffer".to_string())
     );
     assert!(
-        permissions
+        !baseline
             .allowed_host_apis
-            .contains(&"ui.showConfirm".to_string())
+            .contains(&"terminal.writeToActive".to_string())
     );
+
+    let terminal_manifest =
+        serde_json::from_value::<plugin_host::NativePluginManifest>(serde_json::json!({
+            "id": "com.example.terminal",
+            "name": "Terminal",
+            "version": "1.0.0",
+            "permissions": {
+                "capabilities": ["terminal.content.read", "terminal.write"]
+            }
+        }))
+        .unwrap();
+    let terminal = native_plugin_permissions(&terminal_manifest, true).unwrap();
     assert!(
-        permissions
+        terminal
             .allowed_host_apis
-            .contains(&"ui.showProgress".to_string())
+            .contains(&"terminal.getNodeBuffer".to_string())
     );
     assert!(
-        permissions
-            .allowed_host_apis
-            .contains(&"ui.showNotification".to_string())
-    );
-    assert!(
-        permissions
-            .allowed_host_apis
-            .contains(&"storage.set".to_string())
-    );
-    assert!(
-        permissions
-            .allowed_host_apis
-            .contains(&"storage.remove".to_string())
-    );
-    assert!(
-        permissions
-            .allowed_host_apis
-            .contains(&"storage.get".to_string())
-    );
-    assert!(
-        permissions
-            .allowed_host_apis
-            .contains(&"app.getVersion".to_string())
-    );
-    assert!(
-        permissions
-            .allowed_host_apis
-            .contains(&"app.getSettings".to_string())
-    );
-    assert!(
-        permissions
-            .allowed_host_apis
-            .contains(&"app.refreshAfterExternalSync".to_string())
-    );
-    assert!(
-        permissions
-            .allowed_host_apis
-            .contains(&"api.invoke".to_string())
-    );
-    assert!(
-        permissions
-            .allowed_host_apis
-            .contains(&"connections.getAll".to_string())
-    );
-    assert!(
-        permissions
-            .allowed_host_apis
-            .contains(&"connections.getByNode".to_string())
-    );
-    assert!(
-        permissions
-            .allowed_host_apis
-            .contains(&"sessions.getTree".to_string())
-    );
-    assert!(
-        permissions
-            .allowed_host_apis
-            .contains(&"sessions.getNodeState".to_string())
-    );
-    assert!(
-        permissions
-            .allowed_host_apis
-            .contains(&"eventLog.getEntries".to_string())
-    );
-    assert!(
-        permissions
-            .allowed_host_apis
-            .contains(&"terminal.getActiveTarget".to_string())
-    );
-    assert!(
-        permissions
-            .allowed_host_apis
-            .contains(&"terminal.getBufferSize".to_string())
-    );
-    assert!(
-        permissions
+        terminal
             .allowed_host_apis
             .contains(&"terminal.writeToActive".to_string())
     );
     assert!(
-        permissions
-            .allowed_host_apis
-            .contains(&"terminal.clearBuffer".to_string())
+        terminal
+            .capabilities
+            .contains(&"runtime.process.trusted".to_string())
     );
-    assert!(
-        permissions
-            .allowed_host_apis
-            .contains(&"terminal.openTelnet".to_string())
-    );
-    for api in [
-        "sftp.listDir",
-        "sftp.stat",
-        "sftp.readFile",
-        "sftp.writeFile",
-        "sftp.mkdir",
-        "sftp.delete",
-        "sftp.rename",
-        "forward.list",
-        "forward.listSavedForwards",
-        "forward.onSavedForwardsChange",
-        "forward.exportSavedForwardsSnapshot",
-        "forward.applySavedForwardsSnapshot",
-        "forward.create",
-        "forward.stop",
-        "forward.stopAll",
-        "forward.getStats",
-        "sync.listSavedConnections",
-        "sync.refreshSavedConnections",
-        "sync.exportSavedConnectionsSnapshot",
-        "sync.applySavedConnectionsSnapshot",
-        "sync.getLocalSyncMetadata",
-        "sync.preflightExport",
-        "sync.exportOxide",
-        "sync.validateOxide",
-        "sync.previewImport",
-        "sync.importOxide",
-        "transfers.getAll",
-        "transfers.getByNode",
-        "transfers.onProgress",
-        "transfers.onComplete",
-        "transfers.onError",
-        "profiler.getMetrics",
-        "profiler.getHistory",
-        "profiler.isRunning",
-        "profiler.onMetrics",
-        "ide.isOpen",
-        "ide.getProject",
-        "ide.getOpenFiles",
-        "ide.getActiveFile",
-        "ide.onFileOpen",
-        "ide.onFileClose",
-        "ide.onActiveFileChange",
-        "ai.getConversations",
-        "ai.getMessages",
-        "ai.getActiveProvider",
-        "ai.getAvailableModels",
-        "ai.onMessage",
-    ] {
-        assert!(permissions.allowed_host_apis.contains(&api.to_string()));
-    }
-    assert!(
-        permissions
-            .allowed_host_apis
-            .contains(&"events.emit".to_string())
-    );
-    assert!(
-        permissions
-            .allowed_host_apis
-            .contains(&"i18n.t".to_string())
-    );
-    assert!(
-        permissions
-            .allowed_host_apis
-            .contains(&"settings.get".to_string())
-    );
-    assert!(
-        permissions
-            .allowed_host_apis
-            .contains(&"settings.set".to_string())
-    );
-    assert!(
-        permissions
-            .allowed_host_apis
-            .contains(&"settings.exportSyncableSettings".to_string())
-    );
-    assert!(
-        permissions
-            .allowed_host_apis
-            .contains(&"settings.applySyncableSettings".to_string())
-    );
-    assert!(
-        permissions
-            .allowed_host_apis
-            .contains(&"ui.getLayout".to_string())
-    );
-    for api in [
-        "ui.registerTabView",
-        "ui.registerSidebarPanel",
-        "ui.openTab",
-    ] {
-        assert!(permissions.allowed_host_apis.contains(&api.to_string()));
-    }
-    assert!(
-        permissions
-            .allowed_host_apis
-            .contains(&"secrets.get".to_string())
-    );
-    assert!(
-        permissions
-            .allowed_host_apis
-            .contains(&"secrets.getMany".to_string())
-    );
-    assert!(
-        permissions
-            .allowed_host_apis
-            .contains(&"secrets.set".to_string())
-    );
-    assert!(
-        permissions
-            .allowed_host_apis
-            .contains(&"secrets.has".to_string())
-    );
-    assert!(
-        permissions
-            .allowed_host_apis
-            .contains(&"secrets.delete".to_string())
-    );
+}
+
+#[test]
+fn native_plugin_permissions_reject_unknown_capabilities() {
+    let manifest = serde_json::from_value::<plugin_host::NativePluginManifest>(serde_json::json!({
+        "id": "com.example.unknown",
+        "name": "Unknown",
+        "version": "1.0.0",
+        "permissions": { "capabilities": ["future.unknown"] }
+    }))
+    .unwrap();
+
+    let error = native_plugin_permissions(&manifest, false).unwrap_err();
+    assert_eq!(error.code, "unsupported_plugin_capability");
 }
 
 #[test]
@@ -1682,7 +1516,7 @@ fn api_invoke_native_adapters_cover_system_transfer_and_capability_paths() {
     );
 
     let permissions = plugin_runtime::PluginPermissionSet {
-        capabilities: Vec::new(),
+        capabilities: vec![NATIVE_PLUGIN_CAPABILITY_NETWORK_HTTP.to_string()],
         allowed_host_apis: Vec::new(),
     };
     let sftp_router = NodeRouter::new(oxideterm_ssh::SshConnectionRegistry::new(

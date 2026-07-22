@@ -22,6 +22,10 @@ pub fn native_plugin_transfers_response(
 ) -> plugin_runtime::PluginResponse {
     let request_id = call.request_id.clone();
     match call.method.as_str() {
+        "getSummary" => plugin_runtime::PluginResponse::ok(
+            request_id,
+            native_plugin_transfer_summary(&manager.list_background_transfers(None)),
+        ),
         "getAll" => plugin_runtime::PluginResponse::ok(
             request_id,
             native_plugin_transfer_snapshot_array(manager, None),
@@ -51,6 +55,35 @@ pub fn native_plugin_transfers_response(
             ),
         ),
     }
+}
+
+/// Counts transfer states without exposing names, paths, errors, or node identifiers.
+pub fn native_plugin_transfer_summary(transfers: &[BackgroundTransferSnapshot]) -> Value {
+    let mut queued = 0;
+    let mut active = 0;
+    let mut paused = 0;
+    let mut completed = 0;
+    let mut cancelled = 0;
+    let mut failed = 0;
+    for transfer in transfers {
+        match transfer.state {
+            BackgroundTransferState::Pending => queued += 1,
+            BackgroundTransferState::Active => active += 1,
+            BackgroundTransferState::Paused => paused += 1,
+            BackgroundTransferState::Completed => completed += 1,
+            BackgroundTransferState::Cancelled => cancelled += 1,
+            BackgroundTransferState::Error => failed += 1,
+        }
+    }
+    json!({
+        "total": transfers.len(),
+        "queued": queued,
+        "active": active,
+        "paused": paused,
+        "completed": completed,
+        "cancelled": cancelled,
+        "failed": failed,
+    })
 }
 
 pub fn native_plugin_transfer_snapshot_array(
@@ -193,4 +226,75 @@ pub fn native_plugin_transfer_progress_due(
     last_emitted
         .map(|last_emitted| last_emitted.elapsed() >= interval)
         .unwrap_or(true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use oxideterm_sftp::{BackgroundTransferKind, TransferStrategy};
+
+    fn transfer_with_state(state: BackgroundTransferState) -> BackgroundTransferSnapshot {
+        let mut transfer = BackgroundTransferSnapshot::new(
+            "transfer-secret-id".to_string(),
+            "private-node".to_string(),
+            "secret-file.txt".to_string(),
+            "/private/local/secret-file.txt".to_string(),
+            "/private/remote/secret-file.txt".to_string(),
+            BackgroundTransferDirection::Upload,
+            BackgroundTransferKind::File,
+            TransferStrategy::File,
+            64,
+            0,
+        );
+        transfer.state = state;
+        transfer.error = Some("credential leaked in transfer error".to_string());
+        transfer
+    }
+
+    #[test]
+    fn transfer_summary_counts_states_without_sensitive_transfer_fields() {
+        let transfers = vec![
+            transfer_with_state(BackgroundTransferState::Pending),
+            transfer_with_state(BackgroundTransferState::Active),
+            transfer_with_state(BackgroundTransferState::Paused),
+            transfer_with_state(BackgroundTransferState::Completed),
+            transfer_with_state(BackgroundTransferState::Cancelled),
+            transfer_with_state(BackgroundTransferState::Error),
+        ];
+
+        let summary = native_plugin_transfer_summary(&transfers);
+
+        assert_eq!(summary["total"], 6);
+        assert_eq!(summary["queued"], 1);
+        assert_eq!(summary["active"], 1);
+        assert_eq!(summary["paused"], 1);
+        assert_eq!(summary["completed"], 1);
+        assert_eq!(summary["cancelled"], 1);
+        assert_eq!(summary["failed"], 1);
+        let serialized = summary.to_string();
+        assert!(!serialized.contains("private"));
+        assert!(!serialized.contains("secret"));
+        assert!(!serialized.contains("credential leaked"));
+    }
+
+    #[test]
+    fn transfer_dispatcher_returns_summary_without_node_filter() {
+        let manager = Arc::new(SftpTransferManager::new());
+        manager.register_background_transfer(transfer_with_state(BackgroundTransferState::Pending));
+        let response = native_plugin_transfers_response(
+            plugin_runtime::PluginHostCall {
+                request_id: "transfer-summary".to_string(),
+                namespace: "transfers".to_string(),
+                method: "getSummary".to_string(),
+                args: Value::Null,
+            },
+            &manager,
+        );
+
+        assert!(matches!(
+            response.result,
+            plugin_runtime::PluginResponseResult::Ok { value }
+                if value["total"] == 1 && value["queued"] == 1
+        ));
+    }
 }

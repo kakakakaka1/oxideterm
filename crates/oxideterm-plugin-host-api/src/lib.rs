@@ -7,6 +7,7 @@ pub mod ai;
 pub mod app;
 pub mod backend;
 pub mod capabilities;
+pub mod catalog;
 pub mod forwarding;
 pub mod ide;
 pub mod profiler;

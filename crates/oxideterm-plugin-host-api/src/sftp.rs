@@ -18,7 +18,8 @@ use serde_json::{Value, json};
 use oxideterm_plugin_protocol as plugin_runtime;
 
 use crate::capabilities::{
-    NATIVE_PLUGIN_CAPABILITY_FILESYSTEM_READ, NATIVE_PLUGIN_CAPABILITY_FILESYSTEM_WRITE,
+    NATIVE_PLUGIN_CAPABILITY_FILESYSTEM_DELETE, NATIVE_PLUGIN_CAPABILITY_FILESYSTEM_READ,
+    NATIVE_PLUGIN_CAPABILITY_FILESYSTEM_WRITE,
 };
 
 type NativePluginSharedSftp = Arc<tokio::sync::Mutex<SftpSession>>;
@@ -79,8 +80,10 @@ pub fn native_plugin_sftp_check_capability(
     let required = match method {
         "init" | "listDir" | "stat" | "readFile" | "preview" | "download" | "downloadDir"
         | "tarProbe" | "tarDownload" => NATIVE_PLUGIN_CAPABILITY_FILESYSTEM_READ,
-        "writeFile" | "write" | "upload" | "mkdir" | "delete" | "deleteRecursive" | "rename"
-        | "uploadDir" | "tarUpload" => NATIVE_PLUGIN_CAPABILITY_FILESYSTEM_WRITE,
+        "writeFile" | "write" | "upload" | "mkdir" | "rename" | "uploadDir" | "tarUpload" => {
+            NATIVE_PLUGIN_CAPABILITY_FILESYSTEM_WRITE
+        }
+        "delete" | "deleteRecursive" => NATIVE_PLUGIN_CAPABILITY_FILESYSTEM_DELETE,
         _ => return Ok(()),
     };
     if permissions

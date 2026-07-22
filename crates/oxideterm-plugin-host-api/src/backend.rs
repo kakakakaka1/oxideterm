@@ -15,8 +15,9 @@ use oxideterm_ssh::NodeRouter;
 use serde_json::{Value, json};
 
 use crate::{
-    app::native_plugin_platform_label, forwarding::native_plugin_forward_response,
-    readonly::NativePluginHostApiSnapshot, sftp::native_plugin_sftp_response,
+    app::native_plugin_platform_label, capabilities::NATIVE_PLUGIN_CAPABILITY_NETWORK_HTTP,
+    forwarding::native_plugin_forward_response, readonly::NativePluginHostApiSnapshot,
+    sftp::native_plugin_sftp_response,
 };
 
 pub const NATIVE_PLUGIN_HTTP_BODY_LIMIT: usize = 10 * 1024 * 1024;
@@ -238,6 +239,22 @@ fn native_plugin_backend_command_response(
             &snapshot.node_connection_ids.values().cloned().collect(),
         ),
         NATIVE_PLUGIN_API_COMMAND_PLUGIN_HTTP_REQUEST => {
+            if !adapters
+                .permissions
+                .capabilities
+                .iter()
+                .any(|capability| capability == NATIVE_PLUGIN_CAPABILITY_NETWORK_HTTP)
+            {
+                return plugin_runtime::PluginResponse::error(
+                    request_id,
+                    plugin_runtime::PluginError::protocol(
+                        "plugin_capability_required",
+                        format!(
+                            "plugin_http_request requires capability {NATIVE_PLUGIN_CAPABILITY_NETWORK_HTTP}"
+                        ),
+                    ),
+                );
+            }
             native_plugin_http_request_response(request_id, &backend_args, adapters.sftp_runtime)
         }
         _ => plugin_runtime::PluginResponse::error(

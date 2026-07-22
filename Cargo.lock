@@ -8226,6 +8226,9 @@ dependencies = [
 [[package]]
 name = "oxideterm-theme"
 version = "2.0.9"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "oxideterm-topology"

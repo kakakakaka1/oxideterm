@@ -1968,6 +1968,10 @@ impl WorkspaceApp {
         let theme = self.tokens.ui;
         let manifest = &plugin.manifest;
         let contribution_labels = native_plugin_contribution_labels(&self.i18n, manifest);
+        let NativePluginPermissionDetails {
+            capabilities: permission_capabilities,
+            requires_review: permission_requires_review,
+        } = native_plugin_permission_details(plugin);
         let main_entry = manifest.main.clone().unwrap_or_else(|| "-".to_string());
         let required_version = manifest
             .engines
@@ -2060,6 +2064,93 @@ impl WorkspaceApp {
                         )),
                 )
             })
+            .child(
+                div()
+                    .pt(px(8.0))
+                    .border_t_1()
+                    .border_color(plugin_manager_theme_alpha(
+                        theme.border,
+                        PLUGIN_MANAGER_TW_ALPHA_30,
+                    ))
+                    .flex()
+                    .flex_col()
+                    .gap(px(6.0))
+                    .child(
+                        div()
+                            .font_weight(gpui::FontWeight::MEDIUM)
+                            .text_color(rgb(theme.text))
+                            .child(self.i18n.t("plugin.detail_permissions")),
+                    )
+                    .when(permission_capabilities.is_empty(), |permissions| {
+                        permissions.child(self.i18n.t("plugin.permission_none"))
+                    })
+                    .when(!permission_capabilities.is_empty(), |permissions| {
+                        permissions.child(div().flex().flex_wrap().gap(px(6.0)).children(
+                            permission_capabilities.into_iter().map(|capability| {
+                                let (label, is_trusted_process) = if capability
+                                    == plugin_host::NATIVE_PLUGIN_TRUSTED_PROCESS_CAPABILITY
+                                {
+                                    (self.i18n.t("plugin.permission_trusted_process"), true)
+                                } else {
+                                    (capability, false)
+                                };
+                                div()
+                                    .rounded(px(self.tokens.radii.sm))
+                                    .bg(plugin_manager_theme_alpha(
+                                        if is_trusted_process {
+                                            theme.warning
+                                        } else {
+                                            theme.accent
+                                        },
+                                        PLUGIN_MANAGER_TW_ALPHA_10,
+                                    ))
+                                    .px(px(8.0))
+                                    .py(px(2.0))
+                                    .text_size(px(PLUGIN_MANAGER_ROW_META_TEXT_SIZE))
+                                    .text_color(rgb(if is_trusted_process {
+                                        theme.warning
+                                    } else {
+                                        theme.accent
+                                    }))
+                                    .child(label)
+                            }),
+                        ))
+                    })
+                    .when(permission_requires_review, |permissions| {
+                        permissions.child(
+                            div()
+                                .mt(px(2.0))
+                                .rounded(px(self.tokens.radii.sm))
+                                .border_1()
+                                .border_color(plugin_manager_theme_alpha(
+                                    theme.warning,
+                                    PLUGIN_MANAGER_TW_ALPHA_30,
+                                ))
+                                .bg(plugin_manager_theme_alpha(
+                                    theme.warning,
+                                    PLUGIN_MANAGER_TW_ALPHA_10,
+                                ))
+                                .px(px(10.0))
+                                .py(px(8.0))
+                                .flex()
+                                .items_start()
+                                .gap(px(8.0))
+                                .text_color(rgb(theme.warning))
+                                .child(Self::render_lucide_icon(
+                                    LucideIcon::AlertTriangle,
+                                    14.0,
+                                    rgb(theme.warning),
+                                ))
+                                .child(
+                                    div()
+                                        .min_w(px(0.0))
+                                        .flex_1()
+                                        .whitespace_normal()
+                                        .child(self.i18n.t("plugin.permission_review_warning")),
+                                ),
+                        )
+                    }),
+            )
             .into_any_element()
     }
 
@@ -2208,6 +2299,31 @@ fn native_plugin_contribution_labels(
         );
     }
     labels
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct NativePluginPermissionDetails {
+    capabilities: Vec<String>,
+    requires_review: bool,
+}
+
+fn native_plugin_permission_details(
+    plugin: &plugin_host::NativePluginInfo,
+) -> NativePluginPermissionDetails {
+    // Discovery validates permission declarations, so an error here reflects an
+    // already surfaced invalid manifest and must not invent a partial grant list.
+    let capabilities =
+        plugin_host::native_plugin_requested_capabilities(&plugin.manifest, &plugin.runtime_plan)
+            .unwrap_or_default();
+    let requires_review = plugin_host::native_plugin_requires_permission_review(
+        &plugin.manifest,
+        &plugin.runtime_plan,
+        &plugin.config,
+    );
+    NativePluginPermissionDetails {
+        capabilities,
+        requires_review,
+    }
 }
 
 fn native_plugin_status_badge(
@@ -2362,6 +2478,29 @@ fn plugin_manager_palette_alpha(color: u32, alpha: u32) -> Rgba {
 mod tests {
     use super::*;
 
+    fn plugin_with_permissions(
+        runtime_plan: plugin_host::NativePluginRuntimePlan,
+        capabilities: &[&str],
+        config: plugin_host::NativePluginConfigEntry,
+    ) -> plugin_host::NativePluginInfo {
+        // Keep permission presentation tests independent from filesystem discovery.
+        let manifest: plugin_host::NativePluginManifest =
+            serde_json::from_value(serde_json::json!({
+                "id": "com.example.permissions",
+                "name": "Permissions",
+                "version": "1.0.0",
+                "permissions": { "capabilities": capabilities }
+            }))
+            .expect("test manifest should deserialize");
+        plugin_host::NativePluginInfo {
+            manifest,
+            install_dir: PathBuf::from("plugins/permissions"),
+            runtime_plan,
+            state: plugin_host::NativePluginState::Disabled,
+            config,
+        }
+    }
+
     fn registry_entry_with_capabilities(
         capabilities_summary: Option<Vec<String>>,
     ) -> plugin_host::NativePluginRegistryEntry {
@@ -2396,6 +2535,64 @@ mod tests {
 
         let entry = registry_entry_with_capabilities(Some(Vec::new()));
         assert!(native_plugin_registry_capabilities_label(&i18n, &entry).is_none());
+    }
+
+    #[test]
+    fn permission_details_show_declared_capabilities_until_approved() {
+        let plugin = plugin_with_permissions(
+            plugin_host::NativePluginRuntimePlan::Wasm {
+                entry: "plugin.wasm".to_string(),
+            },
+            &["terminal.content.read", "terminal.input.write"],
+            plugin_host::NativePluginConfigEntry::default(),
+        );
+
+        let details = native_plugin_permission_details(&plugin);
+        assert_eq!(
+            details.capabilities,
+            vec![
+                "terminal.content.read".to_string(),
+                "terminal.input.write".to_string()
+            ]
+        );
+        assert!(details.requires_review);
+    }
+
+    #[test]
+    fn permission_details_mark_process_plugins_as_trusted_native_code() {
+        let plugin = plugin_with_permissions(
+            plugin_host::NativePluginRuntimePlan::Process {
+                entry: "plugin-bin".to_string(),
+            },
+            &[],
+            plugin_host::NativePluginConfigEntry::default(),
+        );
+
+        let details = native_plugin_permission_details(&plugin);
+        assert_eq!(
+            details.capabilities,
+            vec![plugin_host::NATIVE_PLUGIN_TRUSTED_PROCESS_CAPABILITY.to_string()]
+        );
+        assert!(details.requires_review);
+    }
+
+    #[test]
+    fn permission_details_hide_review_warning_after_matching_approval() {
+        let config = plugin_host::NativePluginConfigEntry {
+            approved_capabilities: vec!["terminal.content.read".to_string()],
+            approved_for_version: Some("1.0.0".to_string()),
+            approved_runtime_kind: Some("wasm".to_string()),
+            ..plugin_host::NativePluginConfigEntry::default()
+        };
+        let plugin = plugin_with_permissions(
+            plugin_host::NativePluginRuntimePlan::Wasm {
+                entry: "plugin.wasm".to_string(),
+            },
+            &["terminal.content.read"],
+            config,
+        );
+
+        assert!(!native_plugin_permission_details(&plugin).requires_review);
     }
 
     #[test]
