@@ -92,6 +92,42 @@ jobs:
               activeLabels.delete(gate.CORRECTION_NEEDED_LABEL);
             }
 
+            async function readActorPermission() {
+              // Repository owners always have authority even if a permission lookup is unavailable.
+              if (context.actor === context.repo.owner) return 'admin';
+              try {
+                const response = await github.rest.repos.getCollaboratorPermissionLevel({
+                  owner: repository.owner,
+                  repo: repository.repo,
+                  username: context.actor,
+                });
+                return response.data.permission || 'none';
+              } catch (error) {
+                core.warning(`Could not read ${context.actor}'s repository permission: ${error.message}`);
+                return 'none';
+              }
+            }
+
+            if (context.payload.action === 'reopened') {
+              const actorPermission = await readActorPermission();
+              const manualMaintainerReopen = gate.isTrustedManualReopen({
+                action: context.payload.action,
+                senderType: context.payload.sender?.type,
+                actorPermission,
+              });
+              if (manualMaintainerReopen) {
+                // Persist the human decision so later edits and labels cannot re-close the issue.
+                await addMissingLabels([gate.QUALITY_BYPASS_LABEL]);
+                await removeCorrectionLabel();
+                const gateComment = await findGateComment();
+                if (gateComment) {
+                  await saveGateComment(gateComment, gate.buildBypassNotice());
+                }
+                core.info('Maintainer reopen recorded as a durable quality-gate exemption.');
+                return;
+              }
+            }
+
             const bypassEnabled = activeLabels.has(gate.QUALITY_BYPASS_LABEL);
             if (bypassEnabled) {
               const gateComment = await findGateComment();

@@ -171,3 +171,38 @@ test('reopens only a corrected closure owned by the quality gate', () => {
     'keep'
   );
 });
+
+test('keeps a maintainer-reopened issue outside later automatic closures', () => {
+  assert.equal(
+    gate.isTrustedManualReopen({
+      action: 'reopened',
+      senderType: 'User',
+      actorPermission: 'write',
+    }),
+    true
+  );
+  assert.equal(
+    gate.isTrustedManualReopen({
+      action: 'reopened',
+      senderType: 'User',
+      actorPermission: 'read',
+    }),
+    false
+  );
+  assert.equal(
+    gate.isTrustedManualReopen({
+      action: 'reopened',
+      senderType: 'Bot',
+      actorPermission: 'write',
+    }),
+    false
+  );
+  assert.equal(
+    gate.isTrustedManualReopen({
+      action: 'edited',
+      senderType: 'User',
+      actorPermission: 'write',
+    }),
+    false
+  );
+});

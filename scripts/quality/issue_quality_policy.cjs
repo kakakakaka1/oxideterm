@@ -4,6 +4,8 @@ const GATE_COMMENT_MARKER = '<!-- oxideterm-issue-quality:v1 -->';
 const CORRECTION_NEEDED_LABEL = 'incomplete';
 const QUALITY_BYPASS_LABEL = 'quality-check-exempt';
 const TRUSTED_AUTHOR_ASSOCIATIONS = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
+// These repository roles can make a durable human triage decision for an issue.
+const QUALITY_OVERRIDE_PERMISSIONS = new Set(['admin', 'maintain', 'write', 'triage']);
 
 const REQUIRED_SECTIONS = [
   {
@@ -282,6 +284,13 @@ function decideStateChange({
   return 'keep';
 }
 
+// A maintainer reopening an issue explicitly takes ownership away from the format gate.
+function isTrustedManualReopen({ action, senderType, actorPermission }) {
+  return action === 'reopened'
+    && senderType === 'User'
+    && QUALITY_OVERRIDE_PERMISSIONS.has(actorPermission);
+}
+
 module.exports = {
   CORRECTION_NEEDED_LABEL,
   GATE_COMMENT_MARKER,
@@ -292,6 +301,7 @@ module.exports = {
   buildRecoveryNotice,
   decideStateChange,
   evaluateIssue,
+  isTrustedManualReopen,
   labelsForReviewFindings,
   normalizeReleaseName,
   parseSections,
