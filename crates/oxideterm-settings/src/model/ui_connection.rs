@@ -51,6 +51,8 @@ pub struct AppearanceSettings {
     pub ui_font_family: String,
     #[serde(default = "default_show_window_titlebar")]
     pub show_window_titlebar: bool,
+    #[serde(default = "default_window_opacity")]
+    pub window_opacity: f64,
     pub animation_speed: AnimationSpeed,
     pub frosted_glass: FrostedGlassMode,
     pub render_profile: RenderProfile,
@@ -68,6 +70,7 @@ impl Default for AppearanceSettings {
             ui_font_size: default_ui_font_size(),
             ui_font_family: String::new(),
             show_window_titlebar: true,
+            window_opacity: DEFAULT_WINDOW_OPACITY,
             animation_speed: AnimationSpeed::Normal,
             frosted_glass: FrostedGlassMode::Off,
             render_profile: RenderProfile::Auto,
@@ -77,6 +80,9 @@ impl Default for AppearanceSettings {
 }
 
 pub const DEFAULT_UI_FONT_SIZE: i64 = 14;
+pub const DEFAULT_WINDOW_OPACITY: f64 = 1.0;
+pub const MIN_WINDOW_OPACITY: f64 = 0.5;
+pub const MAX_WINDOW_OPACITY: f64 = 1.0;
 
 fn default_ui_font_size() -> i64 {
     DEFAULT_UI_FONT_SIZE
@@ -84,6 +90,10 @@ fn default_ui_font_size() -> i64 {
 
 fn default_show_window_titlebar() -> bool {
     true
+}
+
+fn default_window_opacity() -> f64 {
+    DEFAULT_WINDOW_OPACITY
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]

@@ -7728,11 +7728,13 @@ version = "2.0.9"
 dependencies = [
  "gpui",
  "gpui_platform",
+ "objc2-app-kit 0.3.2",
  "objc2-service-management",
  "oxideterm-render-policy",
  "oxideterm-theme",
  "raw-window-handle",
  "windows 0.61.3",
+ "x11-dl",
 ]
 
 [[package]]

@@ -500,6 +500,8 @@
       "ui_font_size_hint": "調整整個應用程式介面的文字大小",
       "show_window_titlebar": "顯示視窗標題列",
       "show_window_titlebar_hint": "僅限 Linux。平鋪式合成器可關閉此項；移動、縮放或關閉視窗時請使用合成器快捷鍵。",
+      "window_opacity": "視窗透明度",
+      "window_opacity_hint": "調整整個應用程式視窗的透明度。降低後文字也會變淡；部分 Linux 桌面環境可能不支援。",
       "animation": "動畫速度",
       "animation_hint": "控制過渡與動畫速度",
       "animation_off": "關閉",

@@ -148,6 +148,7 @@ use oxideterm_gpui_ide::IdeSurface;
 use oxideterm_gpui_platform::{
     rendering::detect_graphics,
     vibrancy::{NativeVibrancyMode, VibrancySupport, apply_window_vibrancy},
+    window_opacity::{apply_window_opacity, normalized_window_opacity},
 };
 use oxideterm_gpui_terminal::{
     BackgroundImageRenderCache, PrivilegePromptMatch, SharedTerminalSession, TerminalBackgroundFit,
@@ -193,10 +194,10 @@ use oxideterm_session_adapter::{
 use oxideterm_settings::{
     AI_SIDEBAR_MAX_WIDTH, AI_SIDEBAR_MIN_WIDTH, BackgroundFit, BackgroundScope,
     CursorStyle as SettingsCursorStyle, FontFamily, FrostedGlassMode, HighlightRuleRenderMode,
-    Language, MAX_TERMINAL_BACKGROUND_OPACITY, MIN_TERMINAL_BACKGROUND_OPACITY, PersistedSettings,
-    SettingsStore, background_images_directory, default_settings_path,
-    ensure_bundled_background_image, import_background_images, is_managed_background_image,
-    list_background_images, remove_background_image,
+    Language, MAX_TERMINAL_BACKGROUND_OPACITY, MAX_WINDOW_OPACITY, MIN_TERMINAL_BACKGROUND_OPACITY,
+    MIN_WINDOW_OPACITY, PersistedSettings, SettingsStore, background_images_directory,
+    default_settings_path, ensure_bundled_background_image, import_background_images,
+    is_managed_background_image, list_background_images, remove_background_image,
 };
 use oxideterm_settings_model::{
     AiMcpServerDraft, AiModelRefreshDelivery, AiProviderKeyStatusDelivery,
@@ -1004,6 +1005,7 @@ pub(crate) struct WorkspaceApp {
     render_policy: EffectiveRenderPolicy,
     applied_vibrancy_mode: NativeVibrancyMode,
     vibrancy_support: VibrancySupport,
+    applied_window_opacity: f32,
     background_image_cache: BackgroundImageRenderCache,
     // The gallery is loaded at explicit storage boundaries so settings renders never perform IO.
     background_images: Vec<String>,

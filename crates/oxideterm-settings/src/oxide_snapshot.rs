@@ -81,6 +81,7 @@ const APPEARANCE_KEYS: &[&str] = &[
     "borderRadius",
     "uiFontFamily",
     "showWindowTitlebar",
+    "windowOpacity",
     "animationSpeed",
     "frostedGlass",
     "renderProfile",
@@ -379,7 +380,7 @@ fn ensure_object_path<'a>(value: &'a mut Value, path: &[&str]) -> &'a mut Map<St
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Language, PersistedSettings};
+    use crate::{DEFAULT_WINDOW_OPACITY, Language, PersistedSettings};
 
     #[test]
     fn merge_sectioned_snapshot_applies_only_selected_sections() {
@@ -449,6 +450,10 @@ mod tests {
         assert_eq!(
             parsed["settings"]["appearance"]["showWindowTitlebar"],
             Value::Bool(true)
+        );
+        assert_eq!(
+            parsed["settings"]["appearance"]["windowOpacity"],
+            json!(DEFAULT_WINDOW_OPACITY)
         );
         assert!(parsed["settings"].get("network").is_some());
         assert!(parsed["settings"]["sftp"].get("speedLimitKBps").is_some());

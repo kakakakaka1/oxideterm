@@ -511,7 +511,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        RenderProfile,
+        DEFAULT_WINDOW_OPACITY, RenderProfile,
         model::{
             ConflictAction, FontFamily, IdeAgentMode, Language, RendererType, UpdateChannel,
             default_update_channel_for_version, is_gpui_preview_version, is_prerelease_version,
@@ -573,6 +573,7 @@ mod tests {
         );
         assert_eq!(settings.appearance.render_profile, RenderProfile::Auto);
         assert!(settings.appearance.show_window_titlebar);
+        assert_eq!(settings.appearance.window_opacity, DEFAULT_WINDOW_OPACITY);
         assert_eq!(settings.connection_defaults.username, "root");
         assert_eq!(settings.sidebar_ui.width, 300);
         assert!(settings.sidebar_ui.show_app_lock_icon);
@@ -624,6 +625,7 @@ mod tests {
         assert_eq!(value["terminal"]["terminalEncoding"], "utf-8");
         assert_eq!(value["appearance"]["uiDensity"], "comfortable");
         assert_eq!(value["appearance"]["renderProfile"], "auto");
+        assert_eq!(value["appearance"]["windowOpacity"], 1.0);
         assert_eq!(value["sftp"]["conflictAction"], "ask");
         assert_eq!(value["sftp"]["speedLimitKBps"], 0);
         assert!(value["sftp"].get("speedLimitKbps").is_none());

@@ -109,6 +109,8 @@ impl WorkspaceApp {
         )?;
         let initial_vibrancy_mode = effective_vibrancy_mode(&settings, &render_policy);
         let initial_vibrancy_support = apply_window_vibrancy(window, initial_vibrancy_mode);
+        let initial_window_opacity = normalized_window_opacity(settings.appearance.window_opacity);
+        let _ = apply_window_opacity(window, settings.appearance.window_opacity);
         let mut background_image_cache = BackgroundImageRenderCache::default();
         background_image_cache.set_byte_limit(render_policy.image_cache_bytes);
         let mut background_images = match list_background_images(settings_store.path()) {
@@ -570,6 +572,7 @@ impl WorkspaceApp {
             render_policy,
             applied_vibrancy_mode: initial_vibrancy_mode,
             vibrancy_support: initial_vibrancy_support,
+            applied_window_opacity: initial_window_opacity,
             background_image_cache,
             background_images,
             app_lock,

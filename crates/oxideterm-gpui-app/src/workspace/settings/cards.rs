@@ -914,6 +914,22 @@ impl WorkspaceApp {
                     self.edit_settings(|settings| settings.appearance.border_radius = value, cx);
                 }
             }
+            SettingsSlider::AppearanceWindowOpacity => {
+                let Some(value) = self.settings_slider_value_from_position(
+                    SelectAnchorId::SettingsAppearanceWindowOpacitySlider,
+                    x,
+                    (MIN_WINDOW_OPACITY * SETTINGS_PERCENT_SCALE) as f32,
+                    (MAX_WINDOW_OPACITY * SETTINGS_PERCENT_SCALE) as f32,
+                ) else {
+                    return;
+                };
+                let value = value.round() as f64 / SETTINGS_PERCENT_SCALE;
+                if self.settings_store.settings().appearance.window_opacity != value {
+                    self.edit_settings(|settings| settings.appearance.window_opacity = value, cx);
+                    // Detached windows consume the same setting on their next frame.
+                    cx.refresh_windows();
+                }
+            }
             SettingsSlider::AppearanceBackgroundOpacity => {
                 let Some(value) = self.settings_slider_value_from_position(
                     SelectAnchorId::SettingsAppearanceBackgroundOpacitySlider,
@@ -1464,6 +1480,7 @@ pub(in crate::workspace) fn select_anchor_tracks_while_closed(anchor_id: SelectA
         anchor_id,
         SelectAnchorId::SettingsAppearanceUiFontSizeSlider
             | SelectAnchorId::SettingsAppearanceBorderRadiusSlider
+            | SelectAnchorId::SettingsAppearanceWindowOpacitySlider
             | SelectAnchorId::VersionMigrationBorderRadiusSlider
             | SelectAnchorId::SettingsAppearanceBackgroundOpacitySlider
             | SelectAnchorId::SettingsAppearanceBackgroundBlurSlider

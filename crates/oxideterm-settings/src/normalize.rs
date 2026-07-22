@@ -595,6 +595,12 @@ pub fn sanitize_settings_value(raw: Value) -> Result<SanitizedSettings> {
             MIN_TERMINAL_BACKGROUND_OPACITY,
             MAX_TERMINAL_BACKGROUND_OPACITY,
         ),
+        (
+            "appearance.windowOpacity",
+            DEFAULT_WINDOW_OPACITY,
+            MIN_WINDOW_OPACITY,
+            MAX_WINDOW_OPACITY,
+        ),
     ] {
         let segments: Vec<_> = path.split('.').collect();
         if let Some(value) = get_path_mut(&mut settings, &segments) {
@@ -821,6 +827,33 @@ mod tests {
                 .validation_warnings
                 .iter()
                 .any(|warning| warning.contains("terminal.backgroundOpacity"))
+        );
+    }
+
+    #[test]
+    fn window_opacity_defaults_to_opaque_and_clamps_unreadable_values() {
+        let legacy = sanitize_settings_value(json!({
+            "appearance": {}
+        }))
+        .expect("sanitize settings without window opacity");
+        assert_eq!(
+            legacy.settings.appearance.window_opacity,
+            DEFAULT_WINDOW_OPACITY
+        );
+
+        let too_transparent = sanitize_settings_value(json!({
+            "appearance": { "windowOpacity": 0.1 }
+        }))
+        .expect("sanitize overly transparent window opacity");
+        assert_eq!(
+            too_transparent.settings.appearance.window_opacity,
+            MIN_WINDOW_OPACITY
+        );
+        assert!(
+            too_transparent
+                .validation_warnings
+                .iter()
+                .any(|warning| warning.contains("appearance.windowOpacity"))
         );
     }
 

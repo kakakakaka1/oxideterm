@@ -1102,6 +1102,11 @@ impl WorkspaceApp {
         self.emit_native_plugin_settings_events(&previous_settings, &settings, cx);
         self.queue_cloud_sync_dirty_refresh(cx);
         self.sync_tab_titles(cx);
+        if previous_settings.appearance.window_opacity != settings.appearance.window_opacity {
+            // Detached native windows are separate render roots and need an
+            // explicit refresh when CLI or cloud sync changes shared opacity.
+            cx.refresh_windows();
+        }
         cx.notify();
         Ok(())
     }

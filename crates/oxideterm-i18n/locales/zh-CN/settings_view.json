@@ -500,6 +500,8 @@
       "ui_font_size_hint": "调整整个应用界面的文字大小",
       "show_window_titlebar": "显示窗口标题栏",
       "show_window_titlebar_hint": "仅限 Linux。平铺式合成器可关闭此项；移动、缩放或关闭窗口时请使用合成器快捷键。",
+      "window_opacity": "窗口透明度",
+      "window_opacity_hint": "调节整个应用窗口的透明度。降低后文字也会变淡；部分 Linux 桌面环境可能不支持。",
       "animation": "动画速度",
       "animation_hint": "控制过渡和动画速度",
       "animation_off": "关闭",

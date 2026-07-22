@@ -500,6 +500,8 @@
       "ui_font_size_hint": "Textgröße in der gesamten Anwendungsoberfläche anpassen",
       "show_window_titlebar": "Fenstertitelleiste anzeigen",
       "show_window_titlebar_hint": "Nur Linux. Für Kachel-Kompositoren deaktivieren; zum Verschieben, Ändern der Größe oder Schließen die Kompositor-Kürzel verwenden.",
+      "window_opacity": "Fensterdeckkraft",
+      "window_opacity_hint": "Passt die Deckkraft des gesamten Anwendungsfensters an. Niedrigere Werte blenden auch Text aus; einige Linux-Desktopumgebungen unterstützen dies möglicherweise nicht.",
       "animation": "Animationsgeschwindigkeit",
       "animation_hint": "Geschwindigkeit von Übergängen und Animationen steuern",
       "animation_off": "Aus",

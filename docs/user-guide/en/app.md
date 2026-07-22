@@ -129,7 +129,7 @@ Never paste secrets into AI prompts. Use the app's provider key and secret stora
 Use Settings for interactive configuration:
 
 - General app behavior.
-- Appearance and theme.
+- Appearance, theme, and whole-window opacity.
 - Terminal renderer, shell, font, encoding, background images, transfer helpers, and local terminal behavior.
 - Privilege credentials and their prompt/scope settings.
 - SSH, reconnect, SFTP, and IDE behavior.

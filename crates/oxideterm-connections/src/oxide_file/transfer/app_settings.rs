@@ -141,6 +141,7 @@ fn build_sectioned_app_settings_sections(
                     "uiDensity",
                     "borderRadius",
                     "uiFontFamily",
+                    "windowOpacity",
                     "animationSpeed",
                     "frostedGlass",
                 ],

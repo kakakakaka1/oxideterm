@@ -577,6 +577,7 @@ The terminal renderer combines several layers:
 - Cursor, selection, command marks, and inline hints.
 - Terminal image protocols such as Kitty/Sixel/iTerm2.
 - App-level background images, opacity, and blur.
+- Native whole-window opacity, applied separately from background-image opacity.
 - Context-menu and command-bar overlays.
 
 Only emulator text belongs to the terminal buffer. Background images and app overlays are rendering state. Terminal image placements are protocol state tied to the current screen buffer, so alternate-screen transitions clear image placements to avoid drawing TUI previews after apps such as yazi exit.

@@ -500,6 +500,8 @@
       "ui_font_size_hint": "Regola la dimensione del testo in tutta l'interfaccia dell'applicazione",
       "show_window_titlebar": "Mostra barra del titolo della finestra",
       "show_window_titlebar_hint": "Solo Linux. Disattivala con compositor tiling; usa le scorciatoie del compositor per spostare, ridimensionare o chiudere la finestra.",
+      "window_opacity": "Opacità della finestra",
+      "window_opacity_hint": "Regola l’opacità dell’intera finestra dell’applicazione. I valori bassi attenuano anche il testo; alcuni ambienti desktop Linux potrebbero non supportarla.",
       "animation": "Velocità animazione",
       "animation_hint": "Controlla la velocità delle transizioni e animazioni",
       "animation_off": "Disattivato",

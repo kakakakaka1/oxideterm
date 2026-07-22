@@ -152,6 +152,20 @@ impl WorkspaceApp {
                     ),
                 ),
                 self.appearance_row(
+                    "settings_view.appearance.window_opacity",
+                    "settings_view.appearance.window_opacity_hint",
+                    self.appearance_slider_value_control(
+                        SettingsSlider::AppearanceWindowOpacity,
+                        SelectAnchorId::SettingsAppearanceWindowOpacitySlider,
+                        (MIN_WINDOW_OPACITY * SETTINGS_PERCENT_SCALE) as f32,
+                        (MAX_WINDOW_OPACITY * SETTINGS_PERCENT_SCALE) as f32,
+                        (settings.appearance.window_opacity * SETTINGS_PERCENT_SCALE).round()
+                            as f32,
+                        "%",
+                        cx,
+                    ),
+                ),
+                self.appearance_row(
                     "settings_view.appearance.animation",
                     "settings_view.appearance.animation_hint",
                     self.appearance_select_control(

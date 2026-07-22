@@ -577,6 +577,7 @@ SSH 终端职责：
 - 光标、选择区、命令标记和 inline hint。
 - Kitty/Sixel/iTerm2 等终端图像协议。
 - 应用级背景图片、不透明度和模糊。
+- 原生整个窗口透明度，与背景图片不透明度分别应用。
 - 右键菜单和命令栏 overlay。
 
 只有 emulator 文本属于终端缓冲区。背景图片和应用 overlay 是渲染状态。终端图像 placement 是与当前 screen buffer 绑定的协议状态，因此 alternate-screen 切换会清理图像 placement，避免 yazi 这类 TUI 退出后继续绘制预览残留。

@@ -500,6 +500,8 @@
       "ui_font_size_hint": "애플리케이션 인터페이스 전체의 글자 크기를 조정합니다",
       "show_window_titlebar": "창 제목 표시줄 표시",
       "show_window_titlebar_hint": "Linux 전용입니다. 타일링 컴포지터에서는 끄고 이동, 크기 조절, 닫기에 컴포지터 단축키를 사용하세요.",
+      "window_opacity": "창 불투명도",
+      "window_opacity_hint": "애플리케이션 창 전체의 불투명도를 조절합니다. 값을 낮추면 글자도 흐려지며 일부 Linux 데스크톱 환경에서는 지원되지 않을 수 있습니다.",
       "animation": "애니메이션 속도",
       "animation_hint": "전환 및 애니메이션 속도 제어",
       "animation_off": "끄기",

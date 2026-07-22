@@ -7,6 +7,7 @@ pub(super) struct DetachedTabWindow {
     entry_handoff_duration: Duration,
     focus_handle: FocusHandle,
     ready: bool,
+    applied_window_opacity: Option<f32>,
     _release_subscription: Subscription,
 }
 
@@ -54,6 +55,7 @@ impl DetachedTabWindow {
             entry_handoff_duration,
             focus_handle,
             ready: false,
+            applied_window_opacity: None,
             _release_subscription: release_subscription,
         }
     }
@@ -67,6 +69,24 @@ impl Focusable for DetachedTabWindow {
 
 impl Render for DetachedTabWindow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let window_opacity = self
+            .workspace
+            .read_with(cx, |workspace, _cx| {
+                normalized_window_opacity(
+                    workspace
+                        .settings_store
+                        .settings()
+                        .appearance
+                        .window_opacity,
+                )
+            })
+            .unwrap_or(1.0);
+        if self.applied_window_opacity != Some(window_opacity) {
+            // Detached tabs own native windows, so they retain an independent
+            // applied value while reading the shared persisted preference.
+            let _ = apply_window_opacity(window, window_opacity as f64);
+            self.applied_window_opacity = Some(window_opacity);
+        }
         let tab_id = self.tab_id;
         let entry_handoff_origin = self.entry_handoff_origin;
         let content = if self.ready {

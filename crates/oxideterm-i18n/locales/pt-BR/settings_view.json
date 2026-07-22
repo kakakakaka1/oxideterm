@@ -500,6 +500,8 @@
       "ui_font_size_hint": "Ajuste o tamanho do texto em toda a interface do aplicativo",
       "show_window_titlebar": "Mostrar barra de título da janela",
       "show_window_titlebar_hint": "Somente Linux. Desative em compositores lado a lado e use os atalhos do compositor para mover, redimensionar ou fechar a janela.",
+      "window_opacity": "Opacidade da janela",
+      "window_opacity_hint": "Ajusta a opacidade de toda a janela do aplicativo. Valores menores também desvanecem o texto; alguns ambientes Linux podem não oferecer suporte.",
       "animation": "Velocidade da animação",
       "animation_hint": "Controlar a velocidade de transições e animações",
       "animation_off": "Desligado",

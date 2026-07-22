@@ -220,6 +220,7 @@ pub enum SettingsSlider {
     AppearanceUiFontSize,
     AppearanceBorderRadius,
     VersionMigrationBorderRadius,
+    AppearanceWindowOpacity,
     AppearanceBackgroundOpacity,
     AppearanceBackgroundBlur,
 }

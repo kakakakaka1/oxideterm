@@ -340,6 +340,7 @@ pub(super) fn oxide_settings_field_label(field: &str, i18n: &oxideterm_i18n::I18
         "uiDensity" => i18n.t("settings_view.appearance.density"),
         "borderRadius" => i18n.t("settings_view.appearance.border_radius"),
         "uiFontFamily" => i18n.t("settings_view.appearance.ui_font"),
+        "windowOpacity" => i18n.t("settings_view.appearance.window_opacity"),
         "animationSpeed" => i18n.t("settings_view.appearance.animation"),
         "frostedGlass" => i18n.t("settings_view.appearance.frosted_glass"),
         "connectionDefaults.username" => i18n.t("settings_view.connections.default_username"),

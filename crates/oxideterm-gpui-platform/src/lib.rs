@@ -1,6 +1,7 @@
 pub mod autostart;
 pub mod rendering;
 pub mod vibrancy;
+pub mod window_opacity;
 
 use gpui::{
     Bounds, Pixels, TitlebarOptions, WindowBounds, WindowDecorations, WindowKind, WindowOptions,

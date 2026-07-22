@@ -134,6 +134,12 @@ impl Render for WorkspaceApp {
             self.ensure_ai_model_selector_mount_statuses(cx);
         }
         self.observe_active_tab_for_history();
+        let window_opacity =
+            normalized_window_opacity(self.settings_store.settings().appearance.window_opacity);
+        if self.applied_window_opacity != window_opacity {
+            let _ = apply_window_opacity(window, window_opacity as f64);
+            self.applied_window_opacity = window_opacity;
+        }
         if self.app_lock.locked {
             window.set_window_title(&SharedString::from(
                 self.i18n.t("settings_view.general.app_lock_window_title"),

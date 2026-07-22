@@ -383,6 +383,7 @@ impl PersistedSettings {
 #[cfg(test)]
 mod misc_tests {
     use super::{PersistedSettings, SettingsApplicationProxyMode};
+    use crate::DEFAULT_WINDOW_OPACITY;
 
     #[test]
     fn command_palette_mru_deduplicates_promotes_and_bounds_entries() {
@@ -437,6 +438,7 @@ mod misc_tests {
             serde_json::from_value(serialized).expect("legacy settings should deserialize");
 
         assert!(restored.appearance.show_window_titlebar);
+        assert_eq!(restored.appearance.window_opacity, DEFAULT_WINDOW_OPACITY);
     }
 
     #[test]

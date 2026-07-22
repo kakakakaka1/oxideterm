@@ -500,6 +500,8 @@
       "ui_font_size_hint": "アプリケーション全体の文字サイズを調整します",
       "show_window_titlebar": "ウィンドウタイトルバーを表示",
       "show_window_titlebar_hint": "Linux のみ。タイル型コンポジターでは無効にし、移動・サイズ変更・終了にはコンポジターのショートカットを使用してください。",
+      "window_opacity": "ウィンドウの不透明度",
+      "window_opacity_hint": "アプリケーションウィンドウ全体の不透明度を調整します。値を下げると文字も薄くなり、一部の Linux デスクトップ環境では利用できない場合があります。",
       "animation": "アニメーション速度",
       "animation_hint": "トランジションとアニメーションの速度を制御",
       "animation_off": "オフ",

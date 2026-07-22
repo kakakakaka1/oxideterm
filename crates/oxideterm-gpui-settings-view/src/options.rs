@@ -511,6 +511,9 @@ pub fn settings_slider_anchor_id(slider: SettingsSlider) -> SelectAnchorId {
         SettingsSlider::VersionMigrationBorderRadius => {
             SelectAnchorId::VersionMigrationBorderRadiusSlider
         }
+        SettingsSlider::AppearanceWindowOpacity => {
+            SelectAnchorId::SettingsAppearanceWindowOpacitySlider
+        }
         SettingsSlider::AppearanceBackgroundOpacity => {
             SelectAnchorId::SettingsAppearanceBackgroundOpacitySlider
         }
@@ -651,5 +654,18 @@ mod tests {
             SelectAnchorId::VersionMigrationBorderRadiusSlider
         );
         assert_ne!(migration_anchor, settings_anchor);
+    }
+
+    #[test]
+    fn window_and_background_opacity_sliders_have_distinct_anchors() {
+        let window_anchor = settings_slider_anchor_id(SettingsSlider::AppearanceWindowOpacity);
+        let background_anchor =
+            settings_slider_anchor_id(SettingsSlider::AppearanceBackgroundOpacity);
+
+        assert_eq!(
+            window_anchor,
+            SelectAnchorId::SettingsAppearanceWindowOpacitySlider
+        );
+        assert_ne!(window_anchor, background_anchor);
     }
 }
