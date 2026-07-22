@@ -84,7 +84,7 @@
     "cmd_disconnect_all": "Tout déconnecter",
     "cmd_reconnect_all": "Tout reconnecter",
     "cmd_cancel_reconnect": "Annuler toutes les reconnexions",
-    "cmd_open_runtime": "Ouvrir l’exécution",
+    "cmd_open_runtime": "Ouvrir le tableau de bord",
     "cmd_health_check": "Exécuter le bilan de santé",
     "health_result": "{{healthy}}/{{total}} connexions saines",
     "cmd_shell_launcher": "Lanceur de shell",

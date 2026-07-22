@@ -8,6 +8,25 @@ pub(super) enum SessionManagerDisplayItem {
     Telnet(TelnetProfile),
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum SessionManagerItemPointerAction {
+    None,
+    Select,
+    Open,
+}
+
+/// Keeps card and list-row pointer behavior aligned across Session Manager layouts.
+pub(super) fn session_manager_item_pointer_action(
+    click_count: usize,
+    selectable: bool,
+) -> SessionManagerItemPointerAction {
+    match click_count {
+        2 => SessionManagerItemPointerAction::Open,
+        1 if selectable => SessionManagerItemPointerAction::Select,
+        _ => SessionManagerItemPointerAction::None,
+    }
+}
+
 impl SessionManagerDisplayItem {
     pub(super) fn id(&self) -> &str {
         match self {
@@ -390,8 +409,15 @@ impl WorkspaceApp {
     ) -> Div {
         let theme = self.tokens.ui;
         let open_item = item.clone();
+        let selection_id = match &item {
+            SessionManagerDisplayItem::Connection(connection) => Some(connection.id.clone()),
+            _ => None,
+        };
         let open_button_item = item.clone();
         let last_used = format_last_used(item.last_used().as_deref(), &self.i18n);
+        let is_selected = selection_id
+            .as_deref()
+            .is_some_and(|id| self.session_manager.selected_ids.contains(id));
         self.session_manager_card_surface(self.tokens.radii.md, has_background)
             .min_w(px(MANAGER_RECENT_ITEM_MIN_WIDTH))
             .flex_basis(px(MANAGER_RECENT_ITEM_BASIS))
@@ -404,8 +430,20 @@ impl WorkspaceApp {
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |this, event: &MouseDownEvent, window, cx| {
-                    if event.click_count == 2 {
-                        this.open_session_manager_display_item(open_item.clone(), window, cx);
+                    match session_manager_item_pointer_action(
+                        event.click_count,
+                        selection_id.is_some(),
+                    ) {
+                        SessionManagerItemPointerAction::Select => {
+                            if let Some(id) = selection_id.as_deref() {
+                                this.toggle_connection_selection(id);
+                                cx.notify();
+                            }
+                        }
+                        SessionManagerItemPointerAction::Open => {
+                            this.open_session_manager_display_item(open_item.clone(), window, cx);
+                        }
+                        SessionManagerItemPointerAction::None => {}
                     }
                 }),
             )
@@ -433,7 +471,11 @@ impl WorkspaceApp {
                             .truncate()
                             .text_size(px(MANAGER_ROW_TEXT_SIZE))
                             .font_weight(gpui::FontWeight::MEDIUM)
-                            .text_color(rgb(theme.text))
+                            .text_color(rgb(if is_selected {
+                                theme.accent
+                            } else {
+                                theme.text
+                            }))
                             .child(item.name().to_string()),
                     )
                     .child(
@@ -492,6 +534,10 @@ impl WorkspaceApp {
     ) -> Div {
         let theme = self.tokens.ui;
         let open_item = item.clone();
+        let selection_id = match &item {
+            SessionManagerDisplayItem::Connection(connection) => Some(connection.id.clone()),
+            _ => None,
+        };
         let subtitle = if matches!(item, SessionManagerDisplayItem::SshConfig(_)) {
             format!(
                 "{} · {}",
@@ -516,8 +562,20 @@ impl WorkspaceApp {
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |this, event: &MouseDownEvent, window, cx| {
-                    if event.click_count == 2 {
-                        this.open_session_manager_display_item(open_item.clone(), window, cx);
+                    match session_manager_item_pointer_action(
+                        event.click_count,
+                        selection_id.is_some(),
+                    ) {
+                        SessionManagerItemPointerAction::Select => {
+                            if let Some(id) = selection_id.as_deref() {
+                                this.toggle_connection_selection(id);
+                                cx.notify();
+                            }
+                        }
+                        SessionManagerItemPointerAction::Open => {
+                            this.open_session_manager_display_item(open_item.clone(), window, cx);
+                        }
+                        SessionManagerItemPointerAction::None => {}
                     }
                 }),
             )
@@ -895,6 +953,10 @@ impl WorkspaceApp {
     ) -> Div {
         let theme = self.tokens.ui;
         let open_item = item.clone();
+        let selection_id = match &item {
+            SessionManagerDisplayItem::Connection(connection) => Some(connection.id.clone()),
+            _ => None,
+        };
         let last_used = item.last_used();
         let subtitle = if matches!(item, SessionManagerDisplayItem::SshConfig(_)) {
             format!(
@@ -941,8 +1003,20 @@ impl WorkspaceApp {
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |this, event: &MouseDownEvent, window, cx| {
-                    if event.click_count == 2 {
-                        this.open_session_manager_display_item(open_item.clone(), window, cx);
+                    match session_manager_item_pointer_action(
+                        event.click_count,
+                        selection_id.is_some(),
+                    ) {
+                        SessionManagerItemPointerAction::Select => {
+                            if let Some(id) = selection_id.as_deref() {
+                                this.toggle_connection_selection(id);
+                                cx.notify();
+                            }
+                        }
+                        SessionManagerItemPointerAction::Open => {
+                            this.open_session_manager_display_item(open_item.clone(), window, cx);
+                        }
+                        SessionManagerItemPointerAction::None => {}
                     }
                 }),
             )
@@ -1472,5 +1546,30 @@ pub(super) fn collect_session_group_paths(
         if let Some(child_groups) = children.get(root) {
             collect_session_group_paths(child_groups, children, output);
         }
+    }
+}
+
+#[cfg(test)]
+mod session_manager_pointer_tests {
+    use super::*;
+
+    #[test]
+    fn saved_connection_click_selects_and_double_click_opens() {
+        assert_eq!(
+            session_manager_item_pointer_action(1, true),
+            SessionManagerItemPointerAction::Select
+        );
+        assert_eq!(
+            session_manager_item_pointer_action(2, true),
+            SessionManagerItemPointerAction::Open
+        );
+        assert_eq!(
+            session_manager_item_pointer_action(1, false),
+            SessionManagerItemPointerAction::None
+        );
+        assert_eq!(
+            session_manager_item_pointer_action(2, false),
+            SessionManagerItemPointerAction::Open
+        );
     }
 }

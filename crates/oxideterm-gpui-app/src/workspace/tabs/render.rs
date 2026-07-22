@@ -126,6 +126,10 @@ impl WorkspaceApp {
             let show_reconnect_progress = reconnect_job.is_some();
             let icon = tab_kind_icon(&tab.kind);
             let tab_text = self.tab_display_title(tab);
+            let tab_tooltip_label = tab_text.clone();
+            let tab_tooltip_id = format!("workspace-tab-title-{}", tab_id.0);
+            let middle_click_tooltip_id = tab_tooltip_id.clone();
+            let close_button_tooltip_id = tab_tooltip_id.clone();
             let tab_text_color = if active {
                 rgb(theme.text)
             } else {
@@ -179,6 +183,31 @@ impl WorkspaceApp {
                         cx.stop_propagation();
                     }),
                 )
+                .on_mouse_down(
+                    MouseButton::Middle,
+                    cx.listener(move |this, _event, window, cx| {
+                        this.clear_workspace_tooltip(&middle_click_tooltip_id, cx);
+                        this.request_close_tab_by_id(tab_id, window, cx);
+                        cx.stop_propagation();
+                    }),
+                )
+                .on_mouse_move(cx.listener({
+                    let tooltip_id = tab_tooltip_id.clone();
+                    move |this, event: &MouseMoveEvent, _window, cx| {
+                        this.queue_workspace_tooltip(
+                            tooltip_id.clone(),
+                            tab_tooltip_label.clone(),
+                            f32::from(event.position.x) + 12.0,
+                            f32::from(event.position.y) + 16.0,
+                            cx,
+                        );
+                    }
+                }))
+                .on_hover(cx.listener(move |this, hovered: &bool, _window, cx| {
+                    if !*hovered {
+                        this.clear_workspace_tooltip(&tab_tooltip_id, cx);
+                    }
+                }))
                 .when(show_drop_indicator, |tab| {
                     tab.child(
                         div()
@@ -241,6 +270,7 @@ impl WorkspaceApp {
                             .on_mouse_down(
                                 MouseButton::Left,
                                 cx.listener(move |this, _event, window, cx| {
+                                    this.clear_workspace_tooltip(&close_button_tooltip_id, cx);
                                     this.set_active_tab(tab_id, window, cx);
                                     this.request_close_active_tab(window, cx);
                                     cx.stop_propagation();

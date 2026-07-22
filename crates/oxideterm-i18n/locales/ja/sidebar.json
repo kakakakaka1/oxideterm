@@ -15,7 +15,7 @@
       "files": "ファイルマネージャー",
       "forwards": "ポートフォワーディング",
       "forwards_title": "ポートフォワーディング",
-      "runtime": "ランタイム",
+      "runtime": "ダッシュボード",
       "runtime_description": "接続の使用状況、システムの健全性、トポロジーを監視",
       "runtime_overview": "概要",
       "connection_pool": "接続プール",

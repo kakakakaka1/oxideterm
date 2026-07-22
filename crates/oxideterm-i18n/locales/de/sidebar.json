@@ -15,7 +15,7 @@
       "files": "Dateimanager",
       "forwards": "Portweiterleitung",
       "forwards_title": "Portweiterleitung",
-      "runtime": "Laufzeit",
+      "runtime": "Dashboard",
       "runtime_description": "Verbindungsnutzung, Systemzustand und Topologie überwachen",
       "runtime_overview": "Übersicht",
       "connection_pool": "Verbindungspool",

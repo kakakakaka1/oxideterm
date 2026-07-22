@@ -269,6 +269,15 @@ impl Render for WorkspaceApp {
                 }),
             )
             .capture_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                // A modal close confirmation owns Enter/Escape even when the
+                // terminal or an IME target retained focus behind the dialog.
+                if this.main_window_tabs.close_confirm.is_some()
+                    && this.handle_tab_close_confirm_key(event, window, cx)
+                {
+                    window.prevent_default();
+                    cx.stop_propagation();
+                    return;
+                }
                 let active_ime_should_receive_key =
                     this.defer_active_ime_key(&event.keystroke, window, cx);
                 if active_ime_should_receive_key {
@@ -293,9 +302,6 @@ impl Render for WorkspaceApp {
                     window.prevent_default();
                     cx.stop_propagation();
                 } else if this.handle_node_disconnect_confirm_key(event, window, cx) {
-                    window.prevent_default();
-                    cx.stop_propagation();
-                } else if this.handle_tab_close_confirm_key(event, window, cx) {
                     window.prevent_default();
                     cx.stop_propagation();
                 } else if this.handle_host_process_confirm_key(event, cx) {

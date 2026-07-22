@@ -605,10 +605,22 @@ impl WorkspaceApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(index) = self.active_tab_index() else {
+        let Some(tab_id) = self.main_window_tabs.active_tab_id else {
             return;
         };
-        let tab_id = self.tabs[index].id;
+        self.request_close_tab_by_id(tab_id, window, cx);
+    }
+
+    /// Applies the same user-facing close checks to close buttons, shortcuts, and middle-clicks.
+    pub(in crate::workspace) fn request_close_tab_by_id(
+        &mut self,
+        tab_id: TabId,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(index) = self.tabs.iter().position(|tab| tab.id == tab_id) else {
+            return;
+        };
         if self.tabs[index].kind == TabKind::SshTerminal {
             // Tauri confirms user-initiated SSH terminal tab closes while
             // still allowing backend/session cleanup paths to close directly.

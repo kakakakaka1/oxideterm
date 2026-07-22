@@ -56,6 +56,28 @@ enum TerminalCommandSuggestionDirection {
     Down,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TabCloseConfirmDirectKeyAction {
+    Cancel,
+    Confirm,
+}
+
+/// Gives the close modal priority over the terminal while preserving modified shortcuts.
+fn tab_close_confirm_direct_key_action(
+    key: &str,
+    platform_modifier: bool,
+    control_modifier: bool,
+) -> Option<TabCloseConfirmDirectKeyAction> {
+    if platform_modifier || control_modifier {
+        return None;
+    }
+    match key {
+        "escape" => Some(TabCloseConfirmDirectKeyAction::Cancel),
+        "enter" => Some(TabCloseConfirmDirectKeyAction::Confirm),
+        _ => None,
+    }
+}
+
 fn terminal_tab_capture_keystroke(keystroke: &gpui::Keystroke) -> bool {
     let modifiers = keystroke.modifiers;
     // Plain Tab and Shift+Tab are terminal protocol keys, but some platforms
@@ -1121,6 +1143,22 @@ impl WorkspaceApp {
         if self.tab_close_confirm_presence.phase() == oxideterm_gpui_ui::motion::ExitPhase::Exiting
         {
             return true;
+        }
+        if let Some(action) = tab_close_confirm_direct_key_action(
+            event.keystroke.key.as_str(),
+            event.keystroke.modifiers.platform,
+            event.keystroke.modifiers.control,
+        ) {
+            match action {
+                TabCloseConfirmDirectKeyAction::Cancel => {
+                    self.cancel_tab_close_confirm(cx);
+                    return true;
+                }
+                TabCloseConfirmDirectKeyAction::Confirm => {
+                    self.confirm_tab_close_confirm(window, cx);
+                    return true;
+                }
+            }
         }
         match self.handle_standard_confirm_key(event, cx) {
             Some(ConfirmKeyboardAction::Cancel) => {
@@ -2514,6 +2552,22 @@ fn is_shell_assignment_name(name: &str) -> bool {
 #[cfg(test)]
 mod terminal_command_bar_behavior_tests {
     use super::*;
+
+    #[test]
+    fn tab_close_confirm_uses_escape_to_cancel_and_enter_to_confirm() {
+        assert_eq!(
+            tab_close_confirm_direct_key_action("escape", false, false),
+            Some(TabCloseConfirmDirectKeyAction::Cancel)
+        );
+        assert_eq!(
+            tab_close_confirm_direct_key_action("enter", false, false),
+            Some(TabCloseConfirmDirectKeyAction::Confirm)
+        );
+        assert_eq!(
+            tab_close_confirm_direct_key_action("enter", true, false),
+            None
+        );
+    }
 
     fn tab_keystroke_with(modifiers: gpui::Modifiers) -> gpui::Keystroke {
         gpui::Keystroke {
