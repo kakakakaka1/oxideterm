@@ -86,7 +86,7 @@ Do not derive release notes from commit subjects alone. Read the meaningful impl
 
 Insert `## <version>` as the newest entry in the selected changelog. The heading must exactly match the version because `.github/scripts/compose_release_notes.py` uses it to locate the entry. The heading is an extraction boundary, not necessarily part of the published release body.
 
-Write in English to match the existing release files. Use concise user-facing past tense. Combine related commits into one outcome and avoid raw commit-title dumps, implementation trivia, unsupported performance claims, and claims that were not verified. Use one restrained, semantically relevant emoji on each main stable-release heading to improve scanability; do not decorate every bullet or mix multiple emoji styles within one section.
+Write in English to match the existing release files. Use concise user-facing past tense. Keep the opening summary paragraph on one physical line so the GitHub Release editor does not show an artificial break; the composer also normalizes accidental soft wrapping as a safeguard. Combine related commits into one outcome and avoid raw commit-title dumps, implementation trivia, unsupported performance claims, and claims that were not verified. Use one restrained, semantically relevant emoji on each main stable-release heading to improve scanability; do not decorate every bullet or mix multiple emoji styles within one section.
 
 Apply channel-specific emphasis:
 

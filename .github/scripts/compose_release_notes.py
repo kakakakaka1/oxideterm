@@ -15,6 +15,32 @@ DOWNLOADS_MARKER = "<!-- RELEASE_DOWNLOADS -->"
 REPOSITORY_RELEASE_URL = "https://github.com/AnalyseDeCircuit/oxideterm/releases/download"
 
 
+def normalize_leading_summary(section: str) -> str:
+    """Join soft-wrapped lines in the opening prose paragraph."""
+    lines = section.splitlines()
+    if not lines:
+        return section
+
+    paragraph_end = next(
+        (index for index, line in enumerate(lines) if not line.strip()),
+        len(lines),
+    )
+    paragraph = lines[:paragraph_end]
+    if not paragraph:
+        return section
+
+    # Preserve Markdown blocks when a channel intentionally starts with one.
+    if any(
+        re.match(r"^(?:#{1,6}\s|[-*+]\s|>\s?|```|~~~|\d+[.)]\s|\||<)", line.lstrip())
+        for line in paragraph
+    ):
+        return section
+
+    summary = " ".join(line.strip() for line in paragraph)
+    remainder = lines[paragraph_end:]
+    return "\n".join([summary, *remainder])
+
+
 def release_asset_url(tag: str, filename: str) -> str:
     """Build a URL for an asset attached to the release being composed."""
     return f"{REPOSITORY_RELEASE_URL}/{quote(tag, safe='')}/{quote(filename, safe='')}"
@@ -64,7 +90,7 @@ def extract_version_section(
     match = pattern.search(changelog)
     if match is None:
         raise ValueError(f"no changelog section found for {version}")
-    section = match.group("section").strip()
+    section = normalize_leading_summary(match.group("section").strip())
     if include_heading:
         return f"## {version}\n\n{section}"
     return section

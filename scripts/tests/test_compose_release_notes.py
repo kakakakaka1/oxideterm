@@ -27,7 +27,8 @@ class ComposeReleaseNotesTests(unittest.TestCase):
                 encoding="utf-8",
             )
             changelog.write_text(
-                "## 2.0.0\n\nFirst stable release.\n\n### Fixes\n\n- Fixed one issue.\n",
+                "## 2.0.0\n\nFirst stable release with a summary that is\n"
+                "soft-wrapped in the changelog source.\n\n### Fixes\n\n- Fixed one issue.\n",
                 encoding="utf-8",
             )
 
@@ -42,8 +43,20 @@ class ComposeReleaseNotesTests(unittest.TestCase):
         self.assertNotIn("RELEASE_DOWNLOADS", notes)
         self.assertNotIn("# Stable", notes)
         self.assertNotIn("## 2.0.0", notes)
-        self.assertTrue(notes.startswith("First stable release."))
+        self.assertTrue(
+            notes.startswith(
+                "First stable release with a summary that is soft-wrapped in the changelog source."
+            )
+        )
+        self.assertNotIn("that is\nsoft-wrapped", notes)
         self.assertLess(notes.index("### Fixes"), notes.index("## 📥 Download for your system"))
+
+    def test_markdown_block_at_start_is_not_unwrapped(self) -> None:
+        section = "> Important first line.\n> Important second line.\n\nDetails."
+
+        normalized = COMPOSE_RELEASE_NOTES.normalize_leading_summary(section)
+
+        self.assertEqual(normalized, section)
 
     def test_preview_notes_without_download_marker_remain_supported(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

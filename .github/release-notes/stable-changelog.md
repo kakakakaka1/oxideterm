@@ -5,8 +5,7 @@ section as the detailed changelog attached to the corresponding GitHub Release.
 
 ## 2.0.10
 
-OxideTerm 2.0.10 opens a substantially broader native plugin platform, expands
-connection migration, and improves terminal, SFTP, and IDE workflows across the app.
+OxideTerm 2.0.10 opens a substantially broader native plugin platform, expands connection migration, and improves terminal, SFTP, and IDE workflows across the app.
 
 ### ✨ Highlights
 
