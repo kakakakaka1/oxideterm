@@ -1539,10 +1539,11 @@ mod sidebar_resize_region_tests {
                             .size_full()
                             .occlude()
                             .on_mouse_move(cx.listener(
-                                move |this, event: &MouseMoveEvent, _window, cx| {
+                                move |this, event: &MouseMoveEvent, window, cx| {
                                     // Root capture owns movement after the pointer leaves the hotzone.
-                                    this.total_width =
-                                        (700.0 - f32::from(event.position.x)).max(0.0);
+                                    this.total_width = (f32::from(window.viewport_size().width)
+                                        - f32::from(event.position.x))
+                                    .max(0.0);
                                     resize_moved.set(true);
                                     cx.notify();
                                 },
@@ -1647,6 +1648,17 @@ mod sidebar_resize_region_tests {
         assert!(
             resize_moved.get(),
             "root capture should continue the frame-local hotzone drag"
+        );
+        cx.update(|window, cx| {
+            window.draw(cx).clear();
+        });
+        let resized_frame = cx
+            .debug_bounds("context-frame")
+            .expect("resized frame bounds");
+        assert_close(
+            "resized frame width",
+            f32::from(resized_frame.size.width),
+            660.0,
         );
     }
 }

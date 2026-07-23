@@ -395,8 +395,11 @@ impl WorkspaceApp {
         cursor_x: Pixels,
         window: &Window,
     ) -> f32 {
-        let window_width = f32::from(window.inner_window_bounds().get_bounds().size.width);
-        ai_sidebar_width_from_cursor_value(f32::from(cursor_x), window_width)
+        // Pointer events use the current drawable area's coordinate space.
+        // On Windows, inner_window_bounds() reports the restore bounds while
+        // maximized, which would clamp every resize update to the same limit.
+        let viewport_width = f32::from(window.viewport_size().width);
+        ai_sidebar_width_from_cursor_value(f32::from(cursor_x), viewport_width)
     }
 }
 
@@ -458,12 +461,12 @@ mod tests {
 
 pub(in crate::workspace) fn ai_sidebar_width_from_cursor_value(
     cursor_x: f32,
-    window_width: f32,
+    viewport_width: f32,
 ) -> f32 {
     // The context sidebar is anchored to the right edge, so dragging left must
     // increase width and dragging right must decrease width. Keep this math in
     // a pure helper so regressions do not require constructing a GPUI Window.
-    (window_width - cursor_x).clamp(AI_SIDEBAR_MIN_WIDTH, AI_SIDEBAR_MAX_WIDTH)
+    (viewport_width - cursor_x).clamp(AI_SIDEBAR_MIN_WIDTH, AI_SIDEBAR_MAX_WIDTH)
 }
 
 #[cfg(test)]
@@ -484,6 +487,24 @@ mod sidebar_resize_state_tests {
         assert_eq!(
             ai_sidebar_width_from_cursor_value(0.0, 2000.0),
             AI_SIDEBAR_MAX_WIDTH
+        );
+    }
+
+    #[test]
+    pub(in crate::workspace) fn maximized_sidebar_resize_uses_current_viewport_width() {
+        let current_viewport_width = 1920.0;
+        let restored_window_width = 1200.0;
+        let cursor_x = 1500.0;
+
+        // Windows can report the restored width through inner_window_bounds()
+        // while pointer coordinates still refer to the maximized viewport.
+        assert_eq!(
+            ai_sidebar_width_from_cursor_value(cursor_x, current_viewport_width),
+            420.0
+        );
+        assert_eq!(
+            ai_sidebar_width_from_cursor_value(cursor_x, restored_window_width),
+            AI_SIDEBAR_MIN_WIDTH
         );
     }
 }
