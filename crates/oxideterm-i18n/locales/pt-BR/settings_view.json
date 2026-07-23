@@ -266,7 +266,7 @@
       "backspace_sequence_hint": "Escolha o que Backspace envia a aplicativos de terminal antigos. O padrão é DEL (0x7F)",
       "delete_sequence": "Tecla Delete",
       "delete_sequence_hint": "Escolha o que Delete envia a aplicativos de terminal antigos. O padrão é CSI 3~",
-      "free_type_mode_hint": "Edite o comando ativo do shell com o mouse: clique para mover o cursor, clique duas vezes dentro de parênteses correspondentes para selecionar o conteúdo, arraste o texto selecionado para movê-lo, arraste com Ctrl para copiá-lo ou com Alt para substituir o comando. Aplicativos em tela cheia e com rastreamento de mouse ficam excluídos",
+      "free_type_mode_hint": "Edite o comando ativo do shell com o mouse: clique para mover o cursor, clique duas vezes dentro de parênteses correspondentes para selecionar o conteúdo, arraste o texto selecionado para movê-lo, arraste com Ctrl para copiá-lo ou com Alt para substituir o comando. Vim, Neovim e Emacs em tela cheia exigem o carregamento explícito do adaptador OxideTerm; outros aplicativos em tela cheia ou com rastreamento de mouse mantêm o controle",
       "in_band_transfer": {
         "title": "Transferência de arquivos in-band",
         "enabled": "Habilitar transferência trzsz",

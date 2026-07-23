@@ -3,7 +3,13 @@ use std::{collections::HashMap, fs, path::Path};
 use anyhow::{Context, Result};
 use tempfile::TempDir;
 
-use crate::{LocalPtyConfig, ShellInfo, local_shell::shell_args_for_profile};
+use crate::{
+    EMACS_FREE_TYPE_INTEGRATION_SOURCE, LocalPtyConfig, ShellInfo,
+    VIM_FREE_TYPE_INTEGRATION_SOURCE, local_shell::shell_args_for_profile,
+};
+
+const VIM_FREE_TYPE_INTEGRATION_ENV: &str = "OXIDETERM_VIM_INTEGRATION";
+const EMACS_FREE_TYPE_INTEGRATION_ENV: &str = "OXIDETERM_EMACS_INTEGRATION";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TerminalCwdIntegrationLaunchState {
@@ -22,7 +28,14 @@ pub(crate) struct LocalShellLaunch {
 pub(crate) struct LocalShellIntegration {
     // The temporary startup files belong to the PTY session and remain valid
     // for shells which lazily reload their configuration after startup.
-    _directory: TempDir,
+    _directories: Vec<TempDir>,
+}
+
+impl LocalShellIntegration {
+    fn merge(mut self, other: Self) -> Self {
+        self._directories.extend(other._directories);
+        self
+    }
 }
 
 pub(crate) fn prepare_local_shell_launch(
@@ -31,43 +44,84 @@ pub(crate) fn prepare_local_shell_launch(
     mut env: HashMap<String, String>,
     default_args: Vec<String>,
 ) -> LocalShellLaunch {
+    // Editor adapters are passive files. Exposing their paths for every PTY
+    // lets a user toggle Free Type Mode without restarting the shell, while
+    // still requiring an explicit opt-in from the editor configuration.
+    let editor_integration = match prepare_editor_integration(&mut env) {
+        Ok(integration) => Some(integration),
+        Err(error) => {
+            tracing::warn!(%error, "failed to prepare local terminal editor integration");
+            None
+        }
+    };
+
     if !config.current_directory_shell_integration {
         return LocalShellLaunch {
             args: default_args,
             env,
-            integration: None,
+            integration: editor_integration,
             integration_state: TerminalCwdIntegrationLaunchState::NotRequested,
         };
     }
 
     let prepared = prepare_known_shell(config, shell, &mut env, &default_args);
-    match prepared {
-        Ok(Some((args, integration))) => LocalShellLaunch {
+    let (args, shell_integration, integration_state) = match prepared {
+        Ok(Some((args, integration))) => (
             args,
-            env,
-            integration: Some(integration),
-            integration_state: TerminalCwdIntegrationLaunchState::Prepared,
-        },
-        Ok(None) => LocalShellLaunch {
-            args: default_args,
-            env,
-            integration: None,
-            integration_state: TerminalCwdIntegrationLaunchState::Unavailable,
-        },
+            Some(integration),
+            TerminalCwdIntegrationLaunchState::Prepared,
+        ),
+        Ok(None) => (
+            default_args,
+            None,
+            TerminalCwdIntegrationLaunchState::Unavailable,
+        ),
         Err(error) => {
             tracing::warn!(
                 shell = %shell.path.display(),
                 %error,
                 "failed to prepare local current-directory shell integration"
             );
-            LocalShellLaunch {
-                args: default_args,
-                env,
-                integration: None,
-                integration_state: TerminalCwdIntegrationLaunchState::Unavailable,
-            }
+            (
+                default_args,
+                None,
+                TerminalCwdIntegrationLaunchState::Unavailable,
+            )
         }
+    };
+    LocalShellLaunch {
+        args,
+        env,
+        integration: match (shell_integration, editor_integration) {
+            (Some(shell), Some(editor)) => Some(shell.merge(editor)),
+            (Some(shell), None) => Some(shell),
+            (None, Some(editor)) => Some(editor),
+            (None, None) => None,
+        },
+        integration_state,
     }
+}
+
+fn prepare_editor_integration(env: &mut HashMap<String, String>) -> Result<LocalShellIntegration> {
+    let directory = tempfile::Builder::new()
+        .prefix("oxideterm-editor-")
+        .tempdir()
+        .context("create temporary editor integration directory")?;
+    let vim_path = directory.path().join("oxideterm-free-type.vim");
+    let emacs_path = directory.path().join("oxideterm-free-type.el");
+    write_private_file(&vim_path, VIM_FREE_TYPE_INTEGRATION_SOURCE)?;
+    write_private_file(&emacs_path, EMACS_FREE_TYPE_INTEGRATION_SOURCE)?;
+    env.insert(
+        VIM_FREE_TYPE_INTEGRATION_ENV.to_string(),
+        vim_path.display().to_string(),
+    );
+    env.insert(
+        EMACS_FREE_TYPE_INTEGRATION_ENV.to_string(),
+        emacs_path.display().to_string(),
+    );
+    Ok(LocalShellIntegration {
+        _directories: vec![directory],
+    })
 }
 
 fn prepare_known_shell(
@@ -96,7 +150,7 @@ fn prepare_known_shell(
     Ok(Some((
         args,
         LocalShellIntegration {
-            _directory: directory,
+            _directories: vec![directory],
         },
     )))
 }
@@ -429,12 +483,12 @@ mod tests {
             launch.integration_state,
             TerminalCwdIntegrationLaunchState::Unavailable
         );
-        assert!(launch.integration.is_none());
+        assert!(launch.integration.is_some());
         assert_eq!(launch.args, shell.args);
     }
 
     #[test]
-    fn disabled_integration_does_not_create_temporary_state() {
+    fn disabled_cwd_integration_still_exposes_owned_editor_adapters() {
         let shell = ShellInfo::new("bash", "Bash", "bash");
         let launch = prepare_local_shell_launch(
             &LocalPtyConfig::default(),
@@ -447,7 +501,32 @@ mod tests {
             launch.integration_state,
             TerminalCwdIntegrationLaunchState::NotRequested
         );
-        assert!(launch.integration.is_none());
+        assert!(launch.integration.is_some());
+        let vim_path = std::path::PathBuf::from(
+            launch
+                .env
+                .get(VIM_FREE_TYPE_INTEGRATION_ENV)
+                .expect("Vim adapter path"),
+        );
+        let emacs_path = std::path::PathBuf::from(
+            launch
+                .env
+                .get(EMACS_FREE_TYPE_INTEGRATION_ENV)
+                .expect("Emacs adapter path"),
+        );
+        assert_eq!(
+            fs::read_to_string(&vim_path).expect("read Vim adapter"),
+            VIM_FREE_TYPE_INTEGRATION_SOURCE
+        );
+        assert_eq!(
+            fs::read_to_string(&emacs_path).expect("read Emacs adapter"),
+            EMACS_FREE_TYPE_INTEGRATION_SOURCE
+        );
+
+        drop(launch);
+
+        assert!(!vim_path.exists());
+        assert!(!emacs_path.exists());
     }
 
     #[test]

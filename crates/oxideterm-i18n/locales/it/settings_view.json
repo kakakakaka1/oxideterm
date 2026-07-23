@@ -266,7 +266,7 @@
       "backspace_sequence_hint": "Scegli cosa invia Backspace alle applicazioni terminale legacy. Il valore predefinito è DEL (0x7F)",
       "delete_sequence": "Tasto Canc",
       "delete_sequence_hint": "Scegli cosa invia Canc alle applicazioni terminale legacy. Il valore predefinito è CSI 3~",
-      "free_type_mode_hint": "Modifica il comando shell attivo con il mouse: fai clic per spostare il cursore, fai doppio clic tra parentesi corrispondenti per selezionarne il contenuto, trascina il testo selezionato per spostarlo, tieni premuto Ctrl per copiarlo o Alt per sostituire il comando. Le app a schermo intero e con tracciamento del mouse sono escluse",
+      "free_type_mode_hint": "Modifica il comando shell attivo con il mouse: fai clic per spostare il cursore, fai doppio clic tra parentesi corrispondenti per selezionarne il contenuto, trascina il testo selezionato per spostarlo, tieni premuto Ctrl per copiarlo o Alt per sostituire il comando. Vim, Neovim ed Emacs a schermo intero richiedono il caricamento esplicito dell’adattatore OxideTerm; le altre app a schermo intero o con tracciamento del mouse mantengono il controllo",
       "in_band_transfer": {
         "title": "Trasferimento file in-band",
         "enabled": "Abilita trasferimento trzsz",

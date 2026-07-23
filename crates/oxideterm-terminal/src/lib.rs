@@ -29,6 +29,7 @@ use oxideterm_terminal_graphics::{
 mod backpressure;
 mod color;
 mod data;
+mod editor_integration;
 mod local_graphics_event_loop;
 mod local_shell;
 mod local_shell_integration;
@@ -46,6 +47,11 @@ pub use data::{
     TerminalImageAnimationState, TerminalImageData, TerminalImageFrame, TerminalImageId,
     TerminalImageProtocol, TerminalImageSnapshot, TerminalRow, TerminalSearchMatch,
     TerminalSearchRange, TerminalSnapshot,
+};
+pub use editor_integration::{
+    EMACS_FREE_TYPE_INTEGRATION_SOURCE, TerminalEditorApplication, TerminalEditorCapabilities,
+    TerminalEditorClipboardEvent, TerminalEditorClipboardOperation, TerminalEditorIntegrationEvent,
+    TerminalEditorMode, TerminalEditorSelection, VIM_FREE_TYPE_INTEGRATION_SOURCE,
 };
 pub use local_shell::{LocalPtyConfig, ShellInfo, default_shell, scan_shells};
 pub use local_shell_integration::TerminalCwdIntegrationLaunchState;

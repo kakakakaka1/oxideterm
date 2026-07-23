@@ -266,7 +266,7 @@
       "backspace_sequence_hint": "Chọn chuỗi mà Backspace gửi đến các ứng dụng terminal cũ. Mặc định là DEL (0x7F)",
       "delete_sequence": "Phím Delete",
       "delete_sequence_hint": "Chọn chuỗi mà Delete gửi đến các ứng dụng terminal cũ. Mặc định là CSI 3~",
-      "free_type_mode_hint": "Chỉnh sửa lệnh shell đang hoạt động bằng chuột: nhấp để di chuyển con trỏ, nhấp đúp bên trong cặp ngoặc khớp để chọn nội dung, kéo văn bản lệnh đã chọn để di chuyển, giữ Ctrl khi kéo để sao chép hoặc giữ Alt để thay thế lệnh. Không áp dụng cho ứng dụng toàn màn hình và ứng dụng theo dõi chuột",
+      "free_type_mode_hint": "Chỉnh sửa lệnh shell đang hoạt động bằng chuột: nhấp để di chuyển con trỏ, nhấp đúp bên trong cặp ngoặc khớp để chọn nội dung, kéo văn bản lệnh đã chọn để di chuyển, giữ Ctrl khi kéo để sao chép hoặc giữ Alt để thay thế lệnh. Vim, Neovim và Emacs toàn màn hình cần nạp rõ ràng bộ điều hợp OxideTerm; các ứng dụng toàn màn hình hoặc theo dõi chuột khác vẫn tự xử lý đầu vào",
       "in_band_transfer": {
         "title": "Truyền tệp trong băng",
         "enabled": "Bật truyền trzsz",

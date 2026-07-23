@@ -1,6 +1,8 @@
 use oxideterm_ssh::{RemoteEnvInfo, SftpError, SftpSession};
 
-pub const REMOTE_SHELL_INTEGRATION_VERSION: u32 = 2;
+use crate::{EMACS_FREE_TYPE_INTEGRATION_SOURCE, VIM_FREE_TYPE_INTEGRATION_SOURCE};
+
+pub const REMOTE_SHELL_INTEGRATION_VERSION: u32 = 3;
 pub const REMOTE_SHELL_INTEGRATION_RELATIVE_DIR: &str = ".oxideterm/shell-integration";
 
 const MANAGED_BLOCK_START: &str = ">>> OxideTerm remote shell integration >>>";
@@ -275,7 +277,7 @@ fn startup_file_path(shell: RemoteShellKind, remote_env: &RemoteEnvInfo, home: &
     }
 }
 
-fn integration_files() -> [(&'static str, &'static str); 6] {
+fn integration_files() -> [(&'static str, &'static str); 8] {
     [
         ("README.txt", REMOTE_INTEGRATION_README),
         ("bash.sh", BASH_INTEGRATION),
@@ -283,6 +285,8 @@ fn integration_files() -> [(&'static str, &'static str); 6] {
         ("fish.fish", FISH_INTEGRATION),
         ("nushell.nu", NUSHELL_INTEGRATION),
         ("powershell.ps1", POWERSHELL_INTEGRATION),
+        ("oxideterm-free-type.vim", VIM_FREE_TYPE_INTEGRATION_SOURCE),
+        ("oxideterm-free-type.el", EMACS_FREE_TYPE_INTEGRATION_SOURCE),
     ]
 }
 
@@ -444,7 +448,7 @@ fn remote_parent(path: &str) -> Option<String> {
 const REMOTE_INTEGRATION_README: &str = r#"OxideTerm Remote Shell Integration
 =====================================
 
-Version: 2
+Version: 3
 Protocol: OSC 7719
 
 These readable shell hooks report only the current working directory and host
@@ -456,10 +460,17 @@ integration signal rather than an authentication boundary.
 The active shell startup file contains a clearly marked OxideTerm reference.
 Use OxideTerm Settings > Terminal > Awareness & Integration to inspect, repair,
 or remove the reference and these files.
+
+The same directory contains optional Free Type Mode adapters for Vim, Neovim,
+and Emacs. The shell hook exports their paths but does not alter editor startup
+files. Load the matching adapter explicitly from your editor configuration to
+enable full-screen editor integration.
 "#;
 
-const BASH_INTEGRATION: &str = r#"# OxideTerm remote shell integration v2.
-# Reports cwd and host through the private OSC 7719 protocol.
+const BASH_INTEGRATION: &str = r#"# OxideTerm remote shell integration v3.
+# Reports cwd and host through OSC 7719 v2 and exposes optional editor adapters.
+export OXIDETERM_VIM_INTEGRATION="$HOME/.oxideterm/shell-integration/oxideterm-free-type.vim"
+export OXIDETERM_EMACS_INTEGRATION="$HOME/.oxideterm/shell-integration/oxideterm-free-type.el"
 __oxideterm_pct() {
   printf '%s' "$1" | od -An -tx1 -v | tr -d ' \n' | sed 's/../%&/g'
 }
@@ -497,15 +508,19 @@ unset __oxideterm_hook_name
 "#;
 
 const ZSH_INTEGRATION: &str = concat!(
-    "# OxideTerm remote shell integration v2.\n",
-    "# Reports cwd and host through the private OSC 7719 protocol.\n",
+    "# OxideTerm remote shell integration v3.\n",
+    "# Reports cwd and host through OSC 7719 v2 and exposes optional editor adapters.\n",
+    "export OXIDETERM_VIM_INTEGRATION=\"$HOME/.oxideterm/shell-integration/oxideterm-free-type.vim\"\n",
+    "export OXIDETERM_EMACS_INTEGRATION=\"$HOME/.oxideterm/shell-integration/oxideterm-free-type.el\"\n",
     "__oxideterm_pct() {\n  printf '%s' \"$1\" | od -An -tx1 -v | tr -d ' \\n' | sed 's/../%&/g'\n}\n",
     "__oxideterm_emit_remote_metadata() {\n  __oxideterm_cwd=$(pwd -P 2>/dev/null || pwd 2>/dev/null) || return\n  __oxideterm_host=${HOSTNAME:-$(hostname 2>/dev/null || printf '')}\n  printf '\\033]7719;v=2;cwd=%s;host=%s\\007' \"$(__oxideterm_pct \"$__oxideterm_cwd\")\" \"$(__oxideterm_pct \"$__oxideterm_host\")\"\n}\n",
     "autoload -Uz add-zsh-hook\nadd-zsh-hook -d precmd __oxideterm_emit_remote_metadata 2>/dev/null\nadd-zsh-hook precmd __oxideterm_emit_remote_metadata\n"
 );
 
-const FISH_INTEGRATION: &str = r#"# OxideTerm remote shell integration v2.
-# Reports cwd and host through the private OSC 7719 protocol.
+const FISH_INTEGRATION: &str = r#"# OxideTerm remote shell integration v3.
+# Reports cwd and host through OSC 7719 v2 and exposes optional editor adapters.
+set -gx OXIDETERM_VIM_INTEGRATION "$HOME/.oxideterm/shell-integration/oxideterm-free-type.vim"
+set -gx OXIDETERM_EMACS_INTEGRATION "$HOME/.oxideterm/shell-integration/oxideterm-free-type.el"
 function __oxideterm_pct
     command printf '%s' "$argv[1]" | command od -An -tx1 -v | command tr -d ' \n' | command sed 's/../%&/g'
 end
@@ -517,8 +532,10 @@ function __oxideterm_emit_remote_metadata --on-event fish_prompt
 end
 "#;
 
-const NUSHELL_INTEGRATION: &str = r#"# OxideTerm remote shell integration v2.
-# Reports cwd and host through the private OSC 7719 protocol.
+const NUSHELL_INTEGRATION: &str = r#"# OxideTerm remote shell integration v3.
+# Reports cwd and host through OSC 7719 v2 and exposes optional editor adapters.
+$env.OXIDETERM_VIM_INTEGRATION = ($nu.home-path | path join '.oxideterm' 'shell-integration' 'oxideterm-free-type.vim')
+$env.OXIDETERM_EMACS_INTEGRATION = ($nu.home-path | path join '.oxideterm' 'shell-integration' 'oxideterm-free-type.el')
 def __oxideterm_pct [value: string] {
     ^printf '%s' $value | ^od -An -tx1 -v | ^tr -d ' \n' | ^sed 's/../%&/g'
 }
@@ -526,16 +543,18 @@ def __oxideterm_emit_remote_metadata [] {
     let __oxideterm_host = ($env.HOSTNAME? | default (^hostname | str trim))
     print --no-newline $"\u{1b}]7719;v=2;cwd=(__oxideterm_pct (pwd));host=(__oxideterm_pct $__oxideterm_host)\u{07}"
 }
-if (($env.OXIDETERM_SHELL_INTEGRATION_VERSION? | default 0) != 2) {
-    $env.OXIDETERM_SHELL_INTEGRATION_VERSION = 2
+if (($env.OXIDETERM_SHELL_INTEGRATION_VERSION? | default 0) != 3) {
+    $env.OXIDETERM_SHELL_INTEGRATION_VERSION = 3
     $env.config = ($env.config | upsert hooks.pre_prompt (($env.config.hooks.pre_prompt? | default []) | append {|| __oxideterm_emit_remote_metadata }))
 }
 "#;
 
-const POWERSHELL_INTEGRATION: &str = r#"# OxideTerm remote shell integration v2.
-# Reports cwd and host through the private OSC 7719 protocol.
-if (-not $global:__oxideterm_shell_integration_v2) {
-    $global:__oxideterm_shell_integration_v2 = $true
+const POWERSHELL_INTEGRATION: &str = r#"# OxideTerm remote shell integration v3.
+# Reports cwd and host through OSC 7719 v2 and exposes optional editor adapters.
+$env:OXIDETERM_VIM_INTEGRATION = Join-Path $HOME '.oxideterm/shell-integration/oxideterm-free-type.vim'
+$env:OXIDETERM_EMACS_INTEGRATION = Join-Path $HOME '.oxideterm/shell-integration/oxideterm-free-type.el'
+if (-not $global:__oxideterm_shell_integration_v3) {
+    $global:__oxideterm_shell_integration_v3 = $true
     $script:__oxideterm_original_prompt = if (Test-Path Function:\prompt) { (Get-Command prompt).ScriptBlock } else { $null }
     function global:__oxideterm_pct {
         param([string]$Value)
@@ -620,9 +639,19 @@ mod tests {
         ] {
             let source = shell_integration_source(shell);
             assert!(source.contains("7719;v=2"));
+            assert!(source.contains("OXIDETERM_VIM_INTEGRATION"));
+            assert!(source.contains("OXIDETERM_EMACS_INTEGRATION"));
             assert!(!source.contains("OXIDETERM_REMOTE_METADATA_ID"));
         }
         assert!(REMOTE_INTEGRATION_README.contains("current working directory and host"));
+    }
+
+    #[test]
+    fn remote_package_contains_exact_editor_adapter_sources() {
+        let files = integration_files();
+        assert!(files.contains(&("oxideterm-free-type.vim", VIM_FREE_TYPE_INTEGRATION_SOURCE)));
+        assert!(files.contains(&("oxideterm-free-type.el", EMACS_FREE_TYPE_INTEGRATION_SOURCE)));
+        assert!(REMOTE_INTEGRATION_README.contains("optional Free Type Mode adapters"));
     }
 
     #[test]

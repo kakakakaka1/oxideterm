@@ -149,7 +149,17 @@ correctness.
 - Free Type Mode may translate mouse editing intent into ordinary terminal key
   and text sequences, but it must never mutate the local terminal snapshot as
   if it owned the remote command buffer. Alternate-screen and mouse-tracking
-  applications retain input ownership.
+  applications retain input ownership. Full-screen editor clipboard/edit
+  shortcuts may be translated only after a fresh, explicit OSC 7719 editor
+  heartbeat identifies a supported application, mode, selection, and
+  capabilities. Local PTYs must additionally match the foreground executable.
+- OSC 7719 editor messages use a parsed, order-independent `version + kind`
+  envelope. Do not route protocol revisions with string-prefix checks. Unknown
+  versions, duplicate fields, unsolicited clipboard payloads, stale
+  heartbeats, and application mismatches must be ignored.
+- Vim, Neovim, and Emacs adapters may enable the application's own mouse
+  protocol, but OxideTerm must not remove the generic alternate-screen or
+  mouse-tracking guards. The application remains the owner of pointer input.
 - Free Type Mode command edits must be verified against real PTY-backed Bash,
   Zsh, and Fish line editors. Do not assume Readline, ZLE, Fish, Vi insertion
   bindings, and Emacs bindings interpret one Home, End, or Delete sequence

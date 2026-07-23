@@ -23,10 +23,11 @@ use oxideterm_terminal::{
     ShellIntegrationLifecycleState, ShellIntegrationStatus, SshSessionConfig, TelnetSessionConfig,
     TermMode, TerminalCommandMark, TerminalCommandMarkClosedBy, TerminalCommandMarkConfidence,
     TerminalCommandMarkDetectionSource, TerminalCommandMarkEvent,
-    TerminalCwdIntegrationLaunchState, TerminalDrainBudget, TerminalDrainReport, TerminalEvent,
-    TerminalLifecycle, TerminalOutputProcessor, TerminalProcessInfo, TerminalProcessProbe,
-    TerminalRow, TerminalSearchMatch, TerminalSession, TerminalSessionKind, TerminalSnapshot,
-    TrzszTransferDirection, TrzszTransferSelection, serial_list_ports,
+    TerminalCwdIntegrationLaunchState, TerminalDrainBudget, TerminalDrainReport,
+    TerminalEditorApplication, TerminalEditorClipboardOperation, TerminalEditorIntegrationEvent,
+    TerminalEvent, TerminalLifecycle, TerminalOutputProcessor, TerminalProcessInfo,
+    TerminalProcessProbe, TerminalRow, TerminalSearchMatch, TerminalSession, TerminalSessionKind,
+    TerminalSnapshot, TrzszTransferDirection, TrzszTransferSelection, serial_list_ports,
 };
 use oxideterm_trzsz::TrzszState;
 use parking_lot::Mutex;
@@ -76,6 +77,8 @@ const DRAIN_BOOST_POLL_INTERVAL: Duration = Duration::from_millis(8);
 const RECENT_TERMINAL_ACTIVITY_WINDOW: Duration = Duration::from_millis(600);
 const RECENT_TERMINAL_INPUT_WINDOW: Duration = Duration::from_millis(220);
 const ACTIVE_PROCESS_INFO_REFRESH_INTERVAL: Duration = Duration::from_secs(1);
+const EDITOR_INTEGRATION_HEARTBEAT_TIMEOUT: Duration = Duration::from_millis(2500);
+const EDITOR_CLIPBOARD_REQUEST_TIMEOUT: Duration = Duration::from_secs(2);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TerminalPaneEvent {
@@ -96,6 +99,34 @@ pub enum TerminalCwdShellIntegrationStatus {
     Active,
     Failed,
     Disabled,
+}
+
+#[derive(Clone, Copy)]
+struct ActiveTerminalEditorIntegration {
+    state: TerminalEditorIntegrationEvent,
+    last_seen: Instant,
+}
+
+#[derive(Clone, Copy)]
+struct PendingTerminalEditorClipboard {
+    application: TerminalEditorApplication,
+    operation: TerminalEditorClipboardOperation,
+    requested_at: Instant,
+}
+
+fn editor_integration_is_usable(
+    free_type_mode: bool,
+    terminal_mode: TermMode,
+    integration: TerminalEditorIntegrationEvent,
+    heartbeat_age: Duration,
+    foreground_command: Option<&str>,
+) -> bool {
+    free_type_mode
+        && terminal_mode.contains(TermMode::ALT_SCREEN)
+        && integration.active
+        && heartbeat_age <= EDITOR_INTEGRATION_HEARTBEAT_TIMEOUT
+        && foreground_command
+            .is_none_or(|command| integration.application.matches_process_command(command))
 }
 
 fn initial_cwd_shell_integration_status(
@@ -228,6 +259,7 @@ pub struct TerminalPane {
     metrics: TerminalMetrics,
     selection: Option<TerminalSelection>,
     pending_paste: Option<String>,
+    pending_paste_prefix: Option<Vec<u8>>,
     context_menu: Option<TerminalContextMenu>,
     context_menu_presence: oxideterm_gpui_ui::motion::ExitPresence,
     context_action_requested: Option<TerminalContextAction>,
@@ -252,6 +284,8 @@ pub struct TerminalPane {
     cwd_host: Option<String>,
     cwd_shell_integration_status: TerminalCwdShellIntegrationStatus,
     shell_integration_status: ShellIntegrationStatus,
+    editor_integration: Option<ActiveTerminalEditorIntegration>,
+    pending_editor_clipboard: Option<PendingTerminalEditorClipboard>,
     command_marks: Vec<TerminalCommandMark>,
     selected_command_mark_id: Option<String>,
     command_mark_id_aliases: HashMap<String, String>,
@@ -604,6 +638,7 @@ impl TerminalPane {
             metrics,
             selection: None,
             pending_paste: None,
+            pending_paste_prefix: None,
             context_menu: None,
             context_menu_presence: oxideterm_gpui_ui::motion::ExitPresence::visible(),
             context_action_requested: None,
@@ -633,6 +668,8 @@ impl TerminalPane {
                 integration_source: None,
                 last_seen_at: None,
             },
+            editor_integration: None,
+            pending_editor_clipboard: None,
             command_marks: Vec::new(),
             selected_command_mark_id: None,
             command_mark_id_aliases: HashMap::new(),
@@ -748,6 +785,19 @@ impl TerminalPane {
 
     pub fn process_info(&self) -> TerminalProcessInfo {
         self.terminal.lock().process_info()
+    }
+
+    fn active_editor_integration(&self, mode: TermMode) -> Option<TerminalEditorIntegrationEvent> {
+        let integration = self.editor_integration?;
+        let process_info = self.process_info();
+        editor_integration_is_usable(
+            self.settings.free_type_mode,
+            mode,
+            integration.state,
+            integration.last_seen.elapsed(),
+            process_info.command.as_deref(),
+        )
+        .then_some(integration.state)
     }
 
     pub fn process_info_probe(&self) -> Option<TerminalProcessProbe> {
@@ -1410,6 +1460,10 @@ impl TerminalPane {
     }
 
     pub fn paste_from_clipboard(&mut self, cx: &mut Context<Self>) {
+        self.paste_from_clipboard_after(&[], cx);
+    }
+
+    fn paste_from_clipboard_after(&mut self, prefix: &[u8], cx: &mut Context<Self>) {
         let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) else {
             return;
         };
@@ -1421,8 +1475,12 @@ impl TerminalPane {
         }
         if self.settings.paste_protection && paste_needs_confirmation(&text) {
             self.pending_paste = Some(text);
+            self.pending_paste_prefix = (!prefix.is_empty()).then(|| prefix.to_vec());
             cx.notify();
             return;
+        }
+        if !prefix.is_empty() {
+            self.send_user_protocol_bytes(prefix, cx);
         }
         self.paste_text(&text, cx);
     }
@@ -1431,11 +1489,15 @@ impl TerminalPane {
         let Some(text) = self.pending_paste.take() else {
             return;
         };
+        if let Some(prefix) = self.pending_paste_prefix.take() {
+            self.send_user_protocol_bytes(&prefix, cx);
+        }
         self.paste_text(&text, cx);
         cx.notify();
     }
 
     pub(crate) fn cancel_pending_paste(&mut self, cx: &mut Context<Self>) {
+        self.pending_paste_prefix = None;
         if self.pending_paste.take().is_some() {
             cx.notify();
         }
@@ -1485,6 +1547,9 @@ impl TerminalPane {
 
         self.update_cursor_blink(cx);
         self.request_active_process_info_refresh(cx);
+        if self.expire_editor_integration(mode, now) {
+            cx.notify();
+        }
     }
 
     fn next_poll_interval(&self) -> Duration {
@@ -1497,9 +1562,15 @@ impl TerminalPane {
     }
 
     fn request_active_process_info_refresh(&mut self, cx: &mut Context<Self>) {
-        if !self.focused
-            || !self.settings.current_directory_awareness_enabled
-            || self.cwd_shell_integration_status == TerminalCwdShellIntegrationStatus::Active
+        if !self.focused {
+            return;
+        }
+        let mode = self.terminal.lock().mode();
+        let needs_editor_process =
+            self.settings.free_type_mode && mode.contains(TermMode::ALT_SCREEN);
+        let needs_current_directory = self.settings.current_directory_awareness_enabled
+            && self.cwd_shell_integration_status != TerminalCwdShellIntegrationStatus::Active;
+        if (!needs_editor_process && !needs_current_directory)
             || self.process_info_refresh_in_flight
             || self.last_process_info_refresh_requested.elapsed()
                 < ACTIVE_PROCESS_INFO_REFRESH_INTERVAL
@@ -1512,9 +1583,16 @@ impl TerminalPane {
 
         self.process_info_refresh_in_flight = true;
         self.last_process_info_refresh_requested = Instant::now();
-        let probe_task = cx
-            .background_executor()
-            .spawn(async move { probe.collect_current_directory() });
+        let probe_task = cx.background_executor().spawn(async move {
+            if needs_editor_process {
+                // Full-screen editor routing needs the current foreground
+                // executable; cwd-only probes deliberately preserve the
+                // previous command and cannot establish that identity.
+                probe.collect()
+            } else {
+                probe.collect_current_directory()
+            }
+        });
         cx.spawn(async move |weak, cx| {
             let info = probe_task.await;
             let _ = weak.update(cx, |this, cx| {
@@ -1525,6 +1603,20 @@ impl TerminalPane {
             });
         })
         .detach();
+    }
+
+    fn expire_editor_integration(&mut self, mode: TermMode, now: Instant) -> bool {
+        let stale = self.editor_integration.is_some_and(|integration| {
+            !mode.contains(TermMode::ALT_SCREEN)
+                || now.saturating_duration_since(integration.last_seen)
+                    > EDITOR_INTEGRATION_HEARTBEAT_TIMEOUT
+        });
+        if !stale {
+            return false;
+        }
+        self.editor_integration = None;
+        self.pending_editor_clipboard = None;
+        true
     }
 
     fn expire_pending_terminal_cwd(&mut self, now: Instant) -> bool {
@@ -1741,6 +1833,49 @@ impl TerminalPane {
             }
             TerminalEvent::EncodingHint(hint) => {
                 let _ = hint;
+                TerminalEventEffect::default()
+            }
+            TerminalEvent::EditorIntegration(event) => {
+                if event.active {
+                    if self
+                        .editor_integration
+                        .is_some_and(|current| current.state.application != event.application)
+                    {
+                        self.pending_editor_clipboard = None;
+                    }
+                    self.editor_integration = Some(ActiveTerminalEditorIntegration {
+                        state: event,
+                        last_seen: Instant::now(),
+                    });
+                } else if self
+                    .editor_integration
+                    .is_some_and(|current| current.state.application == event.application)
+                {
+                    self.editor_integration = None;
+                    self.pending_editor_clipboard = None;
+                }
+                TerminalEventEffect::notify()
+            }
+            TerminalEvent::EditorClipboard(event) => {
+                let Some(request) = self.pending_editor_clipboard.take() else {
+                    return TerminalEventEffect::default();
+                };
+                let mode = self.terminal.lock().mode();
+                let request_matches = request.requested_at.elapsed()
+                    <= EDITOR_CLIPBOARD_REQUEST_TIMEOUT
+                    && request.application == event.application
+                    && request.operation == event.operation
+                    && self
+                        .active_editor_integration(mode)
+                        .is_some_and(|state| state.application == event.application);
+                if !request_matches {
+                    return TerminalEventEffect::default();
+                }
+
+                // The editor payload is accepted only after a matching user
+                // shortcut. GPUI owns the clipboard copy after this boundary;
+                // the zeroizing event buffer is dropped immediately afterward.
+                cx.write_to_clipboard(ClipboardItem::new_string(event.text.to_string()));
                 TerminalEventEffect::default()
             }
             TerminalEvent::ShellIntegration(event) => {

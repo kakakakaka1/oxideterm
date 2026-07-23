@@ -266,7 +266,7 @@
       "backspace_sequence_hint": "Elige qué envía Retroceso a las aplicaciones de terminal antiguas. El valor predeterminado es DEL (0x7F)",
       "delete_sequence": "Tecla Suprimir",
       "delete_sequence_hint": "Elige qué envía Suprimir a las aplicaciones de terminal antiguas. El valor predeterminado es CSI 3~",
-      "free_type_mode_hint": "Edita el comando activo del shell con el ratón: haz clic para mover el cursor, haz doble clic dentro de paréntesis emparejados para seleccionar su contenido, arrastra el texto seleccionado para moverlo, arrastra con Ctrl para copiarlo o con Alt para reemplazar el comando. Se excluyen las aplicaciones de pantalla completa y con seguimiento del ratón",
+      "free_type_mode_hint": "Edita el comando activo del shell con el ratón: haz clic para mover el cursor, haz doble clic dentro de paréntesis emparejados para seleccionar su contenido, arrastra el texto seleccionado para moverlo, arrastra con Ctrl para copiarlo o con Alt para reemplazar el comando. Vim, Neovim y Emacs a pantalla completa requieren cargar explícitamente el adaptador de OxideTerm; las demás aplicaciones de pantalla completa y seguimiento del ratón conservan el control",
       "in_band_transfer": {
         "title": "Transferencia de archivos en banda",
         "enabled": "Habilitar transferencia trzsz",

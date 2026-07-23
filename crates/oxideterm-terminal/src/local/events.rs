@@ -29,6 +29,8 @@ pub enum TerminalEvent {
         transfer: ModemTransfer,
     },
     ShellIntegration(ShellIntegrationEvent),
+    EditorIntegration(TerminalEditorIntegrationEvent),
+    EditorClipboard(TerminalEditorClipboardEvent),
     CommandMark(TerminalCommandMarkEvent),
     CwdChanged {
         cwd: String,

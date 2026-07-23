@@ -1195,6 +1195,118 @@ wait
     }
 
     #[test]
+    fn shell_integration_private_editor_messages_route_without_field_order_assumptions() {
+        let size = TerminalSize {
+            cols: 80,
+            rows: 8,
+            cell_width: 8,
+            cell_height: 17,
+        };
+        let mut term = Term::new(Config::default(), &size, VoidListener);
+        let mut parser = Processor::<StdSyncHandler>::new();
+        let mut integration = crate::shell_integration::TerminalShellIntegration::default();
+        let mut events = Vec::new();
+
+        integration.advance(
+            &mut parser,
+            &mut term,
+            b"\x1b]7719;app=vim;selection=char;kind=editor-state;active=1;caps=mouse,clipboard,edit;mode=visual;v=3\x07\x1b]7719;data=%E4%BD%A0%E5%A5%BD;op=copy;app=vim;kind=editor-clipboard;v=3\x07$ ",
+            |event| events.push(event),
+        );
+
+        assert!(events.iter().any(|event| matches!(
+            event,
+            TerminalEvent::EditorIntegration(editor)
+                if editor.application == TerminalEditorApplication::Vim
+                    && editor.mode == TerminalEditorMode::Visual
+                    && editor.selection == TerminalEditorSelection::Character
+        )));
+        assert!(events.iter().any(|event| matches!(
+            event,
+            TerminalEvent::EditorClipboard(clipboard)
+                if clipboard.application == TerminalEditorApplication::Vim
+                    && clipboard.operation == TerminalEditorClipboardOperation::Copy
+                    && clipboard.text.as_str() == "你好"
+        )));
+        let snapshot = snapshot_from_term(&term, size, &TerminalGraphicsState::default());
+        let visible_text = snapshot
+            .lines
+            .iter()
+            .map(|row| row.text())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(!visible_text.contains("7719;"));
+        assert!(visible_text.contains("$"));
+    }
+
+    #[test]
+    fn shell_integration_private_editor_messages_ignore_unsupported_versions() {
+        let size = TerminalSize {
+            cols: 80,
+            rows: 8,
+            cell_width: 8,
+            cell_height: 17,
+        };
+        let mut term = Term::new(Config::default(), &size, VoidListener);
+        let mut parser = Processor::<StdSyncHandler>::new();
+        let mut integration = crate::shell_integration::TerminalShellIntegration::default();
+        let mut events = Vec::new();
+
+        integration.advance(
+            &mut parser,
+            &mut term,
+            b"\x1b]7719;kind=editor-state;v=4;app=vim;mode=normal;selection=none;caps=mouse;active=1\x07$ ",
+            |event| events.push(event),
+        );
+
+        assert!(!events.iter().any(|event| matches!(
+            event,
+            TerminalEvent::EditorIntegration(_)
+        )));
+        let snapshot = snapshot_from_term(&term, size, &TerminalGraphicsState::default());
+        let visible_text = snapshot
+            .lines
+            .iter()
+            .map(|row| row.text())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(!visible_text.contains("7719;"));
+        assert!(visible_text.contains("$"));
+    }
+
+    #[test]
+    fn shell_integration_retains_editor_clipboard_payloads_beyond_legacy_osc_limit() {
+        let size = TerminalSize {
+            cols: 80,
+            rows: 8,
+            cell_width: 8,
+            cell_height: 17,
+        };
+        let mut term = Term::new(Config::default(), &size, VoidListener);
+        let mut parser = Processor::<StdSyncHandler>::new();
+        let mut integration = crate::shell_integration::TerminalShellIntegration::default();
+        let mut events = Vec::new();
+        let expected_text = "x".repeat(20 * 1024);
+        let encoded_text = "%78".repeat(expected_text.len());
+        let payload = format!(
+            "\u{1b}]7719;v=3;kind=editor-clipboard;app=vim;op=copy;data={encoded_text}\u{7}"
+        );
+
+        integration.advance(
+            &mut parser,
+            &mut term,
+            payload.as_bytes(),
+            |event| events.push(event),
+        );
+
+        assert!(events.iter().any(|event| matches!(
+            event,
+            TerminalEvent::EditorClipboard(clipboard)
+                if clipboard.text.as_str() == expected_text
+        )));
+    }
+
+    #[test]
     fn shell_integration_private_remote_metadata_accepts_windows_paths() {
         let size = TerminalSize {
             cols: 80,

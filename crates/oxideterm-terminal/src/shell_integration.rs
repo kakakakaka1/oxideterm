@@ -10,7 +10,9 @@ use alacritty_terminal::{
 
 const MAX_COMMAND_TEXT_LENGTH: usize = 4096;
 const MAX_MARKS: usize = 2000;
-const OSC_LIMIT: usize = MAX_COMMAND_TEXT_LENGTH * 4;
+// Private editor clipboard responses can contain 64 KiB of percent-encoded
+// UTF-8 text, so the scanner must retain the same bounded protocol envelope.
+const OSC_LIMIT: usize = crate::editor_integration::EDITOR_PROTOCOL_PAYLOAD_LIMIT;
 const OXIDETERM_REMOTE_METADATA_OSC: &str = "7719";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -435,8 +437,20 @@ impl TerminalShellIntegration {
             return false;
         };
         if code == OXIDETERM_REMOTE_METADATA_OSC {
-            if let Some((cwd, host)) = self.parse_oxideterm_remote_metadata(data) {
-                emit(crate::TerminalEvent::CwdChanged { cwd, host });
+            match crate::editor_integration::parse_editor_protocol_message(data) {
+                Some(crate::editor_integration::TerminalEditorProtocolMessage::State(event)) => {
+                    emit(crate::TerminalEvent::EditorIntegration(event));
+                }
+                Some(crate::editor_integration::TerminalEditorProtocolMessage::Clipboard(
+                    event,
+                )) => {
+                    emit(crate::TerminalEvent::EditorClipboard(event));
+                }
+                None => {
+                    if let Some((cwd, host)) = self.parse_oxideterm_remote_metadata(data) {
+                        emit(crate::TerminalEvent::CwdChanged { cwd, host });
+                    }
+                }
             }
             // OxideTerm private OSC payloads are control metadata and should
             // never be rendered, even when a malformed payload is ignored.

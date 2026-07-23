@@ -51,7 +51,35 @@ Toggle the mode with Command+Shift+F on macOS or Ctrl+Alt+F on Windows and Linux
 
 While the mode owns an ordinary command input, Command+C/X/V on macOS and Ctrl+C/X/V on Windows and Linux perform editor-style copy, cut, and paste. The configurable terminal actions also default to Ctrl+Shift+C/X/V on Windows and Linux. Outside a verified command input or selection, these keys keep their existing terminal behavior.
 
-OxideTerm sends ordinary terminal key and text sequences; the remote shell remains the source of truth. The mode is limited to the normal command screen. Full-screen and mouse-tracking programs such as Vim, tmux, and htop keep their own input and are not intercepted.
+OxideTerm sends ordinary terminal key and text sequences; the remote shell or editor remains the source of truth. Full-screen and mouse-tracking programs keep their own pointer input. Vim, Neovim, and Emacs can additionally expose their current mode and selection through OxideTerm's explicit adapter, allowing the same Copy/Cut/Paste shortcuts to operate on a verified editor selection without weakening the alternate-screen or mouse protections.
+
+OxideTerm does not alter editor startup files. To opt in for Vim or Neovim, add this to `vimrc` or `init.vim`:
+
+```vim
+if exists('$OXIDETERM_VIM_INTEGRATION') && filereadable($OXIDETERM_VIM_INTEGRATION)
+  execute 'source ' . fnameescape($OXIDETERM_VIM_INTEGRATION)
+endif
+```
+
+For a Neovim `init.lua`, use:
+
+```lua
+local adapter = vim.env.OXIDETERM_VIM_INTEGRATION
+if adapter and vim.fn.filereadable(adapter) == 1 then
+  vim.cmd("source " .. vim.fn.fnameescape(adapter))
+end
+```
+
+For Emacs, add this to the init file:
+
+```elisp
+(when-let ((adapter (getenv "OXIDETERM_EMACS_INTEGRATION")))
+  (when (file-readable-p adapter)
+    (load adapter nil t)
+    (oxideterm-free-type-mode 1)))
+```
+
+Local terminal sessions provide these adapter paths automatically. For SSH sessions, first install or repair Remote Shell Integration under Settings → Terminal → Awareness & Integration; it installs the readable adapter files under `~/.oxideterm/shell-integration` and exports the same paths. The adapter reports only editor identity, mode, selection shape, capabilities, and a user-requested copied/cut selection. Clipboard responses are bounded and ignored unless they match a recent user shortcut.
 
 ### Backspace and Delete compatibility
 

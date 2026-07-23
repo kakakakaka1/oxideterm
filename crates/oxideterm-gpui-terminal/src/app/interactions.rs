@@ -4,14 +4,17 @@ use gpui::{
     ClipboardItem, Context, KeyDownEvent, KeyUpEvent, Modifiers, MouseButton, MouseDownEvent,
     MouseMoveEvent, MouseUpEvent, Pixels, ScrollWheelEvent, TouchPhase, px,
 };
-use oxideterm_terminal::{TermMode, TerminalRow, TerminalSearchMatch, TerminalSnapshot};
+use oxideterm_terminal::{
+    TermMode, TerminalEditorApplication, TerminalEditorClipboardOperation, TerminalRow,
+    TerminalSearchMatch, TerminalSnapshot,
+};
 use oxideterm_terminal_unicode::visual_line_for_row;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
 use super::{
-    FreeTypeDragAction, FreeTypeDragState, ScrollbarDrag, ScrollbarGeometry, TerminalContextMenu,
-    TerminalPane, command_mark_ui_available,
+    FreeTypeDragAction, FreeTypeDragState, PendingTerminalEditorClipboard, ScrollbarDrag,
+    ScrollbarGeometry, TerminalContextMenu, TerminalPane, command_mark_ui_available,
 };
 use crate::command_facts::TerminalAutosuggestInputState;
 use crate::terminal_ui::*;
@@ -128,6 +131,9 @@ impl TerminalPane {
         }
 
         let mode = self.terminal.lock().mode();
+        if self.handle_editor_free_type_clipboard_shortcut(event, mode, cx) {
+            return true;
+        }
         if self.handle_free_type_clipboard_shortcut(event, mode, cx) {
             return true;
         }
@@ -161,10 +167,12 @@ impl TerminalPane {
             return true;
         }
 
-        if free_type_delete_key_requests_selection_delete(key, modifiers)
-            && self.delete_free_type_selection_if_active(mode, cx)
-        {
-            return true;
+        if free_type_delete_key_requests_selection_delete(key, modifiers) {
+            if self.delete_editor_free_type_selection_if_active(mode, cx)
+                || self.delete_free_type_selection_if_active(mode, cx)
+            {
+                return true;
+            }
         }
 
         let key_event_type = if event.is_held {
@@ -444,6 +452,84 @@ impl TerminalPane {
                 true
             }
         }
+    }
+
+    fn handle_editor_free_type_clipboard_shortcut(
+        &mut self,
+        event: &KeyDownEvent,
+        mode: TermMode,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(shortcut) = free_type_clipboard_shortcut(
+            event.keystroke.key.as_str(),
+            event.keystroke.modifiers,
+            cfg!(target_os = "macos"),
+        ) else {
+            return false;
+        };
+        let Some(editor) = self.active_editor_integration(mode) else {
+            return false;
+        };
+
+        match shortcut {
+            FreeTypeClipboardShortcut::Copy | FreeTypeClipboardShortcut::Cut => {
+                if !editor.capabilities.clipboard || !editor.selection.is_active() {
+                    return false;
+                }
+                let operation = if shortcut == FreeTypeClipboardShortcut::Copy {
+                    TerminalEditorClipboardOperation::Copy
+                } else {
+                    TerminalEditorClipboardOperation::Cut
+                };
+                let edit_operation = if shortcut == FreeTypeClipboardShortcut::Copy {
+                    TerminalEditorEditOperation::Copy
+                } else {
+                    TerminalEditorEditOperation::Cut
+                };
+                self.pending_editor_clipboard = Some(PendingTerminalEditorClipboard {
+                    application: editor.application,
+                    operation,
+                    requested_at: std::time::Instant::now(),
+                });
+                self.send_user_protocol_bytes(
+                    editor_operation_bytes(editor.application, edit_operation),
+                    cx,
+                );
+                true
+            }
+            FreeTypeClipboardShortcut::Paste => {
+                if !editor.capabilities.edit {
+                    return false;
+                }
+                let prefix = editor_operation_bytes(
+                    editor.application,
+                    TerminalEditorEditOperation::PreparePaste,
+                );
+                self.paste_from_clipboard_after(prefix, cx);
+                true
+            }
+        }
+    }
+
+    fn delete_editor_free_type_selection_if_active(
+        &mut self,
+        mode: TermMode,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(editor) = self.active_editor_integration(mode) else {
+            return false;
+        };
+        if !editor.capabilities.edit || !editor.selection.is_active() {
+            return false;
+        }
+        self.send_user_protocol_bytes(
+            editor_operation_bytes(
+                editor.application,
+                TerminalEditorEditOperation::DeleteSelection,
+            ),
+            cx,
+        );
+        true
     }
 
     fn copy_free_type_selection_to_clipboard_if_active(
@@ -1719,6 +1805,46 @@ enum FreeTypeClipboardShortcut {
     Paste,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TerminalEditorEditOperation {
+    Copy,
+    Cut,
+    PreparePaste,
+    DeleteSelection,
+}
+
+fn editor_operation_bytes(
+    application: TerminalEditorApplication,
+    operation: TerminalEditorEditOperation,
+) -> &'static [u8] {
+    match (application, operation) {
+        (
+            TerminalEditorApplication::Vim | TerminalEditorApplication::Neovim,
+            TerminalEditorEditOperation::Copy,
+        ) => b"\x1b[99;1~",
+        (
+            TerminalEditorApplication::Vim | TerminalEditorApplication::Neovim,
+            TerminalEditorEditOperation::Cut,
+        ) => b"\x1b[99;2~",
+        (
+            TerminalEditorApplication::Vim | TerminalEditorApplication::Neovim,
+            TerminalEditorEditOperation::PreparePaste,
+        ) => b"\x1b[99;3~",
+        (
+            TerminalEditorApplication::Vim | TerminalEditorApplication::Neovim,
+            TerminalEditorEditOperation::DeleteSelection,
+        ) => b"\x1b[99;4~",
+        (TerminalEditorApplication::Emacs, TerminalEditorEditOperation::Copy) => b"\x1b[99;5~",
+        (TerminalEditorApplication::Emacs, TerminalEditorEditOperation::Cut) => b"\x1b[99;6~",
+        (TerminalEditorApplication::Emacs, TerminalEditorEditOperation::PreparePaste) => {
+            b"\x1b[99;7~"
+        }
+        (TerminalEditorApplication::Emacs, TerminalEditorEditOperation::DeleteSelection) => {
+            b"\x1b[99;8~"
+        }
+    }
+}
+
 fn free_type_clipboard_shortcut(
     key: &str,
     modifiers: Modifiers,
@@ -2439,9 +2565,14 @@ mod tests {
 
     #[cfg(unix)]
     use oxideterm_terminal::{
-        GraphicsOptions, LocalPtyConfig, ShellInfo, TerminalEncoding, TerminalSession,
+        GraphicsOptions, LocalPtyConfig, ShellInfo, TerminalEncoding, TerminalEvent,
+        TerminalSession, VIM_FREE_TYPE_INTEGRATION_SOURCE,
     };
     use oxideterm_terminal::{TerminalAttrs, TerminalCell, TerminalColor, TerminalCursorShape};
+    use oxideterm_terminal::{
+        TerminalEditorApplication, TerminalEditorCapabilities, TerminalEditorClipboardOperation,
+        TerminalEditorIntegrationEvent, TerminalEditorMode, TerminalEditorSelection,
+    };
 
     fn test_cell(ch: char) -> TerminalCell {
         TerminalCell {
@@ -2494,6 +2625,87 @@ mod tests {
             lines,
             images: Vec::new(),
         }
+    }
+
+    #[test]
+    fn editor_adapter_gate_requires_alt_screen_fresh_state_and_matching_process() {
+        let integration = TerminalEditorIntegrationEvent {
+            application: TerminalEditorApplication::Vim,
+            mode: TerminalEditorMode::Visual,
+            selection: TerminalEditorSelection::Character,
+            capabilities: TerminalEditorCapabilities {
+                mouse: true,
+                clipboard: true,
+                edit: true,
+            },
+            active: true,
+        };
+        assert!(crate::app::editor_integration_is_usable(
+            true,
+            TermMode::ALT_SCREEN | TermMode::MOUSE_MODE,
+            integration,
+            Duration::from_millis(100),
+            Some("/usr/bin/vim"),
+        ));
+        assert!(crate::app::editor_integration_is_usable(
+            true,
+            TermMode::ALT_SCREEN,
+            integration,
+            Duration::from_millis(100),
+            None,
+        ));
+        assert!(!crate::app::editor_integration_is_usable(
+            true,
+            TermMode::NONE,
+            integration,
+            Duration::from_millis(100),
+            Some("vim"),
+        ));
+        assert!(!crate::app::editor_integration_is_usable(
+            true,
+            TermMode::ALT_SCREEN,
+            integration,
+            crate::app::EDITOR_INTEGRATION_HEARTBEAT_TIMEOUT + Duration::from_millis(1),
+            Some("vim"),
+        ));
+        assert!(!crate::app::editor_integration_is_usable(
+            true,
+            TermMode::ALT_SCREEN,
+            integration,
+            Duration::from_millis(100),
+            Some("tmux"),
+        ));
+    }
+
+    #[test]
+    fn editor_operation_sequences_are_namespaced_per_adapter_family() {
+        for application in [
+            TerminalEditorApplication::Vim,
+            TerminalEditorApplication::Neovim,
+        ] {
+            assert_eq!(
+                editor_operation_bytes(application, TerminalEditorEditOperation::Copy),
+                b"\x1b[99;1~"
+            );
+            assert_eq!(
+                editor_operation_bytes(application, TerminalEditorEditOperation::DeleteSelection),
+                b"\x1b[99;4~"
+            );
+        }
+        assert_eq!(
+            editor_operation_bytes(
+                TerminalEditorApplication::Emacs,
+                TerminalEditorEditOperation::Copy
+            ),
+            b"\x1b[99;5~"
+        );
+        assert_eq!(
+            editor_operation_bytes(
+                TerminalEditorApplication::Emacs,
+                TerminalEditorEditOperation::DeleteSelection
+            ),
+            b"\x1b[99;8~"
+        );
     }
 
     #[cfg(unix)]
@@ -2573,6 +2785,202 @@ mod tests {
             !exercised.is_empty(),
             "at least one supported interactive shell must be available"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn free_type_adapter_edits_real_full_screen_vim_session() {
+        let Some(vim_path) = find_real_pty_shell("vim") else {
+            return;
+        };
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock after Unix epoch")
+            .as_nanos();
+        let fixture_dir = std::env::temp_dir().join(format!(
+            "oxideterm-free-type-vim-{}-{unique}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&fixture_dir).expect("create Vim fixture directory");
+        let integration_path = fixture_dir.join("oxideterm-free-type.vim");
+        let document_path = fixture_dir.join("document.txt");
+        std::fs::write(&integration_path, VIM_FREE_TYPE_INTEGRATION_SOURCE)
+            .expect("write bundled Vim integration");
+        std::fs::write(&document_path, "alpha beta\n").expect("write Vim fixture document");
+
+        let config = LocalPtyConfig {
+            shell: Some(ShellInfo::new("vim", "Vim", vim_path).with_args(vec![
+                "-Nu".to_string(),
+                "NONE".to_string(),
+                "-n".to_string(),
+                "-i".to_string(),
+                "NONE".to_string(),
+                "-S".to_string(),
+                integration_path.to_string_lossy().into_owned(),
+                document_path.to_string_lossy().into_owned(),
+            ])),
+            load_profile: false,
+            ..LocalPtyConfig::default()
+        };
+        let mut session = TerminalSession::local_with_config_graphics_and_encoding(
+            100,
+            30,
+            config,
+            GraphicsOptions::default(),
+            TerminalEncoding::Utf8,
+            200,
+        )
+        .expect("spawn real Vim PTY");
+
+        // The test owns the editor process and fixture directory even when an
+        // adapter assertion fails.
+        let result = validate_free_type_in_running_vim(&mut session, &document_path);
+        session.shutdown();
+        let _ = std::fs::remove_dir_all(&fixture_dir);
+        if let Err(error) = result {
+            panic!("Free Type full-screen Vim validation failed: {error}");
+        }
+    }
+
+    #[cfg(unix)]
+    fn validate_free_type_in_running_vim(
+        session: &mut TerminalSession,
+        document_path: &std::path::Path,
+    ) -> Result<(), String> {
+        wait_for_vim_editor_state(
+            session,
+            TerminalEditorMode::Normal,
+            TerminalEditorSelection::None,
+        )?;
+        let mode = session.mode();
+        if !mode.contains(TermMode::ALT_SCREEN) || !mode.intersects(TermMode::MOUSE_MODE) {
+            return Err(format!(
+                "Vim adapter did not retain alternate-screen mouse ownership: {mode:?}"
+            ));
+        }
+
+        session
+            .write_protocol_bytes(b"vllll")
+            .map_err(|error| format!("visual selection failed: {error}"))?;
+        wait_for_vim_editor_state(
+            session,
+            TerminalEditorMode::Visual,
+            TerminalEditorSelection::Character,
+        )?;
+
+        session
+            .write_protocol_bytes(editor_operation_bytes(
+                TerminalEditorApplication::Vim,
+                TerminalEditorEditOperation::Copy,
+            ))
+            .map_err(|error| format!("copy operation failed: {error}"))?;
+        wait_for_vim_clipboard(session, TerminalEditorClipboardOperation::Copy, "alpha")?;
+
+        session
+            .write_protocol_bytes(editor_operation_bytes(
+                TerminalEditorApplication::Vim,
+                TerminalEditorEditOperation::Cut,
+            ))
+            .map_err(|error| format!("cut operation failed: {error}"))?;
+        wait_for_vim_clipboard(session, TerminalEditorClipboardOperation::Cut, "alpha")?;
+
+        session
+            .write_protocol_bytes(editor_operation_bytes(
+                TerminalEditorApplication::Vim,
+                TerminalEditorEditOperation::PreparePaste,
+            ))
+            .map_err(|error| format!("paste preparation failed: {error}"))?;
+        session
+            .write_text("alpha")
+            .map_err(|error| format!("paste text failed: {error}"))?;
+        session
+            .write_protocol_bytes(b"\x1b:wq\r")
+            .map_err(|error| format!("Vim save failed: {error}"))?;
+        wait_for_real_pty_exit(session)?;
+
+        let document = std::fs::read_to_string(document_path)
+            .map_err(|error| format!("read saved Vim document failed: {error}"))?;
+        if document != "alpha beta\n" {
+            return Err(format!("unexpected saved Vim document: {document:?}"));
+        }
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    fn wait_for_vim_editor_state(
+        session: &mut TerminalSession,
+        expected_mode: TerminalEditorMode,
+        expected_selection: TerminalEditorSelection,
+    ) -> Result<(), String> {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while std::time::Instant::now() < deadline {
+            session.read_pending();
+            for event in session.take_events() {
+                if let TerminalEvent::EditorIntegration(editor) = event
+                    && editor.active
+                    && editor.application == TerminalEditorApplication::Vim
+                    && editor.mode == expected_mode
+                    && editor.selection == expected_selection
+                {
+                    return Ok(());
+                }
+            }
+            if !session.lifecycle().is_running() {
+                return Err("Vim exited before reporting editor state".to_string());
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        Err(format!(
+            "timed out waiting for Vim {expected_mode:?}/{expected_selection:?}"
+        ))
+    }
+
+    #[cfg(unix)]
+    fn wait_for_vim_clipboard(
+        session: &mut TerminalSession,
+        expected_operation: TerminalEditorClipboardOperation,
+        expected_text: &str,
+    ) -> Result<(), String> {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while std::time::Instant::now() < deadline {
+            session.read_pending();
+            for event in session.take_events() {
+                if let TerminalEvent::EditorClipboard(clipboard) = event
+                    && clipboard.application == TerminalEditorApplication::Vim
+                    && clipboard.operation == expected_operation
+                {
+                    return (clipboard.text.as_str() == expected_text)
+                        .then_some(())
+                        .ok_or_else(|| {
+                            format!(
+                                "unexpected Vim clipboard text length: {}",
+                                clipboard.text.len()
+                            )
+                        });
+                }
+            }
+            if !session.lifecycle().is_running() {
+                return Err("Vim exited before reporting clipboard text".to_string());
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        Err(format!(
+            "timed out waiting for Vim {expected_operation:?} clipboard event; screen={:?}",
+            session.buffer_text()
+        ))
+    }
+
+    #[cfg(unix)]
+    fn wait_for_real_pty_exit(session: &mut TerminalSession) -> Result<(), String> {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while std::time::Instant::now() < deadline {
+            session.read_pending();
+            if !session.lifecycle().is_running() {
+                return Ok(());
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        Err("timed out waiting for real PTY process exit".to_string())
     }
 
     #[cfg(unix)]
