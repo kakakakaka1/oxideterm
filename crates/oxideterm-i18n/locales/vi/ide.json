@@ -25,6 +25,8 @@
     "terminal_error": "Lỗi terminal",
     "open_terminal": "Mở terminal",
     "search": "Tìm kiếm",
+    "refresh": "Làm mới",
+    "searching": "Đang tìm kiếm...",
     "search_placeholder": "Tìm kiếm nội dung tệp...",
     "search_hint": "Nhập từ khóa để tìm kiếm",
     "no_results": "Không tìm thấy kết quả",

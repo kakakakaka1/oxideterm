@@ -1,5 +1,36 @@
-use gpui::{AnyElement, ParentElement, Styled, div, prelude::*, px, rgb, rgba};
+use gpui::{
+    AnyElement, AnyView, App, AppContext, Context, ParentElement, Render, Styled, Window, div,
+    prelude::*, px, rgb, rgba,
+};
 use oxideterm_theme::ThemeTokens;
+
+struct TooltipView {
+    tokens: ThemeTokens,
+    label: String,
+    shortcut: Option<String>,
+}
+
+impl Render for TooltipView {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl gpui::IntoElement {
+        tooltip_content(&self.tokens, self.label.clone(), self.shortcut.clone())
+    }
+}
+
+pub fn tooltip_view(
+    tokens: ThemeTokens,
+    label: impl Into<String>,
+    shortcut: Option<String>,
+    cx: &mut App,
+) -> AnyView {
+    // GPUI mounts native tooltips at the window layer, keeping them outside
+    // scroll masks and other clipped feature subtrees.
+    cx.new(|_| TooltipView {
+        tokens,
+        label: label.into(),
+        shortcut,
+    })
+    .into()
+}
 
 pub fn tooltip_content(
     tokens: &ThemeTokens,

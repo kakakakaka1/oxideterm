@@ -25,6 +25,8 @@
     "terminal_error": "Error de terminal",
     "open_terminal": "Abrir terminal",
     "search": "Buscar",
+    "refresh": "Actualizar",
+    "searching": "Buscando...",
     "search_placeholder": "Buscar contenido de archivos...",
     "search_hint": "Ingrese palabras clave para buscar",
     "no_results": "No se encontraron resultados",

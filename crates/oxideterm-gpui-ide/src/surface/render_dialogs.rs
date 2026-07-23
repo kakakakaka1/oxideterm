@@ -639,7 +639,7 @@ impl IdeSurface {
             .child(
                 modal_body(tokens)
                     .child(
-                        TreeNameInputElement::new(
+                        IdeSurfaceInputElement::new(
                             text_input_control(
                                 tokens,
                                 TextInputView {
@@ -759,26 +759,39 @@ impl IdeSurface {
                     .border_color(rgb(tokens.ui.border))
                     .child(self.icon("lucide/search.svg", 15.0, tokens.ui.text_muted))
                     .child(
-                        div()
+                        IdeSurfaceInputElement::new(
+                            text_input_control(
+                                tokens,
+                                TextInputView {
+                                    value: &self.search.query,
+                                    placeholder: self.labels.search_placeholder.clone(),
+                                    focused: true,
+                                    caret_visible: true,
+                                    secret: false,
+                                    selected_all: false,
+                                    selected_range: self.search.selection_range.clone(),
+                                    marked_text: self
+                                        .search
+                                        .marked_text
+                                        .as_ref()
+                                        .map(|marked| marked.text.as_str()),
+                                },
+                            )
                             .flex_1()
                             .min_w_0()
                             .h(px(28.0))
-                            .flex()
-                            .items_center()
                             .rounded(px(tokens.radii.sm))
                             .bg(rgb(tokens.ui.bg_sunken))
-                            .px_2()
-                            .text_size(px(tokens.metrics.ui_text_sm))
-                            .text_color(if self.search.query.is_empty() {
-                                rgb(tokens.ui.text_muted)
-                            } else {
-                                rgb(tokens.ui.text)
-                            })
-                            .child(if self.search.query.is_empty() {
-                                "Search".to_string()
-                            } else {
-                                self.search.query.clone()
-                            }),
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(|this, _event, window, cx| {
+                                    window.focus(&this.focus_handle, cx);
+                                    cx.stop_propagation();
+                                }),
+                            ),
+                            cx.entity(),
+                            self.focus_handle.clone(),
+                        ),
                     )
                     .child(
                         div()
@@ -791,8 +804,8 @@ impl IdeSurface {
                             .child(self.icon("lucide/x.svg", 14.0, tokens.ui.text_muted))
                             .on_mouse_down(
                                 MouseButton::Left,
-                                cx.listener(|this, _event, _window, cx| {
-                                    this.close_project_search(cx);
+                                cx.listener(|this, _event, window, cx| {
+                                    this.close_project_search(window, cx);
                                 }),
                             ),
                     ),
@@ -804,11 +817,14 @@ impl IdeSurface {
                     .text_size(px(tokens.metrics.ui_text_xs))
                     .text_color(rgb(tokens.ui.text_muted))
                     .child(if self.search.searching {
-                        "Searching...".to_string()
+                        self.labels.searching.clone()
                     } else if self.search.query.trim().is_empty() {
-                        "Type to search project files".to_string()
+                        self.labels.search_hint.clone()
                     } else {
-                        format!("{result_count} result(s)")
+                        self.labels
+                            .search_results_count
+                            .replace("{{count}}", &result_count.to_string())
+                            .replace("{{files}}", &self.search.results.len().to_string())
                     }),
             )
             .when_some(self.search.error.clone(), |panel, error| {
@@ -832,7 +848,7 @@ impl IdeSurface {
                         .mb_2()
                         .text_color(rgb(TAILWIND_AMBER_400))
                         .text_size(px(tokens.metrics.ui_text_xs))
-                        .child("Results truncated. Refine your search."),
+                        .child(self.labels.search_truncated.clone()),
                 )
             })
             .child(self.render_project_search_results(cx))
@@ -841,8 +857,8 @@ impl IdeSurface {
         popover_backdrop()
             .on_mouse_down(
                 MouseButton::Left,
-                cx.listener(|this, _event, _window, cx| {
-                    this.close_project_search(cx);
+                cx.listener(|this, _event, window, cx| {
+                    this.close_project_search(window, cx);
                     cx.stop_propagation();
                 }),
             )
@@ -872,11 +888,11 @@ impl IdeSurface {
                         .text_color(rgb(tokens.ui.text_muted))
                         .text_size(px(tokens.metrics.ui_text_xs))
                         .child(if self.search.query.trim().is_empty() {
-                            "No query".to_string()
+                            self.labels.search_hint.clone()
                         } else if self.search.searching {
-                            "Searching".to_string()
+                            self.labels.searching.clone()
                         } else {
-                            "No results".to_string()
+                            self.labels.no_results.clone()
                         }),
                 )
                 .into_any_element();

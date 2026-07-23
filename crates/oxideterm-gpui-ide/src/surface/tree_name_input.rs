@@ -1,17 +1,16 @@
 // Copyright (C) 2026 AnalyseDeCircuit
 // SPDX-License-Identifier: GPL-3.0-only
 
-/// Couples the shared text-input renderer to GPUI's platform text-input
-/// contract. The renderer intentionally owns no editing state, so modal fields
-/// must register an input handler during paint instead of synthesizing text
-/// solely from key-down events.
-struct TreeNameInputElement {
+/// Couples shared text-input renderers to GPUI's platform text-input contract.
+/// The renderer intentionally owns no editing state, so IDE fields register
+/// the surface input handler during paint.
+struct IdeSurfaceInputElement {
     child: Option<AnyElement>,
     surface: Entity<IdeSurface>,
     focus_handle: FocusHandle,
 }
 
-impl TreeNameInputElement {
+impl IdeSurfaceInputElement {
     fn new(
         child: impl IntoElement,
         surface: Entity<IdeSurface>,
@@ -25,7 +24,7 @@ impl TreeNameInputElement {
     }
 }
 
-impl IntoElement for TreeNameInputElement {
+impl IntoElement for IdeSurfaceInputElement {
     type Element = Self;
 
     fn into_element(self) -> Self::Element {
@@ -33,7 +32,7 @@ impl IntoElement for TreeNameInputElement {
     }
 }
 
-impl gpui::Element for TreeNameInputElement {
+impl gpui::Element for IdeSurfaceInputElement {
     type RequestLayoutState = ();
     type PrepaintState = ();
 
@@ -55,7 +54,7 @@ impl gpui::Element for TreeNameInputElement {
         let layout_id = self
             .child
             .as_mut()
-            .expect("tree name input should render once")
+            .expect("IDE surface input should render once")
             .request_layout(window, cx);
         (layout_id, ())
     }
@@ -103,7 +102,7 @@ impl gpui::EntityInputHandler for IdeSurface {
         _window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<String> {
-        let text = self.tree_name_text_with_marked()?;
+        let text = self.active_ide_input_text_with_marked()?;
         let text_len = text.encode_utf16().count();
         let range = range_utf16.start.min(text_len)..range_utf16.end.min(text_len);
         *adjusted_range = Some(range.clone());
@@ -116,10 +115,16 @@ impl gpui::EntityInputHandler for IdeSurface {
         _window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<gpui::UTF16Selection> {
-        let input = self.tree_name_input.as_ref()?;
-        let end = input.value.encode_utf16().count();
+        let (value, selection_range) = if let Some(input) = self.tree_name_input.as_ref() {
+            (&input.value, input.selection_range.clone())
+        } else if self.search.open {
+            (&self.search.query, self.search.selection_range.clone())
+        } else {
+            return None;
+        };
+        let end = value.encode_utf16().count();
         Some(gpui::UTF16Selection {
-            range: input.selection_range.clone().unwrap_or(end..end),
+            range: selection_range.unwrap_or(end..end),
             reversed: false,
         })
     }
@@ -129,7 +134,13 @@ impl gpui::EntityInputHandler for IdeSurface {
         _window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<Range<usize>> {
-        let marked = self.tree_name_input.as_ref()?.marked_text.as_ref()?;
+        let marked = if let Some(input) = self.tree_name_input.as_ref() {
+            input.marked_text.as_ref()
+        } else if self.search.open {
+            self.search.marked_text.as_ref()
+        } else {
+            None
+        }?;
         let start = marked.replacement_range.start;
         Some(start..start + marked.text.encode_utf16().count())
     }
@@ -138,6 +149,8 @@ impl gpui::EntityInputHandler for IdeSurface {
         if let Some(input) = self.tree_name_input.as_mut()
             && input.marked_text.take().is_some()
         {
+            cx.notify();
+        } else if self.search.open && self.search.marked_text.take().is_some() {
             cx.notify();
         }
     }
@@ -149,22 +162,37 @@ impl gpui::EntityInputHandler for IdeSurface {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(input) = self.tree_name_input.as_mut() else {
-            return;
-        };
-        if input.submitting {
+        if let Some(input) = self.tree_name_input.as_mut() {
+            if input.submitting {
+                return;
+            }
+            let fallback_end = input.value.encode_utf16().count();
+            let range = input
+                .marked_text
+                .take()
+                .map(|marked| marked.replacement_range)
+                .or(range_utf16)
+                .or_else(|| input.selection_range.clone())
+                .unwrap_or(fallback_end..fallback_end);
+            replace_tree_name_range(input, range, text);
+            input.error = validate_file_name(input.value.trim());
+            cx.notify();
             return;
         }
-        let fallback_end = input.value.encode_utf16().count();
-        let range = input
+        if !self.search.open {
+            return;
+        }
+        let fallback_end = self.search.query.encode_utf16().count();
+        let range = self
+            .search
             .marked_text
             .take()
             .map(|marked| marked.replacement_range)
             .or(range_utf16)
-            .or_else(|| input.selection_range.clone())
+            .or_else(|| self.search.selection_range.clone())
             .unwrap_or(fallback_end..fallback_end);
-        replace_tree_name_range(input, range, text);
-        input.error = validate_file_name(input.value.trim());
+        replace_project_search_range(&mut self.search, range, text);
+        self.schedule_project_search(cx);
         cx.notify();
     }
 
@@ -176,28 +204,52 @@ impl gpui::EntityInputHandler for IdeSurface {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(input) = self.tree_name_input.as_mut() else {
+        if let Some(input) = self.tree_name_input.as_mut() {
+            if input.submitting {
+                return;
+            }
+            if new_text.is_empty() {
+                if input.marked_text.take().is_some() {
+                    cx.notify();
+                }
+                return;
+            }
+            let fallback_end = input.value.encode_utf16().count();
+            let replacement_range = input
+                .marked_text
+                .as_ref()
+                .map(|marked| marked.replacement_range.clone())
+                .or(range_utf16)
+                .or_else(|| input.selection_range.clone())
+                .unwrap_or(fallback_end..fallback_end);
+            input.selection_range = Some(replacement_range.clone());
+            input.marked_text = Some(IdeMarkedText {
+                replacement_range,
+                text: new_text.to_string(),
+            });
+            cx.notify();
             return;
-        };
-        if input.submitting {
+        }
+        if !self.search.open {
             return;
         }
         if new_text.is_empty() {
-            if input.marked_text.take().is_some() {
+            if self.search.marked_text.take().is_some() {
                 cx.notify();
             }
             return;
         }
-        let fallback_end = input.value.encode_utf16().count();
-        let replacement_range = input
+        let fallback_end = self.search.query.encode_utf16().count();
+        let replacement_range = self
+            .search
             .marked_text
             .as_ref()
             .map(|marked| marked.replacement_range.clone())
             .or(range_utf16)
-            .or_else(|| input.selection_range.clone())
+            .or_else(|| self.search.selection_range.clone())
             .unwrap_or(fallback_end..fallback_end);
-        input.selection_range = Some(replacement_range.clone());
-        input.marked_text = Some(TreeNameMarkedText {
+        self.search.selection_range = Some(replacement_range.clone());
+        self.search.marked_text = Some(IdeMarkedText {
             replacement_range,
             text: new_text.to_string(),
         });
@@ -230,10 +282,21 @@ impl gpui::EntityInputHandler for IdeSurface {
         self.tree_name_input
             .as_ref()
             .is_some_and(|input| !input.submitting)
+            || self.search.open
     }
 }
 
 impl IdeSurface {
+    fn active_ide_input_text_with_marked(&self) -> Option<String> {
+        if self.tree_name_input.is_some() {
+            self.tree_name_text_with_marked()
+        } else if self.search.open {
+            Some(self.project_search_text_with_marked())
+        } else {
+            None
+        }
+    }
+
     fn tree_name_text_with_marked(&self) -> Option<String> {
         let input = self.tree_name_input.as_ref()?;
         let Some(marked) = input.marked_text.as_ref() else {
@@ -244,6 +307,17 @@ impl IdeSurface {
         let end = utf16_offset_to_byte(&text, marked.replacement_range.end);
         text.replace_range(start..end, &marked.text);
         Some(text)
+    }
+
+    fn project_search_text_with_marked(&self) -> String {
+        let Some(marked) = self.search.marked_text.as_ref() else {
+            return self.search.query.clone();
+        };
+        let mut text = self.search.query.clone();
+        let start = utf16_offset_to_byte(&text, marked.replacement_range.start);
+        let end = utf16_offset_to_byte(&text, marked.replacement_range.end);
+        text.replace_range(start..end, &marked.text);
+        text
     }
 }
 

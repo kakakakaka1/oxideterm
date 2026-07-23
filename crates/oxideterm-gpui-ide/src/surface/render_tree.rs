@@ -138,6 +138,7 @@ impl IdeSurface {
                             .gap_1()
                             .child(
                                 div()
+                                    .id("ide-tree-search")
                                     .size(px(IDE_TREE_TOOLBAR_BUTTON_SIZE))
                                     .flex()
                                     .items_center()
@@ -158,11 +159,23 @@ impl IdeSurface {
                                         IDE_TREE_TOOLBAR_ICON_SIZE,
                                         self.tokens.ui.text_muted,
                                     ))
+                                    .tooltip({
+                                        let tokens = self.tokens;
+                                        let label = self.labels.search.clone();
+                                        move |_window, cx| {
+                                            oxideterm_gpui_ui::tooltip::tooltip_view(
+                                                tokens,
+                                                label.clone(),
+                                                None,
+                                                cx,
+                                            )
+                                        }
+                                    })
                                     .on_mouse_down(
                                         MouseButton::Left,
-                                        cx.listener(move |this, _event, _window, cx| {
+                                        cx.listener(move |this, _event, window, cx| {
                                             if !search_disabled {
-                                                this.open_project_search(cx);
+                                                this.open_project_search(window, cx);
                                             }
                                             cx.stop_propagation();
                                         }),
@@ -170,6 +183,7 @@ impl IdeSurface {
                             )
                             .child(
                                 div()
+                                    .id("ide-tree-open-folder")
                                     .size(px(IDE_TREE_TOOLBAR_BUTTON_SIZE))
                                     .flex()
                                     .items_center()
@@ -190,6 +204,18 @@ impl IdeSurface {
                                         IDE_TREE_TOOLBAR_ICON_SIZE,
                                         self.tokens.ui.text_muted,
                                     ))
+                                    .tooltip({
+                                        let tokens = self.tokens;
+                                        let label = self.labels.open_folder.clone();
+                                        move |_window, cx| {
+                                            oxideterm_gpui_ui::tooltip::tooltip_view(
+                                                tokens,
+                                                label.clone(),
+                                                None,
+                                                cx,
+                                            )
+                                        }
+                                    })
                                     .on_mouse_down(
                                         MouseButton::Left,
                                         cx.listener(move |this, _event, _window, cx| {
@@ -202,6 +228,7 @@ impl IdeSurface {
                             )
                             .child(
                                 div()
+                                    .id("ide-tree-refresh")
                                     .size(px(IDE_TREE_TOOLBAR_BUTTON_SIZE))
                                     .flex()
                                     .items_center()
@@ -222,6 +249,18 @@ impl IdeSurface {
                                         IDE_TREE_TOOLBAR_ICON_SIZE,
                                         self.tokens.ui.text_muted,
                                     ))
+                                    .tooltip({
+                                        let tokens = self.tokens;
+                                        let label = self.labels.refresh.clone();
+                                        move |_window, cx| {
+                                            oxideterm_gpui_ui::tooltip::tooltip_view(
+                                                tokens,
+                                                label.clone(),
+                                                None,
+                                                cx,
+                                            )
+                                        }
+                                    })
                                     .on_mouse_down(
                                         MouseButton::Left,
                                         cx.listener(move |this, _event, _window, cx| {

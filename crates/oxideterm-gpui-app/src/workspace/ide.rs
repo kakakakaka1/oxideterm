@@ -380,6 +380,14 @@ impl WorkspaceApp {
     fn ide_labels(&self) -> IdeLabels {
         IdeLabels {
             open_folder: self.i18n.t("ide.open_folder"),
+            search: self.i18n.t("ide.search"),
+            refresh: self.i18n.t("ide.refresh"),
+            search_placeholder: self.i18n.t("ide.search_placeholder"),
+            search_hint: self.i18n.t("ide.search_hint"),
+            searching: self.i18n.t("ide.searching"),
+            no_results: self.i18n.t("ide.no_results"),
+            search_truncated: self.i18n.t("ide.search_truncated"),
+            search_results_count: self.i18n.t("ide.search_results_count"),
             select_folder: self.i18n.t("ide.select_folder"),
             select_folder_desc: self.i18n.t("ide.select_folder_desc"),
             go: self.i18n.t("ide.go"),

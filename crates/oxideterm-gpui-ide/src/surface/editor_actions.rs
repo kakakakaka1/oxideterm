@@ -470,21 +470,31 @@ impl IdeSurface {
         .detach();
     }
 
-    fn open_project_search(&mut self, cx: &mut Context<Self>) {
+    fn open_project_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !self.ensure_remote_actions_ready(cx) {
             return;
         }
         self.search.open = true;
         self.search.error = None;
+        let query_end = self.search.query.encode_utf16().count();
+        self.search.selection_range = Some(query_end..query_end);
+        self.search.marked_text = None;
+        // The toolbar button stops pointer propagation, so explicitly transfer
+        // keyboard ownership from the editor to the project-search input.
+        window.focus(&self.focus_handle, cx);
         if !self.search.query.trim().is_empty() && self.search.results.is_empty() {
             self.schedule_project_search(cx);
         }
         cx.notify();
     }
 
-    fn close_project_search(&mut self, cx: &mut Context<Self>) {
+    fn close_project_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.search.open = false;
         self.search.generation = self.search.generation.wrapping_add(1);
+        self.search.marked_text = None;
+        if let Some(editor) = self.active_editor() {
+            window.focus(&editor.focus_handle(cx), cx);
+        }
         cx.notify();
     }
 
@@ -625,33 +635,82 @@ impl IdeSurface {
         }
     }
 
-    fn handle_project_search_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
+    fn handle_project_search_key(
+        &mut self,
+        event: &KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if !self.search.open {
             return;
         }
-        match event.keystroke.key.as_str() {
-            "escape" => self.close_project_search(cx),
+        let key = event.keystroke.key.as_str();
+        let composing = self.search.marked_text.is_some();
+        if (composing && matches!(key, "enter" | "space" | " "))
+            || key_uses_platform_text_input(event)
+        {
+            // Printable and composing text is committed by EntityInputHandler.
+            return;
+        }
+        let uses_text_modifier = event.keystroke.modifiers.platform
+            || event.keystroke.modifiers.control;
+        let mut query_changed = false;
+        match key {
+            "escape" => self.close_project_search(window, cx),
             "enter" => self.run_project_search(cx),
+            "a" if uses_text_modifier => {
+                self.search.selection_range =
+                    Some(0..self.search.query.encode_utf16().count());
+                cx.notify();
+            }
+            "c" if uses_text_modifier => {
+                if let Some(selected) = project_search_selected_text(&self.search) {
+                    cx.write_to_clipboard(ClipboardItem::new_string(selected));
+                }
+            }
+            "x" if uses_text_modifier => {
+                if let Some(selected) = project_search_selected_text(&self.search) {
+                    cx.write_to_clipboard(ClipboardItem::new_string(selected));
+                    replace_project_search_selection(&mut self.search, "");
+                    query_changed = true;
+                }
+            }
+            "v" if uses_text_modifier => {
+                if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
+                    replace_project_search_selection(&mut self.search, &text);
+                    query_changed = true;
+                }
+            }
             "backspace" => {
-                if self.search.query.pop().is_some() {
-                    // Do not schedule or repaint a search for empty-query
-                    // Backspace; the visible query and results stay unchanged.
-                    self.schedule_project_search(cx);
-                    cx.notify();
-                }
+                query_changed = delete_project_search_backward(&mut self.search);
             }
-            _ => {
-                if let Some(text) = event.keystroke.key_char.as_deref()
-                    && !text.is_empty()
-                    && !text.chars().any(char::is_control)
-                    && !event.keystroke.modifiers.platform
-                    && !event.keystroke.modifiers.control
-                {
-                    self.search.query.push_str(text);
-                    self.schedule_project_search(cx);
-                    cx.notify();
-                }
+            "delete" => {
+                query_changed = delete_project_search_forward(&mut self.search);
             }
+            "left" | "arrowleft" => {
+                move_project_search_caret(&mut self.search, false);
+                cx.notify();
+            }
+            "right" | "arrowright" => {
+                move_project_search_caret(&mut self.search, true);
+                cx.notify();
+            }
+            "home" => {
+                self.search.marked_text = None;
+                self.search.selection_range = Some(0..0);
+                cx.notify();
+            }
+            "end" => {
+                self.search.marked_text = None;
+                let end = self.search.query.encode_utf16().count();
+                self.search.selection_range = Some(end..end);
+                cx.notify();
+            }
+            _ => {}
+        }
+        if query_changed {
+            self.schedule_project_search(cx);
+            cx.notify();
         }
         cx.stop_propagation();
     }
@@ -1509,7 +1568,7 @@ impl IdeSurface {
             .is_some_and(|input| input.marked_text.is_some());
         let key = event.keystroke.key.as_str();
         if (composing && matches!(key, "enter" | "space" | " "))
-            || tree_name_key_uses_platform_input(event)
+            || key_uses_platform_text_input(event)
         {
             // Let GPUI deliver printable and composition text to the input
             // handler. Stopping propagation here can suppress platform input.
@@ -2156,7 +2215,7 @@ fn tree_name_input_has_effect(input: &TreeNameInputState, normalized_name: &str)
         || input.original_name.as_deref() != Some(normalized_name)
 }
 
-fn tree_name_key_uses_platform_input(event: &KeyDownEvent) -> bool {
+fn key_uses_platform_text_input(event: &KeyDownEvent) -> bool {
     !event.keystroke.modifiers.platform
         && !event.keystroke.modifiers.control
         && event
@@ -2164,6 +2223,106 @@ fn tree_name_key_uses_platform_input(event: &KeyDownEvent) -> bool {
             .key_char
             .as_deref()
             .is_some_and(|text| !text.is_empty() && !text.chars().any(char::is_control))
+}
+
+fn replace_project_search_selection(search: &mut ProjectSearchState, replacement: &str) {
+    let end = search.query.encode_utf16().count();
+    let selection = search.selection_range.clone().unwrap_or(end..end);
+    replace_project_search_range(search, selection, replacement);
+}
+
+fn replace_project_search_range(
+    search: &mut ProjectSearchState,
+    range: Range<usize>,
+    replacement: &str,
+) {
+    let start = utf16_offset_to_byte(&search.query, range.start);
+    let end = utf16_offset_to_byte(&search.query, range.end);
+    search.query.replace_range(start..end, replacement);
+    search.marked_text = None;
+    let caret = range.start + replacement.encode_utf16().count();
+    search.selection_range = Some(caret..caret);
+}
+
+fn project_search_selected_text(search: &ProjectSearchState) -> Option<String> {
+    let selection = search.selection_range.clone()?;
+    (selection.start < selection.end).then(|| {
+        let start = utf16_offset_to_byte(&search.query, selection.start);
+        let end = utf16_offset_to_byte(&search.query, selection.end);
+        search.query[start..end].to_string()
+    })
+}
+
+fn delete_project_search_backward(search: &mut ProjectSearchState) -> bool {
+    let end = search.query.encode_utf16().count();
+    let selection = search.selection_range.clone().unwrap_or(end..end);
+    if selection.start < selection.end {
+        replace_project_search_range(search, selection, "");
+        return true;
+    }
+    let byte = utf16_offset_to_byte(&search.query, selection.start);
+    let previous = search.query[..byte]
+        .chars()
+        .next_back()
+        .map_or(selection.start, |character| {
+            selection.start.saturating_sub(character.len_utf16())
+        });
+    if previous == selection.start {
+        return false;
+    }
+    replace_project_search_range(search, previous..selection.start, "");
+    true
+}
+
+fn delete_project_search_forward(search: &mut ProjectSearchState) -> bool {
+    let end = search.query.encode_utf16().count();
+    let selection = search.selection_range.clone().unwrap_or(end..end);
+    if selection.start < selection.end {
+        replace_project_search_range(search, selection, "");
+        return true;
+    }
+    let byte = utf16_offset_to_byte(&search.query, selection.end);
+    let next = search.query[byte..]
+        .chars()
+        .next()
+        .map_or(selection.end, |character| {
+            selection.end + character.len_utf16()
+        });
+    if next == selection.end {
+        return false;
+    }
+    replace_project_search_range(search, selection.end..next, "");
+    true
+}
+
+fn move_project_search_caret(search: &mut ProjectSearchState, forward: bool) {
+    let end = search.query.encode_utf16().count();
+    let selection = search.selection_range.clone().unwrap_or(end..end);
+    search.marked_text = None;
+    let caret = if selection.start < selection.end {
+        if forward {
+            selection.end
+        } else {
+            selection.start
+        }
+    } else if forward {
+        let byte = utf16_offset_to_byte(&search.query, selection.end);
+        search.query[byte..]
+            .chars()
+            .next()
+            .map_or(selection.end, |character| {
+                selection.end + character.len_utf16()
+            })
+    } else {
+        let byte = utf16_offset_to_byte(&search.query, selection.start);
+        search.query[..byte]
+            .chars()
+            .next_back()
+            .map_or(selection.start, |character| {
+                selection.start.saturating_sub(character.len_utf16())
+            })
+    };
+    search.selection_range = Some(caret..caret);
 }
 
 fn apply_tree_name_text(input: &mut TreeNameInputState, text: &str) {
@@ -2292,7 +2451,7 @@ fn utf16_offset_to_byte(value: &str, utf16_offset: usize) -> usize {
 }
 
 #[cfg(test)]
-mod tree_name_input_tests {
+mod text_input_tests {
     use super::*;
 
     fn rename_input(value: &str) -> TreeNameInputState {
@@ -2360,6 +2519,34 @@ mod tree_name_input_tests {
 
         assert!(!tree_name_input_has_effect(&input, "settings.json"));
         assert!(tree_name_input_has_effect(&input, "renamed.json"));
+    }
+
+    #[test]
+    fn project_search_replaces_utf16_selection_with_unicode_text() {
+        let mut search = ProjectSearchState {
+            query: "file🚀name".into(),
+            selection_range: Some(4..6),
+            ..ProjectSearchState::default()
+        };
+
+        replace_project_search_selection(&mut search, "中文");
+
+        assert_eq!(search.query, "file中文name");
+        assert_eq!(search.selection_range, Some(6..6));
+    }
+
+    #[test]
+    fn project_search_backward_delete_respects_utf16_boundaries() {
+        let mut search = ProjectSearchState {
+            query: "配置🚀".into(),
+            selection_range: Some(4..4),
+            ..ProjectSearchState::default()
+        };
+
+        assert!(delete_project_search_backward(&mut search));
+
+        assert_eq!(search.query, "配置");
+        assert_eq!(search.selection_range, Some(2..2));
     }
 }
 

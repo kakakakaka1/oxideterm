@@ -2,6 +2,7 @@ use super::*;
 use oxideterm_gpui_ui::button::{
     ButtonOptions, ButtonRadius, ButtonSize, ButtonVariant, button_with,
 };
+use oxideterm_gpui_ui::modal::modal_backdrop;
 use oxideterm_gpui_ui::scroll::ScrollableElement;
 
 impl WorkspaceApp {
@@ -17,13 +18,7 @@ impl WorkspaceApp {
         let next_disabled =
             step == OnboardingStep::Disclaimer && !self.onboarding.disclaimer_accepted;
 
-        div()
-            .absolute()
-            .inset_0()
-            .flex()
-            .items_center()
-            .justify_center()
-            .bg(rgba((theme.bg << 8) | 0x99))
+        modal_backdrop(rgba((theme.bg << 8) | 0x99))
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, _event, _window, cx| {

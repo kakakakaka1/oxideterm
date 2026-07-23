@@ -25,6 +25,8 @@
     "terminal_error": "Terminal-Fehler",
     "open_terminal": "Terminal öffnen",
     "search": "Suche",
+    "refresh": "Aktualisieren",
+    "searching": "Suche läuft...",
     "search_placeholder": "Dateiinhalte durchsuchen...",
     "search_hint": "Schlüsselwörter eingeben zum Suchen",
     "no_results": "Keine Ergebnisse gefunden",

@@ -25,6 +25,8 @@
     "terminal_error": "ターミナルエラー",
     "open_terminal": "ターミナルを開く",
     "search": "検索",
+    "refresh": "更新",
+    "searching": "検索中...",
     "search_placeholder": "ファイル内容を検索...",
     "search_hint": "キーワードを入力して検索",
     "no_results": "結果が見つかりません",

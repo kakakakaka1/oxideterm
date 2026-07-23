@@ -25,6 +25,8 @@
     "terminal_error": "終端機錯誤",
     "open_terminal": "開啟終端機",
     "search": "搜尋",
+    "refresh": "重新整理",
+    "searching": "正在搜尋...",
     "search_placeholder": "搜尋檔案內容...",
     "search_hint": "輸入關鍵字進行搜尋",
     "no_results": "無搜尋結果",

@@ -8,6 +8,14 @@
 #[derive(Clone, Debug)]
 pub struct IdeLabels {
     pub open_folder: String,
+    pub search: String,
+    pub refresh: String,
+    pub search_placeholder: String,
+    pub search_hint: String,
+    pub searching: String,
+    pub no_results: String,
+    pub search_truncated: String,
+    pub search_results_count: String,
     pub select_folder: String,
     pub select_folder_desc: String,
     pub go: String,
@@ -109,6 +117,15 @@ impl Default for IdeLabels {
     fn default() -> Self {
         Self {
             open_folder: "Open Folder".into(),
+            search: "Search".into(),
+            refresh: "Refresh".into(),
+            search_placeholder: "Search file contents...".into(),
+            search_hint: "Enter keywords to search".into(),
+            searching: "Searching...".into(),
+            no_results: "No results found".into(),
+            search_truncated:
+                "Results truncated. Refine your search for more specific matches.".into(),
+            search_results_count: "{{count}} results in {{files}} files".into(),
             select_folder: "Select Folder".into(),
             select_folder_desc: "Select a remote folder to open".into(),
             go: "Go".into(),

@@ -35,9 +35,14 @@ impl Render for IdeSurface {
                 }),
             )
             .on_key_down(cx.listener(|this, event, window, cx| {
+                if this.search.open {
+                    // Project search owns the IDE text-input channel while its
+                    // overlay is open; editor find must not consume the same key.
+                    this.handle_project_search_key(event, window, cx);
+                    return;
+                }
                 this.handle_editor_search_key(event, cx);
                 this.handle_editor_find_shortcut(event, cx);
-                this.handle_project_search_key(event, cx);
                 this.handle_tree_name_input_key(event, cx);
                 this.handle_folder_picker_key(event, window, cx);
             }));

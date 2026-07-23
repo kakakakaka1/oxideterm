@@ -25,6 +25,8 @@
     "terminal_error": "Terminal error",
     "open_terminal": "Open terminal",
     "search": "Search",
+    "refresh": "Refresh",
+    "searching": "Searching...",
     "search_placeholder": "Search file contents...",
     "search_hint": "Enter keywords to search",
     "no_results": "No results found",
