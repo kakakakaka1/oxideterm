@@ -150,6 +150,10 @@ correctness.
   and text sequences, but it must never mutate the local terminal snapshot as
   if it owned the remote command buffer. Alternate-screen and mouse-tracking
   applications retain input ownership.
+- Free Type Mode command edits must be verified against real PTY-backed Bash,
+  Zsh, and Fish line editors. Do not assume Readline, ZLE, Fish, Vi insertion
+  bindings, and Emacs bindings interpret one Home, End, or Delete sequence
+  identically; validate the command that the shell actually executes.
 - Backspace and Delete compatibility settings affect only legacy terminal key
   encoding. Kitty keyboard protocol mode owns its protocol-defined sequences
   and must ignore these compatibility overrides.

@@ -87,6 +87,57 @@ fn word_selection_keeps_variable_and_flag_values() {
 }
 
 #[test]
+fn free_type_matching_pair_selects_the_innermost_content() {
+    let snapshot = selection_snapshot("echo outer(inner[chosen])");
+    let selection = matching_pair_selection_at_point(&snapshot, TerminalPoint { row: 0, col: 19 })
+        .expect("matching pair selection");
+
+    assert_eq!(
+        selected_text_for_selection(&snapshot, selection).as_deref(),
+        Some("chosen")
+    );
+}
+
+#[test]
+fn free_type_matching_pair_ignores_quoted_and_escaped_brackets() {
+    let snapshot = selection_snapshot(r#"echo ("ignored )" real\) value)"#);
+    let selection = matching_pair_selection_at_point(&snapshot, TerminalPoint { row: 0, col: 25 })
+        .expect("outer matching pair selection");
+
+    assert_eq!(
+        selected_text_for_selection(&snapshot, selection).as_deref(),
+        Some(r#""ignored )" real\) value"#)
+    );
+}
+
+#[test]
+fn free_type_matching_pair_preserves_wide_text_cells() {
+    let snapshot = wide_snapshot("(你好)");
+    let selection = matching_pair_selection_at_point(&snapshot, TerminalPoint { row: 0, col: 3 })
+        .expect("wide matching pair selection");
+
+    assert_eq!(
+        selected_text_for_selection(&snapshot, selection).as_deref(),
+        Some("你好")
+    );
+}
+
+#[test]
+fn free_type_matching_pair_crosses_soft_wrapped_rows() {
+    let mut snapshot = multirow_snapshot(&["(abc", "def)"]);
+    snapshot.cols = 4;
+    snapshot.lines[0].wrapped = true;
+    snapshot.lines[0].refresh_signature();
+    let selection = matching_pair_selection_at_point(&snapshot, TerminalPoint { row: 1, col: 1 })
+        .expect("wrapped matching pair selection");
+
+    assert_eq!(
+        selected_text_for_selection(&snapshot, selection).as_deref(),
+        Some("abcdef")
+    );
+}
+
+#[test]
 fn triple_click_line_selection_selects_trimmed_visual_line() {
     let snapshot = selection_snapshot("pwd   ");
     let selection = line_selection_at_point(&snapshot, TerminalPoint { row: 0, col: 1 })

@@ -175,6 +175,128 @@ pub(crate) fn word_selection_at_point(
     })
 }
 
+pub(crate) fn matching_pair_selection_at_point(
+    snapshot: &TerminalSnapshot,
+    point: TerminalPoint,
+) -> Option<TerminalSelection> {
+    let logical_cells = logical_line_cells(snapshot, point)?;
+    let click_index = logical_cells
+        .iter()
+        .position(|(candidate, _)| *candidate == point)?;
+    let mut stack = Vec::new();
+    let mut quoted_by = None;
+    let mut escaped = false;
+    let mut best_pair = None;
+
+    for (index, (_, ch)) in logical_cells.iter().enumerate() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if *ch == '\\' && quoted_by != Some('\'') {
+            escaped = true;
+            continue;
+        }
+        if matches!(*ch, '\'' | '"') {
+            if quoted_by == Some(*ch) {
+                quoted_by = None;
+            } else if quoted_by.is_none() {
+                quoted_by = Some(*ch);
+            }
+            continue;
+        }
+        if quoted_by.is_some() {
+            continue;
+        }
+
+        if is_opening_pair(*ch) {
+            stack.push((*ch, index));
+            continue;
+        }
+        let Some(expected_opening) = matching_opening_pair(*ch) else {
+            continue;
+        };
+        let Some((opening, opening_index)) = stack.pop() else {
+            continue;
+        };
+        if opening != expected_opening {
+            // A mismatched close makes the current nesting ambiguous.
+            stack.clear();
+            continue;
+        }
+        if opening_index <= click_index && click_index <= index {
+            let pair_width = index.saturating_sub(opening_index);
+            if best_pair.is_none_or(|(best_opening, best_closing): (usize, usize)| {
+                pair_width < best_closing.saturating_sub(best_opening)
+            }) {
+                best_pair = Some((opening_index, index));
+            }
+        }
+    }
+
+    let (opening_index, closing_index) = best_pair?;
+    let content_start = opening_index.checked_add(1)?;
+    let content_end = closing_index.checked_sub(1)?;
+    if content_start > content_end {
+        return None;
+    }
+
+    Some(TerminalSelection {
+        anchor: grid_point_for_viewport_point(snapshot, logical_cells[content_start].0)?,
+        head: grid_point_for_viewport_point(snapshot, logical_cells[content_end].0)?,
+        mode: TerminalSelectionMode::Semantic,
+    })
+}
+
+fn logical_line_cells(
+    snapshot: &TerminalSnapshot,
+    point: TerminalPoint,
+) -> Option<Vec<(TerminalPoint, char)>> {
+    snapshot.lines.get(point.row)?.cells.get(point.col)?;
+    let mut start_row = point.row;
+    while start_row > 0
+        && snapshot
+            .lines
+            .get(start_row - 1)
+            .is_some_and(|row| row.wrapped)
+    {
+        start_row -= 1;
+    }
+
+    let mut cells = Vec::new();
+    let mut row_index = start_row;
+    loop {
+        let row = snapshot.lines.get(row_index)?;
+        for (col, cell) in row.cells.iter().take(snapshot.cols).enumerate() {
+            cells.push((
+                TerminalPoint {
+                    row: row_index,
+                    col,
+                },
+                cell.ch,
+            ));
+        }
+        if !row.wrapped || row_index + 1 >= snapshot.rows {
+            break;
+        }
+        row_index += 1;
+    }
+    Some(cells)
+}
+
+fn is_opening_pair(ch: char) -> bool {
+    matches!(ch, '(' | '[' | '{')
+}
+
+fn matching_opening_pair(ch: char) -> Option<char> {
+    match ch {
+        ')' => Some('('),
+        ']' => Some('['),
+        '}' => Some('{'),
+        _ => None,
+    }
+}
+
 fn url_selection_at_point(
     snapshot: &TerminalSnapshot,
     point: TerminalPoint,
@@ -345,13 +467,7 @@ pub(crate) fn selected_text_for_selection(
         } else {
             snapshot.cols
         };
-        let selected = row
-            .cells
-            .iter()
-            .skip(line_start)
-            .take(line_end.saturating_sub(line_start))
-            .map(cell_text)
-            .collect::<String>();
+        let selected = text_for_cell_range(&row.cells, line_start, line_end);
         let continues_without_newline = row.wrapped && line < end.line && line_end >= snapshot.cols;
 
         if continues_without_newline {
@@ -384,13 +500,7 @@ pub(crate) fn selected_text_for_block_selection(
     for line in row_start..=row_end {
         let row_index = snapshot_row_for_grid_line(snapshot, line)?;
         let row = snapshot.lines.get(row_index)?;
-        let selected = row
-            .cells
-            .iter()
-            .skip(col_start)
-            .take(col_end.saturating_sub(col_start))
-            .map(cell_text)
-            .collect::<String>();
+        let selected = text_for_cell_range(&row.cells, col_start, col_end);
         text.push_str(selected.trim_end());
         if line < row_end {
             text.push('\n');
@@ -404,6 +514,18 @@ pub(crate) fn cell_text(cell: &TerminalCell) -> String {
     let mut text = String::new();
     text.push(cell.ch);
     text.push_str(&cell.zerowidth);
+    text
+}
+
+fn text_for_cell_range(cells: &[TerminalCell], start: usize, end: usize) -> String {
+    let mut text = String::new();
+    for index in start..end.min(cells.len()) {
+        if index > 0 && cells[index - 1].wide {
+            // The second grid cell of a wide glyph is layout state, not text.
+            continue;
+        }
+        text.push_str(&cell_text(&cells[index]));
+    }
     text
 }
 

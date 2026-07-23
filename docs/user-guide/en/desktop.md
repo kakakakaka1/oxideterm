@@ -42,7 +42,9 @@ Enable Settings → Terminal → Free Type Mode to edit the active ordinary shel
 
 - Click inside the active command to move the remote line-editor cursor.
 - Select command text and press Backspace/Delete, type, paste, or use Copy/Cut to edit it.
-- Drag selected single-line text to insert it at another command position.
+- Double-click inside matching `()`, `[]`, or `{}` pairs to select their innermost contents.
+- Drag selected command text to move it; hold Ctrl while dragging to copy it instead.
+- Drag selected single-line history output to insert a copy at the target command position.
 - Alt-drag selected text to replace the current command.
 
 Toggle the mode with Command+Shift+F on macOS or Ctrl+Alt+F on Windows and Linux. The action is also available in the command palette and can be remapped under Settings → Keyboard Shortcuts.

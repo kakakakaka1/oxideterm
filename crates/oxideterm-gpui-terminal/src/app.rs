@@ -313,8 +313,17 @@ pub(crate) struct TerminalContextMenu {
 pub(crate) struct FreeTypeDragState {
     pub start_position: Point<Pixels>,
     pub text: String,
-    pub replace_current_command: bool,
+    pub source_selection: Option<TerminalSelection>,
+    pub action: FreeTypeDragAction,
     pub active: bool,
+}
+
+/// Describes the remote editing intent chosen for a Free Type drag.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum FreeTypeDragAction {
+    MoveSelection,
+    CopySelection,
+    ReplaceCommand,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

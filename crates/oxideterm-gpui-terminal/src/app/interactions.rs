@@ -10,8 +10,8 @@ use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
 use super::{
-    FreeTypeDragState, ScrollbarDrag, ScrollbarGeometry, TerminalContextMenu, TerminalPane,
-    command_mark_ui_available,
+    FreeTypeDragAction, FreeTypeDragState, ScrollbarDrag, ScrollbarGeometry, TerminalContextMenu,
+    TerminalPane, command_mark_ui_available,
 };
 use crate::command_facts::TerminalAutosuggestInputState;
 use crate::terminal_ui::*;
@@ -735,6 +735,22 @@ impl TerminalPane {
         }
     }
 
+    fn select_matching_pair(
+        &mut self,
+        position: gpui::Point<Pixels>,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let point = self.terminal_point_for_position(position);
+        let Some(selection) = matching_pair_selection_at_point(&self.snapshot, point) else {
+            return false;
+        };
+
+        self.selection = Some(selection);
+        self.selecting = false;
+        cx.notify();
+        true
+    }
+
     fn select_line(&mut self, position: gpui::Point<Pixels>, cx: &mut Context<Self>) {
         let point = self.terminal_point_for_position(position);
         if let Some(selection) = line_selection_at_point(&self.snapshot, point) {
@@ -987,7 +1003,16 @@ impl TerminalPane {
                     },
                     cx,
                 ),
-                2 => self.select_word(event.position, cx),
+                2 => {
+                    let matching_pair_selected = free_type_mode_allows_command_edit(
+                        self.settings.free_type_mode,
+                        mode,
+                        event.modifiers,
+                    ) && self.select_matching_pair(event.position, cx);
+                    if !matching_pair_selected {
+                        self.select_word(event.position, cx);
+                    }
+                }
                 _ => self.select_line(event.position, cx),
             }
         } else {
@@ -1102,7 +1127,7 @@ impl TerminalPane {
             return;
         }
 
-        if self.finish_free_type_drag(event.position, cx) {
+        if self.finish_free_type_drag(event.position, event.modifiers, cx) {
             return;
         }
 
@@ -1155,7 +1180,12 @@ impl TerminalPane {
         let Some(selection) = self.selection.filter(|selection| !selection.is_empty()) else {
             return false;
         };
-        let Some(text) = self.selected_text_snapshot() else {
+        let input_state = self.input_tracker.state();
+        let command_text = free_type_selected_command_text(&self.snapshot, selection, &input_state);
+        let Some(text) = command_text
+            .clone()
+            .or_else(|| self.selected_text_snapshot())
+        else {
             return false;
         };
         if !free_type_selected_text_can_be_command_input(&text) {
@@ -1170,10 +1200,16 @@ impl TerminalPane {
             return false;
         }
 
+        let source_selection = command_text.is_some().then_some(selection);
+        let Some(action) = free_type_drag_action(event.modifiers, source_selection.is_some())
+        else {
+            return false;
+        };
         self.free_type_drag = Some(FreeTypeDragState {
             start_position: event.position,
             text,
-            replace_current_command: event.modifiers.alt,
+            source_selection,
+            action,
             active: false,
         });
         self.selecting = false;
@@ -1195,36 +1231,88 @@ impl TerminalPane {
             drag.active = true;
             cx.notify();
         }
+        if let Some(action) =
+            free_type_drag_action(event.modifiers, drag.source_selection.is_some())
+        {
+            drag.action = action;
+        }
         true
     }
 
     fn finish_free_type_drag(
         &mut self,
         position: gpui::Point<Pixels>,
+        modifiers: Modifiers,
         cx: &mut Context<Self>,
     ) -> bool {
-        let Some(drag) = self.free_type_drag.take() else {
+        let Some(mut drag) = self.free_type_drag.take() else {
             return false;
         };
         if !drag.active {
             cx.notify();
             return true;
         }
+        let Some(action) = free_type_drag_action(modifiers, drag.source_selection.is_some()) else {
+            log_free_type_terminal(format_args!("drag drop rejected: modifier conflict"));
+            cx.notify();
+            return true;
+        };
+        drag.action = action;
 
         let target = self.terminal_point_for_position(position);
-        if self.send_free_type_command_edit_text(
-            target,
-            &drag.text,
-            drag.replace_current_command,
-            cx,
-        ) {
-            log_free_type_terminal(format_args!(
-                "drag drop accepted: replace_current_command={}",
-                drag.replace_current_command
-            ));
+        let accepted = match (drag.action, drag.source_selection) {
+            (FreeTypeDragAction::MoveSelection, Some(selection)) => {
+                self.send_free_type_selection_move(target, selection, cx)
+            }
+            (FreeTypeDragAction::CopySelection, _) | (FreeTypeDragAction::MoveSelection, None) => {
+                self.send_free_type_command_edit_text(target, &drag.text, false, cx)
+            }
+            (FreeTypeDragAction::ReplaceCommand, _) => {
+                self.send_free_type_command_edit_text(target, &drag.text, true, cx)
+            }
+        };
+        if accepted {
+            log_free_type_terminal(format_args!("drag drop accepted: action={:?}", drag.action));
         } else {
             log_free_type_terminal(format_args!("drag drop rejected"));
             cx.notify();
+        }
+        true
+    }
+
+    fn send_free_type_selection_move(
+        &mut self,
+        target: TerminalPoint,
+        selection: TerminalSelection,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if !self.terminal_accepts_input() {
+            return false;
+        }
+        let mode = self.terminal.lock().mode();
+        if !free_type_mode_allows_command_edit(
+            self.settings.free_type_mode,
+            mode,
+            Modifiers::default(),
+        ) {
+            return false;
+        }
+        let input_state = self.input_tracker.state();
+        let Some(bytes) =
+            free_type_selection_move_bytes(&self.snapshot, selection, target, &input_state, mode)
+        else {
+            return false;
+        };
+
+        // The remote line editor applies the move. An empty payload means that
+        // the drop stayed inside the source selection and is already complete.
+        self.selection = None;
+        self.selecting = false;
+        self.selection_autoscroll_position = None;
+        if bytes.is_empty() {
+            cx.notify();
+        } else {
+            self.send_user_protocol_bytes(&bytes, cx);
         }
         true
     }
@@ -1592,9 +1680,29 @@ fn free_type_drag_candidate_allowed(enabled: bool, mode: TermMode, modifiers: Mo
         return false;
     }
 
-    // Alt is reserved for "replace current command" drags. Other modifiers
-    // keep their existing terminal or platform meanings.
-    !modifiers.shift && !modifiers.control && !modifiers.platform
+    free_type_drag_action(modifiers, true).is_some()
+}
+
+fn free_type_drag_action(
+    modifiers: Modifiers,
+    source_is_active_command_selection: bool,
+) -> Option<FreeTypeDragAction> {
+    if modifiers.shift || modifiers.platform || (modifiers.alt && modifiers.control) {
+        return None;
+    }
+    if modifiers.alt {
+        return Some(FreeTypeDragAction::ReplaceCommand);
+    }
+    if modifiers.control {
+        return Some(FreeTypeDragAction::CopySelection);
+    }
+    Some(if source_is_active_command_selection {
+        FreeTypeDragAction::MoveSelection
+    } else {
+        // Historical output cannot be deleted, so its legacy drag behavior
+        // remains a safe insertion into the verified active command.
+        FreeTypeDragAction::CopySelection
+    })
 }
 
 fn free_type_delete_key_requests_selection_delete(key: &str, modifiers: Modifiers) -> bool {
@@ -1701,13 +1809,9 @@ fn active_input_cursor_move(
     let cursor_col = snapshot.cursor_col.min(width.saturating_sub(1));
     let target_col = target.col.min(width.saturating_sub(1));
     if let Some(state) = input_state
-        && let Some(range) =
-            active_command_visible_range_from_viewport_cursor(snapshot, state, cursor_col, width)
-        && viewport_offset_is_inside_range_row(target.row, range, width)
+        && let Some(target_index) = active_input_command_target_index(snapshot, target, state)
     {
-        let raw_target_offset = viewport_grid_offset(target.row, target_col, width);
-        let target_offset = raw_target_offset.clamp(range.start, range.end);
-        return tracked_command_cursor_move(state, target_offset, range.start);
+        return command_cursor_move_to_index(state, target_index);
     }
 
     if !target_row.active_input {
@@ -1732,6 +1836,52 @@ fn active_input_cursor_move(
     Some(FreeTypeCursorMove::new(
         raw_target_offset as isize - cursor_offset as isize,
         FreeTypeCursorBoundary::None,
+    ))
+}
+
+fn active_input_command_target_index(
+    snapshot: &TerminalSnapshot,
+    target: TerminalPoint,
+    input_state: &TerminalAutosuggestInputState,
+) -> Option<usize> {
+    let cursor_row = snapshot.lines.get(snapshot.cursor_row)?;
+    if !cursor_row.active_input {
+        return None;
+    }
+    let width = snapshot.cols.max(1);
+    let cursor_col = snapshot.cursor_col.min(width.saturating_sub(1));
+    let target_col = target.col.min(width.saturating_sub(1));
+    if let Some(range) =
+        active_command_visible_range_from_viewport_cursor(snapshot, input_state, cursor_col, width)
+        && viewport_offset_is_inside_range_row(target.row, range, width)
+    {
+        let raw_target_offset = viewport_grid_offset(target.row, target_col, width);
+        let target_offset = raw_target_offset.clamp(range.start, range.end);
+        return Some(command_cursor_index_for_cell(
+            &input_state.value,
+            target_offset.saturating_sub(range.start),
+        ));
+    }
+
+    let (block_start, block_end) = active_input_block_bounds(snapshot)?;
+    if !(block_start..=block_end).contains(&target.row) {
+        return None;
+    }
+    let cursor_offset =
+        grid_offset_from_block_start(snapshot.cursor_row, cursor_col, block_start, width);
+    let range = active_command_visible_range(
+        Some(input_state),
+        cursor_offset,
+        block_start,
+        block_end,
+        width,
+    )?;
+    let raw_target_offset =
+        grid_offset_from_block_start(target.row, target_col, block_start, width);
+    let target_offset = raw_target_offset.clamp(range.start, range.end);
+    Some(command_cursor_index_for_cell(
+        &input_state.value,
+        target_offset.saturating_sub(range.start),
     ))
 }
 
@@ -1939,15 +2089,18 @@ fn free_type_selection_delete_bytes(
         return None;
     }
 
-    let cursor_move = command_cursor_move_to_index(input_state, start_index)?;
     let delete_count = command_cursor_step_count(&input_state.value[start_index..end_index]);
     if delete_count == 0 || delete_count > TERMINAL_FREE_TYPE_MAX_CURSOR_STEPS {
         return None;
     }
 
+    let cursor_move = command_cursor_move_to_index(input_state, end_index)?;
     let mut bytes = free_type_cursor_move_bytes(cursor_move, mode).unwrap_or_default();
     for _ in 0..delete_count {
-        bytes.extend_from_slice(b"\x1b[3~");
+        // Ctrl+H is the portable backward-delete editing command across Bash
+        // Readline, Zsh ZLE, and Fish insertion keymaps. CSI 3~ may be unbound
+        // by ZLE, while physical Backspace/DEL remains user-configurable.
+        bytes.push(0x08);
     }
     Some(bytes)
 }
@@ -1973,6 +2126,75 @@ fn free_type_selection_cut_payload(
     Some((text, bytes))
 }
 
+fn free_type_selection_move_bytes(
+    snapshot: &TerminalSnapshot,
+    selection: TerminalSelection,
+    target: TerminalPoint,
+    input_state: &TerminalAutosuggestInputState,
+    mode: TermMode,
+) -> Option<Vec<u8>> {
+    let (source_start, source_end) =
+        free_type_selection_command_range(snapshot, selection, input_state)?;
+    let target_index = active_input_command_target_index(snapshot, target, input_state)?;
+    if source_start <= target_index && target_index <= source_end {
+        return Some(Vec::new());
+    }
+
+    let selected_text = input_state.value.get(source_start..source_end)?;
+    let delete_count = command_cursor_step_count(selected_text);
+    if delete_count == 0 || delete_count > TERMINAL_FREE_TYPE_MAX_CURSOR_STEPS {
+        return None;
+    }
+
+    if target_index > source_end {
+        // Insert first when moving right. Vi insertion keymaps cannot always
+        // move their cursor past the final character, while inserting at the
+        // current end and then returning to the source is portable.
+        let mut bytes = free_type_cursor_move_bytes(
+            command_cursor_move_to_index(input_state, target_index)?,
+            mode,
+        )
+        .unwrap_or_default();
+        bytes.extend_from_slice(selected_text.as_bytes());
+
+        let mut expanded_value = input_state.value.clone();
+        expanded_value.insert_str(target_index, selected_text);
+        let expanded_state = TerminalAutosuggestInputState {
+            value: expanded_value,
+            cursor_index: target_index + selected_text.len(),
+            is_cursor_at_end: target_index == input_state.value.len(),
+        };
+        let source_move = command_cursor_move_to_index(&expanded_state, source_end)?;
+        bytes
+            .extend_from_slice(&free_type_cursor_move_bytes(source_move, mode).unwrap_or_default());
+        for _ in 0..delete_count {
+            bytes.push(0x08);
+        }
+        return Some(bytes);
+    }
+
+    let mut bytes =
+        free_type_cursor_move_bytes(command_cursor_move_to_index(input_state, source_end)?, mode)
+            .unwrap_or_default();
+    for _ in 0..delete_count {
+        bytes.push(0x08);
+    }
+
+    let mut remaining_value = input_state.value.clone();
+    remaining_value.replace_range(source_start..source_end, "");
+    let remaining_state = TerminalAutosuggestInputState {
+        value: remaining_value,
+        cursor_index: source_start,
+        is_cursor_at_end: source_start == input_state.value.len() - (source_end - source_start),
+    };
+    let post_delete_move = command_cursor_move_to_index(&remaining_state, target_index)?;
+    bytes.extend_from_slice(
+        &free_type_cursor_move_bytes(post_delete_move, mode).unwrap_or_default(),
+    );
+    bytes.extend_from_slice(selected_text.as_bytes());
+    Some(bytes)
+}
+
 fn free_type_current_command_delete_bytes(
     input_state: &TerminalAutosuggestInputState,
     mode: TermMode,
@@ -1982,11 +2204,13 @@ fn free_type_current_command_delete_bytes(
         return None;
     }
 
-    let mut bytes =
-        free_type_cursor_move_bytes(command_cursor_move_to_index(input_state, 0)?, mode)
-            .unwrap_or_default();
+    let mut bytes = free_type_cursor_move_bytes(
+        command_cursor_move_to_index(input_state, input_state.value.len())?,
+        mode,
+    )
+    .unwrap_or_default();
     for _ in 0..delete_count {
-        bytes.extend_from_slice(b"\x1b[3~");
+        bytes.push(0x08);
     }
     Some(bytes)
 }
@@ -2109,19 +2333,21 @@ fn command_cursor_delta_between(
 }
 
 fn free_type_cursor_move_bytes(cursor_move: FreeTypeCursorMove, mode: TermMode) -> Option<Vec<u8>> {
-    if cursor_move.delta == 0 {
-        return None;
-    }
-
-    match cursor_move.boundary {
-        FreeTypeCursorBoundary::CommandStart if cursor_move.delta.unsigned_abs() > 1 => {
-            Some(home_key_bytes(mode).to_vec())
+    let mut bytes = Vec::new();
+    if cursor_move.delta.unsigned_abs() > 1 {
+        match cursor_move.boundary {
+            FreeTypeCursorBoundary::CommandStart => bytes.extend_from_slice(home_key_bytes(mode)),
+            FreeTypeCursorBoundary::CommandEnd => bytes.extend_from_slice(end_key_bytes(mode)),
+            FreeTypeCursorBoundary::None => {}
         }
-        FreeTypeCursorBoundary::CommandEnd if cursor_move.delta.unsigned_abs() > 1 => {
-            Some(end_key_bytes(mode).to_vec())
-        }
-        _ => cursor_motion_bytes(cursor_move.delta, mode),
     }
+    // Boundary keys let Vi insertion modes reach the position after the final
+    // character. Repeated arrows are a fallback for ZLE keymaps that leave the
+    // xterm Home/End sequences unbound.
+    if let Some(motion) = cursor_motion_bytes(cursor_move.delta, mode) {
+        bytes.extend_from_slice(&motion);
+    }
+    (!bytes.is_empty()).then_some(bytes)
 }
 
 fn home_key_bytes(mode: TermMode) -> &'static [u8] {
@@ -2211,6 +2437,10 @@ mod tests {
     use super::*;
     use std::sync::Arc;
 
+    #[cfg(unix)]
+    use oxideterm_terminal::{
+        GraphicsOptions, LocalPtyConfig, ShellInfo, TerminalEncoding, TerminalSession,
+    };
     use oxideterm_terminal::{TerminalAttrs, TerminalCell, TerminalColor, TerminalCursorShape};
 
     fn test_cell(ch: char) -> TerminalCell {
@@ -2264,6 +2494,255 @@ mod tests {
             lines,
             images: Vec::new(),
         }
+    }
+
+    #[cfg(unix)]
+    #[derive(Clone, Copy)]
+    struct RealPtyShellModeCase {
+        shell_id: &'static str,
+        mode_name: &'static str,
+        binding_command: &'static str,
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn free_type_sequences_edit_real_shell_line_modes() {
+        let cases = [
+            RealPtyShellModeCase {
+                shell_id: "bash",
+                mode_name: "default",
+                binding_command: "",
+            },
+            RealPtyShellModeCase {
+                shell_id: "bash",
+                mode_name: "emacs",
+                binding_command: "set -o emacs; ",
+            },
+            RealPtyShellModeCase {
+                shell_id: "bash",
+                mode_name: "vi",
+                binding_command: "set -o vi; ",
+            },
+            RealPtyShellModeCase {
+                shell_id: "zsh",
+                mode_name: "default",
+                binding_command: "",
+            },
+            RealPtyShellModeCase {
+                shell_id: "zsh",
+                mode_name: "emacs",
+                binding_command: "bindkey -e; ",
+            },
+            RealPtyShellModeCase {
+                shell_id: "zsh",
+                mode_name: "vi",
+                binding_command: "bindkey -v; KEYTIMEOUT=1; ",
+            },
+            RealPtyShellModeCase {
+                shell_id: "fish",
+                mode_name: "default",
+                binding_command: "",
+            },
+            RealPtyShellModeCase {
+                shell_id: "fish",
+                mode_name: "emacs",
+                binding_command: "fish_default_key_bindings; ",
+            },
+            RealPtyShellModeCase {
+                shell_id: "fish",
+                mode_name: "vi",
+                binding_command: "fish_vi_key_bindings; ",
+            },
+        ];
+        let mut exercised = Vec::new();
+
+        for case in cases {
+            let Some(shell_path) = find_real_pty_shell(case.shell_id) else {
+                continue;
+            };
+            if let Err(error) = validate_free_type_in_real_pty(case, shell_path) {
+                panic!(
+                    "Free Type PTY validation failed for {} {} mode: {error}",
+                    case.shell_id, case.mode_name
+                );
+            }
+            exercised.push(format!("{}:{}", case.shell_id, case.mode_name));
+        }
+
+        assert!(
+            !exercised.is_empty(),
+            "at least one supported interactive shell must be available"
+        );
+    }
+
+    #[cfg(unix)]
+    fn validate_free_type_in_real_pty(
+        case: RealPtyShellModeCase,
+        shell_path: std::path::PathBuf,
+    ) -> Result<(), String> {
+        let config = LocalPtyConfig {
+            shell: Some(ShellInfo::new(case.shell_id, case.shell_id, shell_path)),
+            env: std::collections::HashMap::from([
+                ("INPUTRC".to_string(), "/dev/null".to_string()),
+                ("EDITOR".to_string(), String::new()),
+                ("VISUAL".to_string(), String::new()),
+            ]),
+            load_profile: false,
+            ..LocalPtyConfig::default()
+        };
+        let mut session = TerminalSession::local_with_config_graphics_and_encoding(
+            160,
+            24,
+            config,
+            GraphicsOptions::default(),
+            TerminalEncoding::Utf8,
+            200,
+        )
+        .map_err(|error| format!("spawn failed: {error}"))?;
+
+        // Every real PTY test owns its shell and always shuts it down before
+        // returning, including validation failures.
+        let result = validate_free_type_in_running_pty(&mut session, case);
+        session.shutdown();
+        result
+    }
+
+    #[cfg(unix)]
+    fn validate_free_type_in_running_pty(
+        session: &mut TerminalSession,
+        case: RealPtyShellModeCase,
+    ) -> Result<(), String> {
+        let prompt_setup = match case.shell_id {
+            "fish" => "function fish_prompt; printf 'OT> '; end; function fish_right_prompt; end; ",
+            "zsh" => "PROMPT='OT> '; RPROMPT=''; ",
+            _ => "PS1='OT> '; PS2='OT2> '; ",
+        };
+        let setup_command = format!(
+            "{}{}printf 'OT_SETUP_%s\\n' READY",
+            case.binding_command, prompt_setup
+        );
+        submit_real_pty_command(session, &setup_command, &[])?;
+        wait_for_real_pty_text(session, "OT_SETUP_READY")?;
+
+        let insert_command = "printf 'OT_RESULT:%s\\n' abef";
+        let insert_target = insert_command
+            .rfind("abef")
+            .map(|index| index + 2)
+            .ok_or_else(|| "insert fixture is missing its argument".to_string())?;
+        let insert_snapshot = test_snapshot_with_cursor(
+            vec![test_row(insert_command, true)],
+            0,
+            insert_command.len(),
+            160,
+        );
+        let insert_state = TerminalAutosuggestInputState {
+            value: insert_command.to_string(),
+            cursor_index: insert_command.len(),
+            is_cursor_at_end: true,
+        };
+        let insert_bytes = free_type_command_edit_bytes(
+            &insert_snapshot,
+            TerminalPoint {
+                row: 0,
+                col: insert_target,
+            },
+            &insert_state,
+            "cd",
+            false,
+            session.mode(),
+        )
+        .ok_or_else(|| "Free Type insertion bytes were not generated".to_string())?;
+        submit_real_pty_command(session, insert_command, &insert_bytes)?;
+        wait_for_real_pty_text(session, "OT_RESULT:abcdef")?;
+
+        let move_command = "printf 'OT_MOVE:%s\\n' cdefab";
+        let source_start = move_command
+            .rfind("cdefab")
+            .ok_or_else(|| "move fixture is missing its argument".to_string())?;
+        let move_snapshot = test_snapshot_with_cursor(
+            vec![test_row(move_command, true)],
+            0,
+            move_command.len(),
+            160,
+        );
+        let move_selection = TerminalSelection {
+            anchor: TerminalGridPoint {
+                line: 0,
+                col: source_start,
+            },
+            head: TerminalGridPoint {
+                line: 0,
+                col: source_start + 1,
+            },
+            mode: TerminalSelectionMode::Simple,
+        };
+        let move_state = TerminalAutosuggestInputState {
+            value: move_command.to_string(),
+            cursor_index: move_command.len(),
+            is_cursor_at_end: true,
+        };
+        let move_bytes = free_type_selection_move_bytes(
+            &move_snapshot,
+            move_selection,
+            TerminalPoint {
+                row: 0,
+                col: move_command.len(),
+            },
+            &move_state,
+            session.mode(),
+        )
+        .ok_or_else(|| "Free Type move bytes were not generated".to_string())?;
+        submit_real_pty_command(session, move_command, &move_bytes)?;
+        wait_for_real_pty_text(session, "OT_MOVE:efabcd")?;
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    fn submit_real_pty_command(
+        session: &mut TerminalSession,
+        command: &str,
+        edit_bytes: &[u8],
+    ) -> Result<(), String> {
+        session
+            .write_text(command)
+            .map_err(|error| format!("command input failed: {error}"))?;
+        session
+            .write_protocol_bytes(edit_bytes)
+            .map_err(|error| format!("Free Type edit input failed: {error}"))?;
+        session
+            .write_protocol_bytes(b"\r")
+            .map_err(|error| format!("command submit failed: {error}"))
+    }
+
+    #[cfg(unix)]
+    fn wait_for_real_pty_text(session: &mut TerminalSession, expected: &str) -> Result<(), String> {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let mut screen = String::new();
+        while std::time::Instant::now() < deadline {
+            session.read_pending();
+            screen = session.buffer_text();
+            if screen.contains(expected) {
+                return Ok(());
+            }
+            if !session.lifecycle().is_running() {
+                return Err(format!(
+                    "shell exited before producing {expected:?}; screen={screen:?}"
+                ));
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        Err(format!(
+            "timed out waiting for {expected:?}; screen={screen:?}"
+        ))
+    }
+
+    #[cfg(unix)]
+    fn find_real_pty_shell(name: &str) -> Option<std::path::PathBuf> {
+        std::env::var_os("PATH")
+            .into_iter()
+            .flat_map(|path| std::env::split_paths(&path).collect::<Vec<_>>())
+            .map(|directory| directory.join(name))
+            .find(|candidate| candidate.is_file())
     }
 
     #[test]
@@ -2497,12 +2976,25 @@ mod tests {
     }
 
     #[test]
-    fn free_type_drag_candidate_allows_alt_replace_but_rejects_conflicts() {
+    fn free_type_drag_candidate_allows_move_copy_and_replace_but_rejects_conflicts() {
+        assert!(free_type_drag_candidate_allowed(
+            true,
+            TermMode::default(),
+            Modifiers::default()
+        ));
         assert!(free_type_drag_candidate_allowed(
             true,
             TermMode::default(),
             Modifiers {
                 alt: true,
+                ..Modifiers::default()
+            }
+        ));
+        assert!(free_type_drag_candidate_allowed(
+            true,
+            TermMode::default(),
+            Modifiers {
+                control: true,
                 ..Modifiers::default()
             }
         ));
@@ -2529,6 +3021,43 @@ mod tests {
                 ..Modifiers::default()
             }
         ));
+        assert!(!free_type_drag_candidate_allowed(
+            true,
+            TermMode::default(),
+            Modifiers {
+                control: true,
+                alt: true,
+                ..Modifiers::default()
+            }
+        ));
+        assert_eq!(
+            free_type_drag_action(Modifiers::default(), true),
+            Some(FreeTypeDragAction::MoveSelection)
+        );
+        assert_eq!(
+            free_type_drag_action(
+                Modifiers {
+                    control: true,
+                    ..Modifiers::default()
+                },
+                true,
+            ),
+            Some(FreeTypeDragAction::CopySelection)
+        );
+        assert_eq!(
+            free_type_drag_action(
+                Modifiers {
+                    alt: true,
+                    ..Modifiers::default()
+                },
+                true,
+            ),
+            Some(FreeTypeDragAction::ReplaceCommand)
+        );
+        assert_eq!(
+            free_type_drag_action(Modifiers::default(), false),
+            Some(FreeTypeDragAction::CopySelection)
+        );
     }
 
     #[test]
@@ -2895,7 +3424,7 @@ mod tests {
     }
 
     #[test]
-    fn free_type_cursor_move_uses_home_and_end_at_command_boundaries() {
+    fn free_type_cursor_move_combines_boundary_keys_with_arrow_fallbacks() {
         let input_state = TerminalAutosuggestInputState {
             value: "abcdef".to_string(),
             cursor_index: 6,
@@ -2905,11 +3434,11 @@ mod tests {
         let start_move = command_cursor_move_to_index(&input_state, 0).unwrap();
         assert_eq!(
             free_type_cursor_move_bytes(start_move, TermMode::default()).as_deref(),
-            Some(b"\x1b[H".as_slice())
+            Some(b"\x1b[H\x1b[D\x1b[D\x1b[D\x1b[D\x1b[D\x1b[D".as_slice())
         );
         assert_eq!(
             free_type_cursor_move_bytes(start_move, TermMode::APP_CURSOR).as_deref(),
-            Some(b"\x1bOH".as_slice())
+            Some(b"\x1bOH\x1bOD\x1bOD\x1bOD\x1bOD\x1bOD\x1bOD".as_slice())
         );
 
         let input_state = TerminalAutosuggestInputState {
@@ -2920,11 +3449,11 @@ mod tests {
         let end_move = command_cursor_move_to_index(&input_state, input_state.value.len()).unwrap();
         assert_eq!(
             free_type_cursor_move_bytes(end_move, TermMode::default()).as_deref(),
-            Some(b"\x1b[F".as_slice())
+            Some(b"\x1b[F\x1b[C\x1b[C\x1b[C\x1b[C\x1b[C\x1b[C".as_slice())
         );
         assert_eq!(
             free_type_cursor_move_bytes(end_move, TermMode::APP_CURSOR).as_deref(),
-            Some(b"\x1bOF".as_slice())
+            Some(b"\x1bOF\x1bOC\x1bOC\x1bOC\x1bOC\x1bOC\x1bOC".as_slice())
         );
     }
 
@@ -2995,7 +3524,7 @@ mod tests {
                 TermMode::default(),
             )
             .as_deref(),
-            Some(b"\x1b[H\x1b[3~\x1b[3~\x1b[3~XYZ".as_slice())
+            Some(b"\x08\x08\x08XYZ".as_slice())
         );
     }
 
@@ -3068,7 +3597,7 @@ mod tests {
                 TermMode::default()
             )
             .as_deref(),
-            Some(b"\x1b[D\x1b[D\x1b[3~".as_slice())
+            Some(b"\x1b[D\x08".as_slice())
         );
     }
 
@@ -3095,7 +3624,126 @@ mod tests {
         .expect("command selection should be cuttable");
 
         assert_eq!(text, "你好");
-        assert_eq!(bytes, b"\x1b[H\x1b[3~\x1b[3~");
+        assert_eq!(bytes, b"\x1b[D\x1b[D\x1b[D\x08\x08");
+    }
+
+    #[test]
+    fn free_type_move_selection_moves_text_before_the_source() {
+        let snapshot = test_snapshot_with_cursor(vec![test_row("$ abcdef", true)], 0, 8, 20);
+        let selection = TerminalSelection {
+            anchor: TerminalGridPoint { line: 0, col: 4 },
+            head: TerminalGridPoint { line: 0, col: 5 },
+            mode: TerminalSelectionMode::Simple,
+        };
+        let input_state = TerminalAutosuggestInputState {
+            value: "abcdef".to_string(),
+            cursor_index: "abcdef".len(),
+            is_cursor_at_end: true,
+        };
+
+        assert_eq!(
+            free_type_selection_move_bytes(
+                &snapshot,
+                selection,
+                TerminalPoint { row: 0, col: 2 },
+                &input_state,
+                TermMode::default(),
+            )
+            .as_deref(),
+            Some(b"\x1b[D\x1b[D\x08\x08\x1b[H\x1b[D\x1b[Dcd".as_slice())
+        );
+    }
+
+    #[test]
+    fn free_type_move_selection_adjusts_a_target_after_the_source() {
+        let snapshot = test_snapshot_with_cursor(vec![test_row("$ abcdef", true)], 0, 8, 20);
+        let selection = TerminalSelection {
+            anchor: TerminalGridPoint { line: 0, col: 4 },
+            head: TerminalGridPoint { line: 0, col: 5 },
+            mode: TerminalSelectionMode::Simple,
+        };
+        let input_state = TerminalAutosuggestInputState {
+            value: "abcdef".to_string(),
+            cursor_index: "abcdef".len(),
+            is_cursor_at_end: true,
+        };
+
+        assert_eq!(
+            free_type_selection_move_bytes(
+                &snapshot,
+                selection,
+                TerminalPoint { row: 0, col: 8 },
+                &input_state,
+                TermMode::default(),
+            )
+            .as_deref(),
+            Some(b"cd\x1b[D\x1b[D\x1b[D\x1b[D\x08\x08".as_slice())
+        );
+    }
+
+    #[test]
+    fn free_type_move_selection_inside_the_source_is_a_noop() {
+        let snapshot = test_snapshot_with_cursor(vec![test_row("$ abcdef", true)], 0, 8, 20);
+        let selection = TerminalSelection {
+            anchor: TerminalGridPoint { line: 0, col: 4 },
+            head: TerminalGridPoint { line: 0, col: 5 },
+            mode: TerminalSelectionMode::Simple,
+        };
+        let input_state = TerminalAutosuggestInputState {
+            value: "abcdef".to_string(),
+            cursor_index: "abcdef".len(),
+            is_cursor_at_end: true,
+        };
+
+        assert_eq!(
+            free_type_selection_move_bytes(
+                &snapshot,
+                selection,
+                TerminalPoint { row: 0, col: 5 },
+                &input_state,
+                TermMode::default(),
+            ),
+            Some(Vec::new())
+        );
+    }
+
+    #[test]
+    fn free_type_move_selection_keeps_emoji_graphemes_together() {
+        let command = "a👩‍💻你b";
+        let command_width = terminal_text_display_width(command);
+        let snapshot = test_snapshot_with_cursor(
+            vec![test_row(&format!("$ {command}"), true)],
+            0,
+            command_width + 2,
+            20,
+        );
+        let selection = TerminalSelection {
+            anchor: TerminalGridPoint { line: 0, col: 3 },
+            head: TerminalGridPoint { line: 0, col: 4 },
+            mode: TerminalSelectionMode::Simple,
+        };
+        let input_state = TerminalAutosuggestInputState {
+            value: command.to_string(),
+            cursor_index: command.len(),
+            is_cursor_at_end: true,
+        };
+
+        let bytes = free_type_selection_move_bytes(
+            &snapshot,
+            selection,
+            TerminalPoint {
+                row: 0,
+                col: command_width + 2,
+            },
+            &input_state,
+            TermMode::default(),
+        )
+        .expect("emoji selection should move");
+
+        assert_eq!(
+            bytes,
+            ["👩‍💻".as_bytes(), b"\x1b[D\x1b[D\x1b[D\x08".as_slice()].concat()
+        );
     }
 
     #[test]
@@ -3120,7 +3768,7 @@ mod tests {
                 TermMode::default()
             )
             .as_deref(),
-            Some(b"\x1b[H\x1b[3~\x1b[3~\x1b[3~".as_slice())
+            Some(b"\x08\x08\x08".as_slice())
         );
     }
 
@@ -3165,7 +3813,7 @@ mod tests {
 
         assert_eq!(
             free_type_current_command_delete_bytes(&input_state, TermMode::default()).as_deref(),
-            Some(b"\x1b[H\x1b[3~\x1b[3~\x1b[3~".as_slice())
+            Some(b"\x08\x08\x08".as_slice())
         );
     }
 

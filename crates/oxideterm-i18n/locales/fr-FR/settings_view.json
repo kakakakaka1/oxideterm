@@ -266,7 +266,7 @@
       "backspace_sequence_hint": "Choisissez ce que Retour arrière envoie aux anciennes applications de terminal. La valeur par défaut est DEL (0x7F)",
       "delete_sequence": "Touche Suppr",
       "delete_sequence_hint": "Choisissez ce que Suppr envoie aux anciennes applications de terminal. La valeur par défaut est CSI 3~",
-      "free_type_mode_hint": "Modifiez la commande shell active avec la souris : cliquez pour déplacer le curseur, supprimez le texte sélectionné, faites glisser une sélection sur une ligne pour l’insérer, ou maintenez Alt pendant le glisser pour remplacer la commande. Les applications plein écran et avec suivi de souris sont exclues",
+      "free_type_mode_hint": "Modifiez la commande shell active avec la souris : cliquez pour déplacer le curseur, double-cliquez entre des parenthèses appariées pour sélectionner leur contenu, faites glisser le texte sélectionné pour le déplacer, maintenez Ctrl pour le copier ou Alt pour remplacer la commande. Les applications plein écran et avec suivi de souris sont exclues",
       "in_band_transfer": {
         "title": "Transfert de fichiers in-band",
         "enabled": "Activer le transfert trzsz",
