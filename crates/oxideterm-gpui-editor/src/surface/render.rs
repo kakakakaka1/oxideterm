@@ -1,15 +1,19 @@
 // Copyright (C) 2026 AnalyseDeCircuit
 // SPDX-License-Identifier: GPL-3.0-only
 
-use std::{collections::BTreeMap, ops::Range};
+use std::{cell::Cell, collections::BTreeMap, ops::Range, rc::Rc};
 
 use gpui::{
-    Anchor, AnchoredPositionMode, App, Context, Div, InteractiveElement, IntoElement, MouseButton,
-    MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, Render, ScrollWheelEvent,
-    SharedString, Styled, Window, anchored, deferred, div, prelude::FluentBuilder, px, rgb, rgba,
+    Anchor, AnchoredPositionMode, AnyElement, App, AppContext, Context, CursorStyle, Div,
+    EmptyView, Entity, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
+    MouseMoveEvent, MouseUpEvent, ParentElement, Render, ScrollWheelEvent, SharedString,
+    StatefulInteractiveElement, Styled, Window, anchored, deferred, div, prelude::FluentBuilder,
+    px, rgb, rgba,
 };
 use oxideterm_editor_core::{BufferOffset, Selection};
 use oxideterm_editor_syntax::{BracketPair, SyntaxScope};
+
+use crate::metrics::editor_code_font;
 
 use super::{
     EditorBoundsProbe, HighlightChunkCacheKey, LineChunkSpec, TextEditorView, colored_text,
@@ -40,10 +44,30 @@ const CM_CONTEXT_MENU_WIDTH: f32 = 160.0;
 const CM_CONTEXT_MENU_ITEM_HEIGHT: f32 = 28.0;
 const CM_CONTEXT_MENU_PADDING_Y: f32 = 4.0;
 const CM_CONTEXT_MENU_Z: usize = 60;
+const CM_SCROLLBAR_TRACK_WIDTH: f32 = 10.0;
+const CM_SCROLLBAR_THUMB_WIDTH: f32 = 5.0;
+const CM_SCROLLBAR_THUMB_RADIUS: f32 = 3.0;
+const CM_SCROLLBAR_THUMB_RIGHT_INSET: f32 = 2.0;
+const CM_SCROLLBAR_MIN_THUMB_LENGTH: f32 = 32.0;
+const CM_SCROLLBAR_THUMB_ALPHA: u32 = 0x3d;
 const CM_CONTROL_CHAR_MARKER: &str = "�";
 const CM_FOLDED_TOKEN: &str = " …";
 const CM_FOLD_OPEN_ICON: &str = "▾";
 const CM_FOLD_CLOSED_ICON: &str = "▸";
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct EditorScrollbarGeometry {
+    viewport_height: f32,
+    max_scroll_y: f32,
+    thumb_height: f32,
+    thumb_top: f32,
+}
+
+#[derive(Clone)]
+struct EditorScrollbarDragState {
+    editor: Entity<TextEditorView>,
+    grab_offset_y: Rc<Cell<f32>>,
+}
 
 struct RenderRowContext {
     selections: Vec<Selection>,
@@ -114,12 +138,14 @@ impl Render for TextEditorView {
         // Capture the viewport container, not the absolute row stack. Otherwise
         // long files report their full document height as the visible height and
         // GPUI/Monaco-style virtual scrolling clamps to zero.
+        let bounds_probe_view = view.clone();
         let body = EditorBoundsProbe::new(
             body_content,
             view.clone(),
             self.focus_handle.clone(),
             move |bounds, window, app| {
-                let _ = view.update(app, |this, cx| this.set_viewport_bounds(bounds, window, cx));
+                let _ = bounds_probe_view
+                    .update(app, |this, cx| this.set_viewport_bounds(bounds, window, cx));
             },
         );
 
@@ -127,7 +153,9 @@ impl Render for TextEditorView {
             .id("oxideterm-gpui-editor")
             .size_full()
             .track_focus(&self.focus_handle)
-            .font_family(SharedString::from(self.appearance.font_family.clone()))
+            // Paint and measurement must use the same fallback chain, or a
+            // missing configured font can make the caret drift on Windows.
+            .font(editor_code_font(&self.appearance.font_family))
             .text_size(px(self.metrics.font_size))
             .line_height(px(self.metrics.line_height))
             .text_color(rgb(self.appearance.text_hex))
@@ -147,6 +175,9 @@ impl Render for TextEditorView {
                 this.handle_key(event, window, cx);
             }))
             .child(body);
+        if let Some(scrollbar) = self.render_vertical_scrollbar(view, cx) {
+            root = root.child(scrollbar);
+        }
         if let Some(menu) = self.context_menu {
             root = root.child(self.render_context_menu(menu, window, cx));
         }
@@ -155,6 +186,98 @@ impl Render for TextEditorView {
 }
 
 impl TextEditorView {
+    fn render_vertical_scrollbar(
+        &self,
+        editor: Entity<Self>,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        let geometry = editor_scrollbar_geometry(
+            self.viewport.height_px,
+            self.document_row_count() as f32 * self.metrics.line_height,
+            self.viewport.scroll_y_px,
+        )?;
+        let drag_state = EditorScrollbarDragState {
+            editor,
+            grab_offset_y: Rc::new(Cell::new(0.0)),
+        };
+
+        Some(
+            div()
+                .id("oxideterm-gpui-editor-scrollbar")
+                .absolute()
+                .top_0()
+                .right_0()
+                .bottom_0()
+                .w(px(CM_SCROLLBAR_TRACK_WIDTH))
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(move |this, event: &MouseDownEvent, _window, cx| {
+                        // Clicking the track centers the thumb at the pointer
+                        // so large documents can be traversed in one action.
+                        this.scroll_from_scrollbar_pointer(
+                            event.position.y,
+                            geometry.thumb_height / 2.0,
+                            cx,
+                        );
+                        cx.stop_propagation();
+                    }),
+                )
+                .child(
+                    div()
+                        .id("oxideterm-gpui-editor-scrollbar-thumb")
+                        .absolute()
+                        .right(px(CM_SCROLLBAR_THUMB_RIGHT_INSET))
+                        .top(px(geometry.thumb_top))
+                        .w(px(CM_SCROLLBAR_THUMB_WIDTH))
+                        .h(px(geometry.thumb_height))
+                        .rounded(px(CM_SCROLLBAR_THUMB_RADIUS))
+                        .bg(rgba(
+                            (self.appearance.muted_text_hex << 8) | CM_SCROLLBAR_THUMB_ALPHA,
+                        ))
+                        .cursor(CursorStyle::OpenHand)
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .on_drag(drag_state.clone(), |drag, position, _window, cx| {
+                            drag.grab_offset_y.set(f32::from(position.y));
+                            cx.new(|_| EmptyView)
+                        })
+                        .on_drag_move::<EditorScrollbarDragState>(|event, _window, cx| {
+                            let drag = event.drag(cx).clone();
+                            let pointer_y = event.event.position.y;
+                            let grab_offset_y = drag.grab_offset_y.get();
+                            drag.editor.update(cx, |this, cx| {
+                                this.scroll_from_scrollbar_pointer(pointer_y, grab_offset_y, cx);
+                            });
+                            cx.stop_propagation();
+                        }),
+                )
+                .into_any_element(),
+        )
+    }
+
+    fn scroll_from_scrollbar_pointer(
+        &mut self,
+        pointer_y: gpui::Pixels,
+        grab_offset_y: f32,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(bounds) = self.content_bounds else {
+            return;
+        };
+        let Some(geometry) = editor_scrollbar_geometry(
+            self.viewport.height_px,
+            self.document_row_count() as f32 * self.metrics.line_height,
+            self.viewport.scroll_y_px,
+        ) else {
+            return;
+        };
+        let thumb_top = f32::from(pointer_y - bounds.origin.y) - grab_offset_y;
+        let scroll_y = editor_scroll_y_for_thumb_top(thumb_top, geometry);
+        if (self.viewport.scroll_y_px - scroll_y).abs() > f32::EPSILON {
+            self.viewport.scroll_y_px = scroll_y;
+            cx.notify();
+        }
+    }
+
     fn render_row(
         &self,
         display_index: usize,
@@ -967,6 +1090,36 @@ impl TextEditorView {
     }
 }
 
+fn editor_scrollbar_geometry(
+    viewport_height: f32,
+    document_height: f32,
+    scroll_y: f32,
+) -> Option<EditorScrollbarGeometry> {
+    if viewport_height <= 0.0 || document_height <= viewport_height {
+        return None;
+    }
+    let max_scroll_y = document_height - viewport_height;
+    let minimum_thumb_height = CM_SCROLLBAR_MIN_THUMB_LENGTH.min(viewport_height);
+    let thumb_height = (viewport_height / document_height * viewport_height)
+        .clamp(minimum_thumb_height, viewport_height);
+    let thumb_travel = (viewport_height - thumb_height).max(0.0);
+    let thumb_top = scroll_y.clamp(0.0, max_scroll_y) / max_scroll_y * thumb_travel;
+    Some(EditorScrollbarGeometry {
+        viewport_height,
+        max_scroll_y,
+        thumb_height,
+        thumb_top,
+    })
+}
+
+fn editor_scroll_y_for_thumb_top(thumb_top: f32, geometry: EditorScrollbarGeometry) -> f32 {
+    let thumb_travel = (geometry.viewport_height - geometry.thumb_height).max(0.0);
+    if thumb_travel <= 0.0 {
+        return 0.0;
+    }
+    thumb_top.clamp(0.0, thumb_travel) / thumb_travel * geometry.max_scroll_y
+}
+
 fn visible_highlight_range(
     start: usize,
     end: usize,
@@ -1044,8 +1197,8 @@ fn visible_indentation_columns(
 #[cfg(test)]
 mod tests {
     use super::{
-        contains_special_char, special_char_marker, visible_highlight_range,
-        visible_indentation_columns,
+        contains_special_char, editor_scroll_y_for_thumb_top, editor_scrollbar_geometry,
+        special_char_marker, visible_highlight_range, visible_indentation_columns,
     };
     use oxideterm_editor_syntax::IndentGuide;
 
@@ -1068,6 +1221,25 @@ mod tests {
         assert_eq!(special_char_marker('\t'), None);
         assert_eq!(special_char_marker(' '), None);
         assert_eq!(special_char_marker('a'), None);
+    }
+
+    #[test]
+    fn editor_scrollbar_maps_track_edges_to_document_edges() {
+        let geometry =
+            editor_scrollbar_geometry(200.0, 1_000.0, 400.0).expect("document should overflow");
+        let thumb_travel = geometry.viewport_height - geometry.thumb_height;
+
+        assert_eq!(editor_scroll_y_for_thumb_top(0.0, geometry), 0.0);
+        assert_eq!(
+            editor_scroll_y_for_thumb_top(thumb_travel, geometry),
+            geometry.max_scroll_y
+        );
+    }
+
+    #[test]
+    fn editor_scrollbar_is_hidden_without_overflow() {
+        assert!(editor_scrollbar_geometry(200.0, 200.0, 0.0).is_none());
+        assert!(editor_scrollbar_geometry(200.0, 120.0, 0.0).is_none());
     }
 
     #[test]
