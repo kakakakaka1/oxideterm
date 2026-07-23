@@ -288,8 +288,9 @@ fn indent_guides_come_from_syntax_blocks() {
     let session = SyntaxSession::parse(LanguageId::Rust, source).unwrap();
     let guides = session.indent_guides(source, 4);
 
+    assert!(guides.iter().any(|guide| guide.column == 0));
     assert!(guides.iter().any(|guide| guide.column == 4));
-    assert!(guides.iter().any(|guide| guide.column == 8));
+    assert!(!guides.iter().any(|guide| guide.column == 8));
 }
 
 #[test]
@@ -312,8 +313,19 @@ void BEEP_Init()
     let session = SyntaxSession::parse(LanguageId::C, source).unwrap();
     let guides = session.indent_guides(source, 4);
 
-    assert!(guides.iter().any(|guide| guide.column == 4));
+    assert!(guides.iter().any(|guide| guide.column == 0));
+    assert!(!guides.iter().any(|guide| guide.column == 4));
     assert!(!guides.iter().any(|guide| guide.start_line == 0));
+}
+
+#[test]
+fn indent_guides_keep_body_indentation_for_delimiter_free_languages() {
+    let source = "def main():\n    if ready:\n        print(\"ok\")\n";
+    let session = SyntaxSession::parse(LanguageId::Python, source).unwrap();
+    let guides = session.indent_guides(source, 4);
+
+    assert!(guides.iter().any(|guide| guide.column == 4));
+    assert!(guides.iter().any(|guide| guide.column == 8));
 }
 
 #[test]

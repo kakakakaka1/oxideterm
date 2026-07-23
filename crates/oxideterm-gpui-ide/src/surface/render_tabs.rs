@@ -1,3 +1,17 @@
+fn tab_scroll_viewport(scroll_handle: &ScrollHandle) -> gpui::Stateful<gpui::Div> {
+    // Keep tabs as direct flex children: GPUI derives the horizontal scroll
+    // range from this viewport's content bounds.
+    div()
+        .id("ide-tabs-scroll-viewport")
+        .size_full()
+        .min_w(px(0.0))
+        .flex()
+        .flex_row()
+        .items_center()
+        .overflow_x_scroll()
+        .track_scroll(scroll_handle)
+}
+
 impl IdeSurface {
     fn render_editor_area(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let editor_content = div()
@@ -34,11 +48,7 @@ impl IdeSurface {
     fn render_tabs(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let tabs = self.workspace.tabs().to_vec();
         let active_tab = self.workspace.active_tab();
-        let mut scroll_content = div()
-            .h_full()
-            .flex()
-            .flex_none()
-            .items_center();
+        let mut scroll_viewport = tab_scroll_viewport(&self.tab_scroll_handle);
 
         for tab in tabs {
             let active = Some(tab.id) == active_tab;
@@ -49,7 +59,7 @@ impl IdeSurface {
                 .tab_drag
                 .is_some_and(|drag| drag.activated && drag.tab_id == tab_id);
             let file_icon = file_icons::file_icon(&tab.title, &self.tokens);
-            scroll_content = scroll_content.child(
+            scroll_viewport = scroll_viewport.child(
                 div()
                     .h_full()
                     .flex_none()
@@ -188,18 +198,15 @@ impl IdeSurface {
         div()
             .id("ide-tabs-scroll")
             .relative()
+            .w_full()
+            .min_w(px(0.0))
+            .flex_none()
             .h(px(IDE_WORKSPACE_HEADER_HEIGHT))
+            .overflow_hidden()
             .border_b_1()
             .border_color(rgb(self.tokens.ui.border))
             .bg(self.ide_bg(self.tokens.ui.bg, IDE_BG_HALF_ALPHA))
-            .child(
-                div()
-                    .id("ide-tabs-scroll-viewport")
-                    .size_full()
-                    .overflow_x_scroll()
-                    .track_scroll(&self.tab_scroll_handle)
-                    .child(scroll_content),
-            )
+            .child(scroll_viewport)
             .child(
                 Scrollbar::new(&self.tab_scroll_handle)
                     .id("ide-tabs-horizontal-scrollbar")
@@ -678,4 +685,52 @@ impl IdeSurface {
             .into_any_element()
     }
 
+}
+
+#[cfg(test)]
+mod tab_scroll_tests {
+    use super::*;
+    use gpui::{TestAppContext, size};
+
+    struct TabScrollFixture {
+        scroll_handle: ScrollHandle,
+    }
+
+    impl Render for TabScrollFixture {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            let mut scroll_viewport = tab_scroll_viewport(&self.scroll_handle);
+            for index in 0_usize..3 {
+                scroll_viewport = scroll_viewport.child(
+                    div()
+                        .id(("test-ide-tab", index))
+                        .h_full()
+                        .w(px(120.0))
+                        .flex_none(),
+                );
+            }
+
+            div().size_full().child(
+                div()
+                    .w(px(200.0))
+                    .h(px(IDE_WORKSPACE_HEADER_HEIGHT))
+                    .child(scroll_viewport),
+            )
+        }
+    }
+
+    #[gpui::test]
+    fn tab_scroll_viewport_measures_overflowing_tab_width(cx: &mut TestAppContext) {
+        let (view, cx) = cx.add_window_view(|_, _| TabScrollFixture {
+            scroll_handle: ScrollHandle::new(),
+        });
+        cx.simulate_resize(size(px(400.0), px(100.0)));
+        cx.update(|window, cx| {
+            window.draw(cx).clear();
+        });
+
+        let max_offset_x = view.read_with(cx, |view, _| {
+            f32::from(view.scroll_handle.max_offset().x)
+        });
+        assert_eq!(max_offset_x, 160.0);
+    }
 }

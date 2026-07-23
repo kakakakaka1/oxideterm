@@ -3,6 +3,37 @@
 Stable releases are listed newest first. The release workflow uses each versioned
 section as the detailed changelog attached to the corresponding GitHub Release.
 
+## 2.0.10
+
+OxideTerm 2.0.10 opens a substantially broader native plugin platform, expands
+connection migration, and improves terminal, SFTP, and IDE workflows across the app.
+
+### ✨ Highlights
+
+- Expanded the native plugin API with useful redacted data by default plus capability-gated access to connection lifecycle, terminals, Host Tools, notifications, quick commands, complete theme tokens, IDE and AI operations, cloud sync, transfers, and other product controls.
+- Added versioned, host-rendered plugin UI components together with plugin tabs, sidebar panels, activity-bar actions, bundled icons, and a complete Host Tools Dashboard example that demonstrates approved custom monitors.
+- Added connection import for SecureCRT XML exports, Electerm JSON bookmarks, and FinalShell data folders, with a reviewable preview that excludes passwords and other secret material.
+- Promoted Free Type Mode for ordinary shell command lines, including mouse cursor placement, selection replacement, drag editing, a configurable shortcut, and explicit Backspace and Delete sequence settings.
+- Added a cross-platform window-opacity slider with persisted settings.
+- Added authenticated application-owned Host Tools for ACP agents so approved tools can target explicit OxideTerm terminal sessions without exposing internal runtime handles.
+
+### 🛠️ Fixes
+
+- Added local and remote path completion to SFTP and local file-manager address bars, kept long breadcrumbs horizontally reachable, and prevented completion popups from leaking clicks or wheel input to the file list behind them.
+- Made the SFTP local/remote split and transfer-queue height draggable, preserved independent pane sizing, documented the left/right transfer shortcuts in the queue, and refreshed local files without disturbing the remote session.
+- Reworked IDE project search around native text input with focus, IME, selection, clipboard, and Unicode-safe deletion; reopening an existing IDE tab no longer asks for a folder again.
+- Fixed IDE folder-picker cancellation, added missing toolbar hints and file-tree scrolling, and kept overflowing editor tabs horizontally scrollable with a visible draggable scrollbar.
+- Corrected editor cursor, selection, and wrapping calculations for CJK text, emoji, and combining characters; added a visible document scrollbar and consistent monospace fallbacks.
+- Aligned syntax-block guide lines with their closing braces instead of shifting them one indentation level into the block.
+- Preserved legacy SSH compatibility fields while editing saved connections and improved session-manager selection, tab closing, and stale-action handling.
+- Kept the right companion sidebar resizable against the actual maximized viewport after live Host Tool updates.
+- Persisted welcome-flow legal acceptance, blocked click-through to the workspace behind the welcome layer, and added a direct entry for importing connections from other applications.
+
+### 🧰 Release Maintenance
+
+- Added policy coverage so manually reopened maintainer issues remain open instead of being closed again by the quality workflow.
+- Added release-version consistency checks and expanded focused coverage for plugin permissions, connection imports, SFTP navigation, editor input, and Host Tools.
+
 ## 2.0.9
 
 OxideTerm 2.0.9 adds multi-vendor GPU and NPU monitoring, expands native Markdown

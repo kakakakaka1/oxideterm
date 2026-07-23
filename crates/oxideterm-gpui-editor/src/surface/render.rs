@@ -1266,6 +1266,11 @@ mod tests {
             IndentGuide {
                 start_line: 0,
                 end_line: 4,
+                column: 0,
+            },
+            IndentGuide {
+                start_line: 0,
+                end_line: 4,
                 column: 4,
             },
             IndentGuide {
@@ -1278,7 +1283,7 @@ mod tests {
         let rows = [display_row(0, 0, 120), display_row(2, 0, 120)];
         let columns = visible_indentation_columns(&IndentGuideIndex::new(guides), &rows, true);
 
-        assert_eq!(columns.get(&2), Some(&vec![4, 8]));
+        assert_eq!(columns.get(&2), Some(&vec![0, 4, 8]));
         assert_eq!(columns.get(&0), None);
     }
 

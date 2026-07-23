@@ -30,11 +30,10 @@ fn collect_indent_guides(
         let start = node.start_position();
         let end = node.end_position();
         if end.row > start.row
-            && let Some(column) = first_nested_line_indent(source, start.row, end.row, tab_size)
-            && column > 0
+            && let Some(column) = indent_guide_column(node, source, tab_size)
         {
-            // The rendered guide belongs to the syntactic container, not to
-            // arbitrary alignment whitespace inside the contained lines.
+            // The guide represents the container boundary rather than the
+            // indentation of an arbitrary statement inside it.
             guides.insert((start.row, end.row, column));
         }
     }
@@ -84,6 +83,32 @@ fn is_indent_container_kind(kind: &str) -> bool {
         || kind.ends_with("_body")
 }
 
+fn indent_guide_column(node: Node<'_>, source: &str, tab_size: usize) -> Option<usize> {
+    let start = node.start_position();
+    let end = node.end_position();
+    if node_ends_with_closing_delimiter(node, source) {
+        // Bracketed blocks own the indentation of their closing delimiter.
+        // This keeps the guide aligned with braces even when the opening brace
+        // follows a declaration or condition on the same line.
+        return source
+            .lines()
+            .nth(end.row)
+            .map(|line| leading_visual_columns(line, tab_size));
+    }
+
+    // Languages without closing delimiters, such as Python, still use the
+    // first nested statement to establish their body indentation.
+    first_nested_line_indent(source, start.row, end.row, tab_size)
+}
+
+fn node_ends_with_closing_delimiter(node: Node<'_>, source: &str) -> bool {
+    node.end_byte()
+        .checked_sub(1)
+        .and_then(|index| source.as_bytes().get(index))
+        .copied()
+        .is_some_and(|byte| matches!(byte, b'}' | b']'))
+}
+
 fn first_nested_line_indent(
     source: &str,
     start_line: usize,
@@ -109,7 +134,7 @@ fn leading_visual_columns(text: &str, tab_size: usize) -> usize {
     for ch in text.chars() {
         match ch {
             ' ' => column += 1,
-            '\t' => column += tab_size,
+            '\t' => column += tab_size - column % tab_size,
             _ => break,
         }
     }
