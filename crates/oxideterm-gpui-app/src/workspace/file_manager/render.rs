@@ -93,6 +93,13 @@ impl WorkspaceApp {
             root =
                 root.child(self.render_file_manager_context_menu(menu, window, has_background, cx));
         }
+        if self.file_manager.dialog.is_none()
+            && self.file_manager.focused_input == Some(FileManagerInput::Path)
+            && let Some(completion) =
+                self.render_path_completion_overlay(PathCompletionOwner::FileManager, cx)
+        {
+            root = root.child(completion);
+        }
         if let Some(progress) = self.file_manager.operation_progress.as_ref()
             && progress.active
         {
@@ -795,14 +802,14 @@ impl WorkspaceApp {
             .flex()
             .flex_row()
             .items_center()
-            .gap(px(8.0))
+            .gap(px(FILE_MANAGER_HEADER_GAP))
             .p(px(8.0))
             .border_b_1()
             .border_color(file_manager_border(theme.border, has_background))
             .bg(file_manager_panel_bg(theme.bg_panel, has_background, 0xff))
             .child(
                 div()
-                    .min_w(px(64.0))
+                    .min_w(px(FILE_MANAGER_HEADER_TITLE_MIN_WIDTH))
                     .text_size(px(FILE_MANAGER_TEXT_XS))
                     .font_weight(gpui::FontWeight::SEMIBOLD)
                     .text_color(rgb(theme.text_muted))
@@ -879,7 +886,7 @@ impl WorkspaceApp {
             .flex_row()
             .items_center()
             .gap(px(4.0))
-            .px(px(8.0))
+            .px(px(FILE_MANAGER_PATH_BAR_HORIZONTAL_PADDING))
             .py(px(2.0))
             .rounded(px(self.tokens.radii.sm))
             .border_1()
@@ -944,7 +951,7 @@ impl WorkspaceApp {
             .flex()
             .flex_row()
             .items_center()
-            .gap(px(2.0));
+            .gap(px(FILE_MANAGER_BREADCRUMB_ROW_GAP));
         for (index, segment) in segments.iter().cloned().enumerate() {
             if index > 0 {
                 inner = inner.child(Self::render_lucide_icon(
@@ -968,11 +975,11 @@ impl WorkspaceApp {
                 div()
                     .max_w(px(120.0))
                     .h(px(20.0))
-                    .px(px(6.0))
+                    .px(px(FILE_MANAGER_BREADCRUMB_SEGMENT_PADDING))
                     .flex()
                     .flex_row()
                     .items_center()
-                    .gap(px(4.0))
+                    .gap(px(FILE_MANAGER_BREADCRUMB_CONTENT_GAP))
                     .rounded(px(self.tokens.radii.sm))
                     .bg(if is_last {
                         rgba((theme.bg_hover << 8) | FILE_MANAGER_BREADCRUMB_ACTIVE_ALPHA)
@@ -1025,13 +1032,18 @@ impl WorkspaceApp {
         }
 
         div()
+            .id("file-manager-breadcrumb-scroll")
             .flex_1()
             .min_w(px(0.0))
             .flex()
             .flex_row()
             .items_center()
             .overflow_hidden()
+            .track_scroll(&self.file_manager.path_scroll)
             .text_size(px(FILE_MANAGER_TEXT_SM))
+            .on_scroll_wheel(cx.listener(|this, event: &ScrollWheelEvent, _window, cx| {
+                this.handle_file_manager_breadcrumb_scroll(event, cx);
+            }))
             .child(inner)
             .into_any_element()
     }
@@ -1084,8 +1096,16 @@ impl WorkspaceApp {
                 },
             )),
             move |anchor, _window, cx| {
-                let _ = workspace.update(cx, |this, cx| {
-                    this.update_text_input_anchor(anchor, cx);
+                workspace.update(cx, |this, cx| {
+                    if input == FileManagerInput::Path {
+                        this.update_path_completion_anchor(
+                            PathCompletionOwner::FileManager,
+                            anchor,
+                            cx,
+                        );
+                    } else {
+                        this.update_text_input_anchor(anchor, cx);
+                    }
                 });
             },
         )

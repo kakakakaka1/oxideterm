@@ -43,6 +43,7 @@ fn sftp_incomplete_loading_signature() -> u64 {
 impl WorkspaceApp {
     pub(in crate::workspace::sftp) fn render_sftp_transfer_queue(
         &self,
+        queue_height: f32,
         has_background: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
@@ -67,7 +68,7 @@ impl WorkspaceApp {
         let has_incomplete = incomplete_count > 0;
 
         div()
-            .h(px(SFTP_QUEUE_HEIGHT))
+            .h(px(queue_height))
             .flex_none()
             .flex()
             .flex_col()
@@ -89,6 +90,8 @@ impl WorkspaceApp {
                     .child(
                         div()
                             .flex()
+                            .flex_1()
+                            .min_w(px(0.0))
                             .flex_row()
                             .items_center()
                             .gap(px(8.0))
@@ -102,6 +105,14 @@ impl WorkspaceApp {
                                 theme.text_muted,
                                 cx,
                             ))
+                            .child(
+                                div()
+                                    .min_w(px(0.0))
+                                    .truncate()
+                                    .font_weight(gpui::FontWeight::NORMAL)
+                                    .text_color(rgb(theme.text_muted))
+                                    .child(self.i18n.t("sftp.queue.shortcut_hint")),
+                            )
                             .when(has_incomplete, |row| {
                                 row.child(
                                     self.workspace_clickable_row_action(

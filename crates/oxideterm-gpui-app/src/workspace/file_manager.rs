@@ -38,6 +38,12 @@ use self::helpers::*;
 use super::sftp::native_video::{SharedSftpNativeVideoSurface, sftp_native_video_element};
 
 const FILE_MANAGER_HEADER_HEIGHT: f32 = 40.0; // Tauri h-10.
+const FILE_MANAGER_HEADER_GAP: f32 = 6.0;
+const FILE_MANAGER_HEADER_TITLE_MIN_WIDTH: f32 = 32.0;
+const FILE_MANAGER_PATH_BAR_HORIZONTAL_PADDING: f32 = 4.0;
+const FILE_MANAGER_BREADCRUMB_ROW_GAP: f32 = 1.0;
+const FILE_MANAGER_BREADCRUMB_SEGMENT_PADDING: f32 = 3.0;
+const FILE_MANAGER_BREADCRUMB_CONTENT_GAP: f32 = 2.0;
 const FILE_MANAGER_TOOLBAR_HEIGHT: f32 = 48.0; // Shared top-level tool-page toolbar height.
 const FILE_MANAGER_ROW_HEIGHT: f32 = 28.0; // Tauri FileList FILE_ROW_HEIGHT.
 const FILE_MANAGER_VIRTUAL_OVERSCAN: usize = 15; // Tauri useVirtualizer overscan.
@@ -298,6 +304,8 @@ impl FileManagerListRow {
 pub(super) struct FileManagerState {
     pub(super) path: String,
     pub(super) path_input: String,
+    pub(super) path_completion: PathCompletionState,
+    pub(super) path_scroll: ScrollHandle,
     pub(super) editing_path: bool,
     pub(super) filter: String,
     pub(super) files: Vec<LocalFileEntry>,
@@ -359,6 +367,8 @@ impl Default for FileManagerState {
         Self {
             path: path.clone(),
             path_input: path,
+            path_completion: PathCompletionState::default(),
+            path_scroll: ScrollHandle::new(),
             editing_path: false,
             filter: String::new(),
             files: Vec::new(),

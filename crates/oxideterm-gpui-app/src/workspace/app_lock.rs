@@ -118,6 +118,8 @@ impl WorkspaceApp {
         self.release_active_remote_desktop_inputs();
         self.finish_sidebar_resize(cx);
         self.finish_ai_sidebar_resize(cx);
+        self.finish_sftp_pane_resize(cx);
+        self.finish_sftp_queue_resize(cx);
         self.finish_split_drag(cx);
         self.close_terminal_command_overlays(cx);
         self.clear_workspace_tooltip("activity-app-lock", cx);

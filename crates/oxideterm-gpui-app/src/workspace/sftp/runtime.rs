@@ -183,10 +183,13 @@ impl WorkspaceApp {
             .unwrap_or_else(home_path);
         self.sftp_view.local_path = local_path.clone();
         self.sftp_view.local_path_input = local_path.clone();
+        self.sftp_view.local_path_completion.dismiss();
         self.sftp_view.local_files = list_local_files(&local_path).unwrap_or_default();
         self.sftp_view.local_selected.clear();
         self.sftp_view.local_last_selected = None;
-        self.sftp_view.local_path_scroll_x = 0.0;
+        self.sftp_view
+            .local_path_scroll
+            .set_offset(Point::new(px(0.0), px(0.0)));
 
         let remembered_remote = self
             .sftp_path_memory
@@ -195,10 +198,14 @@ impl WorkspaceApp {
             .unwrap_or_default();
         self.sftp_view.remote_path = remembered_remote.clone();
         self.sftp_view.remote_path_input = remembered_remote;
+        self.sftp_view.remote_path_completion.dismiss();
+        self.sftp_view.remote_path_completion_pending_selection = None;
         self.sftp_view.remote_files.clear();
         self.sftp_view.remote_selected.clear();
         self.sftp_view.remote_last_selected = None;
-        self.sftp_view.remote_path_scroll_x = 0.0;
+        self.sftp_view
+            .remote_path_scroll
+            .set_offset(Point::new(px(0.0), px(0.0)));
         // Keep an older node's list request serialized. Its completion will
         // release the shared in-flight slot and leave this node's request pending.
         self.request_sftp_remote_load();
@@ -302,6 +309,24 @@ impl WorkspaceApp {
                                 self.sftp_view.remote_files = listing.files;
                                 self.sftp_view.remote_selected.clear();
                                 self.sftp_view.remote_last_selected = None;
+                                if self
+                                    .sftp_view
+                                    .remote_path_completion_pending_selection
+                                    .as_ref()
+                                    .is_some_and(|(parent_path, _)| parent_path == &cwd)
+                                    && let Some((_, name)) = self
+                                        .sftp_view
+                                        .remote_path_completion_pending_selection
+                                        .take()
+                                    && self
+                                        .sftp_view
+                                        .remote_files
+                                        .iter()
+                                        .any(|entry| entry.name == name)
+                                {
+                                    self.sftp_view.remote_selected.insert(name.clone());
+                                    self.sftp_view.remote_last_selected = Some(name);
+                                }
                                 self.sftp_view.init_error = None;
                                 // GPUI still carries a session id for tab/UI compatibility, but
                                 // the real SFTP owner lives in ConnectionEntry via NodeRouter.
@@ -354,6 +379,21 @@ impl WorkspaceApp {
                                 }
                             }
                         }
+                    }
+                }
+                SftpWorkerResult::RemotePathCompletion {
+                    generation,
+                    node_id,
+                    parent_path,
+                    result,
+                } => {
+                    if self.sftp_view_node.as_ref() == Some(&node_id) {
+                        let entries = result.unwrap_or_default();
+                        changed |= self.sftp_view.remote_path_completion.apply_entries(
+                            generation,
+                            &parent_path,
+                            entries,
+                        );
                     }
                 }
                 SftpWorkerResult::TransferProgress {

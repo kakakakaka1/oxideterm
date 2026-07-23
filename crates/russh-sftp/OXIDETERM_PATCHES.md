@@ -277,10 +277,11 @@ cargo check -p oxideterm-gpui-app
 git diff --check
 ```
 
-For transfer-performance changes, also run the two optional benchmarks:
+For transfer-performance changes, also run the optional benchmarks:
 
 ```sh
 cargo bench -p russh-sftp --bench upload_benchmark
+cargo bench -p russh-sftp --bench local_transfer_benchmark
 cargo bench -p russh --features _bench --bench sftp_transport
 ```
 

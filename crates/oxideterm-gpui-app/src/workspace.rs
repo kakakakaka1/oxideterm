@@ -2,6 +2,7 @@ mod actions;
 mod ai_lazy;
 mod ai_state;
 mod app_lock;
+mod breadcrumb_scroll;
 mod browser_behavior;
 mod cloud_sync;
 mod command_palette;
@@ -21,6 +22,7 @@ mod new_connection;
 mod notification_center;
 mod onboarding;
 mod pane_tree;
+mod path_completion;
 mod plugin_host;
 mod plugin_lifecycle;
 mod plugin_manager;
@@ -72,6 +74,11 @@ use std::{
 
 use self::{
     ai_lazy::LazyAiRagStore,
+    breadcrumb_scroll::scroll_breadcrumb_by_wheel,
+    path_completion::{
+        PathCompletionCandidate, PathCompletionOwner, PathCompletionState,
+        local_path_completion_request, remote_path_completion_request,
+    },
     settings::SettingsManagedKeyDialog,
     sidebar::{ContextSidebarPanel, ContextSidebarTool},
     version_migration::VersionMigrationState,

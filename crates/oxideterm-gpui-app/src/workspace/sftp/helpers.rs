@@ -493,19 +493,39 @@ pub(in crate::workspace::sftp) async fn load_remote_sftp_listing(
     node_id: &NodeId,
     path: &str,
 ) -> Result<RemoteSftpListing, String> {
+    load_remote_sftp_listing_inner(router, node_id, path, true).await
+}
+
+pub(in crate::workspace::sftp) async fn load_remote_sftp_completion_listing(
+    router: NodeRouter,
+    node_id: &NodeId,
+    path: &str,
+) -> Result<RemoteSftpListing, String> {
+    // Typeahead is observational and must not replace the visible SFTP cwd.
+    load_remote_sftp_listing_inner(router, node_id, path, false).await
+}
+
+async fn load_remote_sftp_listing_inner(
+    router: NodeRouter,
+    node_id: &NodeId,
+    path: &str,
+    update_ready_path: bool,
+) -> Result<RemoteSftpListing, String> {
     let transfer = router
         .acquire_transfer_sftp_with_meta(node_id)
         .await
         .map_err(|error| error.to_string())?;
     match list_remote_sftp_once(&transfer.session, path).await {
         Ok(listing) => {
-            router
-                .mark_sftp_ready_from_listing(
-                    node_id,
-                    &transfer.connection_id,
-                    Some(listing.cwd.clone()),
-                )
-                .map_err(|error| error.to_string())?;
+            if update_ready_path {
+                router
+                    .mark_sftp_ready_from_listing(
+                        node_id,
+                        &transfer.connection_id,
+                        Some(listing.cwd.clone()),
+                    )
+                    .map_err(|error| error.to_string())?;
+            }
             Ok(listing)
         }
         Err(error) if error.is_channel_recoverable() => {
@@ -519,13 +539,15 @@ pub(in crate::workspace::sftp) async fn load_remote_sftp_listing(
             let listing = list_remote_sftp_once(&transfer.session, path)
                 .await
                 .map_err(|retry_error| retry_error.to_string())?;
-            router
-                .mark_sftp_ready_from_listing(
-                    node_id,
-                    &transfer.connection_id,
-                    Some(listing.cwd.clone()),
-                )
-                .map_err(|error| error.to_string())?;
+            if update_ready_path {
+                router
+                    .mark_sftp_ready_from_listing(
+                        node_id,
+                        &transfer.connection_id,
+                        Some(listing.cwd.clone()),
+                    )
+                    .map_err(|error| error.to_string())?;
+            }
             Ok(listing)
         }
         Err(error) => Err(error.to_string()),
@@ -867,38 +889,6 @@ pub(in crate::workspace::sftp) fn sftp_file_name(path: &str) -> String {
         .filter(|name| !name.is_empty())
         .unwrap_or(path)
         .to_string()
-}
-
-pub(in crate::workspace::sftp) fn sftp_breadcrumb_max_scroll(
-    segments: &[PathSegment],
-    viewport_width: f32,
-    icon_size: f32,
-) -> f32 {
-    let content_width = sftp_breadcrumb_content_width(segments, icon_size);
-    (content_width - viewport_width.max(0.0)).max(0.0)
-}
-
-fn sftp_breadcrumb_content_width(segments: &[PathSegment], icon_size: f32) -> f32 {
-    segments
-        .iter()
-        .enumerate()
-        .map(|(index, segment)| {
-            let chevron = if index > 0 { icon_size + 2.0 } else { 0.0 };
-            let root_icon = if index == 0 { icon_size + 4.0 } else { 0.0 };
-            let label = (segment.name.chars().count() as f32 * 8.0).min(120.0);
-            chevron + root_icon + label + 12.0
-        })
-        .sum()
-}
-
-pub(in crate::workspace::sftp) fn sftp_path_bar_viewport_width(window: &Window) -> f32 {
-    let viewport = f32::from(window.viewport_size().width);
-    let pane_width = ((viewport - SFTP_ROOT_PADDING * 2.0 - SFTP_GAP) / 2.0).max(0.0);
-    // Header title, toolbar icon buttons, gaps, path-bar padding and borders.
-    // This mirrors the Tauri `PathBreadcrumb className="flex-1"` slot closely
-    // enough for scroll clamping while the actual GPUI clipping still happens
-    // in the rendered path bar.
-    (pane_width - 260.0).max(80.0)
 }
 
 pub(in crate::workspace::sftp) fn format_sftp_media_time(duration: std::time::Duration) -> String {

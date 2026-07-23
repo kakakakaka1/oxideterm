@@ -565,6 +565,8 @@ impl Render for WorkspaceApp {
             .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, window, cx| {
                 this.update_sidebar_resize(event, window, cx);
                 this.update_ai_sidebar_resize(event, window, cx);
+                this.update_sftp_pane_resize(event, window, cx);
+                this.update_sftp_queue_resize(event, window, cx);
                 this.update_split_drag(event, window, cx);
                 this.update_settings_slider_drag(event, cx);
                 this.update_terminal_cast_seek_drag(event, cx);
@@ -1121,6 +1123,9 @@ impl WorkspaceApp {
             Some(browser_behavior::BrowserPointerCaptureOwner::HostToolsTabScrollbar) => {
                 CursorStyle::ClosedHand
             }
+            Some(browser_behavior::BrowserPointerCaptureOwner::SftpQueueResize) => {
+                CursorStyle::ResizeRow
+            }
             _ => CursorStyle::ResizeColumn,
         };
         div()
@@ -1138,6 +1143,8 @@ impl WorkspaceApp {
             .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, window, cx| {
                 this.update_sidebar_resize(event, window, cx);
                 this.update_ai_sidebar_resize(event, window, cx);
+                this.update_sftp_pane_resize(event, window, cx);
+                this.update_sftp_queue_resize(event, window, cx);
                 this.update_host_tools_tab_scrollbar_drag(event, cx);
                 cx.stop_propagation();
             }))
@@ -1161,6 +1168,8 @@ impl WorkspaceApp {
         let was_read_only_dragging = self.read_only_selection_drag_active();
         self.finish_sidebar_resize(cx);
         self.finish_ai_sidebar_resize(cx);
+        self.finish_sftp_pane_resize(cx);
+        self.finish_sftp_queue_resize(cx);
         self.finish_split_drag(cx);
         self.finish_settings_slider_drag(cx);
         self.finish_terminal_cast_seek_drag(cx);

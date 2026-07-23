@@ -55,8 +55,21 @@ use native_video::{SharedSftpNativeVideoSurface, sftp_native_video_element};
 
 const SFTP_ROOT_PADDING: f32 = 8.0; // Tauri p-2
 const SFTP_GAP: f32 = 8.0; // Tauri gap-2
+const SFTP_PANE_SPLIT_DEFAULT_RATIO: f32 = 0.5;
+const SFTP_PANE_SPLIT_MIN_RATIO: f32 = 0.2;
+const SFTP_PANE_SPLIT_MAX_RATIO: f32 = 0.8;
+const SFTP_PANE_SPLIT_HOTZONE_WIDTH: f32 = 14.0;
+const SFTP_QUEUE_DEFAULT_HEIGHT: f32 = 192.0; // Tauri h-48
+const SFTP_QUEUE_MIN_HEIGHT: f32 = 96.0;
+const SFTP_QUEUE_MAX_VIEWPORT_RATIO: f32 = 0.65;
+const SFTP_QUEUE_SPLIT_HOTZONE_HEIGHT: f32 = 14.0;
 const SFTP_PANE_HEADER_HEIGHT: f32 = 40.0; // Tauri h-10
-const SFTP_QUEUE_HEIGHT: f32 = 192.0; // Tauri h-48
+const SFTP_PANE_HEADER_GAP: f32 = 6.0;
+const SFTP_PANE_HEADER_TITLE_MIN_WIDTH: f32 = 32.0;
+const SFTP_PATH_BAR_HORIZONTAL_PADDING: f32 = 4.0;
+const SFTP_BREADCRUMB_ROW_GAP: f32 = 1.0;
+const SFTP_BREADCRUMB_SEGMENT_PADDING: f32 = 3.0;
+const SFTP_BREADCRUMB_CONTENT_GAP: f32 = 2.0;
 const SFTP_TRANSFER_QUEUE_LIST_INITIAL_ITEM_COUNT: usize = 0;
 const SFTP_TRANSFER_QUEUE_LIST_ESTIMATED_HEIGHT: f32 = 56.0;
 const SFTP_TRANSFER_QUEUE_LIST_OVERSCAN: usize = 6;
@@ -171,6 +184,18 @@ pub(super) enum SftpPane {
     Remote,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct SftpPaneResizeDrag {
+    start_cursor_x: Pixels,
+    start_ratio: f32,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct SftpQueueResizeDrag {
+    start_cursor_y: Pixels,
+    start_height: f32,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum SftpFileType {
     File,
@@ -214,6 +239,12 @@ pub(super) enum SftpWorkerResult {
         session_id: String,
         path: String,
         result: Result<RemoteSftpListing, String>,
+    },
+    RemotePathCompletion {
+        generation: u64,
+        node_id: NodeId,
+        parent_path: String,
+        result: Result<Vec<PathCompletionCandidate>, String>,
     },
     TransferProgress {
         id: u64,
@@ -600,6 +631,9 @@ pub(super) struct SftpViewState {
     remote_path: String,
     local_path_input: String,
     remote_path_input: String,
+    pub(in crate::workspace) local_path_completion: PathCompletionState,
+    pub(in crate::workspace) remote_path_completion: PathCompletionState,
+    remote_path_completion_pending_selection: Option<(String, String)>,
     local_filter: String,
     remote_filter: String,
     local_sort_field: SftpSortField,
@@ -610,8 +644,12 @@ pub(super) struct SftpViewState {
     remote_selected: HashSet<String>,
     local_file_scroll: UniformListScrollHandle,
     remote_file_scroll: UniformListScrollHandle,
-    local_path_scroll_x: f32,
-    remote_path_scroll_x: f32,
+    local_path_scroll: ScrollHandle,
+    remote_path_scroll: ScrollHandle,
+    pane_split_ratio: f32,
+    pane_resize_drag: Option<SftpPaneResizeDrag>,
+    queue_height: f32,
+    queue_resize_drag: Option<SftpQueueResizeDrag>,
     diff_scroll: UniformListScrollHandle,
     preview_code_scroll: UniformListScrollHandle,
     preview_markdown_scroll: MarkdownVirtualListScrollHandle,
@@ -690,6 +728,9 @@ impl Default for SftpViewState {
             active_pane: SftpPane::Remote,
             local_path_input: local_path.clone(),
             remote_path_input: remote_path.clone(),
+            local_path_completion: PathCompletionState::default(),
+            remote_path_completion: PathCompletionState::default(),
+            remote_path_completion_pending_selection: None,
             local_path: local_path.clone(),
             remote_path,
             local_filter: String::new(),
@@ -702,8 +743,12 @@ impl Default for SftpViewState {
             remote_selected: HashSet::new(),
             local_file_scroll: UniformListScrollHandle::new(),
             remote_file_scroll: UniformListScrollHandle::new(),
-            local_path_scroll_x: 0.0,
-            remote_path_scroll_x: 0.0,
+            local_path_scroll: ScrollHandle::new(),
+            remote_path_scroll: ScrollHandle::new(),
+            pane_split_ratio: SFTP_PANE_SPLIT_DEFAULT_RATIO,
+            pane_resize_drag: None,
+            queue_height: SFTP_QUEUE_DEFAULT_HEIGHT,
+            queue_resize_drag: None,
             diff_scroll: UniformListScrollHandle::new(),
             preview_code_scroll: UniformListScrollHandle::new(),
             preview_markdown_scroll: MarkdownVirtualListScrollHandle::new(),
@@ -830,6 +875,14 @@ impl SftpViewState {
         // both panes still clears the candidate and autoscroll state.
         self.drag_state.is_some() || self.drag_over_pane.is_some()
     }
+
+    pub(super) fn pane_resize_active(&self) -> bool {
+        self.pane_resize_drag.is_some()
+    }
+
+    pub(super) fn queue_resize_active(&self) -> bool {
+        self.queue_resize_drag.is_some()
+    }
 }
 
 // Keep each SFTP responsibility in a real module while preserving this file as the facade.
@@ -838,6 +891,7 @@ mod controls;
 mod dialogs;
 mod file_list;
 mod helpers;
+mod layout;
 mod menus;
 mod runtime;
 mod surface;
@@ -848,15 +902,15 @@ pub(in crate::workspace::sftp) use actions::sftp_extract_archive_kind;
 use helpers::{
     diff_cell, format_conflict_modified, format_file_size, format_modified, format_sftp_media_time,
     format_transfer_speed, home_path, is_sftp_incomplete_store_compat_error, join_local_path,
-    join_sftp_path, list_local_files, load_remote_sftp_listing, load_remote_sftp_preview,
-    load_remote_sftp_preview_hex, local_drives, new_sftp_transfer_id,
-    normalize_external_dropped_path, normalize_remote_path, parent_path, preview_content_text,
-    refreshed_local_files, remote_directory_prefixes, save_remote_sftp_preview, sftp_bg,
-    sftp_border, sftp_breadcrumb_max_scroll, sftp_card_surface,
+    join_sftp_path, list_local_files, load_remote_sftp_completion_listing,
+    load_remote_sftp_listing, load_remote_sftp_preview, load_remote_sftp_preview_hex, local_drives,
+    new_sftp_transfer_id, normalize_external_dropped_path, normalize_remote_path, parent_path,
+    preview_content_text, refreshed_local_files, remote_directory_prefixes,
+    save_remote_sftp_preview, sftp_bg, sftp_border, sftp_card_surface,
     sftp_conflict_resolution_from_settings, sftp_diff_visual_lines, sftp_editor_language,
-    sftp_editor_language_id, sftp_file_name, sftp_hover_bg, sftp_panel_bg,
-    sftp_path_bar_viewport_width, sftp_path_segments, sftp_preview_editor_is_network_error,
-    sftp_preview_is_markdown, sftp_preview_visual_lines, sftp_source_not_newer_than_target,
-    sftp_transfer_conflicts, sftp_transfer_state_from_background, sftp_transfer_state_from_remote,
-    sorted_sftp_files, unique_sftp_conflict_name,
+    sftp_editor_language_id, sftp_file_name, sftp_hover_bg, sftp_panel_bg, sftp_path_segments,
+    sftp_preview_editor_is_network_error, sftp_preview_is_markdown, sftp_preview_visual_lines,
+    sftp_source_not_newer_than_target, sftp_transfer_conflicts,
+    sftp_transfer_state_from_background, sftp_transfer_state_from_remote, sorted_sftp_files,
+    unique_sftp_conflict_name,
 };

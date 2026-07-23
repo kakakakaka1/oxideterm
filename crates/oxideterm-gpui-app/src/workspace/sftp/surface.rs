@@ -23,6 +23,7 @@ impl WorkspaceApp {
             return self.render_empty_workspace(cx);
         };
         let has_background = self.background_surface_active("sftp");
+        let queue_height = self.sftp_queue_height_for_window(window);
         let node_title = self
             .ssh_nodes
             .get(&node_id)
@@ -57,49 +58,117 @@ impl WorkspaceApp {
                 div()
                     .flex_1()
                     .min_h(px(0.0))
-                    .flex()
-                    .flex_row()
-                    .gap(px(SFTP_GAP))
-                    .child(self.render_sftp_pane(
-                        SftpPane::Local,
-                        self.i18n.t("sftp.file_list.local"),
-                        &self.sftp_view.local_path,
-                        &self.sftp_view.local_filter,
-                        self.sftp_view.local_sort_field,
-                        self.sftp_view.local_sort_direction,
-                        &self.sftp_view.local_files,
-                        &self.sftp_view.local_selected,
-                        self.sftp_view.editing_local_path,
-                        &self.sftp_view.local_path_input,
-                        self.sftp_view.focused_input,
-                        false,
-                        has_background,
-                        window,
-                        cx,
-                    ))
+                    .relative()
                     .child(
-                        self.render_sftp_pane(
-                            SftpPane::Remote,
-                            self.i18n
-                                .t("sftp.file_list.remote")
-                                .replace("{{host}}", node_title),
-                            &self.sftp_view.remote_path,
-                            &self.sftp_view.remote_filter,
-                            self.sftp_view.remote_sort_field,
-                            self.sftp_view.remote_sort_direction,
-                            &self.sftp_view.remote_files,
-                            &self.sftp_view.remote_selected,
-                            self.sftp_view.editing_remote_path,
-                            &self.sftp_view.remote_path_input,
-                            self.sftp_view.focused_input,
-                            self.sftp_view.remote_loading,
-                            has_background,
-                            window,
-                            cx,
-                        ),
+                        div()
+                            .absolute()
+                            .top_0()
+                            .bottom_0()
+                            .left_0()
+                            .right(relative(1.0 - self.sftp_view.pane_split_ratio))
+                            .pr(px(SFTP_GAP / 2.0))
+                            .flex()
+                            .child(self.render_sftp_pane(
+                                SftpPane::Local,
+                                self.i18n.t("sftp.file_list.local"),
+                                &self.sftp_view.local_path,
+                                &self.sftp_view.local_filter,
+                                self.sftp_view.local_sort_field,
+                                self.sftp_view.local_sort_direction,
+                                &self.sftp_view.local_files,
+                                &self.sftp_view.local_selected,
+                                self.sftp_view.editing_local_path,
+                                &self.sftp_view.local_path_input,
+                                self.sftp_view.focused_input,
+                                false,
+                                has_background,
+                                window,
+                                cx,
+                            )),
+                    )
+                    .child(
+                        div()
+                            .absolute()
+                            .top_0()
+                            .bottom_0()
+                            .left(relative(self.sftp_view.pane_split_ratio))
+                            .right_0()
+                            .pl(px(SFTP_GAP / 2.0))
+                            .flex()
+                            .child(
+                                self.render_sftp_pane(
+                                    SftpPane::Remote,
+                                    self.i18n
+                                        .t("sftp.file_list.remote")
+                                        .replace("{{host}}", node_title),
+                                    &self.sftp_view.remote_path,
+                                    &self.sftp_view.remote_filter,
+                                    self.sftp_view.remote_sort_field,
+                                    self.sftp_view.remote_sort_direction,
+                                    &self.sftp_view.remote_files,
+                                    &self.sftp_view.remote_selected,
+                                    self.sftp_view.editing_remote_path,
+                                    &self.sftp_view.remote_path_input,
+                                    self.sftp_view.focused_input,
+                                    self.sftp_view.remote_loading,
+                                    has_background,
+                                    window,
+                                    cx,
+                                ),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .id("sftp-pane-resize-handle")
+                            .absolute()
+                            .top_0()
+                            .bottom_0()
+                            .left(relative(self.sftp_view.pane_split_ratio))
+                            .ml(px(-SFTP_PANE_SPLIT_HOTZONE_WIDTH / 2.0))
+                            .w(px(SFTP_PANE_SPLIT_HOTZONE_WIDTH))
+                            .cursor(CursorStyle::ResizeColumn)
+                            // The hotzone covers both pane borders and the gap between them.
+                            .occlude()
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(|this, event: &MouseDownEvent, window, cx| {
+                                    if event.click_count >= 2 {
+                                        this.reset_sftp_pane_split(cx);
+                                    } else {
+                                        this.start_sftp_pane_resize(event, cx);
+                                    }
+                                    window.prevent_default();
+                                    cx.stop_propagation();
+                                }),
+                            ),
                     ),
             )
-            .child(self.render_sftp_transfer_queue(has_background, cx));
+            .child(self.render_sftp_transfer_queue(queue_height, has_background, cx))
+            .child(
+                div()
+                    .id("sftp-queue-resize-handle")
+                    .absolute()
+                    .left(px(SFTP_ROOT_PADDING))
+                    .right(px(SFTP_ROOT_PADDING))
+                    .bottom(px(SFTP_ROOT_PADDING + queue_height
+                        - (SFTP_QUEUE_SPLIT_HOTZONE_HEIGHT - SFTP_GAP) / 2.0))
+                    .h(px(SFTP_QUEUE_SPLIT_HOTZONE_HEIGHT))
+                    .cursor(CursorStyle::ResizeRow)
+                    // The hotzone spans the file-area border, gap, and queue border.
+                    .occlude()
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, event: &MouseDownEvent, window, cx| {
+                            if event.click_count >= 2 {
+                                this.reset_sftp_queue_height(window, cx);
+                            } else {
+                                this.start_sftp_queue_resize(event, window, cx);
+                            }
+                            window.prevent_default();
+                            cx.stop_propagation();
+                        }),
+                    ),
+            );
 
         if let Some(generation) = self.sftp_view.context_menu_exit_generation {
             let delay = oxideterm_gpui_ui::motion::duration(
@@ -123,6 +192,18 @@ impl WorkspaceApp {
             && let Some(menu) = self.sftp_view.context_menu.clone()
         {
             root = root.child(self.render_sftp_context_menu(menu, window, has_background, cx));
+        }
+        if self.sftp_view.dialog.is_none() {
+            let completion_owner = match self.sftp_view.focused_input {
+                Some(SftpInput::LocalPath) => Some(PathCompletionOwner::SftpLocal),
+                Some(SftpInput::RemotePath) => Some(PathCompletionOwner::SftpRemote),
+                _ => None,
+            };
+            if let Some(owner) = completion_owner
+                && let Some(completion) = self.render_path_completion_overlay(owner, cx)
+            {
+                root = root.child(completion);
+            }
         }
 
         root.into_any_element()
@@ -251,7 +332,7 @@ impl WorkspaceApp {
             .flex()
             .flex_row()
             .items_center()
-            .gap(px(8.0))
+            .gap(px(SFTP_PANE_HEADER_GAP))
             .p(px(8.0))
             .border_b_1()
             .border_color(if active {
@@ -266,7 +347,7 @@ impl WorkspaceApp {
             })
             .child(
                 div()
-                    .min_w(px(48.0))
+                    .min_w(px(SFTP_PANE_HEADER_TITLE_MIN_WIDTH))
                     .text_size(px(SFTP_TEXT_XS))
                     .font_weight(gpui::FontWeight::SEMIBOLD)
                     .text_color(rgb(theme.text_muted))
@@ -381,7 +462,7 @@ impl WorkspaceApp {
             .flex_row()
             .items_center()
             .gap(px(4.0))
-            .px(px(8.0))
+            .px(px(SFTP_PATH_BAR_HORIZONTAL_PADDING))
             .py(px(2.0))
             .rounded(px(self.tokens.radii.sm))
             .border_1()
@@ -480,29 +561,21 @@ impl WorkspaceApp {
         &self,
         pane: SftpPane,
         path: &str,
-        window: &mut Window,
+        _window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = self.tokens.ui;
         let segments = sftp_path_segments(path, pane == SftpPane::Remote);
-        let max_scroll = sftp_breadcrumb_max_scroll(
-            &segments,
-            sftp_path_bar_viewport_width(window),
-            SFTP_ICON_MD,
-        );
-        let scroll_x = match pane {
-            SftpPane::Local => self.sftp_view.local_path_scroll_x,
-            SftpPane::Remote => self.sftp_view.remote_path_scroll_x,
-        }
-        .clamp(0.0, max_scroll);
+        let scroll_handle = match pane {
+            SftpPane::Local => &self.sftp_view.local_path_scroll,
+            SftpPane::Remote => &self.sftp_view.remote_path_scroll,
+        };
         let mut inner = div()
             .flex_none()
-            .relative()
-            .left(px(-scroll_x))
             .flex()
             .flex_row()
             .items_center()
-            .gap(px(2.0));
+            .gap(px(SFTP_BREADCRUMB_ROW_GAP));
         for (index, segment) in segments.iter().cloned().enumerate() {
             if index > 0 {
                 inner = inner.child(Self::render_lucide_icon(
@@ -526,11 +599,11 @@ impl WorkspaceApp {
                 div()
                     .max_w(px(120.0))
                     .h(px(20.0))
-                    .px(px(6.0))
+                    .px(px(SFTP_BREADCRUMB_SEGMENT_PADDING))
                     .flex()
                     .flex_row()
                     .items_center()
-                    .gap(px(4.0))
+                    .gap(px(SFTP_BREADCRUMB_CONTENT_GAP))
                     .rounded(px(self.tokens.radii.sm))
                     .bg(if is_last {
                         rgba((theme.bg_hover << 8) | SFTP_BREADCRUMB_ACTIVE_ALPHA)
@@ -580,23 +653,25 @@ impl WorkspaceApp {
         }
 
         div()
+            .id(match pane {
+                SftpPane::Local => "sftp-local-breadcrumb-scroll",
+                SftpPane::Remote => "sftp-remote-breadcrumb-scroll",
+            })
             .flex_1()
             .min_w(px(0.0))
             .flex()
             .flex_row()
             .items_center()
             .overflow_hidden()
+            .track_scroll(scroll_handle)
             .text_size(px(SFTP_TEXT_SM))
             .on_scroll_wheel(
-                cx.listener(move |this, event: &ScrollWheelEvent, window, cx| {
-                    this.handle_sftp_breadcrumb_scroll(pane, event, window, cx);
+                cx.listener(move |this, event: &ScrollWheelEvent, _window, cx| {
+                    this.handle_sftp_breadcrumb_scroll(pane, event, cx);
                 }),
             )
             .child(
-                // Tauri PathBreadcrumb is `overflow-x-auto`. GPUI's native
-                // scroll container does not expose the same hidden scrollbar
-                // shape here, so we preserve the user-visible horizontal scroll
-                // by translating the full breadcrumb row inside the clipped bar.
+                // Track the direct content row so GPUI measures the real overflow width.
                 inner,
             )
             .into_any_element()
@@ -865,8 +940,17 @@ impl WorkspaceApp {
                 },
             )),
             move |anchor, _window, cx| {
-                let _ = workspace.update(cx, |this, _cx| {
-                    this.text_input_anchors.insert(anchor.id, anchor);
+                workspace.update(cx, |this, cx| {
+                    let owner = match input {
+                        SftpInput::LocalPath => Some(PathCompletionOwner::SftpLocal),
+                        SftpInput::RemotePath => Some(PathCompletionOwner::SftpRemote),
+                        _ => None,
+                    };
+                    if let Some(owner) = owner {
+                        this.update_path_completion_anchor(owner, anchor, cx);
+                    } else {
+                        this.update_text_input_anchor(anchor, cx);
+                    }
                 });
             },
         )

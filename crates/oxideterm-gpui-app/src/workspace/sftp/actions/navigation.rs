@@ -69,6 +69,12 @@ impl WorkspaceApp {
             if self.handle_active_text_input_edit_shortcut(&event.keystroke, cx) {
                 return true;
             }
+            if matches!(input, SftpInput::LocalPath | SftpInput::RemotePath)
+                && self.handle_sftp_path_completion_key(input, event)
+            {
+                cx.notify();
+                return true;
+            }
             match key {
                 "tab"
                     if !event.keystroke.modifiers.platform
@@ -247,7 +253,10 @@ impl WorkspaceApp {
     pub(in crate::workspace::sftp) fn set_sftp_path(&mut self, pane: SftpPane, path: String) {
         match pane {
             SftpPane::Local => {
-                self.sftp_view.local_path_scroll_x = 0.0;
+                self.sftp_view.local_path_completion.dismiss();
+                self.sftp_view
+                    .local_path_scroll
+                    .set_offset(Point::new(px(0.0), px(0.0)));
                 self.sftp_view.local_path = path.clone();
                 self.sftp_view.local_path_input = path.clone();
                 if let Some(node_id) = self.sftp_view_node.clone() {
@@ -259,7 +268,11 @@ impl WorkspaceApp {
                 self.sftp_view.local_last_selected = None;
             }
             SftpPane::Remote => {
-                self.sftp_view.remote_path_scroll_x = 0.0;
+                self.sftp_view.remote_path_completion.dismiss();
+                self.sftp_view.remote_path_completion_pending_selection = None;
+                self.sftp_view
+                    .remote_path_scroll
+                    .set_offset(Point::new(px(0.0), px(0.0)));
                 self.sftp_view.remote_path = path.clone();
                 self.sftp_view.remote_path_input = path;
                 self.sftp_view.editing_remote_path = false;
@@ -278,6 +291,7 @@ impl WorkspaceApp {
         // yet, so Tab/Escape restore the current committed path explicitly.
         match pane {
             SftpPane::Local => {
+                self.sftp_view.local_path_completion.dismiss();
                 self.sftp_view.local_path_input = self.sftp_view.local_path.clone();
                 self.sftp_view.editing_local_path = false;
                 if self.sftp_view.focused_input == Some(SftpInput::LocalPath) {
@@ -285,6 +299,7 @@ impl WorkspaceApp {
                 }
             }
             SftpPane::Remote => {
+                self.sftp_view.remote_path_completion.dismiss();
                 self.sftp_view.remote_path_input = self.sftp_view.remote_path.clone();
                 self.sftp_view.editing_remote_path = false;
                 if self.sftp_view.focused_input == Some(SftpInput::RemotePath) {
@@ -315,11 +330,13 @@ impl WorkspaceApp {
         self.sftp_view.active_pane = pane;
         match pane {
             SftpPane::Local => {
+                self.sftp_view.local_path_completion.dismiss();
                 self.sftp_view.editing_local_path = true;
                 self.sftp_view.local_path_input = self.sftp_view.local_path.clone();
                 self.sftp_view.focused_input = Some(SftpInput::LocalPath);
             }
             SftpPane::Remote => {
+                self.sftp_view.remote_path_completion.dismiss();
                 self.sftp_view.editing_remote_path = true;
                 self.sftp_view.remote_path_input = self.sftp_view.remote_path.clone();
                 self.sftp_view.focused_input = Some(SftpInput::RemotePath);
@@ -327,49 +344,189 @@ impl WorkspaceApp {
         }
     }
 
+    /// Refreshes local or remote path suggestions without creating an independent SSH owner.
+    pub(in crate::workspace) fn refresh_sftp_path_completion(&mut self, input: SftpInput) {
+        match input {
+            SftpInput::LocalPath => self.refresh_sftp_local_path_completion(),
+            SftpInput::RemotePath => self.refresh_sftp_remote_path_completion(),
+            SftpInput::LocalFilter | SftpInput::RemoteFilter | SftpInput::DialogValue => {}
+        }
+    }
+
+    fn refresh_sftp_local_path_completion(&mut self) {
+        let Some(request) = local_path_completion_request(&self.sftp_view.local_path_input) else {
+            self.sftp_view.local_path_completion.dismiss();
+            return;
+        };
+        let Some((generation, parent_path)) = self.sftp_view.local_path_completion.request(request)
+        else {
+            return;
+        };
+        let entries = list_local_files(&parent_path)
+            .unwrap_or_default()
+            .into_iter()
+            .map(sftp_path_completion_candidate)
+            .collect();
+        self.sftp_view
+            .local_path_completion
+            .apply_entries(generation, &parent_path, entries);
+    }
+
+    fn refresh_sftp_remote_path_completion(&mut self) {
+        let Some(request) = remote_path_completion_request(&self.sftp_view.remote_path_input)
+        else {
+            self.sftp_view.remote_path_completion.dismiss();
+            return;
+        };
+        let Some((generation, parent_path)) =
+            self.sftp_view.remote_path_completion.request(request)
+        else {
+            return;
+        };
+
+        if parent_path == self.sftp_view.remote_path && !self.sftp_view.remote_loading {
+            let entries = self
+                .sftp_view
+                .remote_files
+                .iter()
+                .cloned()
+                .map(sftp_path_completion_candidate)
+                .collect();
+            self.sftp_view
+                .remote_path_completion
+                .apply_entries(generation, &parent_path, entries);
+            return;
+        }
+
+        let Some(node_id) = self.sftp_view_node.clone() else {
+            self.sftp_view.remote_path_completion.apply_entries(
+                generation,
+                &parent_path,
+                Vec::new(),
+            );
+            return;
+        };
+        let tx = self.sftp_worker_tx.clone();
+        let runtime = self.forwarding_runtime.clone();
+        let router = self.node_router.clone();
+        runtime.spawn(async move {
+            // Completion borrows a transfer SFTP channel from the node-owned router.
+            let result = load_remote_sftp_completion_listing(router, &node_id, &parent_path)
+                .await
+                .map(|listing| {
+                    listing
+                        .files
+                        .into_iter()
+                        .map(sftp_path_completion_candidate)
+                        .collect()
+                });
+            let _ = tx.send(SftpWorkerResult::RemotePathCompletion {
+                generation,
+                node_id,
+                parent_path,
+                result,
+            });
+        });
+    }
+
+    pub(in crate::workspace) fn accept_sftp_path_completion(
+        &mut self,
+        pane: SftpPane,
+        index: usize,
+    ) {
+        let state = match pane {
+            SftpPane::Local => &self.sftp_view.local_path_completion,
+            SftpPane::Remote => &self.sftp_view.remote_path_completion,
+        };
+        let Some(candidate) = state.candidate(index).cloned() else {
+            return;
+        };
+        let parent_path = state
+            .parent_path()
+            .map(str::to_string)
+            .unwrap_or_else(|| match pane {
+                SftpPane::Local => self.sftp_view.local_path.clone(),
+                SftpPane::Remote => self.sftp_view.remote_path.clone(),
+            });
+
+        if candidate.is_directory {
+            self.set_sftp_path(pane, candidate.path);
+            return;
+        }
+        self.set_sftp_path(pane, parent_path.clone());
+        match pane {
+            SftpPane::Local => {
+                if self
+                    .sftp_view
+                    .local_files
+                    .iter()
+                    .any(|entry| entry.name == candidate.name)
+                {
+                    self.sftp_view.local_selected.insert(candidate.name.clone());
+                    self.sftp_view.local_last_selected = Some(candidate.name);
+                }
+            }
+            SftpPane::Remote => {
+                // The parent listing arrives asynchronously; apply selection with that result.
+                self.sftp_view.remote_path_completion_pending_selection =
+                    Some((parent_path, candidate.name));
+            }
+        }
+    }
+
+    fn handle_sftp_path_completion_key(&mut self, input: SftpInput, event: &KeyDownEvent) -> bool {
+        if event.keystroke.modifiers.platform
+            || event.keystroke.modifiers.control
+            || event.keystroke.modifiers.alt
+        {
+            return false;
+        }
+        let pane = if input == SftpInput::LocalPath {
+            SftpPane::Local
+        } else {
+            SftpPane::Remote
+        };
+        let state = match pane {
+            SftpPane::Local => &mut self.sftp_view.local_path_completion,
+            SftpPane::Remote => &mut self.sftp_view.remote_path_completion,
+        };
+        if !state.is_visible() {
+            return false;
+        }
+        match event.keystroke.key.as_str() {
+            "up" | "arrowup" => state.move_selection(-1),
+            "down" | "arrowdown" => state.move_selection(1),
+            "enter" | "tab" => {
+                let index = state.selected_index();
+                self.accept_sftp_path_completion(pane, index);
+                true
+            }
+            "escape" => {
+                state.dismiss();
+                true
+            }
+            _ => false,
+        }
+    }
+
     pub(in crate::workspace::sftp) fn handle_sftp_breadcrumb_scroll(
         &mut self,
         pane: SftpPane,
         event: &ScrollWheelEvent,
-        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let delta = event.delta.pixel_delta(px(SFTP_PANE_HEADER_HEIGHT));
-        let horizontal = if f32::from(delta.x).abs() > f32::from(delta.y).abs() {
-            f32::from(delta.x)
-        } else {
-            f32::from(delta.y)
+        let scroll_handle = match pane {
+            SftpPane::Local => &self.sftp_view.local_path_scroll,
+            SftpPane::Remote => &self.sftp_view.remote_path_scroll,
         };
-        if horizontal == 0.0 {
-            return;
-        }
-
-        let path = match pane {
-            SftpPane::Local => &self.sftp_view.local_path,
-            SftpPane::Remote => &self.sftp_view.remote_path,
-        };
-        let segments = sftp_path_segments(path, pane == SftpPane::Remote);
-        let max_scroll = sftp_breadcrumb_max_scroll(
-            &segments,
-            sftp_path_bar_viewport_width(window),
-            SFTP_ICON_MD,
-        );
-        if max_scroll <= 0.0 {
-            return;
-        }
-
-        let scroll = match pane {
-            SftpPane::Local => &mut self.sftp_view.local_path_scroll_x,
-            SftpPane::Remote => &mut self.sftp_view.remote_path_scroll_x,
-        };
-        let next_scroll = (*scroll + horizontal).clamp(0.0, max_scroll);
-        if (next_scroll - *scroll).abs() < f32::EPSILON {
+        if let Some(changed) =
+            scroll_breadcrumb_by_wheel(scroll_handle, event, px(SFTP_PANE_HEADER_HEIGHT))
+        {
             cx.stop_propagation();
-            return;
+            if changed {
+                cx.notify();
+            }
         }
-        *scroll = next_scroll;
-        cx.stop_propagation();
-        cx.notify();
     }
 
     pub(in crate::workspace::sftp) fn commit_sftp_path_input(&mut self, pane: SftpPane) {
@@ -767,5 +924,13 @@ impl WorkspaceApp {
             SftpPane::Remote => &self.sftp_view.remote_files,
         };
         files.iter().find(|file| &file.name == name).cloned()
+    }
+}
+
+fn sftp_path_completion_candidate(entry: SftpFileEntry) -> PathCompletionCandidate {
+    PathCompletionCandidate {
+        name: entry.name,
+        path: entry.path,
+        is_directory: entry.file_type == SftpFileType::Directory,
     }
 }

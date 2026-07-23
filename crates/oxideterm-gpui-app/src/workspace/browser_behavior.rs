@@ -435,6 +435,8 @@ pub(crate) fn modal_footer_key_moves_forward(key: &str, shift: bool) -> bool {
 pub(crate) enum BrowserPointerCaptureOwner {
     SidebarResize,
     AiSidebarResize,
+    SftpPaneResize,
+    SftpQueueResize,
     PaneSplitter,
     SettingsSlider,
     TerminalCastSeekbar,
@@ -454,6 +456,8 @@ pub(crate) struct BrowserOverlayPlacement {
 struct BrowserPointerCaptureState {
     sidebar_resizing: bool,
     ai_sidebar_resizing: bool,
+    sftp_pane_resizing: bool,
+    sftp_queue_resizing: bool,
     pane_splitter_dragging: bool,
     settings_slider_dragging: bool,
     terminal_cast_seekbar_dragging: bool,
@@ -508,6 +512,8 @@ pub(crate) fn pointer_capture_needs_workspace_overlay(owner: BrowserPointerCaptu
         owner,
         BrowserPointerCaptureOwner::SidebarResize
             | BrowserPointerCaptureOwner::AiSidebarResize
+            | BrowserPointerCaptureOwner::SftpPaneResize
+            | BrowserPointerCaptureOwner::SftpQueueResize
             | BrowserPointerCaptureOwner::HostToolsTabScrollbar
     )
 }
@@ -517,6 +523,8 @@ impl WorkspaceApp {
         resolve_browser_pointer_capture_owner(BrowserPointerCaptureState {
             sidebar_resizing: self.sidebar_resizing,
             ai_sidebar_resizing: self.ai.chat.sidebar_resizing,
+            sftp_pane_resizing: self.sftp_view.pane_resize_active(),
+            sftp_queue_resizing: self.sftp_view.queue_resize_active(),
             pane_splitter_dragging: self.split_drag.is_some(),
             settings_slider_dragging: self.settings_slider_drag.is_some(),
             terminal_cast_seekbar_dragging: self.terminal_cast_seek_dragging,
@@ -538,6 +546,10 @@ fn resolve_browser_pointer_capture_owner(
         Some(BrowserPointerCaptureOwner::SidebarResize)
     } else if state.ai_sidebar_resizing {
         Some(BrowserPointerCaptureOwner::AiSidebarResize)
+    } else if state.sftp_pane_resizing {
+        Some(BrowserPointerCaptureOwner::SftpPaneResize)
+    } else if state.sftp_queue_resizing {
+        Some(BrowserPointerCaptureOwner::SftpQueueResize)
     } else if state.pane_splitter_dragging {
         Some(BrowserPointerCaptureOwner::PaneSplitter)
     } else if state.settings_slider_dragging {
@@ -639,6 +651,12 @@ mod tests {
         ));
         assert!(pointer_capture_needs_workspace_overlay(
             BrowserPointerCaptureOwner::AiSidebarResize
+        ));
+        assert!(pointer_capture_needs_workspace_overlay(
+            BrowserPointerCaptureOwner::SftpPaneResize
+        ));
+        assert!(pointer_capture_needs_workspace_overlay(
+            BrowserPointerCaptureOwner::SftpQueueResize
         ));
         assert!(pointer_capture_needs_workspace_overlay(
             BrowserPointerCaptureOwner::HostToolsTabScrollbar

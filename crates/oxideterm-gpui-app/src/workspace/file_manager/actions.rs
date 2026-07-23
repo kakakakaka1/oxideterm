@@ -116,6 +116,12 @@ impl WorkspaceApp {
             if self.handle_active_text_input_edit_shortcut(&event.keystroke, cx) {
                 return true;
             }
+            if input == FileManagerInput::Path
+                && self.handle_file_manager_path_completion_key(event)
+            {
+                cx.notify();
+                return true;
+            }
             match key {
                 "tab"
                     if !event.keystroke.modifiers.platform
@@ -357,6 +363,10 @@ impl WorkspaceApp {
         let normalized = normalize_local_path(&path);
         self.file_manager.path = normalized.clone();
         self.file_manager.path_input = normalized;
+        self.file_manager.path_completion.dismiss();
+        self.file_manager
+            .path_scroll
+            .set_offset(Point::new(px(0.0), px(0.0)));
         self.file_manager.editing_path = false;
         self.file_manager.focused_input = None;
         self.file_manager.selected.clear();
@@ -364,6 +374,23 @@ impl WorkspaceApp {
         self.dismiss_file_manager_context_menu();
         self.file_manager.list_scroll = UniformListScrollHandle::new();
         self.refresh_file_manager();
+    }
+
+    pub(in crate::workspace::file_manager) fn handle_file_manager_breadcrumb_scroll(
+        &mut self,
+        event: &ScrollWheelEvent,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(changed) = scroll_breadcrumb_by_wheel(
+            &self.file_manager.path_scroll,
+            event,
+            px(FILE_MANAGER_HEADER_HEIGHT),
+        ) {
+            cx.stop_propagation();
+            if changed {
+                cx.notify();
+            }
+        }
     }
 
     pub(super) fn commit_file_manager_path_input(&mut self) {
@@ -408,6 +435,7 @@ impl WorkspaceApp {
 
     pub(super) fn cancel_file_manager_path_edit(&mut self) {
         self.file_manager.path_input = self.file_manager.path.clone();
+        self.file_manager.path_completion.dismiss();
         if self.file_manager.focused_input == Some(FileManagerInput::Path) {
             self.file_manager.focused_input = None;
         }
@@ -518,6 +546,93 @@ impl WorkspaceApp {
         } else if self.file_manager.focused_input == Some(FileManagerInput::Filter) {
             self.file_manager.focused_input = None;
             self.ime_marked_text = None;
+        }
+    }
+
+    /// Refreshes path suggestions from one cached parent-directory listing.
+    pub(in crate::workspace) fn refresh_file_manager_path_completion(&mut self) {
+        let Some(request) = local_path_completion_request(&self.file_manager.path_input) else {
+            self.file_manager.path_completion.dismiss();
+            return;
+        };
+        let Some((generation, parent_path)) = self.file_manager.path_completion.request(request)
+        else {
+            return;
+        };
+        let entries = list_local_files(&parent_path)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|entry| {
+                let is_directory = entry.is_directory_like();
+                PathCompletionCandidate {
+                    name: entry.name,
+                    path: entry.path,
+                    is_directory,
+                }
+            })
+            .collect();
+        self.file_manager
+            .path_completion
+            .apply_entries(generation, &parent_path, entries);
+    }
+
+    pub(in crate::workspace) fn accept_file_manager_path_completion(
+        &mut self,
+        index: usize,
+        _cx: &mut Context<Self>,
+    ) {
+        self.accept_file_manager_path_completion_without_context(index);
+    }
+
+    fn handle_file_manager_path_completion_key(&mut self, event: &KeyDownEvent) -> bool {
+        if !self.file_manager.path_completion.is_visible()
+            || event.keystroke.modifiers.platform
+            || event.keystroke.modifiers.control
+            || event.keystroke.modifiers.alt
+        {
+            return false;
+        }
+        match event.keystroke.key.as_str() {
+            "up" | "arrowup" => self.file_manager.path_completion.move_selection(-1),
+            "down" | "arrowdown" => self.file_manager.path_completion.move_selection(1),
+            "enter" | "tab" => {
+                let index = self.file_manager.path_completion.selected_index();
+                self.accept_file_manager_path_completion_without_context(index);
+                true
+            }
+            "escape" => {
+                self.file_manager.path_completion.dismiss();
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn accept_file_manager_path_completion_without_context(&mut self, index: usize) {
+        let Some(candidate) = self.file_manager.path_completion.candidate(index).cloned() else {
+            return;
+        };
+        let parent_path = self
+            .file_manager
+            .path_completion
+            .parent_path()
+            .map(str::to_string)
+            .unwrap_or_else(|| self.file_manager.path.clone());
+        self.file_manager.path_completion.dismiss();
+        if candidate.is_directory {
+            self.set_file_manager_path(candidate.path);
+        } else {
+            // File suggestions navigate to their parent and preserve the intended row selection.
+            self.set_file_manager_path(parent_path);
+            if self
+                .file_manager
+                .files
+                .iter()
+                .any(|entry| entry.name == candidate.name)
+            {
+                self.file_manager.selected.insert(candidate.name.clone());
+                self.file_manager.last_selected = Some(candidate.name);
+            }
         }
     }
 

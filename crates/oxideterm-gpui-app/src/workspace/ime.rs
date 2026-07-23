@@ -2338,6 +2338,9 @@ impl WorkspaceApp {
                         replacement_range,
                         text,
                     );
+                    if input == FileManagerInput::Path {
+                        self.refresh_file_manager_path_completion();
+                    }
                     self.new_connection_caret_visible = true;
                     cx.notify();
                 }
@@ -2426,6 +2429,9 @@ impl WorkspaceApp {
             WorkspaceImeTarget::Sftp(input) => {
                 if self.sftp_view.focused_input == Some(input) {
                     replace_utf16(self.sftp_input_value_mut(input), replacement_range, text);
+                    if matches!(input, SftpInput::LocalPath | SftpInput::RemotePath) {
+                        self.refresh_sftp_path_completion(input);
+                    }
                     self.new_connection_caret_visible = true;
                     cx.notify();
                 }
