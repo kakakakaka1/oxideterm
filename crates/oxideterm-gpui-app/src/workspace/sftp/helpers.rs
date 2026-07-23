@@ -56,6 +56,19 @@ pub(in crate::workspace::sftp) fn list_local_files(
         .map(|files| files.into_iter().map(sftp_file_entry_from_local).collect())
 }
 
+pub(in crate::workspace::sftp) fn refreshed_local_files(path: &str) -> Vec<SftpFileEntry> {
+    // Keep navigation and explicit refresh failures visible in the file pane.
+    list_local_files(path).unwrap_or_else(|error| {
+        vec![sftp_file_entry(
+            format!("Unable to read folder: {error}"),
+            path.to_string(),
+            SftpFileType::File,
+            0,
+            None,
+        )]
+    })
+}
+
 pub(in crate::workspace::sftp) fn local_drives() -> Vec<SftpDrive> {
     oxideterm_local_files::local_drives()
         .into_iter()
@@ -945,6 +958,29 @@ pub(in crate::workspace::sftp) fn diff_cell(
 #[cfg(test)]
 mod sftp_helper_tests {
     use super::*;
+
+    #[test]
+    fn refreshed_local_files_reads_the_directory_again() {
+        let directory =
+            std::env::temp_dir().join(format!("oxideterm-sftp-refresh-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&directory).expect("temporary directory should be created");
+        let path = directory.to_string_lossy();
+
+        let initial_files = refreshed_local_files(&path);
+        std::fs::write(directory.join("country.mmdb"), b"test")
+            .expect("fixture file should be created");
+        let refreshed_files = refreshed_local_files(&path);
+
+        assert!(!initial_files.iter().any(|file| file.name == "country.mmdb"));
+        assert!(
+            refreshed_files
+                .iter()
+                .any(|file| file.name == "country.mmdb")
+        );
+
+        // The generated UUID keeps cleanup scoped to this test's directory.
+        std::fs::remove_dir_all(&directory).expect("temporary directory should be removed");
+    }
 
     #[test]
     fn modified_date_matches_tauri_seconds_contract() {

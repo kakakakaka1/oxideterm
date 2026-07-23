@@ -96,8 +96,14 @@ impl WorkspaceApp {
             LucideIcon::RefreshCw,
             self.i18n.t("sftp.toolbar.refresh"),
             cx.listener(move |this, _event, _window, cx| {
-                if pane == SftpPane::Remote {
-                    this.request_sftp_remote_load();
+                match pane {
+                    SftpPane::Local => {
+                        // Local refresh only re-reads the visible directory and
+                        // must not disturb the node-owned remote SFTP session.
+                        let path = this.sftp_view.local_path.clone();
+                        this.sftp_view.local_files = refreshed_local_files(&path);
+                    }
+                    SftpPane::Remote => this.request_sftp_remote_load(),
                 }
                 cx.stop_propagation();
                 cx.notify();

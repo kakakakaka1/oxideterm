@@ -254,15 +254,7 @@ impl WorkspaceApp {
                     self.sftp_local_path_memory.insert(node_id, path.clone());
                 }
                 self.sftp_view.editing_local_path = false;
-                self.sftp_view.local_files = list_local_files(&path).unwrap_or_else(|error| {
-                    vec![sftp_file_entry(
-                        format!("Unable to read folder: {error}"),
-                        path.clone(),
-                        SftpFileType::File,
-                        0,
-                        None,
-                    )]
-                });
+                self.sftp_view.local_files = refreshed_local_files(&path);
                 self.sftp_view.local_selected.clear();
                 self.sftp_view.local_last_selected = None;
             }
