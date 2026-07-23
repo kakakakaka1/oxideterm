@@ -83,7 +83,7 @@ OxideTerm mantém conexões, arquivos, encaminhamentos, ferramentas do host, aut
 
 | Categoria | Recursos |
 |---|---|
-| **Terminal e conexões** | Shells locais, SSH, Telnet, serial, painéis, rotas multi-hop e reconexão estável |
+| **Terminal e conexões** | Shells locais, SSH, Telnet, serial, painéis, modo de entrada livre, rotas multi-hop e reconexão estável |
 | **Arquivos e edição remota** | SFTP, filas de transferência, favoritos, gravação segura, árvores de projeto e edição em abas |
 | **Encaminhamento e rede** | Encaminhamento local, remoto e SOCKS5 dinâmico, regras salvas e depuração de sockets |
 | **Operações do host e desktop remoto** | Monitoramento, processos, serviços, logs, portas, tarefas, discos, pacotes, contêineres, tmux, RDP e VNC |

@@ -72,6 +72,8 @@ const TERMINAL_BEHAVIOR_KEYS: &[&str] = &[
     "highlightRules",
     "inBandTransfer",
     "terminalEncoding",
+    "backspaceSequence",
+    "deleteSequence",
     "graphics",
     "unicode",
 ];

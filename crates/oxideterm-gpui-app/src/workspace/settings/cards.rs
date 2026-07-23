@@ -238,10 +238,35 @@ impl WorkspaceApp {
             ))
             .child(self.settings_row_with_margin(
                 self.checkbox_row(
-                    "settings_view.terminal.free_type_cursor_positioning",
-                    "settings_view.terminal.free_type_cursor_positioning_hint",
-                    settings.terminal.free_type_cursor_positioning,
-                    set_free_type_cursor_positioning,
+                    "settings_view.terminal.free_type_mode",
+                    "settings_view.terminal.free_type_mode_hint",
+                    settings.terminal.free_type_mode,
+                    set_free_type_mode,
+                    cx,
+                ),
+                16.0,
+            ))
+            .child(
+                self.settings_row_with_margin(
+                    self.select_setting_row(
+                        "settings_view.terminal.backspace_sequence",
+                        "settings_view.terminal.backspace_sequence_hint",
+                        SettingsSelect::TerminalBackspaceSequence,
+                        terminal_backspace_sequence_label(settings.terminal.backspace_sequence)
+                            .to_string(),
+                        self.tokens.metrics.settings_select_width,
+                        cx,
+                    ),
+                    16.0,
+                ),
+            )
+            .child(self.settings_row_with_margin(
+                self.select_setting_row(
+                    "settings_view.terminal.delete_sequence",
+                    "settings_view.terminal.delete_sequence_hint",
+                    SettingsSelect::TerminalDeleteSequence,
+                    terminal_delete_sequence_label(settings.terminal.delete_sequence).to_string(),
+                    self.tokens.metrics.settings_select_width,
                     cx,
                 ),
                 16.0,

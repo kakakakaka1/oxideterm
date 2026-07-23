@@ -16,10 +16,27 @@ pub(super) enum IdeReconnectRestoreStatus {
     Pending,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum IdeOpenIntent {
+    ActivateOrCreate,
+    ChooseFolder,
+}
+
+impl IdeOpenIntent {
+    fn reopens_folder_picker(self) -> bool {
+        self == Self::ChooseFolder
+    }
+}
+
 impl WorkspaceApp {
     pub(super) fn open_ide_folder_picker_tab(&mut self, node_id: NodeId, cx: &mut Context<Self>) {
         let active_terminal_cwd = self.active_ssh_terminal_cwd_path_for_node(&node_id, cx);
-        self.open_ide_folder_picker_tab_with_initial_path(node_id, active_terminal_cwd, cx);
+        self.open_ide_folder_picker_tab_with_initial_path(
+            node_id,
+            active_terminal_cwd,
+            IdeOpenIntent::ActivateOrCreate,
+            cx,
+        );
     }
 
     pub(in crate::workspace) fn open_ide_folder_picker_tab_at_path(
@@ -33,13 +50,19 @@ impl WorkspaceApp {
         } else {
             Some(path)
         };
-        self.open_ide_folder_picker_tab_with_initial_path(node_id, initial_path, cx);
+        self.open_ide_folder_picker_tab_with_initial_path(
+            node_id,
+            initial_path,
+            IdeOpenIntent::ChooseFolder,
+            cx,
+        );
     }
 
     fn open_ide_folder_picker_tab_with_initial_path(
         &mut self,
         node_id: NodeId,
         initial_path_override: Option<String>,
+        intent: IdeOpenIntent,
         cx: &mut Context<Self>,
     ) {
         let node_title = self
@@ -53,7 +76,11 @@ impl WorkspaceApp {
             .iter()
             .find(|(_, existing_node_id)| existing_node_id.0 == node_id.0)
         {
-            if let Some(surface) = self.ide_tab_surfaces.get(tab_id) {
+            if intent.reopens_folder_picker()
+                && let Some(surface) = self.ide_tab_surfaces.get(tab_id)
+            {
+                // Explicit folder-selection actions may replace the workspace,
+                // while the node sidebar entry only activates its existing tab.
                 surface.update(cx, |surface: &mut IdeSurface, cx| {
                     let initial_path = initial_path_override.clone().unwrap_or_else(|| {
                         surface
@@ -642,5 +669,11 @@ mod tests {
             Some(closed_at),
             None
         ));
+    }
+
+    #[test]
+    fn sidebar_ide_open_activates_existing_tab_without_choosing_folder() {
+        assert!(!IdeOpenIntent::ActivateOrCreate.reopens_folder_picker());
+        assert!(IdeOpenIntent::ChooseFolder.reopens_folder_picker());
     }
 }

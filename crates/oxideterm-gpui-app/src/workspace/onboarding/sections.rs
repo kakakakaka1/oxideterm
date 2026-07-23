@@ -172,10 +172,8 @@ impl WorkspaceApp {
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(|this, _event, _window, cx| {
-                            this.onboarding.disclaimer_accepted =
-                                !this.onboarding.disclaimer_accepted;
+                            this.toggle_onboarding_disclaimer_acceptance(cx);
                             cx.stop_propagation();
-                            cx.notify();
                         }),
                     ),
             )
@@ -820,7 +818,8 @@ impl WorkspaceApp {
             .child(
                 div()
                     .grid()
-                    .grid_cols(3)
+                    // Four primary actions stay readable across all shipped locales in two columns.
+                    .grid_cols(2)
                     .gap(px(12.0))
                     .child(self.onboarding_action_card(
                         LucideIcon::Terminal,
@@ -836,7 +835,14 @@ impl WorkspaceApp {
                         |this, window, cx| this.onboarding_open_new_connection(window, cx),
                         cx,
                     ))
-                    .child(self.onboarding_import_card(cx)),
+                    .child(self.onboarding_import_card(cx))
+                    .child(self.onboarding_action_card(
+                        LucideIcon::AppWindow,
+                        "onboarding.import_apps",
+                        "onboarding.import_apps_desc",
+                        |this, window, cx| this.onboarding_open_connection_importers(window, cx),
+                        cx,
+                    )),
             )
             .child(div().h(px(1.0)).bg(rgb(self.tokens.ui.border)))
             .child(self.onboarding_shortcut_grid(mod_key, is_mac))

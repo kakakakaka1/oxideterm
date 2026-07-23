@@ -490,6 +490,52 @@ impl WorkspaceApp {
                 }
                 Some(popup)
             }
+            (SettingsTab::Terminal, SettingsSelect::TerminalBackspaceSequence) => {
+                let mut popup = select_overlay_popup(&self.tokens, width);
+                for &sequence in terminal_backspace_sequence_options() {
+                    popup = popup.child(select_option_action(
+                        select_option(
+                            &self.tokens,
+                            terminal_backspace_sequence_label(sequence),
+                            sequence == settings.terminal.backspace_sequence,
+                        ),
+                        false,
+                        false,
+                        cx.listener(move |this, _event, _window, cx| {
+                            this.close_settings_select();
+                            this.edit_settings(
+                                |settings| settings.terminal.backspace_sequence = sequence,
+                                cx,
+                            );
+                            cx.stop_propagation();
+                        }),
+                    ));
+                }
+                Some(popup)
+            }
+            (SettingsTab::Terminal, SettingsSelect::TerminalDeleteSequence) => {
+                let mut popup = select_overlay_popup(&self.tokens, width);
+                for &sequence in terminal_delete_sequence_options() {
+                    popup = popup.child(select_option_action(
+                        select_option(
+                            &self.tokens,
+                            terminal_delete_sequence_label(sequence),
+                            sequence == settings.terminal.delete_sequence,
+                        ),
+                        false,
+                        false,
+                        cx.listener(move |this, _event, _window, cx| {
+                            this.close_settings_select();
+                            this.edit_settings(
+                                |settings| settings.terminal.delete_sequence = sequence,
+                                cx,
+                            );
+                            cx.stop_propagation();
+                        }),
+                    ));
+                }
+                Some(popup)
+            }
             (SettingsTab::Terminal, SettingsSelect::TerminalCursorStyle) => {
                 let mut popup = select_overlay_popup(&self.tokens, width);
                 for &style in cursor_style_options() {

@@ -4,8 +4,11 @@
 use std::sync::Arc;
 
 use gpui::Pixels;
+use unicode_segmentation::UnicodeSegmentation;
 
-use super::{DisplayRowsCache, FoldRange, TextEditorView};
+#[cfg(test)]
+use super::FoldRange;
+use super::{DisplayRowsCache, TextEditorView, coords::grapheme_visual_width};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct DisplayRow {
@@ -50,8 +53,39 @@ impl TextEditorView {
     }
 
     fn compute_display_rows(&self, wrap_column: Option<usize>) -> Vec<DisplayRow> {
-        let line_lengths = self.buffer.line_char_counts();
-        compute_display_rows_from_line_lengths(&line_lengths, &self.folded_ranges, wrap_column)
+        let mut rows = Vec::new();
+        let mut line = 0;
+        while line < self.buffer.line_count() {
+            let folded = self
+                .folded_ranges
+                .iter()
+                .find(|range| range.start_line == line)
+                .copied();
+            let line_wrap_column = if folded.is_some() { None } else { wrap_column };
+            self.buffer
+                .with_line_text(line, |text| {
+                    append_display_rows_for_line(
+                        &mut rows,
+                        line,
+                        text.graphemes(true).map(grapheme_visual_width),
+                        line_wrap_column,
+                        folded.is_some(),
+                    );
+                })
+                .unwrap_or_else(|| {
+                    append_display_rows_for_line(
+                        &mut rows,
+                        line,
+                        std::iter::empty(),
+                        line_wrap_column,
+                        folded.is_some(),
+                    );
+                });
+            line = folded
+                .map(|range| range.end_line.saturating_add(1))
+                .unwrap_or_else(|| line + 1);
+        }
+        rows
     }
 
     fn wrap_column(&self) -> Option<usize> {
@@ -86,44 +120,46 @@ pub(super) fn display_row_for_visual_column(
     Some((index, row, visual_column.saturating_sub(row.start_col)))
 }
 
-fn compute_display_rows_from_line_lengths(
-    line_lengths: &[usize],
+#[cfg(test)]
+fn compute_display_rows_from_grapheme_widths(
+    line_grapheme_widths: &[Vec<usize>],
     folded_ranges: &[FoldRange],
     wrap_column: Option<usize>,
 ) -> Vec<DisplayRow> {
     let mut rows = Vec::new();
     let mut line = 0;
-    while line < line_lengths.len() {
-        let visual_len = line_lengths[line];
-        if let Some(folded) = folded_ranges
+    while line < line_grapheme_widths.len() {
+        let folded = folded_ranges
             .iter()
             .find(|range| range.start_line == line)
-            .copied()
-        {
-            rows.push(DisplayRow {
-                line,
-                start_col: 0,
-                end_col: visual_len,
-                is_first: true,
-                is_folded_header: true,
-            });
-            line = folded.end_line.saturating_add(1);
-            continue;
-        }
-        let Some(wrap_column) = wrap_column.filter(|column| visual_len > *column) else {
-            rows.push(DisplayRow {
-                line,
-                start_col: 0,
-                end_col: visual_len,
-                is_first: true,
-                is_folded_header: false,
-            });
-            line += 1;
-            continue;
-        };
-        let mut start_col = 0;
-        while start_col < visual_len {
-            let end_col = (start_col + wrap_column).min(visual_len);
+            .copied();
+        append_display_rows_for_line(
+            &mut rows,
+            line,
+            line_grapheme_widths[line].iter().copied(),
+            if folded.is_some() { None } else { wrap_column },
+            folded.is_some(),
+        );
+        line = folded
+            .map(|range| range.end_line.saturating_add(1))
+            .unwrap_or_else(|| line + 1);
+    }
+    rows
+}
+
+fn append_display_rows_for_line(
+    rows: &mut Vec<DisplayRow>,
+    line: usize,
+    grapheme_widths: impl IntoIterator<Item = usize>,
+    wrap_column: Option<usize>,
+    is_folded_header: bool,
+) {
+    let mut start_col = 0;
+    let mut end_col = 0;
+    for grapheme_width in grapheme_widths {
+        if wrap_column.is_some_and(|column| {
+            end_col > start_col && end_col + grapheme_width > start_col + column
+        }) {
             rows.push(DisplayRow {
                 line,
                 start_col,
@@ -133,22 +169,33 @@ fn compute_display_rows_from_line_lengths(
             });
             start_col = end_col;
         }
-        line += 1;
+        end_col += grapheme_width;
     }
-    rows
+    // Every physical line owns at least one display row, including empty lines.
+    rows.push(DisplayRow {
+        line,
+        start_col,
+        end_col,
+        is_first: start_col == 0,
+        is_folded_header,
+    });
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        DisplayRow, FoldRange, compute_display_rows_from_line_lengths,
+        DisplayRow, FoldRange, compute_display_rows_from_grapheme_widths,
         display_row_for_visual_column,
     };
 
+    fn ascii_line_widths(lengths: &[usize]) -> Vec<Vec<usize>> {
+        lengths.iter().map(|length| vec![1; *length]).collect()
+    }
+
     #[test]
     fn folded_rows_hide_inner_lines() {
-        let rows = compute_display_rows_from_line_lengths(
-            &[9, 8, 1, 6],
+        let rows = compute_display_rows_from_grapheme_widths(
+            &ascii_line_widths(&[9, 8, 1, 6]),
             &[FoldRange {
                 start_line: 0,
                 end_line: 2,
@@ -179,10 +226,36 @@ mod tests {
 
     #[test]
     fn wrapped_boundary_belongs_to_the_later_display_row() {
-        let rows = compute_display_rows_from_line_lengths(&[16], &[], Some(8));
+        let rows =
+            compute_display_rows_from_grapheme_widths(&ascii_line_widths(&[16]), &[], Some(8));
 
         assert_eq!(display_row_for_visual_column(&rows, 0, 7).unwrap().0, 0);
         assert_eq!(display_row_for_visual_column(&rows, 0, 8).unwrap().0, 1);
         assert_eq!(display_row_for_visual_column(&rows, 0, 16).unwrap().0, 1);
+    }
+
+    #[test]
+    fn wrapping_never_splits_a_wide_grapheme() {
+        let rows = compute_display_rows_from_grapheme_widths(&[vec![1, 2, 2, 1]], &[], Some(4));
+
+        assert_eq!(
+            rows,
+            vec![
+                DisplayRow {
+                    line: 0,
+                    start_col: 0,
+                    end_col: 3,
+                    is_first: true,
+                    is_folded_header: false,
+                },
+                DisplayRow {
+                    line: 0,
+                    start_col: 3,
+                    end_col: 6,
+                    is_first: false,
+                    is_folded_header: false,
+                },
+            ]
+        );
     }
 }

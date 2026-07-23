@@ -102,7 +102,7 @@ impl Render for TextEditorView {
             let Some(row) = display_rows.get(display_index).copied() else {
                 continue;
             };
-            rows = rows.child(self.render_row(display_index, row, &row_context, cx));
+            rows = rows.child(self.render_row(display_index, row, &row_context, window, cx));
         }
         rows = rows.child(div().h(px(visible.bottom_spacer_px as f32)));
 
@@ -121,8 +121,8 @@ impl Render for TextEditorView {
             .on_scroll_wheel(cx.listener(|this, event: &ScrollWheelEvent, _window, cx| {
                 this.handle_scroll(event, cx);
             }))
-            .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _window, cx| {
-                this.drag_selection_to_point(event.position, cx);
+            .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, window, cx| {
+                this.drag_selection_to_point(event.position, window, cx);
             }))
             .on_mouse_up(
                 MouseButton::Left,
@@ -283,11 +283,19 @@ impl TextEditorView {
         display_index: usize,
         display_row: DisplayRow,
         row_context: &RenderRowContext,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Div {
         self.buffer
             .with_line_text(display_row.line, |line_text| {
-                self.render_row_with_text(display_index, display_row, line_text, row_context, cx)
+                self.render_row_with_text(
+                    display_index,
+                    display_row,
+                    line_text,
+                    row_context,
+                    window,
+                    cx,
+                )
             })
             .unwrap_or_else(|| div().h(px(self.metrics.line_height)).w_full())
     }
@@ -298,6 +306,7 @@ impl TextEditorView {
         display_row: DisplayRow,
         line_text: &str,
         row_context: &RenderRowContext,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Div {
         let line = display_row.line;
@@ -330,6 +339,15 @@ impl TextEditorView {
         let byte_start = byte_column_for_visual_column(&line_text, display_row.start_col);
         let byte_end = byte_column_for_visual_column(&line_text, display_row.end_col);
         let segment_text = &line_text[byte_start..byte_end];
+        let cursor_x = cursor_position
+            .filter(|_| show_cursor)
+            .map(|position| position.column.saturating_sub(byte_start))
+            .map(|byte_column| {
+                f32::from(
+                    self.shape_coordinate_line(segment_text, window)
+                        .x_for_index(byte_column),
+                )
+            });
         let segment_range = (line_start + byte_start)..(line_start + byte_end).min(line_end);
         let selection_rects = if row_context.selections.is_empty() {
             Vec::new()
@@ -379,7 +397,7 @@ impl TextEditorView {
                 cx.listener(move |this, event: &MouseDownEvent, window, cx| {
                     this.context_menu = None;
                     window.focus(&this.focus_handle, cx);
-                    if let Some(offset) = this.offset_for_window_point(event.position) {
+                    if let Some(offset) = this.offset_for_window_point(event.position, window) {
                         if (event.modifiers.secondary() || event.modifiers.control)
                             && !event.modifiers.alt
                             && !event.modifiers.shift
@@ -495,8 +513,8 @@ impl TextEditorView {
             );
         }
 
-        if show_cursor {
-            let left = content_left + cursor_column as f32 * self.metrics.char_width;
+        if let Some(cursor_x) = cursor_x {
+            let left = content_left + cursor_x;
             row = row.child(self.render_cursor_at(left));
         }
 

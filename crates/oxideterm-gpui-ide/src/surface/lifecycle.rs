@@ -36,6 +36,7 @@ impl IdeSurface {
             folder_switch_confirm_open: false,
             tree_rows_cache: None,
             tree_scroll_handle: UniformListScrollHandle::new(),
+            tab_scroll_handle: ScrollHandle::new(),
             search: ProjectSearchState::default(),
             editor_search: EditorSearchState::default(),
             search_cache: HashMap::new(),

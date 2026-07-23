@@ -83,7 +83,7 @@ OxideTerm hält Verbindungen, Dateien, Weiterleitungen, Host-Werkzeuge, Automati
 
 | Kategorie | Funktionen |
 |---|---|
-| **Terminal und Verbindungen** | Lokale Shells, SSH, Telnet, seriell, geteilte Bereiche, Multi-Hop-Routen und stabile Wiederverbindung |
+| **Terminal und Verbindungen** | Lokale Shells, SSH, Telnet, seriell, geteilte Bereiche, freier Eingabemodus, Multi-Hop-Routen und stabile Wiederverbindung |
 | **Dateien und Remote-Bearbeitung** | SFTP, Übertragungswarteschlangen, Lesezeichen, sichere Schreibvorgänge, Projektbäume und Mehrfachbearbeitung |
 | **Weiterleitung und Netzwerk** | Lokale, entfernte und dynamische SOCKS5-Weiterleitung, gespeicherte Regeln und Socket-Debugging |
 | **Host-Betrieb und Remote-Desktop** | Überwachung, Prozesse, Dienste, Logs, Ports, Aufgaben, Datenträger, Pakete, Container, tmux, RDP und VNC |

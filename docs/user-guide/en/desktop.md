@@ -36,6 +36,23 @@ Common pane patterns:
 
 Use the terminal context menu and command bar for explicit pane actions such as copy, paste, search, command selection, and terminal-native file transfers. Background images and terminal image placements are visual/rendering state; if a full-screen TUI leaves stale image content behind, clear or reopen the pane rather than editing saved connection data.
 
+### Free Type Mode
+
+Enable Settings → Terminal → Free Type Mode to edit the active ordinary shell command with the mouse:
+
+- Click inside the active command to move the remote line-editor cursor.
+- Select command text and press Backspace/Delete, type, or paste to replace it.
+- Drag selected single-line text to insert it at another command position.
+- Alt-drag selected text to replace the current command.
+
+Toggle the mode with Command+Shift+F on macOS or Ctrl+Alt+F on Windows and Linux. The action is also available in the command palette and can be remapped under Settings → Keyboard Shortcuts.
+
+OxideTerm sends ordinary terminal key and text sequences; the remote shell remains the source of truth. The mode is limited to the normal command screen. Full-screen and mouse-tracking programs such as Vim, tmux, and htop keep their own input and are not intercepted.
+
+### Backspace and Delete compatibility
+
+Settings → Terminal also lets you choose the sequences sent by the physical Backspace and Delete keys. The defaults are `DEL (0x7F)` for Backspace and `CSI 3~` for Delete. Change them only when a legacy shell, serial device, or remote application expects `Ctrl+H (0x08)` or another offered sequence. Kitty keyboard protocol sessions keep their protocol-defined key encoding.
+
 ## Saved Connections
 
 Use saved connections for hosts you expect to reuse. Set the host, user, port, group, color, tags, auth method, and optional post-connect command. Prefer SSH agent or key-based auth where possible.

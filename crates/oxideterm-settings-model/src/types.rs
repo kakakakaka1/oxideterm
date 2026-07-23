@@ -73,6 +73,8 @@ pub enum SettingsSelect {
     TerminalFontFamily,
     TerminalCjkFontFamily,
     TerminalEncoding,
+    TerminalBackspaceSequence,
+    TerminalDeleteSequence,
     TerminalCursorStyle,
     RemoteShellIntegrationMode,
     IdeAgentMode,

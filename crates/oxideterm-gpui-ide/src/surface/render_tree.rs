@@ -98,6 +98,7 @@ impl IdeSurface {
         };
         let root_location = snapshot.project.root.clone();
         let root_title = snapshot.project.title.clone();
+        let tree_scrollbar_handle = self.tree_scroll_handle.0.borrow().base_handle.clone();
         tree = tree
             .child(
                 div()
@@ -236,6 +237,7 @@ impl IdeSurface {
             .child(
                 div()
                     .id("ide-tree-scroll")
+                    .relative()
                     .flex_1()
                     .min_h_0()
                     .py_1()
@@ -255,7 +257,13 @@ impl IdeSurface {
                     // Tauri's tree is a native browser scroller over fixed-height
                     // rows. GPUI needs `uniform_list` here to keep the same
                     // trackpad feel without laying out every file on each frame.
-                    .child(self.render_tree_rows(snapshot.project.root, cx)),
+                    .child(self.render_tree_rows(snapshot.project.root, cx))
+                    // UniformList owns the actual scroll range through its base
+                    // handle; share that handle so the visible thumb and drag
+                    // interaction always follow the virtualized file tree.
+                    .child(
+                        Scrollbar::new(&tree_scrollbar_handle).id("ide-tree-vertical-scrollbar"),
+                    ),
             );
         tree.into_any_element()
     }

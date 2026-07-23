@@ -671,6 +671,20 @@ pub fn sanitize_settings_value(raw: Value) -> Result<SanitizedSettings> {
     );
     sanitize_enum(
         &mut settings,
+        &["terminal", "backspaceSequence"],
+        &["delete", "controlH"],
+        "delete",
+        &mut validation_warnings,
+    );
+    sanitize_enum(
+        &mut settings,
+        &["terminal", "deleteSequence"],
+        &["csi3Tilde", "delete", "controlH"],
+        "csi3Tilde",
+        &mut validation_warnings,
+    );
+    sanitize_enum(
+        &mut settings,
         &["terminal", "adaptiveRenderer"],
         &["auto", "always-60", "off"],
         "auto",

@@ -744,6 +744,9 @@ impl Render for WorkspaceApp {
             .on_action(cx.listener(|this, _: &TerminalRecording, _window, cx| {
                 this.toggle_active_terminal_recording(cx);
             }))
+            .on_action(cx.listener(|this, _: &TerminalFreeTypeMode, _window, cx| {
+                this.toggle_free_type_mode(cx);
+            }))
             .on_action(cx.listener(|this, _: &PaletteEventLog, window, cx| {
                 this.open_notification_center_tab(window, cx);
             }))

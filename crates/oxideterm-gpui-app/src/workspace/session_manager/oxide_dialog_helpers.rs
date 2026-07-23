@@ -333,9 +333,9 @@ pub(super) fn oxide_settings_field_label(field: &str, i18n: &oxideterm_i18n::I18
         "middleClickPaste" => i18n.t("settings_view.terminal.middle_click_paste"),
         "openLinksWithModifier" => i18n.t("settings_view.terminal.open_links_with_modifier"),
         "selectionRequiresShift" => i18n.t("settings_view.terminal.selection_requires_shift"),
-        "freeTypeCursorPositioning" => {
-            i18n.t("settings_view.terminal.free_type_cursor_positioning")
-        }
+        "freeTypeCursorPositioning" => i18n.t("settings_view.terminal.free_type_mode"),
+        "backspaceSequence" => i18n.t("settings_view.terminal.backspace_sequence"),
+        "deleteSequence" => i18n.t("settings_view.terminal.delete_sequence"),
         "sidebarCollapsedDefault" => i18n.t("modals.settings.appearance.sidebar_collapse"),
         "uiDensity" => i18n.t("settings_view.appearance.density"),
         "borderRadius" => i18n.t("settings_view.appearance.border_radius"),

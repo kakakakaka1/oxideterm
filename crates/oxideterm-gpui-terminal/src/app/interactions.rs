@@ -169,9 +169,14 @@ impl TerminalPane {
         } else {
             KittyKeyEventType::Press
         };
-        if let Some(sequence) =
-            oxideterm_key_escape_sequence(&event.keystroke, &mode, false, key_event_type)
-        {
+        if let Some(sequence) = configurable_key_escape_sequence(
+            &event.keystroke,
+            &mode,
+            false,
+            self.settings.backspace_sequence,
+            self.settings.delete_sequence,
+            key_event_type,
+        ) {
             self.send_user_protocol_bytes(sequence.as_bytes(), cx);
             return true;
         }
@@ -188,10 +193,12 @@ impl TerminalPane {
 
     pub(crate) fn handle_key_up(&mut self, event: &KeyUpEvent, cx: &mut Context<Self>) {
         let mode = self.terminal.lock().mode();
-        if let Some(sequence) = oxideterm_key_escape_sequence(
+        if let Some(sequence) = configurable_key_escape_sequence(
             &event.keystroke,
             &mode,
             false,
+            self.settings.backspace_sequence,
+            self.settings.delete_sequence,
             KittyKeyEventType::Release,
         ) {
             self.send_protocol_bytes(sequence.as_bytes(), cx);
@@ -1012,11 +1019,7 @@ impl TerminalPane {
     }
 
     fn start_free_type_drag_candidate(&mut self, event: &MouseDownEvent, mode: TermMode) -> bool {
-        if !free_type_drag_candidate_allowed(
-            self.settings.free_type_cursor_positioning,
-            mode,
-            event.modifiers,
-        ) {
+        if !free_type_drag_candidate_allowed(self.settings.free_type_mode, mode, event.modifiers) {
             return false;
         }
         if event.button != MouseButton::Left || event.click_count > 1 {
@@ -1107,15 +1110,11 @@ impl TerminalPane {
         mode: TermMode,
         cx: &mut Context<Self>,
     ) -> bool {
-        if !free_type_cursor_positioning_allowed(
-            self.settings.free_type_cursor_positioning,
-            mode,
-            modifiers,
-        ) {
+        if !free_type_mode_allows_command_edit(self.settings.free_type_mode, mode, modifiers) {
             log_free_type_terminal(format_args!(
                 "click rejected: {}",
-                free_type_cursor_positioning_rejection_reason(
-                    self.settings.free_type_cursor_positioning,
+                free_type_mode_command_edit_rejection_reason(
+                    self.settings.free_type_mode,
                     mode,
                     modifiers,
                 )
@@ -1162,15 +1161,15 @@ impl TerminalPane {
         mode: TermMode,
         cx: &mut Context<Self>,
     ) -> bool {
-        if !free_type_cursor_positioning_allowed(
-            self.settings.free_type_cursor_positioning,
+        if !free_type_mode_allows_command_edit(
+            self.settings.free_type_mode,
             mode,
             Modifiers::default(),
         ) {
             log_free_type_terminal(format_args!(
                 "selection delete rejected: {}",
-                free_type_cursor_positioning_rejection_reason(
-                    self.settings.free_type_cursor_positioning,
+                free_type_mode_command_edit_rejection_reason(
+                    self.settings.free_type_mode,
                     mode,
                     Modifiers::default(),
                 )
@@ -1240,8 +1239,8 @@ impl TerminalPane {
         }
 
         let mode = self.terminal.lock().mode();
-        if !free_type_cursor_positioning_allowed(
-            self.settings.free_type_cursor_positioning,
+        if !free_type_mode_allows_command_edit(
+            self.settings.free_type_mode,
             mode,
             Modifiers::default(),
         ) {
@@ -1429,15 +1428,11 @@ fn privilege_prompt_enter_requests_submit(
     has_inline_hint
 }
 
-fn free_type_cursor_positioning_allowed(
-    enabled: bool,
-    mode: TermMode,
-    modifiers: Modifiers,
-) -> bool {
-    free_type_cursor_positioning_rejection_reason(enabled, mode, modifiers).is_none()
+fn free_type_mode_allows_command_edit(enabled: bool, mode: TermMode, modifiers: Modifiers) -> bool {
+    free_type_mode_command_edit_rejection_reason(enabled, mode, modifiers).is_none()
 }
 
-fn free_type_cursor_positioning_rejection_reason(
+fn free_type_mode_command_edit_rejection_reason(
     enabled: bool,
     mode: TermMode,
     modifiers: Modifiers,
@@ -2235,38 +2230,38 @@ mod tests {
     }
 
     #[test]
-    fn free_type_cursor_positioning_respects_conflict_guards() {
-        assert!(free_type_cursor_positioning_allowed(
+    fn free_type_mode_respects_command_edit_conflict_guards() {
+        assert!(free_type_mode_allows_command_edit(
             true,
             TermMode::default(),
             Modifiers::default()
         ));
-        assert!(!free_type_cursor_positioning_allowed(
+        assert!(!free_type_mode_allows_command_edit(
             false,
             TermMode::default(),
             Modifiers::default()
         ));
-        assert!(!free_type_cursor_positioning_allowed(
+        assert!(!free_type_mode_allows_command_edit(
             true,
             TermMode::ALT_SCREEN,
             Modifiers::default()
         ));
-        assert!(!free_type_cursor_positioning_allowed(
+        assert!(!free_type_mode_allows_command_edit(
             true,
             TermMode::MOUSE_REPORT_CLICK,
             Modifiers::default()
         ));
-        assert!(free_type_cursor_positioning_allowed(
+        assert!(free_type_mode_allows_command_edit(
             true,
             TermMode::BRACKETED_PASTE,
             Modifiers::default()
         ));
-        assert!(free_type_cursor_positioning_allowed(
+        assert!(free_type_mode_allows_command_edit(
             true,
             TermMode::KITTY_KEYBOARD_PROTOCOL,
             Modifiers::default()
         ));
-        assert!(!free_type_cursor_positioning_allowed(
+        assert!(!free_type_mode_allows_command_edit(
             true,
             TermMode::default(),
             Modifiers {
@@ -2274,7 +2269,7 @@ mod tests {
                 ..Modifiers::default()
             }
         ));
-        assert!(!free_type_cursor_positioning_allowed(
+        assert!(!free_type_mode_allows_command_edit(
             true,
             TermMode::default(),
             Modifiers {

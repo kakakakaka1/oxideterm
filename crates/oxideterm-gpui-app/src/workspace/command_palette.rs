@@ -2521,6 +2521,12 @@ fn command_palette_specs() -> Vec<CommandSpec> {
             action: PaletteAction::ToggleTerminalPerformance,
         },
         keybinding_command(
+            "cmd:toggle_free_type_mode",
+            "command_palette.cmd_toggle_free_type_mode",
+            "terminal.toggleFreeTypeMode",
+            LucideIcon::Pencil,
+        ),
+        keybinding_command(
             "cmd:close_pane",
             "command_palette.cmd_close_pane",
             "split.closePane",
@@ -2759,6 +2765,20 @@ mod tests {
             .expect("native Telnet terminal command");
 
         assert!(matches!(spec.action, PaletteAction::OpenTelnetTerminal));
+    }
+
+    #[test]
+    fn command_palette_specs_include_free_type_mode_shortcut() {
+        let spec = command_palette_specs()
+            .into_iter()
+            .find(|spec| spec.id == "cmd:toggle_free_type_mode")
+            .expect("free type mode command");
+
+        assert_eq!(spec.shortcut_action, Some("terminal.toggleFreeTypeMode"));
+        assert!(matches!(
+            spec.action,
+            PaletteAction::Keybinding("terminal.toggleFreeTypeMode")
+        ));
     }
 
     #[test]

@@ -5,7 +5,20 @@ use oxideterm_connections::{
 
 impl WorkspaceApp {
     pub(in crate::workspace) fn open_onboarding_from_palette(&mut self, cx: &mut Context<Self>) {
-        self.edit_settings(|settings| settings.onboarding_completed = false, cx);
+        let disclaimer_accepted = self.onboarding.disclaimer_accepted
+            || self
+                .settings_store
+                .settings()
+                .onboarding_disclaimer_accepted
+            || self.settings_store.settings().onboarding_completed;
+        self.edit_settings(
+            move |settings| {
+                settings.onboarding_completed = false;
+                // Persist the implied acceptance when migrating a completed legacy flow.
+                settings.onboarding_disclaimer_accepted = disclaimer_accepted;
+            },
+            cx,
+        );
         self.onboarding
             .reset_for_open(self.settings_store.settings());
         cx.notify();
@@ -17,6 +30,7 @@ impl WorkspaceApp {
         self.edit_settings(
             move |settings| {
                 settings.onboarding_completed = true;
+                settings.onboarding_disclaimer_accepted = true;
                 if ai_opt_in {
                     settings.ai.enabled = true;
                     settings.ai.enabled_confirmed = true;
@@ -29,6 +43,18 @@ impl WorkspaceApp {
         );
         self.onboarding.open = false;
         cx.notify();
+    }
+
+    pub(in crate::workspace) fn toggle_onboarding_disclaimer_acceptance(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) {
+        let accepted = !self.onboarding.disclaimer_accepted;
+        self.onboarding.disclaimer_accepted = accepted;
+        self.edit_settings(
+            move |settings| settings.onboarding_disclaimer_accepted = accepted,
+            cx,
+        );
     }
 
     pub(in crate::workspace) fn onboarding_go_to_step(
@@ -192,6 +218,15 @@ impl WorkspaceApp {
     ) {
         self.complete_onboarding(cx);
         self.open_new_connection_form(window, cx);
+    }
+
+    pub(in crate::workspace) fn onboarding_open_connection_importers(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.complete_onboarding(cx);
+        self.open_connection_importers_settings(window, cx);
     }
 
     pub(in crate::workspace) fn onboarding_open_cli_settings(

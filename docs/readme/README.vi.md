@@ -83,7 +83,7 @@ OxideTerm giữ kết nối, tệp, chuyển tiếp, công cụ máy chủ, tự
 
 | Danh mục | Tính năng |
 |---|---|
-| **Terminal và kết nối** | Shell cục bộ, SSH, Telnet, serial, khung chia, multi-hop và kết nối lại ổn định |
+| **Terminal và kết nối** | Shell cục bộ, SSH, Telnet, serial, khung chia, chế độ nhập tự do, multi-hop và kết nối lại ổn định |
 | **Tệp và chỉnh sửa từ xa** | SFTP, hàng đợi truyền, dấu trang, ghi an toàn, cây dự án và chỉnh sửa theo tab |
 | **Chuyển tiếp và mạng** | Chuyển tiếp cục bộ, từ xa và SOCKS5 động, quy tắc đã lưu và gỡ lỗi socket |
 | **Vận hành máy chủ và màn hình từ xa** | Giám sát, tiến trình, dịch vụ, log, cổng, tác vụ, đĩa, gói, container, tmux, RDP và VNC |

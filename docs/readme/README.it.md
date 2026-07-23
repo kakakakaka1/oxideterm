@@ -83,7 +83,7 @@ OxideTerm mantiene connessioni, file, forwarding, strumenti host, automazione e 
 
 | Categoria | Funzioni |
 |---|---|
-| **Terminale e connessioni** | Shell locali, SSH, Telnet, seriale, pannelli, percorsi multi-hop e riconnessione stabile |
+| **Terminale e connessioni** | Shell locali, SSH, Telnet, seriale, pannelli, modalità di input libero, percorsi multi-hop e riconnessione stabile |
 | **File e modifica remota** | SFTP, code di trasferimento, preferiti, scritture sicure, alberi di progetto e modifica a schede |
 | **Forwarding e rete** | Forwarding locale, remoto e SOCKS5 dinamico, regole salvate e debug dei socket |
 | **Operazioni host e desktop remoto** | Monitoraggio, processi, servizi, log, porte, attività, dischi, pacchetti, container, tmux, RDP e VNC |

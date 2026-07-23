@@ -34,15 +34,11 @@ impl IdeSurface {
     fn render_tabs(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let tabs = self.workspace.tabs().to_vec();
         let active_tab = self.workspace.active_tab();
-        let mut row = div()
-            .id("ide-tabs-scroll")
-            .h(px(IDE_WORKSPACE_HEADER_HEIGHT))
+        let mut scroll_content = div()
+            .h_full()
             .flex()
-            .items_center()
-            .overflow_x_scroll()
-            .border_b_1()
-            .border_color(rgb(self.tokens.ui.border))
-            .bg(self.ide_bg(self.tokens.ui.bg, IDE_BG_HALF_ALPHA));
+            .flex_none()
+            .items_center();
 
         for tab in tabs {
             let active = Some(tab.id) == active_tab;
@@ -53,9 +49,10 @@ impl IdeSurface {
                 .tab_drag
                 .is_some_and(|drag| drag.activated && drag.tab_id == tab_id);
             let file_icon = file_icons::file_icon(&tab.title, &self.tokens);
-            row = row.child(
+            scroll_content = scroll_content.child(
                 div()
                     .h_full()
+                    .flex_none()
                     .px(px(IDE_TAB_PADDING_X))
                     .py(px(IDE_TAB_PADDING_Y))
                     .flex()
@@ -188,7 +185,27 @@ impl IdeSurface {
                     }),
             );
         }
-        row.into_any_element()
+        div()
+            .id("ide-tabs-scroll")
+            .relative()
+            .h(px(IDE_WORKSPACE_HEADER_HEIGHT))
+            .border_b_1()
+            .border_color(rgb(self.tokens.ui.border))
+            .bg(self.ide_bg(self.tokens.ui.bg, IDE_BG_HALF_ALPHA))
+            .child(
+                div()
+                    .id("ide-tabs-scroll-viewport")
+                    .size_full()
+                    .overflow_x_scroll()
+                    .track_scroll(&self.tab_scroll_handle)
+                    .child(scroll_content),
+            )
+            .child(
+                Scrollbar::new(&self.tab_scroll_handle)
+                    .id("ide-tabs-horizontal-scrollbar")
+                    .axis(ScrollbarAxis::Horizontal),
+            )
+            .into_any_element()
     }
 
     fn render_tab_context_menu(

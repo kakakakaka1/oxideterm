@@ -83,7 +83,7 @@ OxideTerm réunit connexions, fichiers, redirections, outils hôte, automatisati
 
 | Catégorie | Fonctions |
 |---|---|
-| **Terminal et connexions** | Shells locaux, SSH, Telnet, série, volets, routes multi-hop et reconnexion stable |
+| **Terminal et connexions** | Shells locaux, SSH, Telnet, série, volets, mode de saisie libre, routes multi-hop et reconnexion stable |
 | **Fichiers et édition distante** | SFTP, files de transfert, favoris, écritures sûres, arbres de projet et édition par onglets |
 | **Redirection et réseau** | Redirections locale, distante et SOCKS5 dynamique, règles enregistrées et débogage de sockets |
 | **Opérations hôte et bureau distant** | Supervision, processus, services, journaux, ports, tâches, disques, paquets, conteneurs, tmux, RDP et VNC |

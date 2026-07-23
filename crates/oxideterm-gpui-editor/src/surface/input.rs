@@ -4,7 +4,7 @@
 use std::ops::Range;
 
 use gpui::{Bounds, Context, EntityInputHandler, Pixels, UTF16Selection, Window};
-use oxideterm_editor_core::{BufferOffset, LineCol, TextRange};
+use oxideterm_editor_core::{BufferOffset, TextRange};
 
 use super::{MarkedText, TextEditorView};
 
@@ -100,29 +100,22 @@ impl EntityInputHandler for TextEditorView {
         &mut self,
         range_utf16: Range<usize>,
         element_bounds: Bounds<Pixels>,
-        _window: &mut Window,
+        window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<Bounds<Pixels>> {
         let index = range_utf16.start;
         let text = self.buffer.text();
         let byte = utf16_index_to_byte(&text, index);
-        Some(self.bounds_for_byte_offset(BufferOffset(byte), element_bounds))
+        Some(self.bounds_for_byte_offset(BufferOffset(byte), element_bounds, window))
     }
 
     fn character_index_for_point(
         &mut self,
         point: gpui::Point<Pixels>,
-        _window: &mut Window,
+        window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<usize> {
-        let display_row = self.display_row_for_window_y(point.y)?;
-        let column = display_row.start_col + self.visual_column_for_window_x(point.x);
-        let line_text = self.buffer.line_text(display_row.line).unwrap_or_default();
-        let byte_column = super::byte_column_for_visual_column(&line_text, column);
-        let offset = self
-            .buffer
-            .line_col_to_offset(LineCol::new(display_row.line, byte_column))
-            .ok()?;
+        let offset = self.offset_for_window_point(point, window)?;
         let text = self.buffer.text();
         Some(byte_to_utf16_index(&text, offset.0))
     }

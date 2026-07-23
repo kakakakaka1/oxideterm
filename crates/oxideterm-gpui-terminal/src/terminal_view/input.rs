@@ -5,6 +5,7 @@
 use std::borrow::Cow;
 
 use gpui::{MouseButton, ScrollDelta, ScrollWheelEvent, px};
+use oxideterm_settings::{TerminalBackspaceSequence, TerminalDeleteSequence};
 use oxideterm_terminal::TermMode;
 
 use crate::terminal_ui::TerminalBlinkMode;
@@ -307,14 +308,34 @@ impl TerminalKeyModifiers {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn oxideterm_key_escape_sequence(
     keystroke: &gpui::Keystroke,
     mode: &TermMode,
     option_as_meta: bool,
     event_type: KittyKeyEventType,
 ) -> Option<Cow<'static, str>> {
+    configurable_key_escape_sequence(
+        keystroke,
+        mode,
+        option_as_meta,
+        TerminalBackspaceSequence::default(),
+        TerminalDeleteSequence::default(),
+        event_type,
+    )
+}
+
+pub(crate) fn configurable_key_escape_sequence(
+    keystroke: &gpui::Keystroke,
+    mode: &TermMode,
+    option_as_meta: bool,
+    backspace_sequence: TerminalBackspaceSequence,
+    delete_sequence: TerminalDeleteSequence,
+    event_type: KittyKeyEventType,
+) -> Option<Cow<'static, str>> {
     let modifiers = TerminalKeyModifiers::from_keystroke(keystroke);
 
+    // Kitty keyboard mode owns its key encodings; compatibility settings only affect legacy mode.
     if let Some(sequence) = kitty_keyboard_escape_sequence(keystroke, mode, event_type) {
         return Some(sequence);
     }
@@ -323,7 +344,9 @@ pub(crate) fn oxideterm_key_escape_sequence(
         return None;
     }
 
-    if let Some(sequence) = basic_key_sequence(keystroke.key.as_str(), modifiers) {
+    if let Some(sequence) =
+        basic_key_sequence(keystroke.key.as_str(), modifiers, backspace_sequence)
+    {
         return Some(sequence);
     }
 
@@ -331,7 +354,8 @@ pub(crate) fn oxideterm_key_escape_sequence(
         return Some(sequence);
     }
 
-    if let Some(sequence) = editing_key_sequence(keystroke.key.as_str(), modifiers) {
+    if let Some(sequence) = editing_key_sequence(keystroke.key.as_str(), modifiers, delete_sequence)
+    {
         return Some(sequence);
     }
 
@@ -363,7 +387,15 @@ pub(crate) fn oxideterm_key_escape_sequence(
     None
 }
 
-fn basic_key_sequence(key: &str, modifiers: TerminalKeyModifiers) -> Option<Cow<'static, str>> {
+fn basic_key_sequence(
+    key: &str,
+    modifiers: TerminalKeyModifiers,
+    backspace_sequence: TerminalBackspaceSequence,
+) -> Option<Cow<'static, str>> {
+    let configured_backspace = match backspace_sequence {
+        TerminalBackspaceSequence::Delete => "\x7f",
+        TerminalBackspaceSequence::ControlH => "\x08",
+    };
     match key {
         "tab" if modifiers.is_none() => Some(Cow::Borrowed("\x09")),
         "tab" if modifiers.is_shift_only() => Some(Cow::Borrowed("\x1b[Z")),
@@ -371,10 +403,12 @@ fn basic_key_sequence(key: &str, modifiers: TerminalKeyModifiers) -> Option<Cow<
         "enter" if modifiers.is_none() => Some(Cow::Borrowed("\x0d")),
         "enter" if modifiers.is_shift_only() => Some(Cow::Borrowed("\x0a")),
         "enter" if modifiers.is_alt_only() => Some(Cow::Borrowed("\x1b\x0d")),
-        "backspace" | "back" if modifiers.is_none() => Some(Cow::Borrowed("\x7f")),
+        "backspace" | "back" if modifiers.is_none() => Some(Cow::Borrowed(configured_backspace)),
         "backspace" if modifiers.is_ctrl_only() => Some(Cow::Borrowed("\x08")),
-        "backspace" if modifiers.is_alt_only() => Some(Cow::Borrowed("\x1b\x7f")),
-        "backspace" if modifiers.is_shift_only() => Some(Cow::Borrowed("\x7f")),
+        "backspace" if modifiers.is_alt_only() => {
+            Some(Cow::Owned(format!("\x1b{configured_backspace}")))
+        }
+        "backspace" if modifiers.is_shift_only() => Some(Cow::Borrowed(configured_backspace)),
         "space" if modifiers.is_ctrl_only() => Some(Cow::Borrowed("\x00")),
         _ => None,
     }
@@ -407,9 +441,21 @@ fn navigation_key_sequence(
     }))
 }
 
-fn editing_key_sequence(key: &str, modifiers: TerminalKeyModifiers) -> Option<Cow<'static, str>> {
+fn editing_key_sequence(
+    key: &str,
+    modifiers: TerminalKeyModifiers,
+    delete_sequence: TerminalDeleteSequence,
+) -> Option<Cow<'static, str>> {
     if !modifiers.is_none() {
         return None;
+    }
+
+    if key == "delete" {
+        return Some(Cow::Borrowed(match delete_sequence {
+            TerminalDeleteSequence::Csi3Tilde => "\x1b[3~",
+            TerminalDeleteSequence::Delete => "\x7f",
+            TerminalDeleteSequence::ControlH => "\x08",
+        }));
     }
 
     csi_tilde_number(key).map(|number| Cow::Owned(format!("\x1b[{}~", number)))

@@ -309,6 +309,9 @@ pub struct PersistedSettings {
     #[serde(default)]
     pub network: NetworkSettings,
     pub experimental: ExperimentalSettings,
+    // Legal acceptance is independent from whether the optional welcome flow is complete.
+    #[serde(default)]
+    pub onboarding_disclaimer_accepted: bool,
     pub onboarding_completed: bool,
     #[serde(default)]
     pub command_palette_mru: Vec<String>,
@@ -350,6 +353,7 @@ impl Default for PersistedSettings {
             connection_pool: ConnectionPoolSettings::default(),
             network: NetworkSettings::default(),
             experimental: ExperimentalSettings::default(),
+            onboarding_disclaimer_accepted: false,
             onboarding_completed: false,
             command_palette_mru: Vec::new(),
             keybindings: KeybindingSettings::default(),
@@ -424,6 +428,34 @@ mod misc_tests {
             "terminal"
         );
         assert_eq!(restored.settings_navigation, settings.settings_navigation);
+    }
+
+    #[test]
+    fn onboarding_disclaimer_acceptance_round_trips_independently() {
+        let mut settings = PersistedSettings::default();
+        settings.onboarding_disclaimer_accepted = true;
+
+        let serialized = settings.to_value();
+        let restored: PersistedSettings =
+            serde_json::from_value(serialized.clone()).expect("settings should deserialize");
+
+        assert_eq!(serialized["onboardingDisclaimerAccepted"], true);
+        assert!(restored.onboarding_disclaimer_accepted);
+        assert!(!restored.onboarding_completed);
+    }
+
+    #[test]
+    fn legacy_settings_default_onboarding_disclaimer_acceptance_when_missing() {
+        let mut serialized = PersistedSettings::default().to_value();
+        serialized
+            .as_object_mut()
+            .expect("settings should be an object")
+            .remove("onboardingDisclaimerAccepted");
+
+        let restored: PersistedSettings =
+            serde_json::from_value(serialized).expect("legacy settings should deserialize");
+
+        assert!(!restored.onboarding_disclaimer_accepted);
     }
 
     #[test]

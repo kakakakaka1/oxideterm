@@ -302,6 +302,10 @@ impl WorkspaceApp {
             self.ime_marked_text = None;
         }
         if let Some(pane) = self.active_pane() {
+            // A hidden terminal can retain paint operations that reference atlas slots later
+            // reused by another surface. Force one fresh frame when the pane becomes active so
+            // its unchanged snapshot is reshaped without reconnecting or rebuilding the session.
+            window.refresh();
             pane.update(cx, |pane, cx| pane.focus(window, cx));
         } else {
             window.focus(&self.focus_handle, cx);

@@ -13,12 +13,13 @@ use gpui::{
     Anchor, AnchoredPositionMode, AnyElement, App, AppContext, Bounds, ClipboardItem, Context,
     Entity, EventEmitter, FocusHandle, Focusable, FontWeight, InteractiveElement, IntoElement,
     KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, Pixels,
-    Point, Render, SharedString, Styled, UniformListScrollHandle, Window, anchored, deferred, div,
-    prelude::*, px, rgb, rgba, svg, uniform_list,
+    Point, Render, ScrollHandle, SharedString, Styled, UniformListScrollHandle, Window, anchored,
+    deferred, div, prelude::*, px, rgb, rgba, svg, uniform_list,
 };
 use oxideterm_editor_syntax::LanguageId;
 use oxideterm_gpui_editor::{EditorContextMenuLabels, TextEditorView};
 use oxideterm_gpui_ui::{
+    Scrollbar, ScrollbarAxis,
     button::ButtonVariant,
     button::{ButtonOptions, ButtonRadius, ButtonSize, button_with},
     modal::{
@@ -410,6 +411,7 @@ pub struct IdeSurface {
     folder_switch_confirm_open: bool,
     tree_rows_cache: Option<TreeRowsCache>,
     tree_scroll_handle: UniformListScrollHandle,
+    tab_scroll_handle: ScrollHandle,
     search: ProjectSearchState,
     editor_search: EditorSearchState,
     search_cache: HashMap<String, SearchCacheEntry>,

@@ -8,8 +8,8 @@ use crate::{
     GoToTab1, GoToTab2, GoToTab3, GoToTab4, GoToTab5, GoToTab6, GoToTab7, GoToTab8, GoToTab9,
     NewConnection, NewTerminal, NextTab, OpenSettings, PaletteAiSidebar, PaletteBroadcast,
     PaletteEventLog, Paste, PrevTab, Quit, ShellLauncher, ShowShortcuts, SplitHorizontal,
-    SplitNavLeft, SplitNavRight, SplitVertical, TerminalAiPanel, TerminalRecording, ToggleSidebar,
-    ZenMode,
+    SplitNavLeft, SplitNavRight, SplitVertical, TerminalAiPanel, TerminalFreeTypeMode,
+    TerminalRecording, ToggleSidebar, ZenMode,
 };
 
 const CONTEXT: &str = "Workspace";
@@ -329,6 +329,12 @@ pub(crate) static ACTION_DEFINITIONS: LazyLock<Vec<ActionDefinition>> = LazyLock
             ActionScope::Terminal,
             KeyCombo::cmd_shift("r"),
             KeyCombo::ctrl_shift("r"),
+        ),
+        def(
+            "terminal.toggleFreeTypeMode",
+            ActionScope::Terminal,
+            KeyCombo::cmd_shift("f"),
+            KeyCombo::ctrl_alt("f"),
         ),
         def_with_terminal_behavior(
             "terminal.closePanel",
@@ -906,6 +912,7 @@ fn push_action_binding(bindings: &mut Vec<KeyBinding>, action_id: &str, combo: &
         "terminal.paste" => push_binding!(Paste),
         "terminal.aiPanel" => push_binding!(TerminalAiPanel),
         "terminal.recording" => push_binding!(TerminalRecording),
+        "terminal.toggleFreeTypeMode" => push_binding!(TerminalFreeTypeMode),
         "terminal.closePanel" => {}
         "split.horizontal" => push_binding!(SplitHorizontal),
         "split.vertical" => push_binding!(SplitVertical),
@@ -927,7 +934,7 @@ mod tests {
 
     #[test]
     fn tauri_default_registry_contains_all_orchestrated_actions() {
-        assert_eq!(ACTION_DEFINITIONS.len(), 40);
+        assert_eq!(ACTION_DEFINITIONS.len(), 41);
         assert!(action_definition("app.commandPalette").is_some());
         assert_eq!(
             action_definition("app.quit")
@@ -935,6 +942,7 @@ mod tests {
             Some(&KeyCombo::cmd("q"))
         );
         assert!(action_definition("terminal.closePanel").is_some());
+        assert!(action_definition("terminal.toggleFreeTypeMode").is_some());
         assert!(action_definition("palette.broadcast").is_some());
         assert_eq!(
             action_definition("app.closeTab").map(|definition| definition.terminal_behavior),
@@ -949,6 +957,25 @@ mod tests {
             action_definition("terminal.closePanel").map(|definition| definition.terminal_behavior),
             Some(TerminalBehavior::WhenPanelOpen)
         );
+    }
+
+    #[test]
+    fn free_type_mode_shortcut_defaults_do_not_conflict() {
+        let definition = action_definition("terminal.toggleFreeTypeMode")
+            .expect("free type mode shortcut definition");
+        let overrides = Map::new();
+
+        for side in [KeybindingSide::Mac, KeybindingSide::Other] {
+            assert!(
+                conflicts_for_combo(
+                    definition.id,
+                    definition.default_combo(side),
+                    &overrides,
+                    side,
+                )
+                .is_empty()
+            );
+        }
     }
 
     #[test]

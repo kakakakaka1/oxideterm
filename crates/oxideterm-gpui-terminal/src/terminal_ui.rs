@@ -5,6 +5,7 @@ use gpui::{
     Window, px, rgb,
 };
 use oxideterm_render_policy::EffectiveRenderPolicy;
+use oxideterm_settings::{TerminalBackspaceSequence, TerminalDeleteSequence};
 use oxideterm_terminal::{
     TerminalColor, TerminalCursorShape, TerminalEncoding, TrzszTransferPolicy,
 };
@@ -43,7 +44,11 @@ pub(crate) const TERMINAL_MIDDLE_CLICK_PASTE: bool = false;
 pub(crate) const TERMINAL_OPEN_LINKS_WITH_MODIFIER: bool = true;
 pub(crate) const TERMINAL_KEEP_SELECTION_ON_COPY: bool = true;
 pub(crate) const TERMINAL_SELECTION_REQUIRES_SHIFT: bool = false;
-pub(crate) const TERMINAL_FREE_TYPE_CURSOR_POSITIONING: bool = false;
+pub(crate) const TERMINAL_FREE_TYPE_MODE: bool = false;
+pub(crate) const TERMINAL_BACKSPACE_SEQUENCE: TerminalBackspaceSequence =
+    TerminalBackspaceSequence::Delete;
+pub(crate) const TERMINAL_DELETE_SEQUENCE: TerminalDeleteSequence =
+    TerminalDeleteSequence::Csi3Tilde;
 pub(crate) const TERMINAL_FONT_LIGATURES: bool = false;
 pub(crate) const TERMINAL_BIDI_ENABLED: bool = true;
 pub(crate) const TERMINAL_COMMAND_MARKS_ENABLED: bool = true;
@@ -68,7 +73,9 @@ pub struct TerminalUiPreferences {
     pub middle_click_paste: bool,
     pub open_links_with_modifier: bool,
     pub selection_requires_shift: bool,
-    pub free_type_cursor_positioning: bool,
+    pub free_type_mode: bool,
+    pub backspace_sequence: TerminalBackspaceSequence,
+    pub delete_sequence: TerminalDeleteSequence,
     pub bidi_enabled: bool,
     pub current_directory_awareness_enabled: bool,
     pub command_marks_enabled: bool,
@@ -111,7 +118,9 @@ impl Default for TerminalUiPreferences {
             middle_click_paste: TERMINAL_MIDDLE_CLICK_PASTE,
             open_links_with_modifier: TERMINAL_OPEN_LINKS_WITH_MODIFIER,
             selection_requires_shift: TERMINAL_SELECTION_REQUIRES_SHIFT,
-            free_type_cursor_positioning: TERMINAL_FREE_TYPE_CURSOR_POSITIONING,
+            free_type_mode: TERMINAL_FREE_TYPE_MODE,
+            backspace_sequence: TERMINAL_BACKSPACE_SEQUENCE,
+            delete_sequence: TERMINAL_DELETE_SEQUENCE,
             bidi_enabled: TERMINAL_BIDI_ENABLED,
             current_directory_awareness_enabled: false,
             command_marks_enabled: TERMINAL_COMMAND_MARKS_ENABLED,
@@ -499,7 +508,9 @@ pub(crate) struct TerminalUiSettings {
     pub(crate) open_links_with_modifier: bool,
     pub(crate) keep_selection_on_copy: bool,
     pub(crate) selection_requires_shift: bool,
-    pub(crate) free_type_cursor_positioning: bool,
+    pub(crate) free_type_mode: bool,
+    pub(crate) backspace_sequence: TerminalBackspaceSequence,
+    pub(crate) delete_sequence: TerminalDeleteSequence,
     pub(crate) smooth_scroll: bool,
     pub(crate) bidi_enabled: bool,
     pub(crate) current_directory_awareness_enabled: bool,
@@ -521,7 +532,9 @@ impl Default for TerminalUiSettings {
             open_links_with_modifier: TERMINAL_OPEN_LINKS_WITH_MODIFIER,
             keep_selection_on_copy: TERMINAL_KEEP_SELECTION_ON_COPY,
             selection_requires_shift: TERMINAL_SELECTION_REQUIRES_SHIFT,
-            free_type_cursor_positioning: TERMINAL_FREE_TYPE_CURSOR_POSITIONING,
+            free_type_mode: TERMINAL_FREE_TYPE_MODE,
+            backspace_sequence: TERMINAL_BACKSPACE_SEQUENCE,
+            delete_sequence: TERMINAL_DELETE_SEQUENCE,
             smooth_scroll: true,
             bidi_enabled: TERMINAL_BIDI_ENABLED,
             current_directory_awareness_enabled: false,
@@ -549,7 +562,9 @@ impl TerminalUiSettings {
             open_links_with_modifier: preferences.open_links_with_modifier,
             keep_selection_on_copy: TERMINAL_KEEP_SELECTION_ON_COPY,
             selection_requires_shift: preferences.selection_requires_shift,
-            free_type_cursor_positioning: preferences.free_type_cursor_positioning,
+            free_type_mode: preferences.free_type_mode,
+            backspace_sequence: preferences.backspace_sequence,
+            delete_sequence: preferences.delete_sequence,
             smooth_scroll: preferences.smooth_scroll,
             bidi_enabled: preferences.bidi_enabled,
             current_directory_awareness_enabled: preferences.current_directory_awareness_enabled,

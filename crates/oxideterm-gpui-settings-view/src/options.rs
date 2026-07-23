@@ -5,7 +5,8 @@ use oxideterm_i18n::I18n;
 use oxideterm_settings::{
     AiReasoningEffort, AiThinkingStyle, AnimationSpeed, BackgroundFit, ConflictAction,
     CursorStyle as SettingsCursorStyle, FontFamily, IdeAgentMode, Language, PersistedSettings,
-    TerminalEncoding, UiDensity, UpdateChannel, UpdateProxyMode, UpdateProxyProtocol,
+    TerminalBackspaceSequence, TerminalDeleteSequence, TerminalEncoding, UiDensity, UpdateChannel,
+    UpdateProxyMode, UpdateProxyProtocol,
 };
 use oxideterm_theme::BUILT_IN_THEMES;
 
@@ -55,8 +56,8 @@ pub fn set_selection_requires_shift(settings: &mut PersistedSettings, value: boo
     settings.terminal.selection_requires_shift = value;
 }
 
-pub fn set_free_type_cursor_positioning(settings: &mut PersistedSettings, value: bool) {
-    settings.terminal.free_type_cursor_positioning = value;
+pub fn set_free_type_mode(settings: &mut PersistedSettings, value: bool) {
+    settings.terminal.free_type_mode = value;
 }
 
 pub fn set_font_ligatures(settings: &mut PersistedSettings, value: bool) {
@@ -106,6 +107,21 @@ pub fn terminal_encoding_options() -> &'static [TerminalEncoding] {
         TerminalEncoding::EucJp,
         TerminalEncoding::EucKr,
         TerminalEncoding::Windows1252,
+    ]
+}
+
+pub fn terminal_backspace_sequence_options() -> &'static [TerminalBackspaceSequence] {
+    &[
+        TerminalBackspaceSequence::Delete,
+        TerminalBackspaceSequence::ControlH,
+    ]
+}
+
+pub fn terminal_delete_sequence_options() -> &'static [TerminalDeleteSequence] {
+    &[
+        TerminalDeleteSequence::Csi3Tilde,
+        TerminalDeleteSequence::Delete,
+        TerminalDeleteSequence::ControlH,
     ]
 }
 
@@ -620,6 +636,21 @@ pub fn terminal_encoding_label(encoding: TerminalEncoding) -> String {
         TerminalEncoding::Windows1252 => "Windows-1252",
     }
     .to_string()
+}
+
+pub fn terminal_backspace_sequence_label(sequence: TerminalBackspaceSequence) -> &'static str {
+    match sequence {
+        TerminalBackspaceSequence::Delete => "DEL (0x7F)",
+        TerminalBackspaceSequence::ControlH => "Ctrl+H (0x08)",
+    }
+}
+
+pub fn terminal_delete_sequence_label(sequence: TerminalDeleteSequence) -> &'static str {
+    match sequence {
+        TerminalDeleteSequence::Csi3Tilde => "CSI 3~",
+        TerminalDeleteSequence::Delete => "DEL (0x7F)",
+        TerminalDeleteSequence::ControlH => "Ctrl+H (0x08)",
+    }
 }
 
 pub fn cursor_style_label(style: SettingsCursorStyle, i18n: &I18n) -> String {

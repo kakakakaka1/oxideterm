@@ -1,4 +1,5 @@
 use super::*;
+use oxideterm_settings::{TerminalBackspaceSequence, TerminalDeleteSequence};
 
 #[test]
 fn app_cursor_navigation_uses_application_sequences() {
@@ -98,6 +99,76 @@ fn plain_tab_emits_tab_character_for_shell_completion() {
     );
 
     assert_eq!(sequence.as_deref(), Some("\t"));
+}
+
+#[test]
+fn legacy_backspace_sequence_is_configurable() {
+    let key = Keystroke {
+        key: "backspace".to_string(),
+        ..Default::default()
+    };
+
+    let delete = configurable_key_escape_sequence(
+        &key,
+        &TermMode::default(),
+        false,
+        TerminalBackspaceSequence::Delete,
+        TerminalDeleteSequence::Csi3Tilde,
+        KittyKeyEventType::Press,
+    );
+    let control_h = configurable_key_escape_sequence(
+        &key,
+        &TermMode::default(),
+        false,
+        TerminalBackspaceSequence::ControlH,
+        TerminalDeleteSequence::Csi3Tilde,
+        KittyKeyEventType::Press,
+    );
+
+    assert_eq!(delete.as_deref(), Some("\x7f"));
+    assert_eq!(control_h.as_deref(), Some("\x08"));
+}
+
+#[test]
+fn legacy_delete_sequence_is_configurable() {
+    let key = Keystroke {
+        key: "delete".to_string(),
+        ..Default::default()
+    };
+
+    for (sequence, expected) in [
+        (TerminalDeleteSequence::Csi3Tilde, "\x1b[3~"),
+        (TerminalDeleteSequence::Delete, "\x7f"),
+        (TerminalDeleteSequence::ControlH, "\x08"),
+    ] {
+        let encoded = configurable_key_escape_sequence(
+            &key,
+            &TermMode::default(),
+            false,
+            TerminalBackspaceSequence::Delete,
+            sequence,
+            KittyKeyEventType::Press,
+        );
+
+        assert_eq!(encoded.as_deref(), Some(expected));
+    }
+}
+
+#[test]
+fn kitty_keyboard_mode_ignores_legacy_key_sequence_settings() {
+    let sequence = configurable_key_escape_sequence(
+        &Keystroke {
+            key: "backspace".to_string(),
+            ..Default::default()
+        },
+        &(TermMode::default() | TermMode::REPORT_ALL_KEYS_AS_ESC),
+        false,
+        TerminalBackspaceSequence::ControlH,
+        TerminalDeleteSequence::ControlH,
+        KittyKeyEventType::Press,
+    );
+
+    assert_eq!(sequence.as_deref(), Some("\x1b[127;1u"));
 }
 
 #[test]

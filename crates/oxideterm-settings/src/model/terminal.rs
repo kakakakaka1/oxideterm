@@ -254,6 +254,11 @@ pub struct TerminalSettings {
     pub smooth_scroll: bool,
     pub renderer: RendererType,
     pub terminal_encoding: TerminalEncoding,
+    // Legacy terminal applications disagree on the bytes produced by these physical keys.
+    #[serde(default)]
+    pub backspace_sequence: TerminalBackspaceSequence,
+    #[serde(default)]
+    pub delete_sequence: TerminalDeleteSequence,
     pub adaptive_renderer: AdaptiveRendererMode,
     // Keep the legacy serialized field name so existing settings continue to load.
     pub show_fps_overlay: bool,
@@ -268,8 +273,9 @@ pub struct TerminalSettings {
     #[serde(default = "default_open_links_with_modifier")]
     pub open_links_with_modifier: bool,
     pub selection_requires_shift: bool,
-    #[serde(default)]
-    pub free_type_cursor_positioning: bool,
+    // Keep the legacy JSON key so local and cloud-synced settings remain compatible.
+    #[serde(default, rename = "freeTypeCursorPositioning")]
+    pub free_type_mode: bool,
     pub autosuggest: TerminalAutosuggestSettings,
     pub command_bar: TerminalCommandBarSettings,
     #[serde(default)]
@@ -311,6 +317,8 @@ impl Default for TerminalSettings {
             smooth_scroll: true,
             renderer: RendererType::default(),
             terminal_encoding: TerminalEncoding::Utf8,
+            backspace_sequence: TerminalBackspaceSequence::default(),
+            delete_sequence: TerminalDeleteSequence::default(),
             adaptive_renderer: AdaptiveRendererMode::Auto,
             show_fps_overlay: false,
             paste_protection: true,
@@ -321,7 +329,7 @@ impl Default for TerminalSettings {
             middle_click_paste: false,
             open_links_with_modifier: true,
             selection_requires_shift: false,
-            free_type_cursor_positioning: false,
+            free_type_mode: false,
             autosuggest: TerminalAutosuggestSettings::default(),
             command_bar: TerminalCommandBarSettings::default(),
             remote_shell_integration_mode: RemoteShellIntegrationMode::Ask,
@@ -378,7 +386,7 @@ mod tests {
     }
 
     #[test]
-    fn terminal_settings_default_free_type_cursor_positioning_when_missing() {
+    fn terminal_settings_default_free_type_mode_when_missing() {
         let mut value = serde_json::to_value(TerminalSettings::default()).unwrap();
         value
             .as_object_mut()
@@ -387,7 +395,49 @@ mod tests {
 
         let settings: TerminalSettings = serde_json::from_value(value).unwrap();
 
-        assert!(!settings.free_type_cursor_positioning);
+        assert!(!settings.free_type_mode);
+    }
+
+    #[test]
+    fn terminal_settings_default_legacy_key_sequences_when_missing() {
+        let mut value = serde_json::to_value(TerminalSettings::default()).unwrap();
+        let object = value.as_object_mut().unwrap();
+        object.remove("backspaceSequence");
+        object.remove("deleteSequence");
+
+        let settings: TerminalSettings = serde_json::from_value(value).unwrap();
+
+        assert_eq!(
+            settings.backspace_sequence,
+            TerminalBackspaceSequence::Delete
+        );
+        assert_eq!(settings.delete_sequence, TerminalDeleteSequence::Csi3Tilde);
+    }
+
+    #[test]
+    fn terminal_settings_serialize_legacy_key_sequences() {
+        let mut settings = TerminalSettings::default();
+        settings.backspace_sequence = TerminalBackspaceSequence::ControlH;
+        settings.delete_sequence = TerminalDeleteSequence::Delete;
+
+        let value = serde_json::to_value(settings).expect("serialize terminal settings");
+
+        assert_eq!(value["backspaceSequence"], serde_json::json!("controlH"));
+        assert_eq!(value["deleteSequence"], serde_json::json!("delete"));
+    }
+
+    #[test]
+    fn terminal_settings_keep_legacy_free_type_mode_json_key() {
+        let mut settings = TerminalSettings::default();
+        settings.free_type_mode = true;
+
+        let value = serde_json::to_value(settings).expect("serialize terminal settings");
+
+        assert_eq!(
+            value["freeTypeCursorPositioning"],
+            serde_json::Value::Bool(true)
+        );
+        assert!(value.get("freeTypeMode").is_none());
     }
 
     #[test]

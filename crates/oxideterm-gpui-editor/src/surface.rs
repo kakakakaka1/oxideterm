@@ -6,7 +6,8 @@ use std::{cell::RefCell, collections::HashMap, ops::Range, sync::Arc};
 use gpui::{
     AnyElement, App, Bounds, Context, Div, Element, ElementId, ElementInputHandler, Entity,
     FocusHandle, Focusable, GlobalElementId, InspectorElementId, IntoElement, LayoutId,
-    ParentElement, Pixels, Point, ScrollWheelEvent, Window, div, point, prelude::*, px, rgb,
+    ParentElement, Pixels, Point, ScrollWheelEvent, SharedString, TextRun, Window, div, point,
+    prelude::*, px, rgb,
 };
 use oxideterm_editor_core::{
     BufferOffset, Cursor, EditTransaction, FindMatch, LineCol, Selection, TextBuffer, TextEdit,
@@ -15,7 +16,9 @@ use oxideterm_editor_core::{
 use oxideterm_editor_syntax::{BracketPair, HighlightSpan, LanguageId, SyntaxEdit, SyntaxSession};
 use oxideterm_theme::ThemeTokens;
 
-use crate::{EditorAppearance, EditorMetrics, EditorSettings, EditorViewport};
+use crate::{
+    EditorAppearance, EditorMetrics, EditorSettings, EditorViewport, metrics::editor_code_font,
+};
 
 mod commands;
 mod coords;
@@ -873,11 +876,27 @@ impl TextEditorView {
         }
     }
 
-    fn offset_for_window_point(&self, point: Point<Pixels>) -> Option<BufferOffset> {
+    fn offset_for_window_point(
+        &self,
+        point: Point<Pixels>,
+        window: &mut Window,
+    ) -> Option<BufferOffset> {
         let display_row = self.display_row_for_window_y(point.y)?;
-        let column = display_row.start_col + self.visual_column_for_window_x(point.x);
         let line_text = self.buffer.line_text(display_row.line).unwrap_or_default();
-        let byte_column = byte_column_for_visual_column(&line_text, column);
+        let byte_start = byte_column_for_visual_column(&line_text, display_row.start_col);
+        let byte_end = byte_column_for_visual_column(&line_text, display_row.end_col);
+        let segment_text = line_text.get(byte_start..byte_end)?;
+        let relative_x = f32::from(point.x)
+            - self
+                .content_bounds
+                .map(|bounds| f32::from(bounds.origin.x))
+                .unwrap_or_default()
+            - self.metrics.gutter_width
+            - self.metrics.content_padding_x
+            + self.viewport.scroll_x_px;
+        let local_byte =
+            self.closest_grapheme_byte_for_x(segment_text, relative_x.max(0.0), window);
+        let byte_column = byte_start + local_byte;
         self.buffer
             .line_col_to_offset(LineCol::new(display_row.line, byte_column))
             .ok()
@@ -914,11 +933,16 @@ impl TextEditorView {
         cx.notify();
     }
 
-    fn drag_selection_to_point(&mut self, point: Point<Pixels>, cx: &mut Context<Self>) {
+    fn drag_selection_to_point(
+        &mut self,
+        point: Point<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(drag) = self.selection_drag else {
             return;
         };
-        let Some(head) = self.offset_for_window_point(point) else {
+        let Some(head) = self.offset_for_window_point(point, window) else {
             return;
         };
         self.cursor.set_selection(Selection::new(drag.anchor, head));
@@ -967,6 +991,7 @@ impl TextEditorView {
         &self,
         offset: BufferOffset,
         fallback_bounds: Bounds<Pixels>,
+        window: &mut Window,
     ) -> Bounds<Pixels> {
         let bounds = self.content_bounds.unwrap_or(fallback_bounds);
         let position = self
@@ -976,21 +1001,67 @@ impl TextEditorView {
         let line_text = self.buffer.line_text(position.line).unwrap_or_default();
         let visual_column = visual_column_for_byte_column(&line_text, position.column);
         let display_rows = self.display_rows();
-        let (display_index, display_column) =
+        let (display_index, display_row) =
             wrap::display_row_for_visual_column(&display_rows, position.line, visual_column)
-                .map(|(index, _, column)| (index, column))
-                .unwrap_or((position.line, visual_column));
+                .map(|(index, row, _)| (index, row))
+                .unwrap_or((
+                    position.line,
+                    DisplayRow {
+                        line: position.line,
+                        start_col: 0,
+                        end_col: visual_column,
+                        is_first: true,
+                        is_folded_header: false,
+                    },
+                ));
+        let byte_start = byte_column_for_visual_column(&line_text, display_row.start_col);
+        let segment_text = line_text
+            .get(byte_start..position.column)
+            .unwrap_or_default();
+        let caret_x = f32::from(self.shape_coordinate_line(segment_text, window).width());
         Bounds {
             origin: bounds.origin
                 + point(
                     px(self.metrics.gutter_width + self.metrics.content_padding_x
                         - self.viewport.scroll_x_px
-                        + display_column as f32 * self.metrics.char_width),
+                        + caret_x),
                     px(display_index as f32 * self.metrics.line_height
                         - self.vertical_scroll_y_px()),
                 ),
             size: gpui::size(px(1.0), px(self.metrics.line_height)),
         }
+    }
+
+    fn shape_coordinate_line(&self, text: &str, window: &mut Window) -> gpui::ShapedLine {
+        let text = SharedString::from(text.to_string());
+        let run = TextRun {
+            len: text.len(),
+            font: editor_code_font(&self.appearance.font_family),
+            color: rgb(self.appearance.text_hex).into(),
+            background_color: None,
+            underline: None,
+            strikethrough: None,
+        };
+        window
+            .text_system()
+            .shape_line(text, px(self.metrics.font_size), &[run], None)
+    }
+
+    fn closest_grapheme_byte_for_x(&self, text: &str, x: f32, window: &mut Window) -> usize {
+        use unicode_segmentation::UnicodeSegmentation;
+
+        let shaped = self.shape_coordinate_line(text, window);
+        // Font shaping is authoritative for pointer hit testing, but only
+        // grapheme boundaries are legal caret positions.
+        text.grapheme_indices(true)
+            .map(|(index, _)| index)
+            .chain(std::iter::once(text.len()))
+            .min_by(|left, right| {
+                let left_distance = (f32::from(shaped.x_for_index(*left)) - x).abs();
+                let right_distance = (f32::from(shaped.x_for_index(*right)) - x).abs();
+                left_distance.total_cmp(&right_distance)
+            })
+            .unwrap_or_default()
     }
 
     fn all_selections(&self) -> Vec<Selection> {

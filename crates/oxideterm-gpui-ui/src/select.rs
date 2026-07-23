@@ -70,6 +70,8 @@ pub enum SelectAnchorId {
     SettingsTerminalCjkFontFamily,
     SettingsTerminalFontSizeSlider,
     SettingsTerminalEncoding,
+    SettingsTerminalBackspaceSequence,
+    SettingsTerminalDeleteSequence,
     SettingsTerminalCursorStyle,
     SettingsRemoteShellIntegrationMode,
     SettingsIdeAgentMode,
@@ -159,6 +161,8 @@ impl SelectAnchorId {
                 | Self::SettingsTerminalFontFamily
                 | Self::SettingsTerminalCjkFontFamily
                 | Self::SettingsTerminalEncoding
+                | Self::SettingsTerminalBackspaceSequence
+                | Self::SettingsTerminalDeleteSequence
                 | Self::SettingsTerminalCursorStyle
                 | Self::SettingsRemoteShellIntegrationMode
                 | Self::SettingsIdeAgentMode

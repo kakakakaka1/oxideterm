@@ -106,27 +106,23 @@ pub(in crate::workspace) struct OnboardingState {
 
 impl OnboardingState {
     pub(in crate::workspace) fn from_settings(settings: &PersistedSettings) -> Self {
-        let mut state = Self {
+        Self {
             open: !settings.onboarding_completed,
             step: 0,
-            disclaimer_accepted: false,
+            disclaimer_accepted: disclaimer_accepted_from_settings(settings),
             ai_opt_in: settings.ai.enabled,
             tool_use_opt_in: settings.ai.enabled && settings.ai.tool_use.enabled,
             import_state: OnboardingImportState::Idle,
             imported_count: 0,
             host_count: None,
             scroll_handle: ScrollHandle::new(),
-        };
-        if settings.onboarding_completed {
-            state.disclaimer_accepted = true;
         }
-        state
     }
 
     pub(in crate::workspace) fn reset_for_open(&mut self, settings: &PersistedSettings) {
         self.open = true;
         self.step = 0;
-        self.disclaimer_accepted = false;
+        self.disclaimer_accepted = disclaimer_accepted_from_settings(settings);
         self.ai_opt_in = settings.ai.enabled;
         self.tool_use_opt_in = settings.ai.enabled && settings.ai.tool_use.enabled;
         self.import_state = OnboardingImportState::Idle;
@@ -136,9 +132,36 @@ impl OnboardingState {
     }
 }
 
+fn disclaimer_accepted_from_settings(settings: &PersistedSettings) -> bool {
+    // Completed legacy onboarding flows necessarily passed the disclaimer step.
+    settings.onboarding_disclaimer_accepted || settings.onboarding_completed
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::workspace) enum OnboardingImportState {
     Idle,
     Loading,
     Done,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::disclaimer_accepted_from_settings;
+    use oxideterm_settings::PersistedSettings;
+
+    #[test]
+    fn persisted_disclaimer_acceptance_restores_without_completed_onboarding() {
+        let mut settings = PersistedSettings::default();
+        settings.onboarding_disclaimer_accepted = true;
+
+        assert!(disclaimer_accepted_from_settings(&settings));
+    }
+
+    #[test]
+    fn completed_legacy_onboarding_implies_disclaimer_acceptance() {
+        let mut settings = PersistedSettings::default();
+        settings.onboarding_completed = true;
+
+        assert!(disclaimer_accepted_from_settings(&settings));
+    }
 }

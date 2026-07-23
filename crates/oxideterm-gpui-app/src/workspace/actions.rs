@@ -502,6 +502,7 @@ impl WorkspaceApp {
                 self.toggle_terminal_ai_inline_panel(window, cx);
             }
             "terminal.recording" => self.toggle_active_terminal_recording(cx),
+            "terminal.toggleFreeTypeMode" => self.toggle_free_type_mode(cx),
             "terminal.closePanel" => self.close_terminal_panel(window, cx),
             "split.horizontal" => self.split_active_pane(SplitDirection::Horizontal, window, cx),
             "split.vertical" => self.split_active_pane(SplitDirection::Vertical, window, cx),
@@ -522,6 +523,22 @@ impl WorkspaceApp {
             _ => return false,
         }
         true
+    }
+
+    pub(super) fn toggle_free_type_mode(&mut self, cx: &mut Context<Self>) {
+        let enabled = !self.settings_store.settings().terminal.free_type_mode;
+        // Route through the shared settings path so every open terminal receives
+        // the new preference without changing terminal or SSH session ownership.
+        self.edit_settings(|settings| settings.terminal.free_type_mode = enabled, cx);
+        self.push_command_palette_toast(
+            self.i18n.t("settings_view.terminal.free_type_mode"),
+            Some(self.i18n.t(if enabled {
+                "common.enabled"
+            } else {
+                "common.disabled"
+            })),
+            TerminalNoticeVariant::Default,
+        );
     }
 
     fn close_terminal_panel(&mut self, window: &mut Window, cx: &mut Context<Self>) {

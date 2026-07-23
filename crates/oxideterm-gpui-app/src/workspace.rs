@@ -280,8 +280,8 @@ use crate::{
     SplitHorizontal, SplitNavLeft, SplitNavRight, SplitVertical, SwitchLocaleChinese,
     SwitchLocaleEnglish, SwitchLocaleFrench, SwitchLocaleGerman, SwitchLocaleItalian,
     SwitchLocaleJapanese, SwitchLocaleKorean, SwitchLocalePortugueseBrazil, SwitchLocaleSpanish,
-    SwitchLocaleTraditionalChinese, SwitchLocaleVietnamese, TerminalAiPanel, TerminalRecording,
-    ToggleSidebar, ZenMode,
+    SwitchLocaleTraditionalChinese, SwitchLocaleVietnamese, TerminalAiPanel, TerminalFreeTypeMode,
+    TerminalRecording, ToggleSidebar, ZenMode,
 };
 use crate::{assets::LucideIcon, bundled_fonts};
 use oxideterm_gpui_markdown::{

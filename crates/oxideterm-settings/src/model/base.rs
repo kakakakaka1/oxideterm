@@ -211,6 +211,23 @@ pub enum TerminalEncoding {
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TerminalBackspaceSequence {
+    #[default]
+    Delete,
+    ControlH,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TerminalDeleteSequence {
+    #[default]
+    Csi3Tilde,
+    Delete,
+    ControlH,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum FontFamily {
     #[default]

@@ -146,6 +146,13 @@ correctness.
   logical wrapped lines, but paint must not merge visual rows.
 - Link rendering must not decorate editable active input in a way that conflicts
   with shell completion or syntax highlighting.
+- Free Type Mode may translate mouse editing intent into ordinary terminal key
+  and text sequences, but it must never mutate the local terminal snapshot as
+  if it owned the remote command buffer. Alternate-screen and mouse-tracking
+  applications retain input ownership.
+- Backspace and Delete compatibility settings affect only legacy terminal key
+  encoding. Kitty keyboard protocol mode owns its protocol-defined sequences
+  and must ignore these compatibility overrides.
 
 ## Native Render Policy
 

@@ -4,6 +4,8 @@
 use std::ops::Range;
 
 use oxideterm_editor_core::Selection;
+use unicode_segmentation::UnicodeSegmentation;
+use unicode_width::UnicodeWidthStr;
 
 pub(super) fn floor_char_boundary(text: &str, byte: usize) -> usize {
     let mut byte = byte.min(text.len());
@@ -37,15 +39,39 @@ pub(super) fn selection_columns_for_line(
 
 pub(super) fn visual_column_for_byte_column(text: &str, byte_column: usize) -> usize {
     let byte_column = floor_char_boundary(text, byte_column);
-    text[..byte_column].chars().count()
+    text.grapheme_indices(true)
+        .take_while(|(start, grapheme)| start + grapheme.len() <= byte_column)
+        .map(|(_, grapheme)| grapheme_visual_width(grapheme))
+        .sum()
 }
 
 pub(super) fn byte_column_for_visual_column(text: &str, visual_column: usize) -> usize {
-    text.char_indices()
-        .map(|(index, _)| index)
-        .chain(std::iter::once(text.len()))
-        .nth(visual_column)
-        .unwrap_or(text.len())
+    let mut current_column = 0;
+    for (start, grapheme) in text.grapheme_indices(true) {
+        let end = start + grapheme.len();
+        let next_column = current_column + grapheme_visual_width(grapheme);
+        if visual_column < next_column {
+            // A click inside a wide glyph resolves to its nearest legal caret boundary.
+            return if visual_column.saturating_sub(current_column)
+                < next_column.saturating_sub(visual_column)
+            {
+                start
+            } else {
+                end
+            };
+        }
+        if visual_column == next_column {
+            return end;
+        }
+        current_column = next_column;
+    }
+    text.len()
+}
+
+pub(super) fn grapheme_visual_width(grapheme: &str) -> usize {
+    // Keep control-only graphemes addressable while matching conventional
+    // monospace widths for CJK and emoji clusters.
+    UnicodeWidthStr::width(grapheme).max(1)
 }
 
 #[cfg(test)]
@@ -55,14 +81,37 @@ mod tests {
     use super::*;
 
     #[test]
-    fn maps_visual_columns_without_splitting_unicode() {
+    fn maps_visual_columns_without_splitting_wide_unicode() {
         let text = "你aé";
 
         assert_eq!(byte_column_for_visual_column(text, 0), 0);
         assert_eq!(byte_column_for_visual_column(text, 1), 3);
-        assert_eq!(byte_column_for_visual_column(text, 2), 4);
-        assert_eq!(byte_column_for_visual_column(text, 3), 6);
-        assert_eq!(visual_column_for_byte_column(text, 4), 2);
+        assert_eq!(byte_column_for_visual_column(text, 2), 3);
+        assert_eq!(byte_column_for_visual_column(text, 3), 4);
+        assert_eq!(byte_column_for_visual_column(text, 4), 6);
+        assert_eq!(visual_column_for_byte_column(text, 3), 2);
+        assert_eq!(visual_column_for_byte_column(text, 4), 3);
+        assert_eq!(visual_column_for_byte_column(text, text.len()), 4);
+    }
+
+    #[test]
+    fn treats_multi_codepoint_emoji_as_one_wide_grapheme() {
+        let text = "a👨‍👩‍👧‍👦b";
+        let emoji_end = 1 + "👨‍👩‍👧‍👦".len();
+
+        assert_eq!(visual_column_for_byte_column(text, emoji_end), 3);
+        assert_eq!(byte_column_for_visual_column(text, 2), emoji_end);
+        assert_eq!(visual_column_for_byte_column(text, text.len()), 4);
+    }
+
+    #[test]
+    fn combining_marks_share_the_base_character_column() {
+        let text = "e\u{301}x";
+        let grapheme_end = "e\u{301}".len();
+
+        assert_eq!(visual_column_for_byte_column(text, grapheme_end), 1);
+        assert_eq!(byte_column_for_visual_column(text, 1), grapheme_end);
+        assert_eq!(visual_column_for_byte_column(text, text.len()), 2);
     }
 
     #[test]
@@ -72,7 +121,7 @@ mod tests {
 
         assert_eq!(
             selection_columns_for_line(selection, text, 0..6),
-            Some((1, 3))
+            Some((2, 4))
         );
     }
 

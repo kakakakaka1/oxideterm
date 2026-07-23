@@ -1,13 +1,13 @@
-# Third-Party Notices (Native / Rust Workspace)
+# Third-Party Notices
 
 This file lists third-party Rust crates and detected licenses, including transitive dependencies.
 It is generated from `cargo deny list -f json -l crate`.
-Generated: 2026-07-20T13:05:12.759640Z
+Generated: 2026-07-23T11:28:22.606302Z
 
 ## Summary
 
-- MIT: 1051
-- Apache-2.0: 842
+- MIT: 1052
+- Apache-2.0: 843
 - Apache-2.0 WITH LLVM-exception: 60
 - Zlib: 41
 - BSD-3-Clause: 21
@@ -443,6 +443,7 @@ This section is a review prompt for binary distribution; it does not replace leg
 | http-body | 1.0.1 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | http-body-util | 0.1.3 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | httparse | 1.10.1 | MIT, Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| httpdate | 1.0.3 | MIT, Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | hybrid-array | 0.4.13 | MIT, Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | hyper | 1.9.0 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | hyper-rustls | 0.27.9 | Apache-2.0, ISC, MIT | registry+https://github.com/rust-lang/crates.io-index |
