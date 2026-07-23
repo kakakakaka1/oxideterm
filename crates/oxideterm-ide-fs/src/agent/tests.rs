@@ -374,6 +374,49 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn release_all_ide_consumers_completes_and_releases_registered_consumer() {
+        let registry = oxideterm_ssh::SshConnectionRegistry::default();
+        let router = NodeRouter::new(registry.clone());
+        let node_id = NodeId::new("node-ide-release-all");
+        let config = oxideterm_ssh::SshConfig::password("host", 22, "me", "pw");
+        router.upsert_node(node_id.clone(), config.clone());
+
+        let handle = registry.acquire(
+            config,
+            oxideterm_ssh::ConnectionConsumer::NodeRouter(node_id.0.clone()),
+        );
+        handle.set_physical(Arc::new(()));
+        registry.mark_state(handle.connection_id(), oxideterm_ssh::ConnectionState::Active);
+        router
+            .bind_connection(&node_id, handle.connection_id().to_string())
+            .unwrap();
+
+        let fs = NodeAgentIdeFileSystem::new(router, NodeAgentMode::Disabled);
+        fs.ensure_ide_session_for_node(&node_id).await.unwrap();
+        assert!(handle.info().consumers.contains(&ConnectionConsumer::Ide(
+            node_id.0.clone()
+        )));
+
+        let (release_finished_tx, release_finished_rx) = std::sync::mpsc::sync_channel(1);
+        let fs_for_release = fs.clone();
+        std::thread::spawn(move || {
+            fs_for_release.release_all_ide_consumers();
+            let _ = release_finished_tx.send(());
+        });
+
+        // A bounded wait turns a future DashMap lock-order regression into a
+        // focused test failure instead of hanging the entire test process.
+        let release_timeout = Duration::from_secs(1);
+        release_finished_rx
+            .recv_timeout(release_timeout)
+            .expect("releasing all IDE consumers must not deadlock");
+        assert!(fs.ide_sessions.is_empty());
+        assert!(!handle.info().consumers.contains(&ConnectionConsumer::Ide(
+            node_id.0
+        )));
+    }
+
+    #[tokio::test]
     async fn stop_watch_without_active_ide_session_does_not_acquire_consumer() {
         let registry = oxideterm_ssh::SshConnectionRegistry::default();
         let router = NodeRouter::new(registry);

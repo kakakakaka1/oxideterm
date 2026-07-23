@@ -513,10 +513,15 @@ impl NodeAgentIdeFileSystem {
     }
 
     pub fn close_all_ide_sessions(&self) {
-        let sessions = self
+        // DashMap iteration holds shard read locks, so finish collecting keys
+        // before remove acquires write locks for the same shards.
+        let node_ids = self
             .ide_sessions
             .iter()
             .map(|entry| entry.key().clone())
+            .collect::<Vec<_>>();
+        let sessions = node_ids
+            .into_iter()
             .filter_map(|node_id| self.ide_sessions.remove(&node_id).map(|(_, session)| session))
             .collect::<Vec<_>>();
         for session in sessions {
