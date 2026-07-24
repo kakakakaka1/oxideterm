@@ -12,7 +12,7 @@
 
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.0.10-blue" alt="Versão">
+  <img src="https://img.shields.io/badge/version-2.0.11-blue" alt="Versão">
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-blue" alt="Plataforma">
   <img src="https://img.shields.io/badge/license-GPL--3.0-blue" alt="Licença">
   <img src="https://img.shields.io/badge/rust-2024%20edition-orange" alt="Rust 2024">
@@ -49,10 +49,14 @@ Suas conexões e dados operacionais permanecem sob seu controle. OxideSens usa s
 
 ## Por que OxideTerm?
 
-- SSH, Telnet, serial, RDP/VNC, SFTP, encaminhamento e shells locais em um aplicativo desktop
-- Reconexão Grace Period para quedas breves de rede
-- OxideSens com suas credenciais de IA e ações aprovadas
-- Interface GPUI sem Electron ou runtime de navegador incorporado
+| Se você se importa com… | O OxideTerm oferece… |
+|---|---|
+| Um nó remoto, muitas ferramentas | Terminal, SFTP, encaminhamento de portas, RDP/VNC, trzsz, IDE nativa, monitoramento e OxideSens AI permanecem no mesmo workspace |
+| Um app desktop sem Electron ou WebView incluído | A GPUI desenha a interface diretamente em uma superfície de GPU, sem distribuir um runtime de navegador |
+| Fluxos operacionais local-first | SSH, Telnet, SFTP, encaminhamento, RDP/VNC, shell local, terminais seriais e configuração funcionam sem cadastro |
+| OxideSens AI com suas próprias chaves em vez de créditos de plataforma | O OxideSens usa seu endpoint OpenAI, Anthropic, Gemini, Ollama ou compatível com OpenAI, com MCP, RAG e ações aprovadas no workspace |
+| Estabilidade de reconexão | Grace Period verifica a conexão anterior por 30 s antes de substituí-la, para que apps TUI sobrevivam a quedas breves de rede |
+| SSH em Rust puro e segurança de credenciais | A pilha SSH usa `russh` + `ring` sem OpenSSL/libssh2; as credenciais salvas usam o chaveiro do sistema e os pacotes `.oxide` usam ChaCha20-Poly1305 + Argon2id |
 
 ---
 
@@ -76,6 +80,16 @@ As capturas mostram os fluxos de terminal, arquivos, edição e encaminhamento d
 ## Feito para operações remotas
 
 OxideTerm mantém conexões, arquivos, encaminhamentos, ferramentas do host, automação e contexto de IA em um espaço Rust. As ferramentas compartilham a mesma identidade de servidor e o mesmo ciclo de sessão.
+
+| Aspecto | Abordagem com navegador incluído | OxideTerm |
+|---|---|---|
+| **Renderização** | Motor de navegador e layout web | GPUI em uma superfície de GPU |
+| **Fluxo de dados do terminal** | WebSocket → loop de eventos JS → xterm.js | Entrada Rust → mutação de `TerminalState` → renderização GPUI |
+| **Ciclo de vida da conexão** | Dividido entre frontend e backend | Um único pipeline no processo para conexão e reconexão |
+| **Contexto de IA** | Copiado por uma ponte da aplicação | Criado do workspace ativo com aprovação do usuário |
+| **Runtime de plugins** | Ambiente de scripts do navegador | Runtime WASM com capacidades delimitadas |
+| **CLI** | Exige o app desktop em execução | Binário independente com ligação direta a crates |
+| **Limite de runtime** | Wrapper desktop mais runtime de navegador | Processo nativo sem runtime de navegador incluído |
 
 ---
 
@@ -230,6 +244,8 @@ trzsz continua usando o stream do terminal, sem porta extra ou agent remoto:
 
 ## Executar pelo código-fonte
 
+**Requisitos:** toolchain Rust (edição 2024) e um ambiente de desktop capaz de executar GPUI.
+
 ```sh
 cargo run
 OXIDETERM_RENDER_PROFILE=compatibility cargo run
@@ -239,12 +255,17 @@ OXIDETERM_RENDER_PROFILE=compatibility cargo run
 
 ## CLI
 
+A CLI sem interface `oxideterm` funciona sem iniciar o app e é útil para automação, CI e diagnósticos.
+
 ```sh
 cargo run -p oxideterm-cli -- doctor --strict
 cargo run -p oxideterm-cli -- settings validate --strict --json
 cargo run -p oxideterm-cli -- connections search prod
+cargo run -p oxideterm-cli -- forwards list --format json
 cargo run -p oxideterm-cli -- cloud-sync push --dry-run --json
+cargo run -p oxideterm-cli -- oxide export ./profile.oxide --connection prod --password-stdin
 cargo run -p oxideterm-cli -- report --bundle ./oxideterm-report.zip
+cargo run -p oxideterm-cli -- completion install zsh --force
 ```
 
 ## Tecnologias
@@ -257,6 +278,9 @@ cargo run -p oxideterm-cli -- report --bundle ./oxideterm-report.zip
 | Terminal | portable-pty + alacritty_terminal | PTYs locais, emulação de terminal e gráficos Sixel/Kitty |
 | Plugins | wasmtime | Isolamento WASM com API de host nativa |
 | IA e busca | SSE + BM25 + HNSW | Streaming de provedores, bigramas CJK e fusão RRF |
+| Editor | tree-sitter (sintaxe), buffer próprio | Multilíngue, com suporte a SFTP |
+| Criptografia | ChaCha20-Poly1305 + Argon2id | AEAD + KDF intensiva em memória (256 MB) |
+| i18n | oxideterm-i18n | Carregador integrado, 11 idiomas distribuídos |
 
 ## Segurança
 
@@ -268,6 +292,7 @@ cargo run -p oxideterm-cli -- report --bundle ./oxideterm-report.zip
 | Contexto de IA | Mensagens enviadas a provedores passam pela remoção de padrões de credenciais; contexto e ações do espaço de trabalho permanecem sob controle do usuário |
 | `.oxide` | ChaCha20-Poly1305 + Argon2id |
 | Escritas CLI | dry-run plans, proteções `--yes`, rollback backups |
+| Chaves de host | TOFU com `~/.ssh/known_hosts`, rejeita alterações inesperadas |
 | Plugins | isolamento wasmtime e baseada em capacidades API de host |
 
 ## Aviso de uso legítimo

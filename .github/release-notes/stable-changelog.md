@@ -3,6 +3,30 @@
 Stable releases are listed newest first. The release workflow uses each versioned
 section as the detailed changelog attached to the corresponding GitHub Release.
 
+## 2.0.11
+
+OxideTerm 2.0.11 adds resilient SCP fallback and editor-aware Free Type Mode, improves IDE and terminal reliability, and avoids eager Metal memory allocation on macOS.
+
+### ✨ Highlights
+
+- Added legacy SCP as a compatibility transfer protocol for POSIX hosts, with an Auto mode that continues to prefer SFTP, explicit protocol settings, file and directory transfers, progress and cancellation, restart-aware retry behavior, and capability-gated plugin APIs.
+- Expanded Free Type Mode with configurable Copy, Cut, and Paste actions, matched-bracket selection, true movement or copying of command selections, and insertion from command history while keeping the remote line editor authoritative.
+- Validated ordinary, Emacs, and Vi command editing against real PTY-backed Bash, Zsh, and Fish sessions, and added opt-in Vim, Neovim, and Emacs adapters that expose bounded editor state without weakening alternate-screen or mouse-tracking protections.
+
+### 🛠️ Fixes
+
+- Prevented Sixel, Kitty graphics, iTerm image, and other terminal control-string payloads from being mistaken for ZMODEM, XMODEM, or YMODEM transfers, while preserving detection immediately after the control string ends.
+- Completed the IDE folder path field with focus, IME composition, selection, clipboard actions, grapheme-safe deletion, and pointer positioning; aligned editor cursors and selections with shaped CJK and emoji text and made conflict overwrite reliably bypass stale version preconditions.
+- Preserved Ctrl+B as the tmux prefix on Windows and Linux by moving the default broadcast shortcut to Ctrl+Shift+B.
+- Made compact Host Tools monitoring responsive at narrow widths, kept network rates structured and readable, and reduced horizontal padding to 12 pixels at every sidebar width.
+- Allocated Metal path, scene, blur, and filter-group textures only when a frame needs them, avoiding full-window intermediate texture reservation for ordinary idle scenes and invalidating old resources without eager recreation after resize.
+
+### 🧰 Release Maintenance
+
+- Documented the Metal intermediate-texture lifecycle in the GPUI-CE vendor patch ledger and added regression coverage for ordinary scenes, independent path and filter allocation, and resize invalidation.
+- Aligned every localized README with the main product overview, native-runtime comparison, CLI examples, technology stack, and host-key security guidance.
+- Normalized the leading release-summary paragraph during note composition so source wrapping cannot create artificial line breaks in the GitHub Release editor.
+
 ## 2.0.10
 
 OxideTerm 2.0.10 opens a substantially broader native plugin platform, expands connection migration, and improves terminal, SFTP, and IDE workflows across the app.

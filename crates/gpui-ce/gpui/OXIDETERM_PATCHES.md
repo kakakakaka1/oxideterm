@@ -102,6 +102,32 @@ Every source file changed by OxideTerm should retain an English modification
 notice near the top. The sections below define the behavior to preserve; line
 numbers are intentionally omitted because upstream refreshes move code.
 
+### Metal intermediate texture lifetime
+
+`crates/gpui-ce/gpui_macos/src/metal_renderer.rs` allocates its full-window intermediate
+textures lazily. Preserve these lifecycle rules:
+
+- updating the drawable size records the valid size and invalidates intermediates created for a
+  previous size, but does not immediately allocate replacements;
+- an ordinary scene renders directly to the drawable without path, scene-color, blur, or filter
+  group intermediates;
+- path and multisample intermediates are allocated only when the scene contains paths;
+- the full-resolution scene-color target, half-resolution blur ping/pong targets, and bounded
+  full-resolution filter-group targets are allocated together only when a scene contains a
+  backdrop filter or content-filter boundary;
+- headless rendering follows the same allocation and size-invalidation rules;
+- `intermediate_textures_follow_scene_demand_and_resize` must continue to cover an ordinary
+  scene, independent path and filter allocation, resize invalidation, and recreation at the new
+  size.
+
+The reason for this patch is memory proportional to the drawable area. The previous lifecycle
+created the path target, scene-color target, every filter-group target, and both blur targets
+whenever the window size changed, including at initial window creation. Most terminal frames do
+not use paths or filters, so those private Metal textures reserved substantial unified memory
+while idle and amplified the per-window and per-session memory difference observed on macOS.
+Allocation must therefore remain demand-driven; a vendor refresh must not restore eager creation
+merely to simplify resize handling.
+
 ### macOS text-system feature
 
 `crates/oxideterm-gpui-platform/Cargo.toml` must enable the vendored

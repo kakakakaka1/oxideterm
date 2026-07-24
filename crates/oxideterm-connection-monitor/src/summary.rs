@@ -51,6 +51,12 @@ pub enum CompactMonitorRow {
         value: String,
         level: MonitorValueLevel,
     },
+    /// Keeps network rates structured so compact UIs can choose their layout.
+    Interface {
+        name: String,
+        rx: String,
+        tx: String,
+    },
     Retry {
         connection_id: String,
     },
@@ -120,8 +126,12 @@ pub fn compact_monitor_row_signature(row: &CompactMonitorRow) -> u64 {
             3_u8.hash(&mut hasher);
             name.hash(&mut hasher);
         }
-        CompactMonitorRow::Retry { connection_id } => {
+        CompactMonitorRow::Interface { name, .. } => {
             4_u8.hash(&mut hasher);
+            name.hash(&mut hasher);
+        }
+        CompactMonitorRow::Retry { connection_id } => {
+            5_u8.hash(&mut hasher);
             connection_id.hash(&mut hasher);
         }
     }
@@ -371,11 +381,7 @@ fn push_compact_metric_rows(metrics: &ResourceMetrics, rows: &mut Vec<CompactMon
 fn push_compact_detail_rows(metrics: &ResourceMetrics, rows: &mut Vec<CompactMonitorRow>) {
     push_section_rows(rows, MonitorSectionKind::Mounts, disk_list_rows(metrics, 8));
     push_section_rows(rows, MonitorSectionKind::Gpus, gpu_list_rows(metrics, 4));
-    push_section_rows(
-        rows,
-        MonitorSectionKind::Interfaces,
-        interface_list_rows(metrics, 8),
-    );
+    push_compact_interface_rows(metrics, rows);
     push_section_rows(
         rows,
         MonitorSectionKind::TopProcesses,
@@ -401,6 +407,30 @@ fn push_section_rows(
     }
 }
 
+fn push_compact_interface_rows(metrics: &ResourceMetrics, rows: &mut Vec<CompactMonitorRow>) {
+    if metrics.net_interfaces.is_empty() {
+        return;
+    }
+    rows.push(CompactMonitorRow::Section {
+        kind: MonitorSectionKind::Interfaces,
+    });
+    for interface in metrics.net_interfaces.iter().take(8) {
+        // Keep rates as separate fields so narrow UIs can stack them without
+        // parsing a presentation string back into structured data.
+        rows.push(CompactMonitorRow::Interface {
+            name: interface.name.clone(),
+            rx: interface
+                .rx_bytes_per_sec
+                .map(format_rate)
+                .unwrap_or_else(dash),
+            tx: interface
+                .tx_bytes_per_sec
+                .map(format_rate)
+                .unwrap_or_else(dash),
+        });
+    }
+}
+
 fn dash() -> String {
     "—".to_string()
 }
@@ -408,7 +438,7 @@ fn dash() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::metrics::{MetricsSource, ResourceGpu, ResourceMetrics};
+    use crate::metrics::{MetricsSource, ResourceGpu, ResourceMetrics, ResourceNetInterface};
 
     fn metrics_with_gpu() -> ResourceMetrics {
         ResourceMetrics {
@@ -515,5 +545,25 @@ mod tests {
             compact_monitor_row_signature(&original),
             compact_monitor_row_signature(&memory)
         );
+    }
+
+    #[test]
+    fn compact_interface_rows_keep_receive_and_transmit_rates_separate() {
+        let mut metrics = metrics_with_gpu();
+        metrics.net_interfaces.push(ResourceNetInterface {
+            name: "ens17".to_string(),
+            rx_bytes: 0,
+            tx_bytes: 0,
+            rx_bytes_per_sec: Some(2 * 1024),
+            tx_bytes_per_sec: Some(12 * 1024),
+        });
+
+        let rows = compact_monitor_rows(&metrics, None);
+
+        assert!(rows.iter().any(|row| matches!(
+            row,
+            CompactMonitorRow::Interface { name, rx, tx }
+                if name == "ens17" && rx == "2.0 KB/s" && tx == "12.0 KB/s"
+        )));
     }
 }

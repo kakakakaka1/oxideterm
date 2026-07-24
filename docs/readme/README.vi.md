@@ -12,7 +12,7 @@
 
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.0.10-blue" alt="Version">
+  <img src="https://img.shields.io/badge/version-2.0.11-blue" alt="Version">
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-blue" alt="Platform">
   <img src="https://img.shields.io/badge/license-GPL--3.0-blue" alt="License">
   <img src="https://img.shields.io/badge/rust-2024%20edition-orange" alt="Rust 2024">
@@ -49,10 +49,14 @@ Kết nối và dữ liệu vận hành vẫn do bạn kiểm soát. OxideSens d
 
 ## Vì sao chọn OxideTerm?
 
-- SSH, Telnet, serial, RDP/VNC, SFTP, chuyển tiếp cổng và shell cục bộ trong một ứng dụng desktop
-- Kết nối lại Grace Period cho gián đoạn mạng ngắn
-- OxideSens dùng thông tin AI của bạn và các hành động được phê duyệt
-- Giao diện GPUI không dùng Electron hay runtime trình duyệt đóng gói
+| Nếu bạn quan tâm đến… | OxideTerm cung cấp… |
+|---|---|
+| Một nút từ xa, nhiều công cụ | Terminal, SFTP, chuyển tiếp cổng, RDP/VNC, trzsz, IDE native, giám sát và OxideSens AI cùng thuộc một workspace |
+| Ứng dụng desktop không có Electron hoặc WebView đi kèm | GPUI vẽ giao diện trực tiếp trên bề mặt GPU mà không phân phối runtime trình duyệt |
+| Quy trình vận hành local-first | SSH, Telnet, SFTP, chuyển tiếp, RDP/VNC, shell cục bộ, terminal nối tiếp và cấu hình hoạt động không cần đăng ký |
+| OxideSens AI BYOK thay vì tín dụng nền tảng | OxideSens dùng endpoint OpenAI, Anthropic, Gemini, Ollama hoặc tương thích OpenAI của bạn, với MCP, RAG và các thao tác workspace đã được phê duyệt |
+| Độ ổn định khi kết nối lại | Grace Period thăm dò kết nối cũ trong 30 giây trước khi thay thế, để ứng dụng TUI vượt qua các gián đoạn mạng ngắn |
+| SSH Rust thuần và an toàn thông tin xác thực | Ngăn xếp SSH dùng `russh` + `ring` không cần OpenSSL/libssh2; thông tin xác thực đã lưu dùng móc khóa hệ thống và gói `.oxide` dùng ChaCha20-Poly1305 + Argon2id |
 
 ---
 
@@ -76,6 +80,16 @@ Các ảnh dưới đây thể hiện quy trình terminal, tệp, chỉnh sửa 
 ## Thiết kế cho vận hành từ xa
 
 OxideTerm giữ kết nối, tệp, chuyển tiếp, công cụ máy chủ, tự động hóa và ngữ cảnh AI trong một không gian Rust. Các công cụ dùng chung danh tính máy chủ và vòng đời phiên.
+
+| Khía cạnh | Cách tiếp cận có trình duyệt đi kèm | OxideTerm |
+|---|---|---|
+| **Kết xuất** | Công cụ trình duyệt và bố cục web | GPUI trên bề mặt GPU |
+| **Luồng dữ liệu terminal** | WebSocket → vòng lặp sự kiện JS → xterm.js | Đầu vào Rust → thay đổi `TerminalState` → kết xuất GPUI |
+| **Vòng đời kết nối** | Tách giữa lớp frontend và backend | Một quy trình kết nối và kết nối lại trong cùng tiến trình |
+| **Ngữ cảnh AI** | Sao chép qua cầu nối ứng dụng | Tạo từ workspace đang hoạt động với phê duyệt của người dùng |
+| **Runtime plugin** | Môi trường script của trình duyệt | Runtime WASM giới hạn theo khả năng |
+| **CLI** | Cần ứng dụng desktop đang chạy | Binary độc lập, liên kết trực tiếp các crate |
+| **Ranh giới runtime** | Trình bao desktop cùng runtime trình duyệt | Tiến trình native không có runtime trình duyệt đi kèm |
 
 ---
 
@@ -230,6 +244,8 @@ trzsz tiếp tục dùng terminal stream, không cần port phụ hoặc remote 
 
 ## Chạy từ mã nguồn
 
+**Yêu cầu:** toolchain Rust (phiên bản 2024) và môi trường desktop có thể chạy GPUI.
+
 ```sh
 cargo run
 OXIDETERM_RENDER_PROFILE=compatibility cargo run
@@ -239,12 +255,17 @@ OXIDETERM_RENDER_PROFILE=compatibility cargo run
 
 ## CLI
 
+CLI không giao diện `oxideterm` hoạt động mà không cần khởi chạy ứng dụng, hữu ích cho tự động hóa, CI và chẩn đoán.
+
 ```sh
 cargo run -p oxideterm-cli -- doctor --strict
 cargo run -p oxideterm-cli -- settings validate --strict --json
 cargo run -p oxideterm-cli -- connections search prod
+cargo run -p oxideterm-cli -- forwards list --format json
 cargo run -p oxideterm-cli -- cloud-sync push --dry-run --json
+cargo run -p oxideterm-cli -- oxide export ./profile.oxide --connection prod --password-stdin
 cargo run -p oxideterm-cli -- report --bundle ./oxideterm-report.zip
+cargo run -p oxideterm-cli -- completion install zsh --force
 ```
 
 ## Ngăn xếp công nghệ
@@ -257,6 +278,9 @@ cargo run -p oxideterm-cli -- report --bundle ./oxideterm-report.zip
 | Terminal | portable-pty + alacritty_terminal | PTY cục bộ, mô phỏng terminal và đồ họa Sixel/Kitty |
 | Plugin | wasmtime | Cách ly WASM với API máy chủ gốc |
 | AI và tìm kiếm | SSE + BM25 + HNSW | Truyền dữ liệu nhà cung cấp, bigram CJK và hợp nhất RRF |
+| Trình soạn thảo | tree-sitter (cú pháp), bộ đệm riêng | Đa ngôn ngữ, dựa trên SFTP |
+| Mã hóa | ChaCha20-Poly1305 + Argon2id | AEAD + KDF dùng nhiều bộ nhớ (256 MB) |
+| i18n | oxideterm-i18n | Bộ tải tích hợp, 11 ngôn ngữ phát hành |
 
 ## Bảo mật
 
@@ -268,6 +292,7 @@ cargo run -p oxideterm-cli -- report --bundle ./oxideterm-report.zip
 | Ngữ cảnh AI | Thông điệp gửi tới nhà cung cấp được lọc mẫu thông tin xác thực; ngữ cảnh workspace và hành động vẫn do người dùng kiểm soát |
 | `.oxide` | ChaCha20-Poly1305 + Argon2id |
 | Ghi bằng CLI | Kế hoạch chạy thử, bảo vệ `--yes`, bản sao lưu khôi phục |
+| Khóa máy chủ | TOFU với `~/.ssh/known_hosts`, từ chối thay đổi không mong đợi |
 | Plugin | Cách ly wasmtime và API máy chủ dựa trên năng lực |
 
 ## Lưu ý về sử dụng hợp pháp

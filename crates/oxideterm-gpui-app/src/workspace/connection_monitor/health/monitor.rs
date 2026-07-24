@@ -597,6 +597,7 @@ impl WorkspaceApp {
         self.sync_compact_monitor_list_state(&rows);
         let state = self.connection_monitor.compact_monitor_list_state.clone();
         let spec = self.compact_monitor_list_spec();
+        let layout = compact_monitor_layout_for_width(self.ai.chat.sidebar_width);
         let workspace = cx.entity();
 
         div()
@@ -607,7 +608,11 @@ impl WorkspaceApp {
                 move |index, _window, cx| {
                     let rows = rows.clone();
                     workspace.update(cx, |this, cx| {
-                        this.render_compact_monitor_virtual_row(rows.get(index).cloned(), cx)
+                        this.render_compact_monitor_virtual_row(
+                            rows.get(index).cloned(),
+                            layout,
+                            cx,
+                        )
                     })
                 },
             ))
@@ -619,13 +624,14 @@ impl WorkspaceApp {
             .iter()
             .map(compact_monitor_row_signature)
             .collect::<Vec<_>>();
+        let layout = compact_monitor_layout_for_width(self.ai.chat.sidebar_width);
         sync_tauri_variable_list_state_by_signatures(
             &self.connection_monitor.compact_monitor_list_state,
             &mut self
                 .connection_monitor
                 .compact_monitor_list_cache
                 .borrow_mut(),
-            "host-tools-monitor-compact",
+            compact_monitor_list_identity(layout),
             &signatures,
             self.compact_monitor_list_spec(),
         );
@@ -641,6 +647,7 @@ impl WorkspaceApp {
     pub(super) fn render_compact_monitor_virtual_row(
         &self,
         row: Option<CompactMonitorRow>,
+        layout: CompactMonitorLayout,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let Some(row) = row else {
@@ -661,7 +668,7 @@ impl WorkspaceApp {
                 )
             }
             CompactMonitorRow::Network { rx, tx } => {
-                self.render_compact_monitor_network_row(rx, tx)
+                self.render_compact_monitor_network_row(rx, tx, layout)
             }
             CompactMonitorRow::Section { kind } => self.render_compact_monitor_section_row(
                 monitor_section_icon(kind),
@@ -669,6 +676,9 @@ impl WorkspaceApp {
             ),
             CompactMonitorRow::Detail { name, value, level } => {
                 self.render_compact_monitor_detail_row(name, value, self.monitor_level_color(level))
+            }
+            CompactMonitorRow::Interface { name, rx, tx } => {
+                self.render_compact_monitor_interface_row(name, rx, tx, layout)
             }
             CompactMonitorRow::Retry { connection_id } => div()
                 .w_full()
@@ -736,8 +746,67 @@ impl WorkspaceApp {
         monitor_value_level_color(level, self.tokens.ui.text_muted)
     }
 
-    pub(super) fn render_compact_monitor_network_row(&self, rx: String, tx: String) -> AnyElement {
+    pub(super) fn render_compact_monitor_network_row(
+        &self,
+        rx: String,
+        tx: String,
+        layout: CompactMonitorLayout,
+    ) -> AnyElement {
         let theme = self.tokens.ui;
+        if layout == CompactMonitorLayout::Stacked {
+            return div()
+                .w_full()
+                .h(px(COMPACT_MONITOR_STACKED_ROW_HEIGHT))
+                .min_w_0()
+                .px(px(COMPACT_MONITOR_ROW_SIDE_PADDING))
+                .flex()
+                .flex_col()
+                .justify_center()
+                .gap_1()
+                .text_size(px(12.0))
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(6.0))
+                        .text_color(rgb(theme.text_muted))
+                        .child(Self::render_lucide_icon(
+                            LucideIcon::Wifi,
+                            13.0,
+                            rgb(theme.text_muted),
+                        ))
+                        .child(self.i18n.t("profiler.panel.network")),
+                )
+                .child(
+                    div()
+                        .min_w_0()
+                        .pl(px(COMPACT_MONITOR_DETAIL_INDENT))
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .gap_2()
+                        .font_family(settings_mono_font_family(self.settings_store.settings()))
+                        .child(
+                            div()
+                                .min_w_0()
+                                .flex_1()
+                                .truncate()
+                                .text_color(rgb(MONITOR_EMERALD))
+                                .child(format!("↓ {rx}")),
+                        )
+                        .child(
+                            div()
+                                .min_w_0()
+                                .flex_1()
+                                .truncate()
+                                .text_align(gpui::TextAlign::Right)
+                                .text_color(rgb(MONITOR_AMBER))
+                                .child(format!("↑ {tx}")),
+                        ),
+                )
+                .into_any_element();
+        }
+
         div()
             .w_full()
             .h(px(COMPACT_MONITOR_METRIC_ROW_HEIGHT))
@@ -862,6 +931,66 @@ impl WorkspaceApp {
                     ),
             )
             .into_any_element()
+    }
+
+    pub(super) fn render_compact_monitor_interface_row(
+        &self,
+        name: String,
+        rx: String,
+        tx: String,
+        layout: CompactMonitorLayout,
+    ) -> AnyElement {
+        let theme = self.tokens.ui;
+        if layout == CompactMonitorLayout::Stacked {
+            return div()
+                .w_full()
+                .h(px(COMPACT_MONITOR_STACKED_ROW_HEIGHT))
+                .min_w_0()
+                .px(px(COMPACT_MONITOR_ROW_SIDE_PADDING))
+                .pl(px(
+                    COMPACT_MONITOR_ROW_SIDE_PADDING + COMPACT_MONITOR_DETAIL_INDENT
+                ))
+                .flex()
+                .flex_col()
+                .justify_center()
+                .gap_1()
+                .font_family(settings_mono_font_family(self.settings_store.settings()))
+                .text_size(px(11.0))
+                .child(
+                    div()
+                        .min_w_0()
+                        .truncate()
+                        .text_color(rgb(theme.text))
+                        .child(name),
+                )
+                .child(
+                    div()
+                        .min_w_0()
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .gap_2()
+                        .text_color(rgb(theme.text_muted))
+                        .child(
+                            div()
+                                .min_w_0()
+                                .flex_1()
+                                .truncate()
+                                .child(format!("rx {rx}")),
+                        )
+                        .child(
+                            div()
+                                .min_w_0()
+                                .flex_1()
+                                .truncate()
+                                .text_align(gpui::TextAlign::Right)
+                                .child(format!("tx {tx}")),
+                        ),
+                )
+                .into_any_element();
+        }
+
+        self.render_compact_monitor_detail_row(name, format!("rx {rx} / tx {tx}"), theme.text_muted)
     }
 
     pub(super) fn render_metric_card(
@@ -1294,5 +1423,54 @@ fn monitor_section_label_key(kind: MonitorSectionKind) -> &'static str {
         MonitorSectionKind::Gpus => "profiler.panel.gpus",
         MonitorSectionKind::Interfaces => "profiler.panel.interfaces",
         MonitorSectionKind::TopProcesses => "profiler.panel.top_processes",
+    }
+}
+
+fn compact_monitor_layout_for_width(sidebar_width: f32) -> CompactMonitorLayout {
+    // Stack bandwidth values before the narrow sidebar can force labels and
+    // rates to paint over each other.
+    if sidebar_width <= COMPACT_MONITOR_STACKED_LAYOUT_MAX_WIDTH {
+        CompactMonitorLayout::Stacked
+    } else {
+        CompactMonitorLayout::Inline
+    }
+}
+
+fn compact_monitor_list_identity(layout: CompactMonitorLayout) -> &'static str {
+    // Variable-height list measurements cannot be reused after rows switch
+    // between inline and stacked geometry.
+    match layout {
+        CompactMonitorLayout::Inline => "host-tools-monitor-compact-inline",
+        CompactMonitorLayout::Stacked => "host-tools-monitor-compact-stacked",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compact_monitor_stacks_at_the_narrow_width_boundary() {
+        assert_eq!(
+            compact_monitor_layout_for_width(COMPACT_MONITOR_STACKED_LAYOUT_MAX_WIDTH),
+            CompactMonitorLayout::Stacked
+        );
+        assert_eq!(
+            compact_monitor_layout_for_width(COMPACT_MONITOR_STACKED_LAYOUT_MAX_WIDTH + 1.0),
+            CompactMonitorLayout::Inline
+        );
+    }
+
+    #[test]
+    fn compact_monitor_uses_twelve_pixel_side_padding_at_every_width() {
+        assert_eq!(COMPACT_MONITOR_ROW_SIDE_PADDING, 12.0);
+    }
+
+    #[test]
+    fn compact_monitor_layouts_use_distinct_list_identities() {
+        assert_ne!(
+            compact_monitor_list_identity(CompactMonitorLayout::Inline),
+            compact_monitor_list_identity(CompactMonitorLayout::Stacked)
+        );
     }
 }

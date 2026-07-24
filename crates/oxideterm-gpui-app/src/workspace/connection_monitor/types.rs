@@ -130,10 +130,14 @@ pub(super) const MONITOR_SPARKLINE_POINTS: usize = 12;
 pub(super) const COMPACT_MONITOR_LIST_ESTIMATED_ROW_HEIGHT: f32 = 34.0;
 pub(super) const COMPACT_MONITOR_LIST_OVERSCAN: usize = 8;
 pub(super) const COMPACT_MONITOR_METRIC_ROW_HEIGHT: f32 = 32.0;
+// Network rows use the extra height only when their values must stack.
+pub(super) const COMPACT_MONITOR_STACKED_ROW_HEIGHT: f32 = 52.0;
 pub(super) const COMPACT_MONITOR_SECTION_ROW_HEIGHT: f32 = 32.0;
 pub(super) const COMPACT_MONITOR_DETAIL_ROW_HEIGHT: f32 = 28.0;
 pub(super) const COMPACT_MONITOR_RETRY_ROW_HEIGHT: f32 = 44.0;
-pub(super) const COMPACT_MONITOR_ROW_SIDE_PADDING: f32 = 24.0;
+// Compact monitoring rows use the same space-efficient inset at every width.
+pub(super) const COMPACT_MONITOR_ROW_SIDE_PADDING: f32 = 12.0;
+pub(super) const COMPACT_MONITOR_STACKED_LAYOUT_MAX_WIDTH: f32 = 360.0;
 pub(super) const COMPACT_MONITOR_VALUE_MAX_WIDTH_RATIO: f32 = 0.58;
 pub(super) const COMPACT_MONITOR_DETAIL_VALUE_MAX_WIDTH_RATIO: f32 = 0.55;
 pub(super) const COMPACT_MONITOR_DETAIL_INDENT: f32 = 22.0;
@@ -490,6 +494,12 @@ pub(in crate::workspace) enum ConnectionRuntimeSection {
     Overview,
     Health,
     Topology,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum CompactMonitorLayout {
+    Inline,
+    Stacked,
 }
 
 /// Keeps a standard Host Tools confirmation payload alive while its exit motion runs.

@@ -1,6 +1,8 @@
 use crate::metal_atlas::MetalAtlas;
 use anyhow::Result;
 use block::ConcreteBlock;
+// OxideTerm patch: keep full-window Metal intermediate textures lazy to avoid idle unified-memory
+// growth. Preserve the allocation and resize lifecycle documented in gpui/OXIDETERM_PATCHES.md.
 use cocoa::{
     base::{NO, YES},
     foundation::{NSSize, NSUInteger},
@@ -166,6 +168,9 @@ pub(crate) struct MetalRenderer {
     /// nested content blurs isolate correctly, up to [`MAX_FILTER_DEPTH`]; deeper nests render
     /// inline.
     group_textures: Vec<metal::Texture>,
+    /// Size shared by every lazily allocated intermediate texture. Changing it invalidates the
+    /// existing textures without allocating replacements until a scene actually needs them.
+    intermediate_texture_size: Option<Size<DevicePixels>>,
     path_sample_count: u32,
 }
 
@@ -461,6 +466,7 @@ impl MetalRenderer {
             blur_ping_texture: None,
             blur_pong_texture: None,
             group_textures: Vec::new(),
+            intermediate_texture_size: None,
             path_sample_count: PATH_SAMPLE_COUNT,
         }
     }
@@ -500,20 +506,34 @@ impl MetalRenderer {
                 ];
             }
         }
-        self.update_path_intermediate_textures(size);
+        self.update_intermediate_texture_size(size);
     }
 
-    fn update_path_intermediate_textures(&mut self, size: Size<DevicePixels>) {
+    fn update_intermediate_texture_size(&mut self, size: Size<DevicePixels>) {
         // We are uncertain when this happens, but sometimes size can be 0 here. Most likely before
         // the layout pass on window creation. Zero-sized texture creation causes SIGABRT.
         // https://github.com/zed-industries/zed/issues/36229
-        if size.width.0 <= 0 || size.height.0 <= 0 {
-            self.path_intermediate_texture = None;
-            self.path_intermediate_msaa_texture = None;
-            self.scene_color_texture = None;
-            self.blur_ping_texture = None;
-            self.blur_pong_texture = None;
-            self.group_textures.clear();
+        let new_size = (size.width.0 > 0 && size.height.0 > 0).then_some(size);
+        if self.intermediate_texture_size == new_size {
+            return;
+        }
+
+        self.invalidate_intermediate_textures();
+        self.intermediate_texture_size = new_size;
+    }
+
+    fn invalidate_intermediate_textures(&mut self) {
+        self.path_intermediate_texture = None;
+        self.path_intermediate_msaa_texture = None;
+        self.scene_color_texture = None;
+        self.blur_ping_texture = None;
+        self.blur_pong_texture = None;
+        self.group_textures.clear();
+    }
+
+    fn ensure_path_intermediate_textures(&mut self, size: Size<DevicePixels>) {
+        self.update_intermediate_texture_size(size);
+        if self.path_intermediate_texture.is_some() || self.intermediate_texture_size.is_none() {
             return;
         }
 
@@ -525,27 +545,6 @@ impl MetalRenderer {
         texture_descriptor
             .set_usage(metal::MTLTextureUsage::RenderTarget | metal::MTLTextureUsage::ShaderRead);
         self.path_intermediate_texture = Some(self.device.new_texture(&texture_descriptor));
-
-        // Full-res scene + group targets, and half-res ping/pong blur targets.
-        let make_color_texture = |width: u64, height: u64| {
-            let descriptor = metal::TextureDescriptor::new();
-            descriptor.set_width(width.max(1));
-            descriptor.set_height(height.max(1));
-            descriptor.set_pixel_format(metal::MTLPixelFormat::BGRA8Unorm);
-            descriptor.set_storage_mode(metal::MTLStorageMode::Private);
-            descriptor.set_usage(
-                metal::MTLTextureUsage::RenderTarget | metal::MTLTextureUsage::ShaderRead,
-            );
-            self.device.new_texture(&descriptor)
-        };
-        let full_w = size.width.0 as u64;
-        let full_h = size.height.0 as u64;
-        self.scene_color_texture = Some(make_color_texture(full_w, full_h));
-        self.group_textures = (0..MAX_FILTER_DEPTH)
-            .map(|_| make_color_texture(full_w, full_h))
-            .collect();
-        self.blur_ping_texture = Some(make_color_texture(full_w / 2, full_h / 2));
-        self.blur_pong_texture = Some(make_color_texture(full_w / 2, full_h / 2));
 
         if self.path_sample_count > 1 {
             // https://developer.apple.com/documentation/metal/choosing-a-resource-storage-mode-for-apple-gpus
@@ -564,6 +563,34 @@ impl MetalRenderer {
         } else {
             self.path_intermediate_msaa_texture = None;
         }
+    }
+
+    /// Allocates filter targets only when a scene contains a backdrop or content filter.
+    fn ensure_filter_intermediate_textures(&mut self, size: Size<DevicePixels>) {
+        self.update_intermediate_texture_size(size);
+        if self.scene_color_texture.is_some() || self.intermediate_texture_size.is_none() {
+            return;
+        }
+
+        let make_color_texture = |width: u64, height: u64| {
+            let descriptor = metal::TextureDescriptor::new();
+            descriptor.set_width(width.max(1));
+            descriptor.set_height(height.max(1));
+            descriptor.set_pixel_format(metal::MTLPixelFormat::BGRA8Unorm);
+            descriptor.set_storage_mode(metal::MTLStorageMode::Private);
+            descriptor.set_usage(
+                metal::MTLTextureUsage::RenderTarget | metal::MTLTextureUsage::ShaderRead,
+            );
+            self.device.new_texture(&descriptor)
+        };
+        let full_width = size.width.0 as u64;
+        let full_height = size.height.0 as u64;
+        self.scene_color_texture = Some(make_color_texture(full_width, full_height));
+        self.group_textures = (0..MAX_FILTER_DEPTH)
+            .map(|_| make_color_texture(full_width, full_height))
+            .collect();
+        self.blur_ping_texture = Some(make_color_texture(full_width / 2, full_height / 2));
+        self.blur_pong_texture = Some(make_color_texture(full_width / 2, full_height / 2));
     }
 
     pub fn update_transparency(&mut self, transparent: bool) {
@@ -768,9 +795,6 @@ impl MetalRenderer {
             anyhow::bail!("Invalid size for render_scene_to_image: {:?}", size);
         }
 
-        // Update path intermediate textures for this size
-        self.update_path_intermediate_textures(size);
-
         // Create an offscreen texture as render target
         let texture_descriptor = metal::TextureDescriptor::new();
         texture_descriptor.set_width(size.width.0 as u64);
@@ -891,14 +915,24 @@ impl MetalRenderer {
         let alpha = if self.opaque { 1. } else { 0. };
         let mut instance_offset = 0;
 
+        // Paths and filters have independent offscreen targets. Keep both absent for ordinary
+        // scenes so a newly opened window does not reserve full-window Metal textures.
+        self.update_intermediate_texture_size(viewport_size);
+        if !scene.paths.is_empty() {
+            self.ensure_path_intermediate_textures(viewport_size);
+        }
+        let use_offscreen =
+            !scene.backdrop_filters.is_empty() || !scene.filter_boundaries.is_empty();
+        if use_offscreen {
+            self.ensure_filter_intermediate_textures(viewport_size);
+        }
+
         // Render the scene into an offscreen color texture (so filters can sample it), then
         // blit it to `texture`. Owned clones keep the textures borrowable without borrowing
         // `self` across the batch loop (which calls `&mut self` methods like `draw_surfaces`).
         // Only route through the offscreen scene texture when the scene actually contains blur
         // filters; otherwise render straight to `texture` exactly as before (no regression, no
         // extra blit for the common case).
-        let use_offscreen =
-            !scene.backdrop_filters.is_empty() || !scene.filter_boundaries.is_empty();
         let scene_color_owned = self.scene_color_texture.clone();
         let blur_ping_owned = self.blur_ping_texture.clone();
         let blur_pong_owned = self.blur_pong_texture.clone();
@@ -2138,6 +2172,54 @@ pub struct PathSprite {
 pub struct SurfaceBounds {
     pub bounds: Bounds<ScaledPixels>,
     pub content_mask: ContentMask<ScaledPixels>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn intermediate_textures_follow_scene_demand_and_resize() {
+        let instance_buffer_pool = Arc::new(Mutex::new(InstanceBufferPool::default()));
+        let mut renderer = MetalRenderer::new_headless(instance_buffer_pool);
+        let initial_size = size(DevicePixels(64), DevicePixels(48));
+
+        // A valid drawable size and an ordinary scene must not allocate intermediate textures.
+        renderer.update_drawable_size(initial_size);
+        renderer
+            .render_scene_to_image(&Scene::default(), initial_size)
+            .unwrap();
+        assert!(renderer.path_intermediate_texture.is_none());
+        assert!(renderer.scene_color_texture.is_none());
+        assert!(renderer.blur_ping_texture.is_none());
+        assert!(renderer.blur_pong_texture.is_none());
+        assert!(renderer.group_textures.is_empty());
+
+        renderer.ensure_path_intermediate_textures(initial_size);
+        assert!(renderer.path_intermediate_texture.is_some());
+        assert!(renderer.scene_color_texture.is_none());
+        assert!(renderer.group_textures.is_empty());
+
+        renderer.ensure_filter_intermediate_textures(initial_size);
+        assert!(renderer.scene_color_texture.is_some());
+        assert!(renderer.blur_ping_texture.is_some());
+        assert!(renderer.blur_pong_texture.is_some());
+        assert_eq!(renderer.group_textures.len(), MAX_FILTER_DEPTH);
+
+        let resized = size(DevicePixels(96), DevicePixels(72));
+        renderer.update_drawable_size(resized);
+        assert!(renderer.path_intermediate_texture.is_none());
+        assert!(renderer.scene_color_texture.is_none());
+        assert!(renderer.group_textures.is_empty());
+
+        renderer.ensure_filter_intermediate_textures(resized);
+        assert!(renderer.path_intermediate_texture.is_none());
+        assert_eq!(
+            renderer.scene_color_texture.as_ref().unwrap().width(),
+            resized.width.0 as u64
+        );
+        assert_eq!(renderer.group_textures.len(), MAX_FILTER_DEPTH);
+    }
 }
 
 #[cfg(any(test, feature = "test-support"))]
