@@ -60,10 +60,10 @@ pub use log::{
 pub use metrics::{
     CpuSnapshot, MemorySnapshot, MetricsSource, NetInterfaceSnapshot, NetSnapshot,
     PreviousResourceSample, RESOURCE_HISTORY_CAPACITY, ResourceCpuCore, ResourceDisk, ResourceGpu,
-    ResourceMetrics, ResourceNetInterface, ResourceTopProcess, parse_cpu_snapshot,
-    parse_disk_usage, parse_disks, parse_gpus, parse_loadavg, parse_meminfo, parse_memory_snapshot,
-    parse_net_snapshot, parse_nproc, parse_resource_metrics, parse_top_processes,
-    previous_sample_from_metrics, push_history,
+    ResourceMetrics, ResourceNetInterface, ResourceSystemInfo, ResourceTopProcess,
+    parse_cpu_snapshot, parse_disk_usage, parse_disks, parse_gpus, parse_loadavg, parse_meminfo,
+    parse_memory_snapshot, parse_net_snapshot, parse_nproc, parse_resource_metrics,
+    parse_system_info, parse_top_processes, previous_sample_from_metrics, push_history,
 };
 pub use package::{
     PackageCaptureCommand, PackageCommandCapability, PackageFilter, PackageInspectCommand,
@@ -118,9 +118,10 @@ pub use stats::{
 pub use summary::{
     CompactMonitorRow, GpuMemorySummary, MonitorListRow, MonitorMetricKind, MonitorSectionKind,
     MonitorValueLevel, compact_monitor_row_signature, compact_monitor_rows, disk_list_rows,
-    format_bytes, format_rate, gpu_detail_value, gpu_label, gpu_list_rows, gpu_memory_percent,
-    gpu_memory_summary, gpu_utilization_percent, interface_list_rows, metrics_source_label_key,
-    percent_level, resource_metrics_is_rtt_only, rtt_level, top_process_list_rows,
+    format_boot_time, format_bytes, format_rate, format_uptime, gpu_detail_value, gpu_label,
+    gpu_list_rows, gpu_memory_percent, gpu_memory_summary, gpu_utilization_percent,
+    interface_list_rows, metrics_source_label_key, percent_level, resource_metrics_is_rtt_only,
+    rtt_level, top_process_list_rows,
 };
 pub use tmux::{
     ResourceTmuxPane, ResourceTmuxSession, ResourceTmuxSnapshot, ResourceTmuxStatus,

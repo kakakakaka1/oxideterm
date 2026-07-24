@@ -72,6 +72,7 @@ pub fn native_plugin_host_tools_snapshot_array(
                 let mut entry = json!({
                     "nodeId": node_id,
                     "timestampMs": metrics.timestamp_ms,
+                    "systemInfo": &metrics.system_info,
                     "metrics": {
                         "cpuPercent": metrics.cpu_percent,
                         "memoryUsed": metrics.memory_used,
@@ -768,6 +769,36 @@ mod tests {
             "credential-like remote output"
         );
         assert!(!snapshot.to_string().contains("private"));
+    }
+
+    #[test]
+    fn cached_host_tools_snapshot_exposes_remote_system_information() {
+        let registry = ProfilerRegistry::new();
+        registry.start("connection-1");
+        let mut metrics = oxideterm_connection_monitor::ResourceMetrics::empty(
+            42,
+            oxideterm_connection_monitor::MetricsSource::Full,
+        );
+        metrics.system_info = Some(oxideterm_connection_monitor::ResourceSystemInfo {
+            system_name: Some("Ubuntu".to_string()),
+            system_version: Some("24.04.3 LTS".to_string()),
+            architecture: Some("x86_64".to_string()),
+            boot_time_ms: Some(1_720_000_000_000),
+            uptime_seconds: Some(93_784),
+        });
+        registry.record_metrics(oxideterm_connection_monitor::ProfilerUpdate {
+            connection_id: "connection-1".to_string(),
+            metrics,
+        });
+
+        let snapshot = native_plugin_host_tools_snapshot_array(
+            &registry,
+            &HashMap::from([("node-1".to_string(), "connection-1".to_string())]),
+        );
+
+        assert_eq!(snapshot[0]["systemInfo"]["systemName"], "Ubuntu");
+        assert_eq!(snapshot[0]["systemInfo"]["architecture"], "x86_64");
+        assert_eq!(snapshot[0]["systemInfo"]["uptimeSeconds"], 93_784);
     }
 
     #[test]

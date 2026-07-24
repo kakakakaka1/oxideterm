@@ -79,10 +79,37 @@ pub struct ResourceTopProcess {
     pub full_command: Option<String>,
 }
 
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResourceSystemInfo {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub architecture: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub boot_time_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub uptime_seconds: Option<u64>,
+}
+
+impl ResourceSystemInfo {
+    fn has_values(&self) -> bool {
+        self.system_name.is_some()
+            || self.system_version.is_some()
+            || self.architecture.is_some()
+            || self.boot_time_ms.is_some()
+            || self.uptime_seconds.is_some()
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResourceMetrics {
     pub timestamp_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system_info: Option<ResourceSystemInfo>,
     pub cpu_percent: Option<f64>,
     pub memory_used: Option<u64>,
     pub memory_total: Option<u64>,
@@ -119,6 +146,7 @@ impl ResourceMetrics {
     pub fn empty(timestamp_ms: u64, source: MetricsSource) -> Self {
         Self {
             timestamp_ms,
+            system_info: None,
             cpu_percent: None,
             memory_used: None,
             memory_total: None,
@@ -218,8 +246,11 @@ pub fn parse_resource_metrics(
     previous: Option<&PreviousResourceSample>,
     timestamp_ms: u64,
 ) -> ResourceMetrics {
+    let system_info = parse_system_info(output);
     if extract_section(output, "UNSUPPORTED").is_some() {
-        return ResourceMetrics::empty(timestamp_ms, MetricsSource::Unsupported);
+        let mut metrics = ResourceMetrics::empty(timestamp_ms, MetricsSource::Unsupported);
+        metrics.system_info = system_info;
+        return metrics;
     }
 
     let cpu_snap = parse_cpu_snapshot(output);
@@ -357,6 +388,7 @@ pub fn parse_resource_metrics(
 
     ResourceMetrics {
         timestamp_ms,
+        system_info,
         cpu_percent,
         memory_used,
         memory_total,
@@ -385,6 +417,39 @@ pub fn parse_resource_metrics(
         ssh_rtt_ms: None,
         source,
     }
+}
+
+pub fn parse_system_info(output: &str) -> Option<ResourceSystemInfo> {
+    let section = extract_section(output, "SYSTEM_INFO")?;
+    let mut system_info = ResourceSystemInfo::default();
+
+    for line in section.lines() {
+        let Some((key, raw_value)) = line.split_once('\t') else {
+            continue;
+        };
+        let value = bounded_system_text(raw_value);
+        match key.trim() {
+            "system_name" => system_info.system_name = value,
+            "system_version" => system_info.system_version = value,
+            "architecture" => system_info.architecture = value,
+            "boot_time_ms" => system_info.boot_time_ms = raw_value.trim().parse().ok(),
+            "uptime_seconds" => system_info.uptime_seconds = raw_value.trim().parse().ok(),
+            _ => {}
+        }
+    }
+
+    system_info.has_values().then_some(system_info)
+}
+
+fn bounded_system_text(value: &str) -> Option<String> {
+    const MAX_SYSTEM_TEXT_CHARS: usize = 256;
+
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    // Remote metadata is untrusted input; bound it before it reaches UI and plugin snapshots.
+    Some(trimmed.chars().take(MAX_SYSTEM_TEXT_CHARS).collect())
 }
 
 pub fn previous_sample_from_metrics(
@@ -968,6 +1033,53 @@ Inter-|   Receive                                                |  Transmit
         assert_eq!(metrics.cpu_per_core.len(), 2);
         assert_eq!(metrics.net_rx_bytes_per_sec, None);
         assert_eq!(metrics.net_tx_bytes_per_sec, None);
+    }
+
+    #[test]
+    fn parses_bounded_remote_system_information() {
+        let oversized_name = "x".repeat(300);
+        let output = format!(
+            "===SYSTEM_INFO===\n\
+             system_name\t{oversized_name}\n\
+             system_version\t24.04.3 LTS\n\
+             architecture\taarch64\n\
+             boot_time_ms\t1720000000000\n\
+             uptime_seconds\t93784\n\
+             ignored\tsecret\n\
+             ===UNSUPPORTED===\nFreeBSD\n===END==="
+        );
+
+        let metrics = parse_resource_metrics(&output, None, 10_000);
+        let system_info = metrics.system_info.expect("system info");
+
+        assert_eq!(metrics.source, MetricsSource::Unsupported);
+        assert_eq!(
+            system_info
+                .system_name
+                .as_deref()
+                .expect("bounded system name")
+                .chars()
+                .count(),
+            256
+        );
+        assert_eq!(system_info.system_version.as_deref(), Some("24.04.3 LTS"));
+        assert_eq!(system_info.architecture.as_deref(), Some("aarch64"));
+        assert_eq!(system_info.boot_time_ms, Some(1_720_000_000_000));
+        assert_eq!(system_info.uptime_seconds, Some(93_784));
+    }
+
+    #[test]
+    fn resource_metrics_deserializes_without_system_information() {
+        let serialized = serde_json::to_value(ResourceMetrics::empty(7, MetricsSource::Full))
+            .expect("serialize metrics");
+        let mut legacy = serialized.as_object().expect("metrics object").clone();
+        legacy.remove("systemInfo");
+
+        let metrics: ResourceMetrics =
+            serde_json::from_value(legacy.into()).expect("deserialize legacy metrics");
+
+        assert_eq!(metrics.timestamp_ms, 7);
+        assert_eq!(metrics.system_info, None);
     }
 
     #[test]

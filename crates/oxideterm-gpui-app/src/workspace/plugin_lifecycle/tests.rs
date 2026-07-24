@@ -684,6 +684,13 @@ fn profiler_host_calls_map_node_ids_to_tauri_metrics_shape() {
         connection_id: "conn-1".to_string(),
         metrics: ResourceMetrics {
             timestamp_ms: 42,
+            system_info: Some(oxideterm_connection_monitor::ResourceSystemInfo {
+                system_name: Some("Ubuntu".to_string()),
+                system_version: Some("24.04.3 LTS".to_string()),
+                architecture: Some("x86_64".to_string()),
+                boot_time_ms: Some(1_720_000_000_000),
+                uptime_seconds: Some(93_784),
+            }),
             cpu_percent: Some(12.5),
             memory_used: Some(1024),
             memory_total: Some(2048),
@@ -730,6 +737,13 @@ fn profiler_host_calls_map_node_ids_to_tauri_metrics_shape() {
         plugin_runtime::PluginResponseResult::Ok {
             value: serde_json::json!({
                 "timestampMs": 42,
+                "systemInfo": {
+                    "systemName": "Ubuntu",
+                    "systemVersion": "24.04.3 LTS",
+                    "architecture": "x86_64",
+                    "bootTimeMs": 1720000000000_u64,
+                    "uptimeSeconds": 93784,
+                },
                 "cpuPercent": 12.5,
                 "memoryUsed": 1024,
                 "memoryTotal": 2048,

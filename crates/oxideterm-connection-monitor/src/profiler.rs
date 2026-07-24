@@ -18,8 +18,8 @@ use tokio::{
 
 use crate::{
     MetricsSource, PreviousResourceSample, RESOURCE_HISTORY_CAPACITY, ResourceMetrics,
-    docker_sample_command, parse_resource_metrics, previous_sample_from_metrics, push_history,
-    service_sample_command,
+    ResourceSystemInfo, docker_sample_command, parse_resource_metrics,
+    previous_sample_from_metrics, push_history, service_sample_command,
 };
 
 pub const RESOURCE_SAMPLE_INTERVAL: Duration = Duration::from_secs(10);
@@ -31,6 +31,34 @@ pub const RESOURCE_CHANNEL_OPEN_TIMEOUT: Duration = Duration::from_secs(10);
 pub const RESOURCE_MAX_OUTPUT_SIZE: usize = 256 * 1024;
 pub const RESOURCE_MAX_CONSECUTIVE_FAILURES: u32 = 3;
 pub const RESOURCE_END_MARKER: &str = "===END===";
+
+const SYSTEM_INFO_COMMAND_LINUX: &str = concat!(
+    "echo '===SYSTEM_INFO==='; ",
+    "if [ -r /etc/os-release ]; then ",
+    "awk -F= '$1==\"NAME\"{name=substr($0,index($0,\"=\")+1)} $1==\"VERSION\"{version=substr($0,index($0,\"=\")+1)} $1==\"VERSION_ID\"{version_id=substr($0,index($0,\"=\")+1)} END{gsub(/^\"|\"$/, \"\", name);gsub(/^\"|\"$/, \"\", version);gsub(/^\"|\"$/, \"\", version_id);if(name==\"\")name=\"Linux\";if(version==\"\")version=version_id;printf \"system_name\\t%s\\nsystem_version\\t%s\\n\",name,version}' /etc/os-release 2>/dev/null; ",
+    "else printf 'system_name\\t%s\\nsystem_version\\t%s\\n' \"$(uname -s 2>/dev/null)\" \"$(uname -r 2>/dev/null)\"; fi; ",
+    "printf 'architecture\\t%s\\n' \"$(uname -m 2>/dev/null)\"; ",
+    "boot_time=$(awk '$1==\"btime\"{print $2;exit}' /proc/stat 2>/dev/null); ",
+    "case \"$boot_time\" in ''|*[!0-9]*) ;; *) printf 'boot_time_ms\\t%s000\\n' \"$boot_time\" ;; esac; ",
+    "uptime_seconds=$(awk '{printf \"%.0f\",$1}' /proc/uptime 2>/dev/null); ",
+    "case \"$uptime_seconds\" in ''|*[!0-9]*) ;; *) printf 'uptime_seconds\\t%s\\n' \"$uptime_seconds\" ;; esac"
+);
+const SYSTEM_INFO_COMMAND_MACOS: &str = concat!(
+    "echo '===SYSTEM_INFO==='; ",
+    "printf 'system_name\\t%s\\n' \"$(sw_vers -productName 2>/dev/null || uname -s 2>/dev/null)\"; ",
+    "printf 'system_version\\t%s\\n' \"$(sw_vers -productVersion 2>/dev/null || uname -r 2>/dev/null)\"; ",
+    "printf 'architecture\\t%s\\n' \"$(uname -m 2>/dev/null)\"; ",
+    "boot_time=$(sysctl -n kern.boottime 2>/dev/null | awk '{for(i=1;i<=NF;i++)if($i==\"sec\"){v=$(i+2);gsub(/[^0-9]/,\"\",v);print v;exit}}'); ",
+    "case \"$boot_time\" in ''|*[!0-9]*) ;; *) printf 'boot_time_ms\\t%s000\\n' \"$boot_time\"; now=$(date +%s 2>/dev/null); if [ -n \"$now\" ]; then printf 'uptime_seconds\\t%s\\n' \"$((now-boot_time))\"; fi ;; esac"
+);
+const SYSTEM_INFO_COMMAND_UNIX: &str = concat!(
+    "echo '===SYSTEM_INFO==='; ",
+    "printf 'system_name\\t%s\\n' \"$(uname -s 2>/dev/null)\"; ",
+    "printf 'system_version\\t%s\\n' \"$(uname -r 2>/dev/null)\"; ",
+    "printf 'architecture\\t%s\\n' \"$(uname -m 2>/dev/null)\"; ",
+    "boot_time=$(sysctl -n kern.boottime 2>/dev/null | awk '{for(i=1;i<=NF;i++)if($i==\"sec\"){v=$(i+2);gsub(/[^0-9]/,\"\",v);print v;exit}}'); ",
+    "case \"$boot_time\" in ''|*[!0-9]*) ;; *) printf 'boot_time_ms\\t%s000\\n' \"$boot_time\"; now=$(date +%s 2>/dev/null); if [ -n \"$now\" ]; then printf 'uptime_seconds\\t%s\\n' \"$((now-boot_time))\"; fi ;; esac"
+);
 
 // Keep process sampling on short, machine-readable `ps` output. A previous
 // `/proc` walker could emit a non-empty but unusable table, preventing fallback
@@ -140,6 +168,23 @@ struct ConnectionProfilerEntry {
     snapshot: ConnectionProfilerSnapshot,
     stop_tx: Option<oneshot::Sender<()>>,
     task: Option<JoinHandle<()>>,
+}
+
+#[derive(Clone)]
+struct CachedSystemInfo {
+    value: ResourceSystemInfo,
+    sampled_at_ms: u64,
+}
+
+impl CachedSystemInfo {
+    fn snapshot_at(&self, timestamp_ms: u64) -> ResourceSystemInfo {
+        let mut value = self.value.clone();
+        if let Some(sampled_uptime) = value.uptime_seconds {
+            let elapsed_seconds = timestamp_ms.saturating_sub(self.sampled_at_ms) / 1_000;
+            value.uptime_seconds = Some(sampled_uptime.saturating_add(elapsed_seconds));
+        }
+        value
+    }
 }
 
 #[derive(Clone, Default)]
@@ -338,14 +383,34 @@ impl ProfilerRegistry {
 }
 
 pub fn build_sample_command(os_type: &str) -> String {
+    build_sample_command_with_system_info(os_type, true)
+}
+
+fn build_live_sample_command(os_type: &str) -> String {
+    build_sample_command_with_system_info(os_type, false)
+}
+
+fn build_sample_command_with_system_info(os_type: &str, include_system_info: bool) -> String {
     let metrics = match os_type {
         "Linux" | "linux" | "Windows_MinGW" | "Windows_MSYS" | "Windows_Cygwin" => {
             METRICS_COMMAND_LINUX
         }
         "macOS" | "macos" | "Darwin" => METRICS_COMMAND_MACOS,
-        "Windows" | "windows" => return build_windows_sample_command(),
+        "Windows" | "windows" => return build_windows_sample_command(include_system_info),
         "FreeBSD" | "freebsd" | "OpenBSD" | "NetBSD" => METRICS_COMMAND_UNSUPPORTED,
         _ => METRICS_COMMAND_UNSUPPORTED,
+    };
+    let system_info = if include_system_info {
+        match os_type {
+            "Linux" | "linux" | "Windows_MinGW" | "Windows_MSYS" | "Windows_Cygwin" => {
+                Some(SYSTEM_INFO_COMMAND_LINUX)
+            }
+            "macOS" | "macos" | "Darwin" => Some(SYSTEM_INFO_COMMAND_MACOS),
+            "FreeBSD" | "freebsd" | "OpenBSD" | "NetBSD" => Some(SYSTEM_INFO_COMMAND_UNIX),
+            _ => Some(SYSTEM_INFO_COMMAND_UNIX),
+        }
+    } else {
+        None
     };
     let port_cmd = match os_type {
         "Linux" | "linux" | "Windows_MinGW" | "Windows_MSYS" | "Windows_Cygwin" => PORT_CMD_LINUX,
@@ -366,27 +431,48 @@ pub fn build_sample_command(os_type: &str) -> String {
     match gpu_metrics {
         Some(gpu_metrics) => {
             format!(
-                "{metrics}; {gpu_metrics}; {port_cmd}; {docker_metrics}; {service_metrics}; echo '===END==='\n"
+                "{}{metrics}; {gpu_metrics}; {port_cmd}; {docker_metrics}; {service_metrics}; echo '===END==='\n",
+                system_info
+                    .map(|command| format!("{command}; "))
+                    .unwrap_or_default()
             )
         }
         None => {
             format!(
-                "{metrics}; {port_cmd}; {docker_metrics}; {service_metrics}; echo '===END==='\n"
+                "{}{metrics}; {port_cmd}; {docker_metrics}; {service_metrics}; echo '===END==='\n",
+                system_info
+                    .map(|command| format!("{command}; "))
+                    .unwrap_or_default()
             )
         }
     }
 }
 
-fn build_windows_sample_command() -> String {
+fn build_windows_sample_command(include_system_info: bool) -> String {
+    let system_info = include_system_info.then_some(concat!(
+        "Write-Output '===SYSTEM_INFO===';",
+        "if($os){",
+        "Write-Output ('system_name'+[char]9+$os.Caption);",
+        "Write-Output ('system_version'+[char]9+($os.Version+' (Build '+$os.BuildNumber+')'));",
+        "Write-Output ('architecture'+[char]9+$os.OSArchitecture);",
+        "$boot=[DateTimeOffset]$os.LastBootUpTime;",
+        "Write-Output ('boot_time_ms'+[char]9+$boot.ToUnixTimeMilliseconds());",
+        "$uptime=[UInt64][Math]::Max(0,[Math]::Floor(((Get-Date)-$os.LastBootUpTime).TotalSeconds));",
+        "Write-Output ('uptime_seconds'+[char]9+$uptime);",
+        "};"
+    ));
     let script = format!(
-        "{}{}{}{}",
+        "{}{}{}{}{}{}",
         concat!(
             "$ErrorActionPreference='SilentlyContinue';",
+            "$os=Get-CimInstance Win32_OperatingSystem;",
             "Write-Output '===CPU_DIRECT===';",
             "$cpu=(Get-CimInstance Win32_Processor|Measure-Object -Property LoadPercentage -Average).Average;",
             "if($cpu -ne $null){[Math]::Round($cpu,1)};",
+        ),
+        system_info.unwrap_or_default(),
+        concat!(
             "Write-Output '===MEMINFO===';",
-            "$os=Get-CimInstance Win32_OperatingSystem;",
             "if($os){",
             "Write-Output ('MemTotal: '+$os.TotalVisibleMemorySize+' kB');",
             "Write-Output ('MemAvailable: '+$os.FreePhysicalMemory+' kB');",
@@ -515,7 +601,10 @@ async fn sample_loop(
         }
     };
 
-    let command = build_sample_command(&os_type);
+    let initial_command = build_sample_command(&os_type);
+    let live_command = build_live_sample_command(&os_type);
+    let mut system_info_sampled = false;
+    let mut cached_system_info: Option<CachedSystemInfo> = None;
     let mut previous_sample: Option<PreviousResourceSample> = None;
     let mut consecutive_failures = 0_u32;
     let mut interval = tokio::time::interval(RESOURCE_SAMPLE_INTERVAL);
@@ -530,19 +619,29 @@ async fn sample_loop(
             _ = interval.tick() => {
                 if consecutive_failures >= RESOURCE_MAX_CONSECUTIVE_FAILURES {
                     registry.mark_degraded(&connection_id);
+                    let timestamp_ms = now_ms();
                     record_and_emit(
                         &registry,
                         &update_tx,
                         connection_id.clone(),
-                        ResourceMetrics::empty(now_ms(), MetricsSource::Unsupported),
+                        empty_metrics_with_cached_system_info(
+                            timestamp_ms,
+                            MetricsSource::Unsupported,
+                            cached_system_info.as_ref(),
+                        ),
                         );
                     let _ = shell.close().await;
                     break;
                     }
 
+                let command = if system_info_sampled {
+                    &live_command
+                } else {
+                    &initial_command
+                };
                 match shell
                     .sample_until(
-                        &command,
+                        command,
                         RESOURCE_END_MARKER,
                         RESOURCE_SAMPLE_TIMEOUT,
                         RESOURCE_MAX_OUTPUT_SIZE,
@@ -550,8 +649,22 @@ async fn sample_loop(
                     .await
                 {
                     Ok(output) => {
-                        let metrics =
-                            parse_resource_metrics(&output, previous_sample.as_ref(), now_ms());
+                        let timestamp_ms = now_ms();
+                        let mut metrics =
+                            parse_resource_metrics(&output, previous_sample.as_ref(), timestamp_ms);
+                        if !system_info_sampled {
+                            system_info_sampled = true;
+                            if let Some(system_info) = metrics.system_info.clone() {
+                                cached_system_info = Some(CachedSystemInfo {
+                                    value: system_info,
+                                    sampled_at_ms: timestamp_ms,
+                                });
+                            }
+                        } else if metrics.system_info.is_none() {
+                            metrics.system_info = cached_system_info
+                                .as_ref()
+                                .map(|cached| cached.snapshot_at(timestamp_ms));
+                        }
                         if matches!(
                             metrics.source,
                             MetricsSource::RttOnly | MetricsSource::Unsupported
@@ -562,11 +675,16 @@ async fn sample_loop(
                         }
                         if consecutive_failures >= RESOURCE_MAX_CONSECUTIVE_FAILURES {
                             registry.mark_degraded(&connection_id);
+                            let timestamp_ms = now_ms();
                             record_and_emit(
                                 &registry,
                                 &update_tx,
                                 connection_id.clone(),
-                                ResourceMetrics::empty(now_ms(), MetricsSource::Unsupported),
+                                empty_metrics_with_cached_system_info(
+                                    timestamp_ms,
+                                    MetricsSource::Unsupported,
+                                    cached_system_info.as_ref(),
+                                ),
                             );
                             let _ = shell.close().await;
                             break;
@@ -578,11 +696,16 @@ async fn sample_loop(
                         consecutive_failures = consecutive_failures.saturating_add(1);
                         if consecutive_failures >= RESOURCE_MAX_CONSECUTIVE_FAILURES {
                             registry.mark_degraded(&connection_id);
+                            let timestamp_ms = now_ms();
                             record_and_emit(
                                 &registry,
                                 &update_tx,
                                 connection_id.clone(),
-                                ResourceMetrics::empty(now_ms(), MetricsSource::Unsupported),
+                                empty_metrics_with_cached_system_info(
+                                    timestamp_ms,
+                                    MetricsSource::Unsupported,
+                                    cached_system_info.as_ref(),
+                                ),
                             );
                             let _ = shell.close().await;
                             break;
@@ -600,13 +723,28 @@ async fn sample_loop(
                             &registry,
                             &update_tx,
                             connection_id.clone(),
-                            ResourceMetrics::empty(now_ms(), MetricsSource::Failed),
+                            empty_metrics_with_cached_system_info(
+                                now_ms(),
+                                MetricsSource::Failed,
+                                cached_system_info.as_ref(),
+                            ),
                         );
                     }
                 }
             }
         }
     }
+}
+
+fn empty_metrics_with_cached_system_info(
+    timestamp_ms: u64,
+    source: MetricsSource,
+    cached_system_info: Option<&CachedSystemInfo>,
+) -> ResourceMetrics {
+    let mut metrics = ResourceMetrics::empty(timestamp_ms, source);
+    // Preserve stable identity metadata when one live sample fails or becomes unsupported.
+    metrics.system_info = cached_system_info.map(|cached| cached.snapshot_at(timestamp_ms));
+    metrics
 }
 
 async fn open_resource_sample_shell(
@@ -737,6 +875,9 @@ mod tests {
     #[test]
     fn builds_tauri_sampling_commands() {
         let linux = build_sample_command("Linux");
+        assert!(linux.contains("===SYSTEM_INFO==="));
+        assert!(linux.contains("/etc/os-release"));
+        assert!(linux.contains("/proc/uptime"));
         assert!(linux.contains("===STAT==="));
         assert!(linux.contains("===DISKS==="));
         assert!(linux.contains("===TOPPROCS==="));
@@ -758,18 +899,60 @@ mod tests {
         );
         assert!(linux.contains("ss -tlnp"));
         let macos = build_sample_command("Darwin");
+        assert!(macos.contains("sw_vers -productVersion"));
+        assert!(macos.contains("kern.boottime"));
         assert!(macos.contains("lsof -iTCP"));
         assert!(macos.contains("ps axww -o"));
         let windows = build_sample_command("Windows");
+        assert!(windows.contains("LastBootUpTime"));
+        assert!(windows.contains("OSArchitecture"));
         assert!(windows.contains("Get-NetTCPConnection"));
         assert!(windows.contains("Win32_VideoController"));
         assert!(windows.contains("\\GPU Engine(*)\\Utilization Percentage"));
         assert!(windows.contains("\\GPU Adapter Memory(*)\\Dedicated Usage"));
         let freebsd = build_sample_command("FreeBSD");
+        assert!(freebsd.contains("===SYSTEM_INFO==="));
+        assert!(freebsd.contains("uname -m"));
         assert!(freebsd.contains("sockstat"));
         assert!(freebsd.contains("===UNSUPPORTED==="));
         assert!(build_sample_command("unknown").contains("===UNSUPPORTED==="));
         assert!(linux.contains("===END==="));
+        assert!(!build_live_sample_command("Linux").contains("===SYSTEM_INFO==="));
+        assert!(!build_live_sample_command("Windows").contains("===SYSTEM_INFO==="));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_sampling_commands_have_valid_posix_shell_syntax() {
+        for os_type in ["Linux", "Darwin", "FreeBSD"] {
+            let status = std::process::Command::new("sh")
+                .args(["-n", "-c", &build_sample_command(os_type)])
+                .status()
+                .expect("run POSIX shell syntax check");
+            assert!(status.success(), "{os_type} sample command should parse");
+        }
+    }
+
+    #[test]
+    fn cached_system_information_advances_uptime_and_survives_empty_samples() {
+        let cached = CachedSystemInfo {
+            value: ResourceSystemInfo {
+                system_name: Some("Ubuntu".to_string()),
+                system_version: Some("24.04.3 LTS".to_string()),
+                architecture: Some("x86_64".to_string()),
+                boot_time_ms: Some(1_000),
+                uptime_seconds: Some(60),
+            },
+            sampled_at_ms: 10_000,
+        };
+
+        let metrics =
+            empty_metrics_with_cached_system_info(15_500, MetricsSource::Failed, Some(&cached));
+        let system_info = metrics.system_info.expect("cached system info");
+
+        assert_eq!(system_info.system_name.as_deref(), Some("Ubuntu"));
+        assert_eq!(system_info.uptime_seconds, Some(65));
+        assert_eq!(metrics.source, MetricsSource::Failed);
     }
 
     #[test]

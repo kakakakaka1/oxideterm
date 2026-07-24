@@ -253,6 +253,10 @@ impl WorkspaceApp {
         }
 
         let mut metric_body = div().flex().flex_col().gap_2();
+        if metrics.system_info.is_some() {
+            metric_body =
+                metric_body.child(self.render_system_information_card(metrics, !compact, cx));
+        }
         if !is_rtt_only && let Some(cpu) = metrics.cpu_percent {
             metric_body = metric_body.child(self.render_metric_card(
                 self.i18n.t("profiler.panel.cpu"),
@@ -1197,6 +1201,52 @@ impl WorkspaceApp {
         )
     }
 
+    pub(super) fn render_system_information_card(
+        &self,
+        metrics: &ResourceMetrics,
+        selectable: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let Some(system_info) = metrics.system_info.as_ref() else {
+            return div().into_any_element();
+        };
+        let mut rows = Vec::new();
+        let mut push_row = |label_key: &str, value: Option<String>| {
+            if let Some(value) = value {
+                rows.push(MonitorListRow {
+                    name: self.i18n.t(label_key),
+                    value,
+                    level: MonitorValueLevel::Normal,
+                });
+            }
+        };
+        push_row("profiler.panel.system", system_info.system_name.clone());
+        push_row(
+            "profiler.panel.system_version",
+            system_info.system_version.clone(),
+        );
+        push_row(
+            "profiler.panel.architecture",
+            system_info.architecture.clone(),
+        );
+        push_row(
+            "profiler.panel.boot_time",
+            system_info.boot_time_ms.and_then(format_boot_time),
+        );
+        push_row(
+            "profiler.panel.uptime",
+            system_info.uptime_seconds.map(format_uptime),
+        );
+
+        self.render_monitor_list_card(
+            LucideIcon::Monitor,
+            self.i18n.t("profiler.panel.system_information"),
+            rows,
+            selectable,
+            cx,
+        )
+    }
+
     pub(super) fn render_interface_list_card(
         &self,
         metrics: &ResourceMetrics,
@@ -1383,6 +1433,10 @@ impl WorkspaceApp {
 
 fn monitor_metric_icon(kind: MonitorMetricKind) -> LucideIcon {
     match kind {
+        MonitorMetricKind::System => LucideIcon::Monitor,
+        MonitorMetricKind::SystemVersion => LucideIcon::Info,
+        MonitorMetricKind::Architecture => LucideIcon::Cpu,
+        MonitorMetricKind::BootTime | MonitorMetricKind::Uptime => LucideIcon::Clock,
         MonitorMetricKind::Cpu | MonitorMetricKind::Gpu => LucideIcon::Cpu,
         MonitorMetricKind::Memory | MonitorMetricKind::Swap | MonitorMetricKind::GpuMemory => {
             LucideIcon::MemoryStick
@@ -1396,6 +1450,11 @@ fn monitor_metric_icon(kind: MonitorMetricKind) -> LucideIcon {
 
 fn monitor_metric_label_key(kind: MonitorMetricKind) -> &'static str {
     match kind {
+        MonitorMetricKind::System => "profiler.panel.system",
+        MonitorMetricKind::SystemVersion => "profiler.panel.system_version",
+        MonitorMetricKind::Architecture => "profiler.panel.architecture",
+        MonitorMetricKind::BootTime => "profiler.panel.boot_time",
+        MonitorMetricKind::Uptime => "profiler.panel.uptime",
         MonitorMetricKind::Cpu => "profiler.panel.cpu",
         MonitorMetricKind::Memory => "profiler.panel.memory",
         MonitorMetricKind::Swap => "profiler.panel.swap",

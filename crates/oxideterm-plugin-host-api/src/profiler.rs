@@ -179,9 +179,10 @@ fn native_plugin_profiler_limited_history(
 
 fn native_plugin_profiler_metrics_snapshot(metrics: &ResourceMetrics) -> Value {
     // Tauri's ProfilerMetricsSnapshot intentionally excludes backend-only disk
-    // and sampler-source fields; keep the plugin contract stable here.
+    // and sampler-source fields. Remote identity is a stable, safe extension.
     json!({
         "timestampMs": metrics.timestamp_ms,
+        "systemInfo": &metrics.system_info,
         "cpuPercent": metrics.cpu_percent,
         "memoryUsed": metrics.memory_used,
         "memoryTotal": metrics.memory_total,

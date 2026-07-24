@@ -1544,7 +1544,7 @@ Workspace mutations return `{ queued: true }` after schema and permission prefli
 | `theme.getTokens` | baseline | `{}` | Complete effective terminal/UI/metric/radius/spacing/motion tokens |
 | `theme.getAvailable` | baseline | `{}` | Active, built-in, and custom theme identifiers |
 | `theme.setActive` | `theme.write` | `{ themeId: string }` | `{ queued: true }` |
-| `hostTools.getSnapshot` | `host_tools.read` | `{ nodeId: string }` | Cached metrics, processes, Docker, and service state; no full process arguments |
+| `hostTools.getSnapshot` | `host_tools.read` | `{ nodeId: string }` | Cached system identity, metrics, processes, Docker, and service state; no full process arguments |
 | `hostTools.getExtensions` | baseline | `{}` | This plugin's monitor metadata, with command strings omitted |
 | `hostTools.capture` | `host_tools.read` | `{ nodeId, osType, resource, preset?, limit? }` | Typed snapshot for `docker`, `services`, `logs`, `tmux`, `ports`, `filesystems`, `packages`, or `scheduledTasks` |
 | `hostTools.execute` | `host_tools.write` | `{ nodeId, osType, resource, action, target, ...actionArgs }` | `{ success, exitCode, truncated }` |
@@ -1705,7 +1705,7 @@ SCP is a POSIX compatibility transport, not a browsing API. Use `sftp.listDir`, 
 | `ai.cancelGeneration` | `{}` | `{ queued: true }` |
 | `ai.deleteConversation` | `{ conversationId: string }` | `{ queued: true }` |
 | `ai.clearConversations` | `{}` | `{ queued: true }` |
-| `profiler.getMetrics` | `{ nodeId: string }` | Metrics snapshot or `null` |
+| `profiler.getMetrics` | `{ nodeId: string }` | Metrics snapshot or `null`; `systemInfo` contains the remote system name, version, architecture, boot-time milliseconds, and uptime seconds when available |
 | `profiler.getHistory` | `{ nodeId: string, limit?: number }` | Metrics history |
 | `profiler.isRunning` | `{ nodeId: string }` | `boolean` |
 

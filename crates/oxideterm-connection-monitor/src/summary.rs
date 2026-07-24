@@ -1,10 +1,17 @@
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
+use chrono::{DateTime, Local, Utc};
+
 use crate::metrics::{MetricsSource, ResourceGpu, ResourceMetrics};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum MonitorMetricKind {
+    System,
+    SystemVersion,
+    Architecture,
+    BootTime,
+    Uptime,
     Cpu,
     Memory,
     Swap,
@@ -83,6 +90,7 @@ pub fn compact_monitor_rows(
 ) -> Vec<CompactMonitorRow> {
     let mut rows = Vec::new();
 
+    push_compact_system_rows(metrics, &mut rows);
     if !resource_metrics_is_rtt_only(metrics) {
         push_compact_metric_rows(metrics, &mut rows);
         push_compact_detail_rows(metrics, &mut rows);
@@ -185,6 +193,32 @@ pub fn format_bytes(bytes: u64) -> String {
         format!("{} {}", bytes, UNITS[unit])
     } else {
         format!("{value:.1} {}", UNITS[unit])
+    }
+}
+
+pub fn format_boot_time(timestamp_ms: u64) -> Option<String> {
+    let timestamp_ms = i64::try_from(timestamp_ms).ok()?;
+    DateTime::<Utc>::from_timestamp_millis(timestamp_ms).map(|value| {
+        value
+            .with_timezone(&Local)
+            .format("%Y-%m-%d %H:%M:%S")
+            .to_string()
+    })
+}
+
+pub fn format_uptime(uptime_seconds: u64) -> String {
+    const SECONDS_PER_MINUTE: u64 = 60;
+    const SECONDS_PER_HOUR: u64 = 60 * SECONDS_PER_MINUTE;
+    const SECONDS_PER_DAY: u64 = 24 * SECONDS_PER_HOUR;
+
+    let days = uptime_seconds / SECONDS_PER_DAY;
+    let hours = (uptime_seconds % SECONDS_PER_DAY) / SECONDS_PER_HOUR;
+    let minutes = (uptime_seconds % SECONDS_PER_HOUR) / SECONDS_PER_MINUTE;
+    let seconds = uptime_seconds % SECONDS_PER_MINUTE;
+    if days > 0 {
+        format!("{days}d {hours:02}:{minutes:02}:{seconds:02}")
+    } else {
+        format!("{hours:02}:{minutes:02}:{seconds:02}")
     }
 }
 
@@ -378,6 +412,39 @@ fn push_compact_metric_rows(metrics: &ResourceMetrics, rows: &mut Vec<CompactMon
     }
 }
 
+fn push_compact_system_rows(metrics: &ResourceMetrics, rows: &mut Vec<CompactMonitorRow>) {
+    let Some(system_info) = metrics.system_info.as_ref() else {
+        return;
+    };
+    let mut push_value = |kind, value: Option<String>| {
+        if let Some(value) = value {
+            rows.push(CompactMonitorRow::Metric {
+                kind,
+                value,
+                level: MonitorValueLevel::Normal,
+            });
+        }
+    };
+
+    push_value(MonitorMetricKind::System, system_info.system_name.clone());
+    push_value(
+        MonitorMetricKind::SystemVersion,
+        system_info.system_version.clone(),
+    );
+    push_value(
+        MonitorMetricKind::Architecture,
+        system_info.architecture.clone(),
+    );
+    push_value(
+        MonitorMetricKind::BootTime,
+        system_info.boot_time_ms.and_then(format_boot_time),
+    );
+    push_value(
+        MonitorMetricKind::Uptime,
+        system_info.uptime_seconds.map(format_uptime),
+    );
+}
+
 fn push_compact_detail_rows(metrics: &ResourceMetrics, rows: &mut Vec<CompactMonitorRow>) {
     push_section_rows(rows, MonitorSectionKind::Mounts, disk_list_rows(metrics, 8));
     push_section_rows(rows, MonitorSectionKind::Gpus, gpu_list_rows(metrics, 4));
@@ -443,6 +510,7 @@ mod tests {
     fn metrics_with_gpu() -> ResourceMetrics {
         ResourceMetrics {
             timestamp_ms: 0,
+            system_info: None,
             cpu_percent: Some(12.5),
             memory_used: Some(1024),
             memory_total: Some(2048),
@@ -518,6 +586,37 @@ mod tests {
             }
         ));
         assert!(matches!(rows[2], CompactMonitorRow::Retry { .. }));
+    }
+
+    #[test]
+    fn compact_rows_keep_system_information_for_unsupported_metrics() {
+        let mut metrics = ResourceMetrics::empty(0, MetricsSource::Unsupported);
+        metrics.system_info = Some(crate::ResourceSystemInfo {
+            system_name: Some("FreeBSD".to_string()),
+            system_version: Some("14.3".to_string()),
+            architecture: Some("amd64".to_string()),
+            boot_time_ms: None,
+            uptime_seconds: Some(90_061),
+        });
+
+        let rows = compact_monitor_rows(&metrics, None);
+
+        assert!(rows.iter().any(|row| matches!(
+            row,
+            CompactMonitorRow::Metric {
+                kind: MonitorMetricKind::System,
+                value,
+                ..
+            } if value == "FreeBSD"
+        )));
+        assert!(rows.iter().any(|row| matches!(
+            row,
+            CompactMonitorRow::Metric {
+                kind: MonitorMetricKind::Uptime,
+                value,
+                ..
+            } if value == "1d 01:01:01"
+        )));
     }
 
     #[test]
