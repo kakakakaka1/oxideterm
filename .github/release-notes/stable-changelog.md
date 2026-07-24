@@ -19,6 +19,8 @@ OxideTerm 2.0.11 adds resilient SCP fallback and editor-aware Free Type Mode, im
 - Completed the IDE folder path field with focus, IME composition, selection, clipboard actions, grapheme-safe deletion, and pointer positioning; aligned editor cursors and selections with shaped CJK and emoji text and made conflict overwrite reliably bypass stale version preconditions.
 - Preserved Ctrl+B as the tmux prefix on Windows and Linux by moving the default broadcast shortcut to Ctrl+Shift+B.
 - Made compact Host Tools monitoring responsive at narrow widths, kept network rates structured and readable, and reduced horizontal padding to 12 pixels at every sidebar width.
+- Added operating-system name and version, architecture, boot time, and uptime to Host Tools system information.
+- Fixed AI conversation titles collapsing to an ellipsis, prevented completed tool messages from retaining an active loading indicator, and kept streaming conversations pinned to the newest content unless the user scrolls upward.
 - Allocated Metal path, scene, blur, and filter-group textures only when a frame needs them, avoiding full-window intermediate texture reservation for ordinary idle scenes and invalidating old resources without eager recreation after resize.
 
 ### 🧰 Release Maintenance
@@ -26,6 +28,7 @@ OxideTerm 2.0.11 adds resilient SCP fallback and editor-aware Free Type Mode, im
 - Documented the Metal intermediate-texture lifecycle in the GPUI-CE vendor patch ledger and added regression coverage for ordinary scenes, independent path and filter allocation, and resize invalidation.
 - Aligned every localized README with the main product overview, native-runtime comparison, CLI examples, technology stack, and host-key security guidance.
 - Normalized the leading release-summary paragraph during note composition so source wrapping cannot create artificial line breaks in the GitHub Release editor.
+- Made macOS DMG packaging track and detach the root disk-image device so APFS volume teardown cannot race the final compression step.
 
 ## 2.0.10
 

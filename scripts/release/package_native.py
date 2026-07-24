@@ -98,14 +98,85 @@ def run(command: list[str], *, cwd: Path = ROOT_DIR, env: dict[str, str] | None 
     subprocess.run(command, cwd=cwd, env=env, check=True)
 
 
-def macos_dmg_mount_is_active(mount_point: Path) -> bool:
-    """Return whether the DMG still owns the requested mount point."""
-    return mount_point.exists() and mount_point.is_mount()
+def macos_dmg_root_device(attach_plist: bytes) -> str:
+    """Return the root disk device created by `hdiutil attach -plist`."""
+    payload = plistlib.loads(attach_plist)
+    entities = payload.get("system-entities", [])
+    devices = [
+        (
+            entity.get("dev-entry"),
+            entity.get("content-hint", ""),
+        )
+        for entity in entities
+        if isinstance(entity, dict)
+    ]
+    for device, content_hint in devices:
+        if (
+            isinstance(device, str)
+            and isinstance(content_hint, str)
+            and content_hint.lower().endswith("_partition_scheme")
+        ):
+            return device
+    for device, _content_hint in devices:
+        if isinstance(device, str):
+            return device
+    raise RuntimeError("hdiutil attach did not report a disk device")
 
 
-def detach_macos_dmg(mount_point: Path) -> None:
+def macos_dmg_devices_from_info_plist(info_plist: bytes) -> set[str]:
+    """Collect attached disk devices from `hdiutil info -plist`."""
+    payload = plistlib.loads(info_plist)
+    return {
+        device
+        for image in payload.get("images", [])
+        if isinstance(image, dict)
+        for entity in image.get("system-entities", [])
+        if isinstance(entity, dict)
+        if isinstance((device := entity.get("dev-entry")), str)
+    }
+
+
+def macos_dmg_device_is_attached(device: str) -> bool:
+    """Return whether the specified root device still belongs to a disk image."""
+    command = ["hdiutil", "info", "-plist"]
+    print("+", " ".join(command), flush=True)
+    result = subprocess.run(
+        command,
+        cwd=ROOT_DIR,
+        stdout=subprocess.PIPE,
+        check=True,
+    )
+    return device in macos_dmg_devices_from_info_plist(result.stdout)
+
+
+def attach_macos_dmg(image_path: Path, mount_point: Path) -> str:
+    """Attach a writable DMG and return the root device that must be detached."""
+    command = [
+        "hdiutil",
+        "attach",
+        "-plist",
+        "-readwrite",
+        "-noverify",
+        "-noautoopen",
+        "-mountpoint",
+        str(mount_point),
+        str(image_path),
+    ]
+    print("+", " ".join(command), flush=True)
+    result = subprocess.run(
+        command,
+        cwd=ROOT_DIR,
+        stdout=subprocess.PIPE,
+        check=True,
+    )
+    device = macos_dmg_root_device(result.stdout)
+    print(f"+ attached DMG root device: {device}", flush=True)
+    return device
+
+
+def detach_macos_dmg(device: str) -> None:
     """Detach a DMG after transient macOS filesystem users release it."""
-    detach_command = ["hdiutil", "detach", str(mount_point)]
+    detach_command = ["hdiutil", "detach", device]
     for attempt in range(1, MACOS_DMG_DETACH_MAX_ATTEMPTS + 1):
         try:
             run(detach_command)
@@ -122,14 +193,15 @@ def detach_macos_dmg(mount_point: Path) -> None:
                 time.sleep(MACOS_DMG_DETACH_RETRY_DELAY_SECONDS)
 
             # hdiutil can report resource-busy while diskimages-helper finishes
-            # the detach asynchronously. An inactive mount is already success.
-            if not macos_dmg_mount_is_active(mount_point):
+            # the detach asynchronously. Track the root device because an APFS
+            # volume can disappear before its backing image is released.
+            if not macos_dmg_device_is_attached(device):
                 return
             if attempt == MACOS_DMG_DETACH_MAX_ATTEMPTS:
                 break
 
     # A completed sync makes force-detach a safe final fallback for flaky CI runners.
-    run(["hdiutil", "detach", "-force", str(mount_point)])
+    run(["hdiutil", "detach", "-force", device])
 
 
 def host_triple() -> str:
@@ -649,21 +721,9 @@ def create_macos_dmg(
             str(writable_dmg),
         ]
     )
-    attached = False
+    attached_device: str | None = None
     try:
-        run(
-            [
-                "hdiutil",
-                "attach",
-                "-readwrite",
-                "-noverify",
-                "-noautoopen",
-                "-mountpoint",
-                str(mount_point),
-                str(writable_dmg),
-            ]
-        )
-        attached = True
+        attached_device = attach_macos_dmg(writable_dmg, mount_point)
         layout = subprocess.run(
             [
                 "osascript",
@@ -686,8 +746,8 @@ def create_macos_dmg(
             )
         subprocess.run(["sync"], check=True)
     finally:
-        if attached:
-            detach_macos_dmg(mount_point)
+        if attached_device is not None:
+            detach_macos_dmg(attached_device)
         if mount_point.exists():
             shutil.rmtree(mount_point)
 

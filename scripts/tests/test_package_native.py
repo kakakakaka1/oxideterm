@@ -2,6 +2,7 @@
 """Tests for native release packaging helpers."""
 
 from pathlib import Path
+import plistlib
 import shutil
 import subprocess
 import sys
@@ -140,9 +141,54 @@ class MacosBridgeArchiveTests(unittest.TestCase):
 
 
 class MacosDmgDetachTests(unittest.TestCase):
+    def test_selects_partition_scheme_root_device_from_attach_plist(self) -> None:
+        attach_plist = plistlib.dumps(
+            {
+                "system-entities": [
+                    {
+                        "dev-entry": "/dev/disk4",
+                        "content-hint": "GUID_partition_scheme",
+                    },
+                    {
+                        "dev-entry": "/dev/disk4s1",
+                        "content-hint": "Apple_APFS",
+                    },
+                    {
+                        "dev-entry": "/dev/disk5s1",
+                        "mount-point": "/tmp/oxideterm-test.mount",
+                    },
+                ]
+            }
+        )
+
+        self.assertEqual(
+            package_native.macos_dmg_root_device(attach_plist),
+            "/dev/disk4",
+        )
+
+    def test_collects_devices_from_hdiutil_info_plist(self) -> None:
+        info_plist = plistlib.dumps(
+            {
+                "images": [
+                    {
+                        "system-entities": [
+                            {"dev-entry": "/dev/disk4"},
+                            {"dev-entry": "/dev/disk4s1"},
+                        ]
+                    },
+                    {"system-entities": [{"dev-entry": "/dev/disk8"}]},
+                ]
+            }
+        )
+
+        self.assertEqual(
+            package_native.macos_dmg_devices_from_info_plist(info_plist),
+            {"/dev/disk4", "/dev/disk4s1", "/dev/disk8"},
+        )
+
     def test_retries_busy_dmg_before_succeeding(self) -> None:
-        mount_point = Path("/tmp/oxideterm-test.mount")
-        detach_command = ["hdiutil", "detach", str(mount_point)]
+        device = "/dev/disk9"
+        detach_command = ["hdiutil", "detach", device]
         busy_error = subprocess.CalledProcessError(
             package_native.MACOS_RESOURCE_BUSY_EXIT_CODE, detach_command
         )
@@ -152,11 +198,11 @@ class MacosDmgDetachTests(unittest.TestCase):
                 package_native, "run", side_effect=[busy_error, None]
             ) as run_mock,
             patch.object(
-                package_native, "macos_dmg_mount_is_active", return_value=True
+                package_native, "macos_dmg_device_is_attached", return_value=True
             ),
             patch.object(package_native.time, "sleep") as sleep,
         ):
-            package_native.detach_macos_dmg(mount_point)
+            package_native.detach_macos_dmg(device)
 
         self.assertEqual(
             run_mock.call_args_list, [call(detach_command), call(detach_command)]
@@ -166,8 +212,8 @@ class MacosDmgDetachTests(unittest.TestCase):
         )
 
     def test_force_detaches_after_retry_limit(self) -> None:
-        mount_point = Path("/tmp/oxideterm-test.mount")
-        detach_command = ["hdiutil", "detach", str(mount_point)]
+        device = "/dev/disk9"
+        detach_command = ["hdiutil", "detach", device]
         busy_error = subprocess.CalledProcessError(
             package_native.MACOS_RESOURCE_BUSY_EXIT_CODE, detach_command
         )
@@ -180,24 +226,24 @@ class MacosDmgDetachTests(unittest.TestCase):
                 package_native, "run", side_effect=[*failed_attempts, None]
             ) as run_mock,
             patch.object(
-                package_native, "macos_dmg_mount_is_active", return_value=True
+                package_native, "macos_dmg_device_is_attached", return_value=True
             ),
             patch.object(package_native.time, "sleep") as sleep,
         ):
-            package_native.detach_macos_dmg(mount_point)
+            package_native.detach_macos_dmg(device)
 
         self.assertEqual(
             run_mock.call_args_list,
             [call(detach_command)] * package_native.MACOS_DMG_DETACH_MAX_ATTEMPTS
-            + [call(["hdiutil", "detach", "-force", str(mount_point)])],
+            + [call(["hdiutil", "detach", "-force", device])],
         )
         self.assertEqual(
             sleep.call_count, package_native.MACOS_DMG_DETACH_MAX_ATTEMPTS - 1
         )
 
     def test_does_not_retry_non_busy_detach_error(self) -> None:
-        mount_point = Path("/tmp/oxideterm-test.mount")
-        detach_command = ["hdiutil", "detach", str(mount_point)]
+        device = "/dev/disk9"
+        detach_command = ["hdiutil", "detach", device]
         permission_error = subprocess.CalledProcessError(1, detach_command)
 
         with (
@@ -207,14 +253,14 @@ class MacosDmgDetachTests(unittest.TestCase):
             patch.object(package_native.time, "sleep") as sleep,
             self.assertRaises(subprocess.CalledProcessError),
         ):
-            package_native.detach_macos_dmg(mount_point)
+            package_native.detach_macos_dmg(device)
 
         run_mock.assert_called_once_with(detach_command)
         sleep.assert_not_called()
 
     def test_accepts_async_detach_after_busy_result(self) -> None:
-        mount_point = Path("/tmp/oxideterm-test.mount")
-        detach_command = ["hdiutil", "detach", str(mount_point)]
+        device = "/dev/disk9"
+        detach_command = ["hdiutil", "detach", device]
         busy_error = subprocess.CalledProcessError(
             package_native.MACOS_RESOURCE_BUSY_EXIT_CODE, detach_command
         )
@@ -222,14 +268,14 @@ class MacosDmgDetachTests(unittest.TestCase):
         with (
             patch.object(package_native, "run", side_effect=busy_error) as run_mock,
             patch.object(
-                package_native, "macos_dmg_mount_is_active", return_value=False
-            ) as mount_is_active,
+                package_native, "macos_dmg_device_is_attached", return_value=False
+            ) as device_is_attached,
             patch.object(package_native.time, "sleep") as sleep,
         ):
-            package_native.detach_macos_dmg(mount_point)
+            package_native.detach_macos_dmg(device)
 
         run_mock.assert_called_once_with(detach_command)
-        mount_is_active.assert_called_once_with(mount_point)
+        device_is_attached.assert_called_once_with(device)
         sleep.assert_called_once_with(
             package_native.MACOS_DMG_DETACH_RETRY_DELAY_SECONDS
         )

@@ -69,6 +69,10 @@ impl WorkspaceApp {
     }
 
     fn debug_assert_terminal_location(&self, session_id: TerminalSessionId) {
+        // Release builds compile out the invariant checks; consume the ID so
+        // release packaging remains warning-free.
+        #[cfg(not(debug_assertions))]
+        let _ = session_id;
         #[cfg(debug_assertions)]
         if let Some(location) = self.terminal_locations.get(&session_id) {
             let tree_location = self.tab_by_id(location.tab_id).and_then(|tab| {
