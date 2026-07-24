@@ -1399,7 +1399,7 @@ window.focus(&this.focus_handle, cx);
             }
             block = block.child(item);
         }
-        if ai_latest_tool_round_marker(message).as_deref() == Some("awaiting-summary") {
+        if ai_message_is_awaiting_tool_summary(message) {
             block = block.child(
                 div()
                     .flex()
@@ -1842,6 +1842,13 @@ pub(in crate::workspace) fn ai_latest_tool_round_marker(message: &AiChatMessage)
         .and_then(|round| round.get("statefulMarker"))
         .and_then(serde_json::Value::as_str)
         .map(str::to_string)
+}
+
+pub(in crate::workspace) fn ai_message_is_awaiting_tool_summary(message: &AiChatMessage) -> bool {
+    // Round markers are persisted for transcript fidelity, but only the live
+    // streaming assistant turn may present one as an active loading state.
+    message.is_streaming
+        && ai_latest_tool_round_marker(message).as_deref() == Some("awaiting-summary")
 }
 
 pub(in crate::workspace) fn ai_turn_parts(

@@ -206,6 +206,12 @@ impl WorkspaceApp {
             .chat
             .conversation_state
             .add_message(&conversation_id, message);
+        // Sending a new turn is an explicit request to resume following the
+        // conversation tail; manual upward scrolling can pause it again.
+        self.ai
+            .chat
+            .message_list_state
+            .set_follow_mode(FollowMode::Tail);
         self.persist_ai_chat_state();
         let request_content =
             (!parsed_input.clean_text.is_empty()).then_some(parsed_input.clean_text.clone());

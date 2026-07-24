@@ -1221,6 +1221,33 @@ fn acp_bridge_exposes_only_visible_terminal_tools() {
     }
 
     #[test]
+    fn awaiting_summary_indicator_is_hidden_for_historical_messages() {
+        let mut message = assistant_message();
+        upsert_ai_turn_round_tool_call(
+            &mut message,
+            "call-1",
+            "run_command",
+            "{}",
+            "completed",
+            "assistant-1-round-1",
+            1,
+        );
+        set_ai_turn_round_stateful_marker(
+            &mut message,
+            "assistant-1-round-1",
+            Some("awaiting-summary"),
+        );
+
+        assert!(ai_message_is_awaiting_tool_summary(&message));
+
+        message.is_streaming = false;
+        assert!(
+            !ai_message_is_awaiting_tool_summary(&message),
+            "persisted markers must not make completed messages look active"
+        );
+    }
+
+    #[test]
     fn turn_plain_text_summary_uses_text_parts_like_tauri_turn_end() {
         let mut message = assistant_message();
 

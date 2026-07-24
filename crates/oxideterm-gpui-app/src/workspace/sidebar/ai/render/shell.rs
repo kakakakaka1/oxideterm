@@ -267,7 +267,7 @@ impl WorkspaceApp {
         spec: TauriVirtualListSpec,
     ) {
         let mut cache = self.ai.chat.message_list_cache.borrow_mut();
-        sync_tauri_virtual_list_state_by_signatures(
+        let list_was_reset = sync_tauri_virtual_list_state_by_signatures(
             &mut self.ai.chat.message_list_state,
             &mut cache,
             conversation_id,
@@ -275,6 +275,14 @@ impl WorkspaceApp {
             ListAlignment::Top,
             spec,
         );
+        if list_was_reset {
+            // Opening a conversation starts at its newest message. GPUI's tail
+            // mode then pauses automatically while the user reads older content.
+            self.ai
+                .chat
+                .message_list_state
+                .set_follow_mode(FollowMode::Tail);
+        }
     }
 
     pub(in crate::workspace) fn render_ai_compaction_notice(

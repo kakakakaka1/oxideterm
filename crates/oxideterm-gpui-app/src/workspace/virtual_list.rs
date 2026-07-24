@@ -218,15 +218,17 @@ pub(super) fn sync_virtual_list_state_by_signatures(
     signatures: &[u64],
     alignment: ListAlignment,
     overdraw: Pixels,
-) {
+) -> bool {
     // React keeps virtual rows stable by key; this mirrors that behavior for GPUI
     // ListState without making every virtualized surface reimplement splice logic.
+    // The return value lets a feature restore behavior such as tail following
+    // after the underlying ListState has been replaced.
     let identity_changed = cache.identity.as_deref() != Some(identity);
     if identity_changed || state.item_count() != cache.signatures.len() {
         *state = ListState::new(signatures.len(), alignment, overdraw);
         cache.identity = Some(identity.to_string());
         cache.signatures = signatures.to_vec();
-        return;
+        return true;
     }
 
     let old_len = cache.signatures.len();
@@ -243,6 +245,7 @@ pub(super) fn sync_virtual_list_state_by_signatures(
         state.splice(new_len..old_len, 0);
     }
     cache.signatures = signatures.to_vec();
+    false
 }
 
 fn browser_drag_edge_scroll_step(top: Pixels, bottom: Pixels, y: Pixels) -> Option<f32> {
@@ -268,7 +271,7 @@ pub(super) fn sync_tauri_virtual_list_state_by_signatures(
     signatures: &[u64],
     alignment: ListAlignment,
     spec: TauriVirtualListSpec,
-) {
+) -> bool {
     sync_virtual_list_state_by_signatures(
         state,
         cache,
@@ -276,7 +279,7 @@ pub(super) fn sync_tauri_virtual_list_state_by_signatures(
         signatures,
         alignment,
         spec.overdraw(),
-    );
+    )
 }
 
 pub(super) fn sync_tauri_variable_list_state_by_signatures(
@@ -326,7 +329,7 @@ mod tests {
         let mut state = ListState::new(0, ListAlignment::Top, px(0.0));
         let mut cache = VirtualListSignatureCache::default();
 
-        sync_virtual_list_state_by_signatures(
+        let list_was_reset = sync_virtual_list_state_by_signatures(
             &mut state,
             &mut cache,
             "conversation-a",
@@ -335,6 +338,7 @@ mod tests {
             px(32.0),
         );
 
+        assert!(list_was_reset);
         assert_eq!(state.item_count(), 3);
         assert_eq!(cache.identity.as_deref(), Some("conversation-a"));
         assert_eq!(cache.signatures, vec![1, 2, 3]);
@@ -348,7 +352,7 @@ mod tests {
             signatures: vec![1, 2, 3],
         };
 
-        sync_virtual_list_state_by_signatures(
+        let list_was_reset = sync_virtual_list_state_by_signatures(
             &mut state,
             &mut cache,
             "conversation-b",
@@ -357,9 +361,35 @@ mod tests {
             px(32.0),
         );
 
+        assert!(list_was_reset);
         assert_eq!(state.item_count(), 1);
         assert_eq!(cache.identity.as_deref(), Some("conversation-b"));
         assert_eq!(cache.signatures, vec![9]);
+    }
+
+    #[test]
+    fn signature_sync_preserves_tail_follow_for_same_identity() {
+        let mut state = ListState::new(1, ListAlignment::Top, px(0.0));
+        state.set_follow_mode(gpui::FollowMode::Tail);
+        let mut cache = VirtualListSignatureCache {
+            identity: Some("conversation-a".to_string()),
+            signatures: vec![1],
+        };
+
+        let list_was_reset = sync_virtual_list_state_by_signatures(
+            &mut state,
+            &mut cache,
+            "conversation-a",
+            &[2],
+            ListAlignment::Top,
+            px(32.0),
+        );
+
+        assert!(!list_was_reset);
+        assert!(
+            state.is_following_tail(),
+            "stream updates must preserve the user's active tail-follow mode"
+        );
     }
 
     #[test]

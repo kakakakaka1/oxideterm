@@ -370,6 +370,11 @@ impl WorkspaceApp {
                             })
                             .child(
                                 div()
+                                    // The title owns the row's remaining width so
+                                    // truncation preserves text instead of collapsing
+                                    // directly to an ellipsis.
+                                    .min_w_0()
+                                    .flex_1()
                                     .truncate()
                                     .text_size(px(12.0))
                                     .font_weight(gpui::FontWeight::BOLD)
@@ -390,6 +395,7 @@ impl WorkspaceApp {
             )
             .child(
                 div()
+                    .flex_none()
                     .size(px(24.0))
                     .flex()
                     .items_center()
