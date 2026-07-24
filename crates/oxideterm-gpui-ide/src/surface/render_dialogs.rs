@@ -423,6 +423,7 @@ impl IdeSurface {
             return div().into_any_element();
         };
         let tokens = &self.tokens;
+        let resolving = self.saving_tabs.contains(&conflict.tab_id);
         let dialog = dialog_content(tokens)
             .child(
                 dialog_header(tokens)
@@ -456,7 +457,22 @@ impl IdeSurface {
                         self.labels.remote_version.clone(),
                         format_conflict_mtime(conflict.remote_mtime),
                         true,
-                    )),
+                    ))
+                    .when_some(conflict.error_message.clone(), |content, message| {
+                        content.child(
+                            div()
+                                .flex()
+                                .items_start()
+                                .gap_2()
+                                .px_3()
+                                .py_2()
+                                .rounded(px(tokens.radii.sm))
+                                .bg(rgba((tokens.ui.error << 8) | 0x1a))
+                                .text_color(rgb(tokens.ui.error))
+                                .child(self.icon("lucide/circle-alert.svg", 16.0, tokens.ui.error))
+                                .child(message),
+                        )
+                    }),
             )
             .child(
                 dialog_footer(tokens)
@@ -468,15 +484,17 @@ impl IdeSurface {
                                 variant: ButtonVariant::Outline,
                                 size: ButtonSize::Default,
                                 radius: ButtonRadius::Md,
-                                disabled: false,
+                                disabled: resolving,
                             },
                         )
-                        .on_mouse_down(
-                            MouseButton::Left,
-                            cx.listener(|this, _event, _window, cx| {
-                                this.clear_conflict(cx);
-                            }),
-                        ),
+                        .when(!resolving, |button| {
+                            button.on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(|this, _event, _window, cx| {
+                                    this.clear_conflict(cx);
+                                }),
+                            )
+                        }),
                     )
                     .child(
                         button_with(
@@ -486,34 +504,49 @@ impl IdeSurface {
                                 variant: ButtonVariant::Ghost,
                                 size: ButtonSize::Default,
                                 radius: ButtonRadius::Md,
-                                disabled: false,
+                                disabled: resolving,
                             },
                         )
                         .text_color(rgb(self.tokens.ui.info))
-                        .on_mouse_down(
-                            MouseButton::Left,
-                            cx.listener(|this, _event, _window, cx| {
-                                this.reload_conflict(cx);
-                            }),
-                        ),
+                        .when(!resolving, |button| {
+                            button.on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(|this, _event, _window, cx| {
+                                    this.reload_conflict(cx);
+                                }),
+                            )
+                        }),
                     )
                     .child(
-                        button_with(
+                        toolbar_button(
                             tokens,
                             self.labels.overwrite.clone(),
-                            ButtonOptions {
-                                variant: ButtonVariant::Destructive,
-                                size: ButtonSize::Default,
-                                radius: ButtonRadius::Md,
-                                disabled: false,
+                            resolving.then(|| {
+                                self.spinner_icon(
+                                    "ide-conflict-overwrite-spinner",
+                                    14.0,
+                                    0xffffff,
+                                )
+                            }),
+                            ToolbarButtonOptions {
+                                button: ButtonOptions {
+                                    variant: ButtonVariant::Destructive,
+                                    size: ButtonSize::Default,
+                                    radius: ButtonRadius::Md,
+                                    disabled: resolving,
+                                },
+                                loading: resolving,
+                                ..ToolbarButtonOptions::default()
                             },
                         )
-                        .on_mouse_down(
-                            MouseButton::Left,
-                            cx.listener(|this, _event, _window, cx| {
-                                this.overwrite_conflict(cx);
-                            }),
-                        ),
+                        .when(!resolving, |button| {
+                            button.on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(|this, _event, _window, cx| {
+                                    this.overwrite_conflict(cx);
+                                }),
+                            )
+                        }),
                     ),
             );
         self.render_modal_overlay(dialog)

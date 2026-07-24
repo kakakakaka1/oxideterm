@@ -1965,6 +1965,7 @@ impl IdeSurface {
                                 .and_then(|version| version.modified_millis)
                                 .map(|millis| millis / 1000),
                             close_request,
+                            error_message: None,
                         });
                         if let Some(editor) = this.editors.get(&tab_id) {
                             editor.update(cx, |editor, cx| {
@@ -2001,6 +2002,13 @@ impl IdeSurface {
             return;
         };
         if !self.ensure_remote_actions_ready(cx) {
+            if let Some(current) = self
+                .conflict_state
+                .as_mut()
+                .filter(|current| current.tab_id == conflict.tab_id)
+            {
+                current.error_message = self.last_error.clone();
+            }
             return;
         }
         let Some(buffer) = self.workspace.buffer(conflict.tab_id).cloned() else {
@@ -2010,6 +2018,13 @@ impl IdeSurface {
         };
         if self.saving_tabs.contains(&conflict.tab_id) {
             return;
+        }
+        if let Some(current) = self
+            .conflict_state
+            .as_mut()
+            .filter(|current| current.tab_id == conflict.tab_id)
+        {
+            current.error_message = None;
         }
         self.saving_tabs.insert(conflict.tab_id);
         let fs = self.fs.clone();
@@ -2027,10 +2042,7 @@ impl IdeSurface {
                 WriteMode::CreateOrReplace
             };
             let result = await_ide_backend(backend_runtime.spawn(async move {
-                // Tauri resolveConflict('overwrite') force-saves without the
-                // agent hash / SFTP mtime expectation after the user confirms.
-                fs.write_file(&buffer.location, &buffer.text, None, mode)
-                    .await
+                force_write_conflict(&fs, &buffer.location, &buffer.text, mode).await
             }))
             .await;
             let _ = weak.update(cx, |this, cx| {
@@ -2079,6 +2091,13 @@ impl IdeSurface {
                     Err(error) => {
                         let message = format!("{}: {}", this.labels.save_failed, error.message);
                         this.last_error = Some(message.clone());
+                        if let Some(current) = this
+                            .conflict_state
+                            .as_mut()
+                            .filter(|current| current.tab_id == conflict.tab_id)
+                        {
+                            current.error_message = Some(message.clone());
+                        }
                         if let Some(editor) = this.editors.get(&conflict.tab_id) {
                             editor.update(cx, |editor, cx| {
                                 editor.mark_save_failed_external(message, cx)
@@ -2208,6 +2227,17 @@ impl IdeSurface {
         cx.notify();
         false
     }
+}
+
+async fn force_write_conflict(
+    fs: &impl AsyncIdeFileSystem,
+    location: &IdeLocation,
+    text: &str,
+    mode: WriteMode,
+) -> Result<SavedFileVersion, IdeFileError> {
+    // The user explicitly accepted replacing the changed remote file, so the
+    // force write must omit the stale version precondition.
+    fs.write_file(location, text, None, mode).await
 }
 
 fn tree_name_input_has_effect(input: &TreeNameInputState, normalized_name: &str) -> bool {
@@ -2547,6 +2577,85 @@ mod text_input_tests {
 
         assert_eq!(search.query, "配置");
         assert_eq!(search.selection_range, Some(2..2));
+    }
+}
+
+#[cfg(test)]
+mod conflict_overwrite_tests {
+    use std::sync::Mutex;
+
+    use oxideterm_ide_core::{
+        FileStat, FileSystemCapabilities, IdeFileData, IdeFsFuture,
+    };
+
+    use super::*;
+
+    #[derive(Default)]
+    struct RecordingFileSystem {
+        write: Mutex<Option<(IdeLocation, String, bool, WriteMode)>>,
+    }
+
+    impl AsyncIdeFileSystem for RecordingFileSystem {
+        fn capabilities(&self) -> FileSystemCapabilities {
+            FileSystemCapabilities::default()
+        }
+
+        fn read_file<'a>(&'a self, _location: &'a IdeLocation) -> IdeFsFuture<'a, IdeFileData> {
+            Box::pin(async { panic!("read_file is not used by this test") })
+        }
+
+        fn stat<'a>(&'a self, _location: &'a IdeLocation) -> IdeFsFuture<'a, FileStat> {
+            Box::pin(async { panic!("stat is not used by this test") })
+        }
+
+        fn list_dir<'a>(
+            &'a self,
+            _location: &'a IdeLocation,
+        ) -> IdeFsFuture<'a, Vec<FileTreeEntry>> {
+            Box::pin(async { panic!("list_dir is not used by this test") })
+        }
+
+        fn write_file<'a>(
+            &'a self,
+            location: &'a IdeLocation,
+            text: &'a str,
+            expected_version: Option<&'a SavedFileVersion>,
+            mode: WriteMode,
+        ) -> IdeFsFuture<'a, SavedFileVersion> {
+            let write = (
+                location.clone(),
+                text.to_string(),
+                expected_version.is_none(),
+                mode,
+            );
+            *self.write.lock().expect("record write") = Some(write);
+            Box::pin(async { Ok(SavedFileVersion::unknown()) })
+        }
+    }
+
+    #[tokio::test]
+    async fn conflict_overwrite_omits_stale_version_precondition() {
+        let fs = RecordingFileSystem::default();
+        let location = IdeLocation::remote("node-a", "/repo/settings.json");
+
+        force_write_conflict(
+            &fs,
+            &location,
+            "local contents",
+            WriteMode::AtomicReplace,
+        )
+        .await
+        .expect("force write should succeed");
+
+        assert_eq!(
+            fs.write.lock().expect("read write").as_ref(),
+            Some(&(
+                location,
+                "local contents".to_string(),
+                true,
+                WriteMode::AtomicReplace,
+            ))
+        );
     }
 }
 

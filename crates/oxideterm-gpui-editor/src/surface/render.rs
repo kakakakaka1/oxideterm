@@ -18,7 +18,7 @@ use crate::metrics::editor_code_font;
 use super::{
     EditorBoundsProbe, HighlightChunkCacheKey, LineChunkSpec, TextEditorView, colored_text,
     coords::{
-        byte_column_for_visual_column, selection_columns_for_line, visual_column_for_byte_column,
+        byte_column_for_visual_column, selection_byte_range_for_line, visual_column_for_byte_column,
     },
     wrap::DisplayRow,
 };
@@ -339,17 +339,11 @@ impl TextEditorView {
         let byte_start = byte_column_for_visual_column(&line_text, display_row.start_col);
         let byte_end = byte_column_for_visual_column(&line_text, display_row.end_col);
         let segment_text = &line_text[byte_start..byte_end];
-        let cursor_x = cursor_position
+        let cursor_byte_column = cursor_position
             .filter(|_| show_cursor)
-            .map(|position| position.column.saturating_sub(byte_start))
-            .map(|byte_column| {
-                f32::from(
-                    self.shape_coordinate_line(segment_text, window)
-                        .x_for_index(byte_column),
-                )
-            });
+            .map(|position| position.column.saturating_sub(byte_start));
         let segment_range = (line_start + byte_start)..(line_start + byte_end).min(line_end);
-        let selection_rects = if row_context.selections.is_empty() {
+        let selection_ranges = if row_context.selections.is_empty() {
             Vec::new()
         } else {
             self.selection_rects_for_line(
@@ -358,18 +352,54 @@ impl TextEditorView {
                 segment_range.clone(),
             )
         };
-        let find_rects = if self.find_matches.is_empty() {
+        let find_ranges = if self.find_matches.is_empty() {
             Vec::new()
         } else {
             self.find_rects_for_line(line, &segment_text, segment_range.clone())
         };
-        let bracket_rects = row_context
+        let bracket_ranges = row_context
             .matching_bracket_pair
             .as_ref()
             .map(|pair| self.bracket_rects_for_line(pair, &segment_text, segment_range.clone()))
             .unwrap_or_default();
         let indent_guides =
             self.indentation_marker_columns(display_row, &row_context.indentation_columns_by_line);
+        let needs_shaped_coordinates = cursor_byte_column.is_some()
+            || !selection_ranges.is_empty()
+            || !find_ranges.is_empty()
+            || !bracket_ranges.is_empty()
+            || !indent_guides.is_empty();
+        // Shape once and use the same glyph positions for every visible
+        // overlay. Fixed cell widths diverge under font fallback.
+        let coordinate_line =
+            needs_shaped_coordinates.then(|| self.shape_coordinate_line(segment_text, window));
+        let cursor_x = cursor_byte_column.map(|byte_column| {
+            f32::from(
+                coordinate_line
+                    .as_ref()
+                    .expect("cursor requires shaped coordinates")
+                    .x_for_index(byte_column),
+            )
+        });
+        let shaped_rects = |ranges: Vec<Range<usize>>| {
+            if ranges.is_empty() {
+                return Vec::new();
+            }
+            let coordinate_line = coordinate_line
+                .as_ref()
+                .expect("overlay ranges require shaped coordinates");
+            ranges
+                .into_iter()
+                .map(|range| {
+                    let start = f32::from(coordinate_line.x_for_index(range.start));
+                    let end = f32::from(coordinate_line.x_for_index(range.end));
+                    (start, (end - start).max(CM_CURSOR_WIDTH))
+                })
+                .collect::<Vec<_>>()
+        };
+        let selection_rects = shaped_rects(selection_ranges);
+        let find_rects = shaped_rects(find_ranges);
+        let bracket_rects = shaped_rects(bracket_ranges);
         let foldable = display_row
             .is_first
             .then(|| self.foldable_range_starting_at(line))
@@ -445,7 +475,14 @@ impl TextEditorView {
             ));
 
         for column in indent_guides {
-            let left = content_left + column as f32 * self.metrics.char_width;
+            let byte_column = byte_column_for_visual_column(segment_text, column);
+            let left = content_left
+                + f32::from(
+                    coordinate_line
+                        .as_ref()
+                        .expect("indent guides require shaped coordinates")
+                        .x_for_index(byte_column),
+                );
             row = row.child(
                 div()
                     .absolute()
@@ -459,9 +496,8 @@ impl TextEditorView {
             );
         }
 
-        for (start_col, end_col) in find_rects {
-            let left = content_left + start_col as f32 * self.metrics.char_width;
-            let width = (end_col.saturating_sub(start_col).max(1) as f32) * self.metrics.char_width;
+        for (start_x, width) in find_rects {
+            let left = content_left + start_x;
             row = row.child(
                 div()
                     .absolute()
@@ -480,9 +516,8 @@ impl TextEditorView {
             );
         }
 
-        for (start_col, end_col) in selection_rects {
-            let left = content_left + start_col as f32 * self.metrics.char_width;
-            let width = (end_col.saturating_sub(start_col).max(1) as f32) * self.metrics.char_width;
+        for (start_x, width) in selection_rects {
+            let left = content_left + start_x;
             row = row.child(
                 div()
                     .absolute()
@@ -497,9 +532,8 @@ impl TextEditorView {
             );
         }
 
-        for (start_col, end_col) in bracket_rects {
-            let left = content_left + start_col as f32 * self.metrics.char_width;
-            let width = (end_col.saturating_sub(start_col).max(1) as f32) * self.metrics.char_width;
+        for (start_x, width) in bracket_rects {
+            let left = content_left + start_x;
             row = row.child(
                 div()
                     .absolute()
@@ -935,7 +969,7 @@ impl TextEditorView {
         selections: &[Selection],
         line_text: &str,
         line_range: Range<usize>,
-    ) -> Vec<(usize, usize)> {
+    ) -> Vec<Range<usize>> {
         if selections.is_empty() {
             return Vec::new();
         }
@@ -943,7 +977,7 @@ impl TextEditorView {
             .iter()
             .copied()
             .filter_map(|selection| {
-                selection_columns_for_line(selection, line_text, line_range.clone())
+                selection_byte_range_for_line(selection, line_text, line_range.clone())
             })
             .collect()
     }
@@ -953,7 +987,7 @@ impl TextEditorView {
         line: usize,
         line_text: &str,
         line_range: Range<usize>,
-    ) -> Vec<(usize, usize)> {
+    ) -> Vec<Range<usize>> {
         let match_range = self.find_line_matches.get(line).cloned().unwrap_or(0..0);
         if match_range.is_empty() {
             return Vec::new();
@@ -963,7 +997,7 @@ impl TextEditorView {
             .unwrap_or(&[])
             .iter()
             .filter_map(|hit| {
-                selection_columns_for_line(
+                selection_byte_range_for_line(
                     Selection::new(hit.range.start, hit.range.end),
                     line_text,
                     line_range.clone(),
@@ -977,11 +1011,11 @@ impl TextEditorView {
         pair: &BracketPair,
         line_text: &str,
         line_range: Range<usize>,
-    ) -> Vec<(usize, usize)> {
+    ) -> Vec<Range<usize>> {
         [pair.open, pair.close]
             .into_iter()
             .filter_map(|offset| {
-                selection_columns_for_line(
+                selection_byte_range_for_line(
                     Selection::new(offset, BufferOffset(offset.0.saturating_add(1))),
                     line_text,
                     line_range.clone(),

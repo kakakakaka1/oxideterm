@@ -21,8 +21,10 @@ use oxideterm_editor_syntax::LanguageId;
 use oxideterm_gpui_editor::{EditorContextMenuLabels, TextEditorView};
 use oxideterm_gpui_ui::{
     Scrollbar, ScrollbarAxis,
-    button::ButtonVariant,
-    button::{ButtonOptions, ButtonRadius, ButtonSize, button_with},
+    button::{
+        ButtonOptions, ButtonRadius, ButtonSize, ButtonVariant, ToolbarButtonOptions, button_with,
+        toolbar_button,
+    },
     modal::{
         dialog_backdrop, dialog_content, dialog_description, dialog_footer, dialog_header,
         dialog_title, modal_body, popover_backdrop,
@@ -366,6 +368,7 @@ struct ConflictState {
     local_mtime: Option<i64>,
     remote_mtime: Option<i64>,
     close_request: Option<CloseRequestId>,
+    error_message: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

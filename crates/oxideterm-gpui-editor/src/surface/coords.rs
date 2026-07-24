@@ -15,11 +15,11 @@ pub(super) fn floor_char_boundary(text: &str, byte: usize) -> usize {
     byte
 }
 
-pub(super) fn selection_columns_for_line(
+pub(super) fn selection_byte_range_for_line(
     selection: Selection,
     line_text: &str,
     line_range: Range<usize>,
-) -> Option<(usize, usize)> {
+) -> Option<Range<usize>> {
     if selection.is_caret() {
         return None;
     }
@@ -29,12 +29,11 @@ pub(super) fn selection_columns_for_line(
     if start >= end {
         return None;
     }
-    let local_start = start - line_range.start;
-    let local_end = end - line_range.start;
-    Some((
-        visual_column_for_byte_column(line_text, local_start),
-        visual_column_for_byte_column(line_text, local_end),
-    ))
+    // Rendering uses shaped text positions, so preserve byte offsets instead
+    // of converting through an assumed monospace cell width.
+    let local_start = floor_char_boundary(line_text, start - line_range.start);
+    let local_end = floor_char_boundary(line_text, end - line_range.start);
+    (local_start < local_end).then_some(local_start..local_end)
 }
 
 pub(super) fn visual_column_for_byte_column(text: &str, byte_column: usize) -> usize {
@@ -115,27 +114,27 @@ mod tests {
     }
 
     #[test]
-    fn computes_selection_columns_for_unicode_line() {
+    fn computes_selection_byte_range_for_unicode_line() {
         let text = "你abc";
         let selection = Selection::new(BufferOffset(3), BufferOffset(5));
 
         assert_eq!(
-            selection_columns_for_line(selection, text, 0..6),
-            Some((2, 4))
+            selection_byte_range_for_line(selection, text, 0..6),
+            Some(3..5)
         );
     }
 
     #[test]
-    fn computes_selection_columns_for_each_wrapped_segment() {
+    fn computes_selection_byte_range_for_each_wrapped_segment() {
         let selection = Selection::new(BufferOffset(2), BufferOffset(10));
 
         assert_eq!(
-            selection_columns_for_line(selection, "abcdefgh", 0..8),
-            Some((2, 8))
+            selection_byte_range_for_line(selection, "abcdefgh", 0..8),
+            Some(2..8)
         );
         assert_eq!(
-            selection_columns_for_line(selection, "ijklmnop", 8..16),
-            Some((0, 2))
+            selection_byte_range_for_line(selection, "ijklmnop", 8..16),
+            Some(0..2)
         );
     }
 }
