@@ -642,6 +642,11 @@ impl WorkspaceApp {
             return;
         }
 
+        if self.handle_knowledge_input_key(event, window, cx) {
+            cx.stop_propagation();
+            return;
+        }
+
         if self.active_ime_target(cx) == Some(ime::WorkspaceImeTarget::ActiveSessionSearch) {
             if event.keystroke.key == "escape" {
                 self.session_search_query.clear();
@@ -1160,10 +1165,11 @@ impl WorkspaceApp {
                     self.reset_standard_confirm_focus();
                     cx.notify();
                 } else {
-                    self.knowledge_create_blank_document(cx);
-                    self.ai_entity.update(cx, |entity, cx| {
-                        entity.close_knowledge_document_dialog(Duration::ZERO, cx);
-                    });
+                    if self.knowledge_create_blank_document(cx) {
+                        self.ai_entity.update(cx, |entity, cx| {
+                            entity.close_knowledge_document_dialog(Duration::ZERO, cx);
+                        });
+                    }
                 }
                 true
             }
